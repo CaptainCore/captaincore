@@ -3,12 +3,6 @@
 ### Load configuration 
 source ~/Scripts/config.sh
 
-### Backup the backup scripts
-$path_rclone/rclone sync $path_scripts Anchor-Dropbox:AnchorHost/Scripts --exclude .DS_Store
-
-### Backup the webserver scripts
-$path_rclone/rclone sync $path_server Anchor-Dropbox:AnchorHost/Server/ --exclude .DS_Store
-
 backup_install () {
 if [ $# -gt 0 ]
 then
