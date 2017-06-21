@@ -32,7 +32,7 @@ if [ $# -gt 0 ]; then
 			lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set net:reconnect-interval-base 5;set net:reconnect-interval-multiplier 1;mirror --only-newer --parallel=2 --exclude '.*' --exclude '.*/' --include 'wp-config.php' --include '.htaccess' --verbose=2 $homedir $path/$domain; exit" -u $username,$password -p $port $protocol://$ipAddress
 
 			## load custom configs into wp-config.php and .htaccess
-			php ~/Scripts/configs.php wpconfig=$path/$domain/wp-config.php htaccess=$path/$domain/.htaccess
+			php ~/Scripts/Get/configs.php wpconfig=$path/$domain/wp-config.php htaccess=$path/$domain/.htaccess
 			sleep 1s
 
 			### Push up modified wp-config.php and .htaccess
