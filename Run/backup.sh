@@ -1,11 +1,38 @@
 #!/bin/sh
 
-### Load configuration 
+# Load configuration 
 source ~/Scripts/config.sh
 
+# Loop through arguments and seperate regular arguments from flags (--flag)
+for var in "$@"
+do
+	# If starts with "--" then assign it to a flag array
+    if [[ $var == --* ]]
+    then
+    	count=1+${#flags[*]}
+    	flags[$count]=$var
+    # Else assign to an arguments array
+    else 
+    	count=1+${#arguments[*]}
+    	arguments[$count]=$var
+    fi
+done
+
+# Loop through flags and assign to varible. A flag "--skip-dropbox" becomes $flag_skip_dropbox
+for i in "${!flags[@]}"
+do   
+
+	# replace "-" with "_" and remove leading "--"
+	flag_name=`echo ${flags[$i]} | tr - _`
+	flag_name=`echo $flag_name | cut -c 3-`
+
+	# assigns to $flag_flagname
+	declare "flag_$flag_name"=true
+
+done
+
 backup_install () {
-if [ $# -gt 0 ]
-then
+if [ $# -gt 0 ]; then
 
 	### Generate random auth 
 	auth=''; for count in {0..6}; do auth+=$(printf "%x" $(($RANDOM%16)) ); done;
@@ -26,11 +53,9 @@ then
 	> $logs_path/backup-dropbox.txt
 
 	echo "Backing up $# installs"
-	for (( i = 1; i <= $#; i++ ))
+	INDEX=1
+	for website in "$@"
 	do
-
-		var="$i"
-		website=${!var}
 
 		### Load FTP credentials 
 		source $path_scripts/logins.sh
@@ -46,7 +71,7 @@ then
 
 			### Incremental backup download to local file system
 			timebegin=$(date +"%s")
-			echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to local ($i/$#)" >> $logs_path/backup-log.txt
+			echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
 
 			# captures FTP errors in $ftp_output and file listing within file called ftp_ls
 			ftp_output=$( { lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set ftp:ssl-allow no; ls; exit" -u $username,$password -p $port $protocol://$ipAddress > $path_tmp/ftp_ls; } 2>&1 )
@@ -76,15 +101,19 @@ then
 				echo "$(($diff / 60)) minutes and $(($diff % 60)) seconds elapsed." >> $logs_path/site-$website.txt
 
 				### Incremental backup upload to Dropbox 
-				timebegin=$(date +"%s")
-				echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to Dropbox ($i/$#)" >> $logs_path/backup-log.txt
-				$path_rclone/rclone sync $path/$domain Anchor-Dropbox:Backup/Sites/$domain --exclude .DS_Store --dropbox-chunk-size=128M --transfers=2 --stats=5m --verbose=1 --log-file="$logs_path/site-$website-dropbox.txt"
+				if [[ $flag_skip_dropbox != true ]]; then
 
-				### Add install to Dropbox log file
-				echo "$(date +'%Y-%m-%d %H:%M') Finished incremental backup $website to Dropbox ($i/$#)" >> $logs_path/backup-dropbox.txt
+					timebegin=$(date +"%s")
+					echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to Dropbox (${INDEX}/$#)" >> $logs_path/backup-log.txt
+					$path_rclone/rclone sync $path/$domain Anchor-Dropbox:Backup/Sites/$domain --exclude .DS_Store --dropbox-chunk-size=128M --transfers=2 --stats=5m --verbose=1 --log-file="$logs_path/site-$website-dropbox.txt"
 
-				### Grabs last 6 lines of output from dropbox transfer to log file
-				tail -6 $logs_path/site-$website-dropbox.txt >> $logs_path/backup-dropbox.txt
+					### Add install to Dropbox log file
+					echo "$(date +'%Y-%m-%d %H:%M') Finished incremental backup $website to Dropbox (${INDEX}/$#)" >> $logs_path/backup-dropbox.txt
+
+					### Grabs last 6 lines of output from dropbox transfer to log file
+					tail -6 $logs_path/site-$website-dropbox.txt >> $logs_path/backup-dropbox.txt
+
+				fi
 
 				if [[ "$OSTYPE" == "linux-gnu" ]]; then
 				    ### Begin folder size in bytes without apparent-size flag
@@ -122,6 +151,7 @@ then
 		homedir=''
 		remoteserver=''
 
+		let INDEX=${INDEX}+1
 	done
 
 	### End time tracking
@@ -146,20 +176,17 @@ then
 	( echo "$(php $path_scripts/Get/transferred_stats.php file=$logs_path/backup-dropbox.txt)" && printf "<a href='$shareurl'>View Logs</a><br><br>" && grep -r "FTP response" $logs_path/backup-log.txt; ) \
 	| mutt -e 'set content_type=text/html' -s "Backup completed: $# installs | $backup_date" -a $logs_path/backup-log.txt -- support@anchor.host
 
-	## Sample code for mutt
-	## echo "<html><b>Hello</b></html>" | mutt -e 'set content_type=text/html' -s 'Backup completed' 'support@anchor.host'
-
 	cd ~
 
 fi
 }
 
 ### See if any specific sites are selected
-if [ $# -gt 0 ]
+if [ ${#arguments[*]} -gt 0 ]
 then
-	## Run selected installs
-	backup_install $*
+	# Backup selected installs
+	backup_install ${arguments[*]}
 else
-	# Run all installs
+	# Backup all installs
 	backup_install ${websites[@]}
 fi
