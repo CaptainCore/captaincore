@@ -9,7 +9,6 @@ printf "Selected Dropbox Log: \e[1;32m$dropbox_log\e[0m\n"
 # Calculate Dropbox transfer
 php ~/Scripts/calculate_transferred.php file=$dropbox_log
 
-
 # Output bottom of backup log
 printf "\nSelected Backup Log: \e[1;32m$backup_log\e[0m\n"
 tail -4 $backup_log
