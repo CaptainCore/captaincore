@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 generate_admin () {
 for (( i = 1; i <= $#; i++ ))

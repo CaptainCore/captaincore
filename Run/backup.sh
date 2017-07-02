@@ -1,6 +1,6 @@
-#!/bin/sh
+#!/bin/bash
 
-# Load configuration 
+# Load configuration
 source ~/Scripts/config.sh
 
 # Loop through arguments and seperate regular arguments from flags (--flag)
@@ -12,7 +12,7 @@ do
     	count=1+${#flags[*]}
     	flags[$count]=$var
     # Else assign to an arguments array
-    else 
+    else
     	count=1+${#arguments[*]}
     	arguments[$count]=$var
     fi
@@ -20,7 +20,7 @@ done
 
 # Loop through flags and assign to varible. A flag "--skip-dropbox" becomes $flag_skip_dropbox
 for i in "${!flags[@]}"
-do   
+do
 
 	# replace "-" with "_" and remove leading "--"
 	flag_name=`echo ${flags[$i]} | tr - _`
@@ -34,7 +34,7 @@ done
 backup_install () {
 if [ $# -gt 0 ]; then
 
-	### Generate random auth 
+	### Generate random auth
 	auth=''; for count in {0..6}; do auth+=$(printf "%x" $(($RANDOM%16)) ); done;
 
 	### Begin time tracking
@@ -57,7 +57,7 @@ if [ $# -gt 0 ]; then
 	for website in "$@"
 	do
 
-		### Load FTP credentials 
+		### Load FTP credentials
 		source $path_scripts/logins.sh
 
 		### Credentials found, start the backup
@@ -94,13 +94,13 @@ if [ $# -gt 0 ]; then
 				### Extra LFTP commands
 				## Debug mode
 				# extras="debug -o $logs_path/site-$website-debug.txt"
-				lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set net:reconnect-interval-base 5;set net:reconnect-interval-multiplier 1;set ftp:ssl-allow no;mirror --only-newer --delete --parallel=4 --exclude .git/ --exclude .DS_Store --exclude Thumbs.db --exclude all-in-one-event-calendar/cache/ --verbose=1 $homedir $path/$domain; exit" -u $username,$password -p $port $protocol://$ipAddress >> $logs_path/site-$website.txt	
+				lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set net:reconnect-interval-base 5;set net:reconnect-interval-multiplier 1;set ftp:ssl-allow no;mirror --only-newer --delete --parallel=4 --exclude .git/ --exclude .DS_Store --exclude Thumbs.db --exclude all-in-one-event-calendar/cache/ --verbose=1 $homedir $path/$domain; exit" -u $username,$password -p $port $protocol://$ipAddress >> $logs_path/site-$website.txt
 				timeend=$(date +"%s")
 				diff=$(($timeend-$timebegin))
 				echo "" >> $logs_path/site-$website.txt
 				echo "$(($diff / 60)) minutes and $(($diff % 60)) seconds elapsed." >> $logs_path/site-$website.txt
 
-				### Incremental backup upload to Dropbox 
+				### Incremental backup upload to Dropbox
 				if [[ $flag_skip_dropbox != true ]]; then
 
 					timebegin=$(date +"%s")
@@ -130,7 +130,7 @@ if [ $# -gt 0 ]; then
 
 				# Post folder size bytes and yearly views to ACF field
 				curl "https://anchor.host/anchor-api/$domain/?storage=$folder_size&views=$views&token=$token"
-				
+
 			fi
 
 			### Generate log

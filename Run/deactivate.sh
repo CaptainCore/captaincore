@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 ##
 ##      Deploys custom deactivate mu-plugin to batch of installs

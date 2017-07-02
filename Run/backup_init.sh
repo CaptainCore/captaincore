@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # Load configuration 
 source ~/Scripts/config.sh

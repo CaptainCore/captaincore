@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 ### Loops through backup and compares with folders under ~/Backup/
 ### Returns list of folders not linked to a backup (orphaned folders)

@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #
 # Download and run the latest release version of the Certbot client.
 #
