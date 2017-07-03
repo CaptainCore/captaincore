@@ -1,5 +1,20 @@
 #!/bin/bash
 
+##
+##      Batch backup of WordPress sites
+##
+##      Pass arguments from command line like this
+##      Script/Run/backup.sh install1 install2
+##
+##      Or backup everything like this
+##      Script/Run/backup.sh
+##
+##      The following flags are also available
+##      --skip-local     (Skips local incremental backup - Pull)
+##      --skip-dropbox   (Skips remote incremental backup - Push)
+##      --skip-restic    (Skips remote restic backup - Push)
+##
+
 # Load configuration
 source ~/Scripts/config.sh
 
@@ -84,21 +99,24 @@ if [ $# -gt 0 ]; then
 			else
 				## No errors found, run the backup
 
-				## Database backup (if remote server available)
-				if [ -n "$remoteserver" ]
-				then
-					remoteserver="$username@$ipAddress -p $port"
-				   	ssh $remoteserver '~/scripts/db_backup.sh'
-				fi
+        ### Incremental backup locally
+        if [[ $flag_skip_local != true ]]; then
+  				## Database backup (if remote server available)
+  				if [ -n "$remoteserver" ]
+  				then
+  					remoteserver="$username@$ipAddress -p $port"
+  				   	ssh $remoteserver '~/scripts/db_backup.sh'
+  				fi
 
-				### Extra LFTP commands
-				## Debug mode
-				# extras="debug -o $logs_path/site-$website-debug.txt"
-				lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set net:reconnect-interval-base 5;set net:reconnect-interval-multiplier 1;set ftp:ssl-allow no;mirror --only-newer --delete --parallel=4 --exclude .git/ --exclude .DS_Store --exclude Thumbs.db --exclude all-in-one-event-calendar/cache/ --verbose=1 $homedir $path/$domain; exit" -u $username,$password -p $port $protocol://$ipAddress >> $logs_path/site-$website.txt
-				timeend=$(date +"%s")
-				diff=$(($timeend-$timebegin))
-				echo "" >> $logs_path/site-$website.txt
-				echo "$(($diff / 60)) minutes and $(($diff % 60)) seconds elapsed." >> $logs_path/site-$website.txt
+  				### Extra LFTP commands
+  				## Debug mode
+  				# extras="debug -o $logs_path/site-$website-debug.txt"
+  				lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set net:reconnect-interval-base 5;set net:reconnect-interval-multiplier 1;set ftp:ssl-allow no;mirror --only-newer --delete --parallel=4 --exclude .git/ --exclude .DS_Store --exclude Thumbs.db --exclude all-in-one-event-calendar/cache/ --verbose=1 $homedir $path/$domain; exit" -u $username,$password -p $port $protocol://$ipAddress >> $logs_path/site-$website.txt
+  				timeend=$(date +"%s")
+  				diff=$(($timeend-$timebegin))
+  				echo "" >> $logs_path/site-$website.txt
+  				echo "$(($diff / 60)) minutes and $(($diff % 60)) seconds elapsed." >> $logs_path/site-$website.txt
+        fi
 
 				### Incremental backup upload to Dropbox
 				if [[ $flag_skip_dropbox != true ]]; then
@@ -124,6 +142,24 @@ if [ $# -gt 0 ]; then
 			        ### Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
 			        folder_size=`find $path/$domain/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
 				fi
+
+        ### Restic Snapshot to Backblaze
+        if [[ $flag_skip_restic != true ]]; then
+
+          install_env=production
+
+          if [[ "$website" == *staging ]]; then
+            install_env=staging
+          fi
+
+          restic_output=$( { $path_restic/restic -r b2:AnchorHost:Backup backup ~/Backup/$domain/ --tag $website --tag $install_env; } 2>&1 )
+          restic_snapshot=`echo $restic_output | grep -oP '[^\s]+(?= saved)'`
+          curl "https://anchor.host/anchor-api/$domain/?storage=$folder_size&archive=$restic_snapshot&token=$token"
+          echo "$restic_output"
+          echo "$restic_output" >> $logs_path/backup-b2.txt
+          echo "$(date +'%Y-%m-%d %H:%M') Finished restic backup $website to B2 (${INDEX}/$#)" >> $logs_path/backup-b2.txt
+
+        fi
 
 				### Views for yearly stats
 				views=`php $path_scripts/Get/stats.php domain=$domain`
