@@ -20,7 +20,7 @@ if (file_exists($file)) {
   $file = file_get_contents($file);
 
   // Total data processed
-  $pattern = '/(\[.+\] .+\/s\s+)(.+?)(\s\/\s)(.+?)(\s\d+)(\s\/\s)(\d+)/';
+  $pattern = '/(?:\[.+\] .+\/s\s+)(.+?)(?:\s\/\s)(.+?)(\s\d+)(?:\s\/\s)(\d+)/';
   preg_match_all($pattern, $file, $matches);
 
 }
@@ -28,10 +28,10 @@ if (file_exists($file)) {
 $data_processed_bytes = [];
 $data_processed_total_bytes = [];
 
-foreach ($matches[2] as $key => $value) {
+foreach ($matches[1] as $key => $value) {
 
   $data_processed = $value;
-  $data_processed_total = $matches[4][$key];
+  $data_processed_total = $matches[2][$key];
 
   // Strips out Gib, MiB etc
   $data_processed_numeric = preg_replace("/[^0-9,.]/", "", $data_processed);
