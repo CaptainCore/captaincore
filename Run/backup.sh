@@ -65,7 +65,6 @@ if [ $# -gt 0 ]; then
 
 	### Begin logging
 	echo "$(date +'%Y-%m-%d %H:%M') Begin server backup" > $logs_path/backup-log.txt
-	> $logs_path/backup-dropbox.txt
 
 	echo "Backing up $# installs"
 	INDEX=1
@@ -120,6 +119,9 @@ if [ $# -gt 0 ]; then
 
 				### Incremental backup upload to Dropbox
 				if [[ $flag_skip_dropbox != true ]]; then
+
+          ### Begin log file
+          > $logs_path/backup-dropbox.txt
 
 					timebegin=$(date +"%s")
 					echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to Dropbox (${INDEX}/$#)" >> $logs_path/backup-log.txt
