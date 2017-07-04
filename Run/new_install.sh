@@ -18,5 +18,5 @@ sh ~/Scripts/Run/load_plugins.sh $1
 echo "Preload Plugins"
 
 ## run initial backup
-sh ~/Scripts/backup.sh $1
+sh ~/Scripts/Run/backup.sh $1
 echo "Running Initial Backup"
