@@ -31,10 +31,10 @@ do
 
 done
 
-# See if any specific sites are selected
 backup_install () {
 if [ $# -gt 0 ]; then
 
+	echo "Backing up $# installs"
 	INDEX=1
 	for website in "$@"
 	do
@@ -61,26 +61,28 @@ if [ $# -gt 0 ]; then
 				echo "FTP response: $website ($ftp_output)"
 			else
 
-			### Pull down wp-config.php and .htaccess
-			lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set net:reconnect-interval-base 5;set net:reconnect-interval-multiplier 1;mirror --only-newer --parallel=2 --exclude '.*' --exclude '.*/' --include 'wp-config.php' --include '.htaccess' --verbose=2 $homedir $path/$domain; exit" -u $username,$password -p $port $protocol://$ipAddress
+				### Pull down wp-config.php and .htaccess
+				lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set net:reconnect-interval-base 5;set net:reconnect-interval-multiplier 1;mirror --only-newer --parallel=2 --exclude '.*' --exclude '.*/' --include 'wp-config.php' --include '.htaccess' --verbose=2 $homedir $path/$domain; exit" -u $username,$password -p $port $protocol://$ipAddress
 
-			## load custom configs into wp-config.php and .htaccess
-			php ~/Scripts/Get/configs.php wpconfig=$path/$domain/wp-config.php htaccess=$path/$domain/.htaccess
-			sleep 1s
+				## load custom configs into wp-config.php and .htaccess
+				php ~/Scripts/Get/configs.php wpconfig=$path/$domain/wp-config.php htaccess=$path/$domain/.htaccess
+				sleep 1s
 
-			### Push up modified wp-config.php and .htaccess
-			lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set net:reconnect-interval-base 5;set net:reconnect-interval-multiplier 1;mirror --only-newer --reverse --parallel=2 --exclude '.*' --exclude '.*/' --include 'wp-config.php' --include '.htaccess' --verbose=2 $path/$domain $homedir; exit" -u $username,$password -p $port $protocol://$ipAddress
+				### Push up modified wp-config.php and .htaccess
+				lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set net:reconnect-interval-base 5;set net:reconnect-interval-multiplier 1;mirror --only-newer --reverse --parallel=2 --exclude '.*' --exclude '.*/' --include 'wp-config.php' --include '.htaccess' --verbose=2 $path/$domain $homedir; exit" -u $username,$password -p $port $protocol://$ipAddress
 
-			### Generate token
-			token=$(php ~/Scripts/Get/token.php domain=$domain)
+				### Generate token
+				token=$(php ~/Scripts/Get/token.php domain=$domain)
 
-			### Generate backup link
-			shareurl=`$path_scripts/Run/dropbox_uploader.sh share Backup/Sites/$domain`
-			shareurl=`echo $shareurl | grep -o 'https.*'`
+				### Generate backup link
+				shareurl=`$path_scripts/Run/dropbox_uploader.sh share Backup/Sites/$domain`
+				shareurl=`echo $shareurl | grep -o 'https.*'`
 
-			### Assign token and backup link
-			curl "https://anchor.host/backup/$domain/?link=$shareurl&token=$token&auth=$auth"
-			sleep 1s
+				### Assign token and backup link
+				curl "https://anchor.host/backup/$domain/?link=$shareurl&token=$token&auth=$auth"
+				sleep 1s
+
+			fi
 
 		fi
 
