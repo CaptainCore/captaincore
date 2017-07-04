@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Load configuration 
+# Load configuration
 source ~/Scripts/config.sh
 
 i=1
@@ -14,8 +14,8 @@ if [ $# -gt 0 ]; then
 		var="$i"
 		website=${!var}
 		websites+=$website" "
-	
-		### Load FTP credentials 
+
+		### Load FTP credentials
 		source $path_scripts/logins.sh
 
 		### Credentials found, start the backup
@@ -37,14 +37,14 @@ if [ $# -gt 0 ]; then
 
 			### Push up modified wp-config.php and .htaccess
 			lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set net:reconnect-interval-base 5;set net:reconnect-interval-multiplier 1;mirror --only-newer --reverse --parallel=2 --exclude '.*' --exclude '.*/' --include 'wp-config.php' --include '.htaccess' --verbose=2 $path/$domain $homedir; exit" -u $username,$password -p $port $protocol://$ipAddress
-			
+
 			### Generate token
 			token=$(php ~/Scripts/Get/token.php domain=$domain)
 
 			### Generate backup link
 			shareurl=`$path_scripts/Run/dropbox_uploader.sh share Backup/Sites/$domain`
 			shareurl=`echo $shareurl | grep -o 'https.*'`
-			
+
 			### Assign token and backup link
 			curl "https://anchor.host/backup/$domain/?link=$shareurl&token=$token&auth=$auth"
 			sleep 1s
@@ -55,36 +55,5 @@ if [ $# -gt 0 ]; then
 		domain=''
 
 	done
-##else
-##	echo "Loading all sites"
-##	### Loop through each WP Engine install
-##	for website in "${websites[@]}"
-##	do
-##
-##		### Load FTP credentials 
-##		source $path_scripts/logins.sh
-##
-##		### Credentials found, start the backup
-##		if ! [ -z "$domain" ]
-##		then
-##
-##			### Generate token
-##			token=$(php Scripts/load_wp_config.php domain=$domain)
-##
-##			### Generate backup link
-##			shareurl=`$path_scripts/dropbox_uploader.sh share Backup/Sites/$domain`
-##			shareurl=`echo $shareurl | grep -o 'https.*'`
-##			
-##			### Assign token and backup link
-##			curl "https://anchor.host/backup/$domain/?link=$shareurl&token=$token&auth=$auth"
-##			sleep 1s
-##
-##		fi
-##
-##		### Clear out variables
-##		domain=''
-##		i=$(($i+1))
-##
-##	done
-##
+
 fi
