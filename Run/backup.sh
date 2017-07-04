@@ -10,9 +10,9 @@
 ##      Script/Run/backup.sh
 ##
 ##      The following flags are also available
-##      --skip-local     (Skips local incremental backup - Pull)
-##      --skip-dropbox   (Skips remote incremental backup - Push)
-##      --skip-restic    (Skips remote restic backup - Push)
+##      --skip-local     (Pull) Skips local incremental backup
+##      --skip-dropbox   (Push) Skips remote incremental backup
+##      --skip-restic    (Push) Skips remote restic backup
 ##
 
 # Load configuration
@@ -104,7 +104,7 @@ if [ $# -gt 0 ]; then
   				if [ -n "$remoteserver" ]
   				then
   					remoteserver="$username@$ipAddress -p $port"
-  				   	ssh $remoteserver '~/scripts/db_backup.sh'
+  				  ssh $remoteserver '~/scripts/db_backup.sh'
   				fi
 
   				### Extra LFTP commands
@@ -114,6 +114,7 @@ if [ $# -gt 0 ]; then
   				timeend=$(date +"%s")
   				diff=$(($timeend-$timebegin))
   				echo "" >> $logs_path/site-$website.txt
+          tail $logs_path/site-$website.txt >> $logs_path/backup-local.txt
   				echo "$(($diff / 60)) minutes and $(($diff % 60)) seconds elapsed." >> $logs_path/site-$website.txt
         fi
 

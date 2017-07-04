@@ -3,9 +3,9 @@ most_recent_date=`ls -d ~/Logs/*/ | xargs -n 1 basename | tail -1`
 # most_recent_date=`ls -rt ~/Logs/ | tail -1`
 most_recent_log=`ls -rt ~/Logs/$most_recent_date/ | tail -1`
 
-dropbox_log=`ls ~/Logs/$most_recent_date/$most_recent_log/backup-dropbox.txt`
-backup_log=`ls ~/Logs/$most_recent_date/$most_recent_log/backup-log.txt`
-b2_log=`ls ~/Logs/$most_recent_date/$most_recent_log/backup-b2.txt`
+dropbox_log=$( { ls ~/Logs/$most_recent_date/$most_recent_log/backup-dropbox.txt; } 2>&1 )
+backup_log=$( { ls ~/Logs/$most_recent_date/$most_recent_log/backup-log.txt; } 2>&1 )
+b2_log=$( { ls ~/Logs/$most_recent_date/$most_recent_log/backup-b2.txt; } 2>&1 )
 
 # current FTP backup
 site_backup=`ls -rt ~/Logs/$most_recent_date/$most_recent_log/site-* | tail -1 | xargs -n 1 basename`
@@ -15,7 +15,7 @@ printf "Selected Site: \e[1;32m$site_backup\e[0m\n"
 tail -5 ~/Logs/$most_recent_date/$most_recent_log/$site_backup
 printf "\n"
 
-if [[ $b2_log != "" ]]; then
+if [[ "$b2_log" != *"No such file or directory"* ]]; then
 
   # Output the file name and a line break
   printf "Selected b2 Log: \e[1;32m$b2_log\e[0m\n"
@@ -26,7 +26,7 @@ if [[ $b2_log != "" ]]; then
 
 fi
 
-if [[ $backup_log != "" ]]; then
+if [[ "$backup_log" != *"No such file or directory"* ]]; then
 
   # Output the log folder name
   printf "Selected Log Folder: \e[1;32m~/Logs/$most_recent_date/$most_recent_log/\e[0m\n"
@@ -42,7 +42,7 @@ if [[ $backup_log != "" ]]; then
 
 fi
 
-if [[ $dropbox_log != "" ]]; then
+if [[ "$dropbox_log" != *"No such file or directory"* ]]; then
 
   # Output the file name and a line break
   printf "Selected Dropbox Log: \e[1;32m$dropbox_log\e[0m\n"
