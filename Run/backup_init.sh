@@ -3,17 +3,41 @@
 # Load configuration
 source ~/Scripts/config.sh
 
-i=1
-websites=''
+# Loop through arguments and seperate regular arguments from flags (--flag)
+for var in "$@"
+do
+	# If starts with "--" then assign it to a flag array
+    if [[ $var == --* ]]
+    then
+    	count=1+${#flags[*]}
+    	flags[$count]=$var
+    # Else assign to an arguments array
+    else
+    	count=1+${#arguments[*]}
+    	arguments[$count]=$var
+    fi
+done
+
+# Loop through flags and assign to varible. A flag "--skip-dropbox" becomes $flag_skip_dropbox
+for i in "${!flags[@]}"
+do
+
+	# replace "-" with "_" and remove leading "--"
+	flag_name=`echo ${flags[$i]} | tr - _`
+	flag_name=`echo $flag_name | cut -c 3-`
+
+	# assigns to $flag_flagname
+	declare "flag_$flag_name"=true
+
+done
 
 # See if any specific sites are selected
+backup_install () {
 if [ $# -gt 0 ]; then
-	echo "Loading specific sites"
-	for (( i = 1; i <= $#; i++ ))
+
+	INDEX=1
+	for website in "$@"
 	do
-		var="$i"
-		website=${!var}
-		websites+=$website" "
 
 		### Load FTP credentials
 		source $path_scripts/logins.sh
@@ -22,11 +46,20 @@ if [ $# -gt 0 ]; then
 		if ! [ -z "$domain" ]
 		then
 
-			### Use default homepath if none is defined
 			if [ "$homedir" == "" ]
 			then
 			   	homedir="/"
 			fi
+
+			# captures FTP errors in $ftp_output and file listing within file called ftp_ls
+			ftp_output=$( { lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set ftp:ssl-allow no; ls; exit" -u $username,$password -p $port $protocol://$ipAddress > $path_tmp/ftp_ls; } 2>&1 )
+
+			# Handle FTP errors
+			if [ -n "$ftp_output" ]
+			then
+				## Add FTP error to log file
+				echo "FTP response: $website ($ftp_output)"
+			else
 
 			### Pull down wp-config.php and .htaccess
 			lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set net:reconnect-interval-base 5;set net:reconnect-interval-multiplier 1;mirror --only-newer --parallel=2 --exclude '.*' --exclude '.*/' --include 'wp-config.php' --include '.htaccess' --verbose=2 $homedir $path/$domain; exit" -u $username,$password -p $port $protocol://$ipAddress
@@ -53,7 +86,26 @@ if [ $# -gt 0 ]; then
 
 		### Clear out variables
 		domain=''
+		username=''
+		password=''
+		ipAddress=''
+		protocol=''
+		port=''
+		homedir=''
+		remoteserver=''
 
+		let INDEX=${INDEX}+1
 	done
 
+fi
+}
+
+### See if any specific sites are selected
+if [ ${#arguments[*]} -gt 0 ]
+then
+	# Backup selected installs
+	backup_install ${arguments[*]}
+else
+	# Backup all installs
+	backup_install ${websites[@]}
 fi
