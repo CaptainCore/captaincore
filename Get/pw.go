@@ -1,7 +1,9 @@
-///
-///     Generate rclone hashed passwords for .rclone.config
-///     go run Scripts/Get/pw.go password
-///
+//
+//    Generate rclone hashed passwords for .rclone.config
+//    go run Scripts/Get/pw.go password
+//
+//		Pulled in from https://github.com/ncw/rclone/blob/master/fs/config.go
+//
 
 
 package main
