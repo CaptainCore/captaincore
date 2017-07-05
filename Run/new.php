@@ -24,7 +24,7 @@ $homedir = $_GET['homedir'];
 
 if ($new_install) {
 
-## logins.sh 
+## logins.sh
 
 	# Reads current backup logins
 	$file = $_SERVER['HOME'] . '/Scripts/logins.sh';
@@ -43,10 +43,10 @@ if ($new_install) {
 		$i = 0;
 
 		// finds last line of install
-		do { 
-			if ($lines[$key_search + $i] == "\t\t\t;;") { 
-				$key_search_last = $key_search + $i; 
-			} $i++; 
+		do {
+			if ($lines[$key_search + $i] == "\t\t\t;;") {
+				$key_search_last = $key_search + $i;
+			} $i++;
 		} while ($lines[$key_search + $i -1] != "\t\t\t;;");
 
 		// stored the number of lines removed
@@ -111,17 +111,17 @@ if ($new_install) {
 		$new_contents = implode( PHP_EOL, $new_lines);
 		file_put_contents($_SERVER['HOME'] . '/Tmp/logins.sh', $new_contents);
 	}
-	if ($skip == "true") { 
+	if ($skip == "true") {
 		echo "Skipping plugins and backup\n";
 		## 	setups up token and load custom configs into wp-config.php and .htaccess
 		##  in a background process. Sent email when completed.
-		$output = shell_exec('sh ' . $_SERVER['HOME'] . '/Scripts/Run/new_install_configs.sh '. $new_install .' > /dev/null 2>/dev/null &');
-		
+		$output = shell_exec($_SERVER['HOME'] . '/Scripts/Run/new_install_configs.sh '. $new_install .' > /dev/null 2>/dev/null &');
+
 	} else {
-		## 	run initial backup, setups up token, install plugins 
+		## 	run initial backup, setups up token, install plugins
 		##	and load custom configs into wp-config.php and .htaccess
 		##  in a background process. Sent email when completed.
-		$output = shell_exec('sh ' . $_SERVER['HOME'] . '/Scripts/Run/new_install.sh '. $new_install .' > /dev/null 2>/dev/null &');
+		$output = shell_exec($_SERVER['HOME'] . '/Scripts/Run/new_install.sh '. $new_install .' > /dev/null 2>/dev/null &');
 	}
 
 	// Runs cleanup if install was removed. Also makes sure that the $domain contains at least a period.
