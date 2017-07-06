@@ -132,9 +132,6 @@ if [ $# -gt 0 ]; then
 				### Incremental backup upload to Dropbox
 				if [[ $flag_skip_dropbox != true ]]; then
 
-          ### Begin log file
-          > $logs_path/backup-dropbox.txt
-
 					timebegin=$(date +"%s")
 					echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to Dropbox (${INDEX}/$#)" >> $logs_path/backup-log.txt
 					$path_rclone/rclone sync $path/$domain Anchor-Dropbox:Backup/Sites/$domain --exclude .DS_Store --dropbox-chunk-size=128M --transfers=2 --stats=5m --verbose=1 --log-file="$logs_path/site-$website-dropbox.txt"
