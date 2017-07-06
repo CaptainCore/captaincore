@@ -12,9 +12,13 @@
 parse_str(implode('&', array_slice($argv, 1)), $_GET);
 
 $file = $_GET['log'];
+$total_new_files = 0;
+$total_modified_files = 0;
+$total_bytes = 0;
+
 
 if (file_exists($file)) {
-  $file = file_get_contents($dir . $file);
+  $file = file_get_contents($file);
 
   // New Files
   $pattern = '/(?<=New: )(\d.*)/';
