@@ -10,7 +10,7 @@
 ##      Script/Run/backup.sh
 ##
 ##      The following flags are also available
-##      --skip-local     (Pull) Skips local incremental backup
+##      --skip-local     (Pull) Skips local incremental lftp backup
 ##      --skip-dropbox   (Push) Skips remote incremental backup
 ##      --skip-restic    (Push) Skips remote restic backup
 ##
@@ -83,12 +83,8 @@ if [ $# -gt 0 ]; then
 			   	homedir="/"
 			fi
 
-			### Incremental backup download to local file system
-			timebegin=$(date +"%s")
-			echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
-
-			# captures FTP errors in $ftp_output and file listing within file called ftp_ls
-			ftp_output=$( { lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set ftp:ssl-allow no; ls; exit" -u $username,$password -p $port $protocol://$ipAddress > $path_tmp/ftp_ls; } 2>&1 )
+			# captures FTP errors in $ftp_output and file listing to log file
+			ftp_output=$( { lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set ftp:ssl-allow no; ls; exit" -u $username,$password -p $port $protocol://$ipAddress > $logs_path/backup-ftp-ls.txt; } 2>&1 )
 
 			# Handle FTP errors
 			if [ -n "$ftp_output" ]
@@ -98,8 +94,13 @@ if [ $# -gt 0 ]; then
 			else
 				## No errors found, run the backup
 
-        ### Incremental backup locally
+        timebegin=$(date +"%s")
+
+        ### Incremental backup locally with lftp
         if [[ $flag_skip_local != true ]]; then
+
+          echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
+
   				## Database backup (if remote server available)
   				if [ -n "$remoteserver" ]
   				then
@@ -116,6 +117,16 @@ if [ $# -gt 0 ]; then
   				echo "" >> $logs_path/site-$website.txt
           tail $logs_path/site-$website.txt >> $logs_path/backup-local.txt
   				echo "$(($diff / 60)) minutes and $(($diff % 60)) seconds elapsed." >> $logs_path/site-$website.txt
+        fi
+
+        if [[ "$OSTYPE" == "linux-gnu" ]]; then
+            ### Begin folder size in bytes without apparent-size flag
+            folder_size=`du -s --block-size=1 $path/$domain/`
+            folder_size=`echo $folder_size | cut -d' ' -f 1`
+
+        elif [[ "$OSTYPE" == "darwin"* ]]; then
+            ### Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
+            folder_size=`find $path/$domain/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
         fi
 
 				### Incremental backup upload to Dropbox
@@ -136,18 +147,10 @@ if [ $# -gt 0 ]; then
 
 				fi
 
-				if [[ "$OSTYPE" == "linux-gnu" ]]; then
-				    ### Begin folder size in bytes without apparent-size flag
-                    folder_size=`du -s --block-size=1 $path/$domain/`
-                    folder_size=`echo $folder_size | cut -d' ' -f 1`
-
-				elif [[ "$OSTYPE" == "darwin"* ]]; then
-			        ### Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
-			        folder_size=`find $path/$domain/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
-				fi
-
         ### Restic Snapshot to Backblaze
         if [[ $flag_skip_restic != true ]]; then
+
+          echo "$(date +'%Y-%m-%d %H:%M') Begin incremental restic backup $website to B2 (${INDEX}/$#)" >> $logs_path/backup-log.txt
 
           install_env=production
 
@@ -155,12 +158,28 @@ if [ $# -gt 0 ]; then
             install_env=staging
           fi
 
-          restic_output=$( { $path_restic/restic -r b2:AnchorHost:Backup backup ~/Backup/$domain/ --tag $website --tag $install_env; } 2>&1 )
-          restic_snapshot=`echo $restic_output | grep -oP '[^\s]+(?= saved)'`
-          curl "https://anchor.host/anchor-api/$domain/?storage=$folder_size&archive=$restic_snapshot&token=$token"
-          echo "$restic_output"
-          echo "$restic_output" >> $logs_path/backup-b2.txt
-          echo "$(date +'%Y-%m-%d %H:%M') Finished restic backup $website to B2 (${INDEX}/$#)" >> $logs_path/backup-b2.txt
+          ### Begin restic snapshot
+          restic_output=$( { $path_restic/restic -r b2:AnchorHost:Backup backup ~/Backup/$domain/ --tag $website --tag $install_env > $logs_path/site-$website-restic.txt; } 2>&1 )
+
+          ### Check for new snapshot
+          if [[ "$OSTYPE" == "linux-gnu" ]]; then
+              restic_snapshot=`tail $logs_path/site-$website-restic.txt | grep -oP '[^\s]+(?= saved)'`
+
+          elif [[ "$OSTYPE" == "darwin"* ]]; then
+              restic_snapshot=`tail $logs_path/site-$website-restic.txt | ggrep -oP '[^\s]+(?= saved)'`
+          fi
+
+
+          if [[ "$restic_snapshot" != "" ]]; then
+            ### Snapshot found, add snapshot to Anchor backend
+            curl "https://anchor.host/anchor-api/$domain/?storage=$folder_size&archive=$restic_snapshot&token=$token"
+            echo "$restic_output"
+            echo "$restic_output" >> $logs_path/backup-b2.txt
+            echo "$(date +'%Y-%m-%d %H:%M') Finished restic backup $website to B2 (${INDEX}/$#)" >> $logs_path/backup-b2.txt
+          else
+            ### Snapshot not found, add error to backup-b2.txt log
+            echo "$(date +'%Y-%m-%d %H:%M') Failed restic backup $website to B2 (${INDEX}/$#): $restic_output" >> $logs_path/backup-b2.txt
+          fi
 
         fi
 
