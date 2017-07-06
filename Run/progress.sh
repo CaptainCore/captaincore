@@ -3,8 +3,9 @@ most_recent_date=`ls -d ~/Logs/*/ | xargs -n 1 basename | tail -1`
 # most_recent_date=`ls -rt ~/Logs/ | tail -1`
 most_recent_log=`ls -rt ~/Logs/$most_recent_date/ | tail -1`
 
-dropbox_log=$( { ls ~/Logs/$most_recent_date/$most_recent_log/backup-dropbox.txt; } 2>&1 )
 backup_log=$( { ls ~/Logs/$most_recent_date/$most_recent_log/backup-log.txt; } 2>&1 )
+local_log=$( { ls ~/Logs/$most_recent_date/$most_recent_log/backup-local.txt; } 2>&1 )
+dropbox_log=$( { ls ~/Logs/$most_recent_date/$most_recent_log/backup-dropbox.txt; } 2>&1 )
 b2_log=$( { ls ~/Logs/$most_recent_date/$most_recent_log/backup-b2.txt; } 2>&1 )
 
 # current FTP backup
@@ -26,15 +27,19 @@ if [[ "$b2_log" != *"No such file or directory"* ]]; then
 
 fi
 
-if [[ "$backup_log" != *"No such file or directory"* ]]; then
+if [[ "$local_log" != *"No such file or directory"* ]]; then
 
   # Output the log folder name
-  printf "Selected Backup Log: \e[1;32m$backup_log\e[0m\n"
+  printf "Selected Local Log: \e[1;32m$local_log\e[0m\n"
 
   # Calculate log stats
-  calc_log_stats=`php ~/Scripts/Get/log_stats.php log=$backup_log`
+  calc_log_stats=`php ~/Scripts/Get/log_stats.php log=$local_log`
   echo $calc_log_stats | awk '{gsub("<br>","\n")};1'
 
+fi
+
+if [[ "$backup_log" != *"No such file or directory"* ]]; then
+  
   # Output bottom of backup log
   printf "Selected Backup Log: \e[1;32m$backup_log\e[0m\n"
   tail -4 $backup_log
