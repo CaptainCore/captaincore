@@ -11,44 +11,28 @@
 
 parse_str(implode('&', array_slice($argv, 1)), $_GET);
 
-$dir = $_GET['log'];
+$file = $_GET['log'];
 
-$files = glob($dir . "site-*.txt");
-foreach ($files as $key => $value) {
+if (file_exists($file)) {
+  $file = file_get_contents($dir . $file);
 
-  // Strip out path names
-  $files[$key] = basename($value);
+  // New Files
+  $pattern = '/(?<=New: )(\d.*)/';
+  preg_match_all($pattern, $file, $matches);
+  $new_files = array_sum($matches[0]);
+  $total_new_files = $total_new_files + $new_files;
 
-  // Strip out dropbox logs
-  if (strpos($value, '-dropbox.txt')) {
-    unset($files[$key]);
-  }
-}
+  // Modified Files
+  $pattern = '/(?<=Modified: )(\d.*)/';
+  preg_match_all($pattern, $file, $matches);
+  $modified_files = array_sum($matches[0]);
+  $total_modified_files = $total_modified_files + $modified_files;
 
-foreach ($files as $file) {
-
-  if (file_exists($dir . $file)) {
-    $file = file_get_contents($dir . $file);
-
-    // New Files
-    $pattern = '/(?<=New: )(\d.*)/';
-    preg_match_all($pattern, $file, $matches);
-    $new_files = array_sum($matches[0]);
-    $total_new_files = $total_new_files + $new_files;
-
-    // Modified Files
-    $pattern = '/(?<=Modified: )(\d.*)/';
-    preg_match_all($pattern, $file, $matches);
-    $modified_files = array_sum($matches[0]);
-    $total_modified_files = $total_modified_files + $modified_files;
-
-    // Bytes
-    $pattern = '/(\d.*)(?= bytes transferred)/';
-    preg_match_all($pattern, $file, $matches);
-    $bytes_transferred = array_sum($matches[0]);
-    $total_bytes = $total_bytes + $bytes_transferred;
-
-  }
+  // Bytes
+  $pattern = '/(\d.*)(?= bytes transferred)/';
+  preg_match_all($pattern, $file, $matches);
+  $bytes_transferred = array_sum($matches[0]);
+  $total_bytes = $total_bytes + $bytes_transferred;
 
 }
 

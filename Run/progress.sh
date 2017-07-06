@@ -29,10 +29,10 @@ fi
 if [[ "$backup_log" != *"No such file or directory"* ]]; then
 
   # Output the log folder name
-  printf "Selected Log Folder: \e[1;32m~/Logs/$most_recent_date/$most_recent_log/\e[0m\n"
+  printf "Selected Backup Log: \e[1;32m$backup_log\e[0m\n"
 
   # Calculate log stats
-  calc_log_stats=`php ~/Scripts/Get/log_stats.php log=~/Logs/$most_recent_date/$most_recent_log/`
+  calc_log_stats=`php ~/Scripts/Get/log_stats.php log=$backup_log`
   echo $calc_log_stats | awk '{gsub("<br>","\n")};1'
 
   # Output bottom of backup log
