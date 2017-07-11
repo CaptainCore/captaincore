@@ -10,7 +10,8 @@
 ##      Script/Run/backup.sh
 ##
 ##      The following flags are also available
-##      --skip-local     (Pull) Skips local incremental lftp backup
+##      --skip-local-lftp     (Pull) Skips local incremental lftp backup
+##      --skip-local-rclone   (Pull) New local incremental rclone backup
 ##      --skip-dropbox   (Push) Skips remote incremental backup
 ##      --skip-restic    (Push) Skips remote restic backup
 ##
@@ -97,7 +98,7 @@ if [ $# -gt 0 ]; then
         timebegin=$(date +"%s")
 
         ### Incremental backup locally with lftp
-        if [[ $flag_skip_local != true ]]; then
+        if [[ $flag_skip_local_lftp != true ]]; then
 
           echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
 
@@ -112,6 +113,41 @@ if [ $# -gt 0 ]; then
   				## Debug mode
   				# extras="debug -o $logs_path/site-$website-debug.txt"
   				lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set net:reconnect-interval-base 5;set net:reconnect-interval-multiplier 1;set ftp:ssl-allow no;mirror --only-newer --delete --parallel=4 --exclude .git/ --exclude .DS_Store --exclude Thumbs.db --exclude all-in-one-event-calendar/cache/ --verbose=1 $homedir $path/$domain; exit" -u $username,$password -p $port $protocol://$ipAddress >> $logs_path/site-$website.txt
+  				timeend=$(date +"%s")
+  				diff=$(($timeend-$timebegin))
+  				echo "" >> $logs_path/site-$website.txt
+          tail $logs_path/site-$website.txt >> $logs_path/backup-local.txt
+  				echo "$(($diff / 60)) minutes and $(($diff % 60)) seconds elapsed." >> $logs_path/site-$website.txt
+        fi
+
+        ### Incremental backup locally with rclone
+        if [[ $flag_skip_local_rclone != true ]]; then
+
+          ### Lookup rclone
+          remotes=$($path_rclone/rclone listremotes)
+
+          ### Check for rclone remote
+          rclone_remote_lookup=false
+          for item in ${remotes[@]}; do
+              if [[ sftp-$website: == "$item" ]]; then
+                rclone_remote_lookup=true
+              fi
+          done
+
+          if [[ $rclone_remote_lookup == false ]]; then
+            echo "Generating rclone configs for $website"
+            hashed_password=$(go run ~/Scripts/Get/pw.go $password)
+            php $path_scripts/Run/rclone_import.php install=$website address=$ipAddress username=$username password=$hashed_password protocol=$protocol port=$port
+          fi
+
+  				## Database backup (if remote server available)
+  				if [ -n "$remoteserver" ]
+  				then
+  					remoteserver="$username@$ipAddress -p $port"
+  				  ssh $remoteserver '~/scripts/db_backup.sh'
+  				fi
+
+          $path_rclone/rclone sync sftp-$website:$homedir $path/$domain/ --exclude .DS_Store --verbose=1 --log-file="$logs_path/site-$website.txt"
   				timeend=$(date +"%s")
   				diff=$(($timeend-$timebegin))
   				echo "" >> $logs_path/site-$website.txt
@@ -156,7 +192,7 @@ if [ $# -gt 0 ]; then
           fi
 
           ### Begin restic snapshot
-          restic_output=$( { $path_restic/restic -r b2:AnchorHost:Backup backup ~/Backup/$domain/ --tag $website --tag $install_env > $logs_path/site-$website-restic.txt; } 2>&1 )
+          restic_output=$( { $path_restic/restic -r b2:AnchorHost:Backup backup ~/Backup/$domain/ --tag $website --tag $install_env --force > $logs_path/site-$website-restic.txt; } 2>&1 )
 
           ### Check for new snapshot
           if [[ "$OSTYPE" == "linux-gnu" ]]; then

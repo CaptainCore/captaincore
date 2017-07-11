@@ -54,7 +54,8 @@ if [[ "$local_log" != *"No such file or directory"* ]]; then
   printf "Selected Local Log: \e[1;32m$local_log\e[0m\n"
 
   # Calculate log stats
-  calc_log_stats=`php ~/Scripts/Get/log_stats.php log=$local_log`
+	calc_log_stats=`php ~/Scripts/Get/transferred_stats.php file=$local_log`
+  #calc_log_stats=`php ~/Scripts/Get/log_stats.php log=$local_log`
   echo $calc_log_stats | awk '{gsub("<br>","\n")};1'
 
 fi
