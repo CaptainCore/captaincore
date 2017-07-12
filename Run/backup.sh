@@ -10,10 +10,8 @@
 ##      Script/Run/backup.sh
 ##
 ##      The following flags are also available
-##      --skip-local-lftp     (Pull) Skips local incremental lftp backup
-##      --skip-local-rclone   (Pull) New local incremental rclone backup
-##      --skip-dropbox   (Push) Skips remote incremental backup
-##      --skip-restic    (Push) Skips remote restic backup
+##      --use-local-lftp (Pull) Use lftp incremental sync instead of rclone
+##      --use-restic     (Push) Save to restic B2 backup instead of Dropbox
 ##
 
 # Load configuration
@@ -98,7 +96,7 @@ if [ $# -gt 0 ]; then
         timebegin=$(date +"%s")
 
         ### Incremental backup locally with lftp
-        if [[ $flag_skip_local_lftp != true ]]; then
+        if [[ $flag_use_local_lftp == true ]]; then
 
           echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
 
@@ -118,10 +116,9 @@ if [ $# -gt 0 ]; then
   				echo "" >> $logs_path/site-$website.txt
           tail $logs_path/site-$website.txt >> $logs_path/backup-local.txt
   				echo "$(($diff / 60)) minutes and $(($diff % 60)) seconds elapsed." >> $logs_path/site-$website.txt
-        fi
 
+        else
         ### Incremental backup locally with rclone
-        if [[ $flag_skip_local_rclone != true ]]; then
 
           ### Lookup rclone
           remotes=$($path_rclone/rclone listremotes)
@@ -165,23 +162,8 @@ if [ $# -gt 0 ]; then
             folder_size=`find $path/$domain/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
         fi
 
-				### Incremental backup upload to Dropbox
-				if [[ $flag_skip_dropbox != true ]]; then
-
-					timebegin=$(date +"%s")
-					echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to Dropbox (${INDEX}/$#)" >> $logs_path/backup-log.txt
-					$path_rclone/rclone sync $path/$domain Anchor-Dropbox:Backup/Sites/$domain --exclude .DS_Store --dropbox-chunk-size=128M --transfers=2 --stats=5m --verbose=1 --log-file="$logs_path/site-$website-dropbox.txt"
-
-					### Add install to Dropbox log file
-					echo "$(date +'%Y-%m-%d %H:%M') Finished incremental backup $website to Dropbox (${INDEX}/$#)" >> $logs_path/backup-dropbox.txt
-
-					### Grabs last 6 lines of output from dropbox transfer to log file
-					tail -6 $logs_path/site-$website-dropbox.txt >> $logs_path/backup-dropbox.txt
-
-				fi
-
         ### Restic Snapshot to Backblaze
-        if [[ $flag_skip_restic != true ]]; then
+        if [[ $flag_use_restic == true ]]; then
 
           echo "$(date +'%Y-%m-%d %H:%M') Begin incremental restic backup $website to B2 (${INDEX}/$#)" >> $logs_path/backup-log.txt
 
@@ -202,7 +184,6 @@ if [ $# -gt 0 ]; then
               restic_snapshot=`tail $logs_path/site-$website-restic.txt | ggrep -oP '[^\s]+(?= saved)'`
           fi
 
-
           if [[ "$restic_snapshot" != "" ]]; then
             ### Snapshot found, add snapshot to Anchor backend
             curl "https://anchor.host/anchor-api/$domain/?storage=$folder_size&archive=$restic_snapshot&token=$token"
@@ -213,6 +194,18 @@ if [ $# -gt 0 ]; then
             ### Snapshot not found, add error to backup-b2.txt log
             echo "$(date +'%Y-%m-%d %H:%M') Failed restic backup $website to B2 (${INDEX}/$#): $restic_output" >> $logs_path/backup-b2.txt
           fi
+        else
+          ### Incremental backup upload to Dropbox
+
+          timebegin=$(date +"%s")
+          echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to Dropbox (${INDEX}/$#)" >> $logs_path/backup-log.txt
+          $path_rclone/rclone sync $path/$domain Anchor-Dropbox:Backup/Sites/$domain --exclude .DS_Store --dropbox-chunk-size=128M --transfers=2 --stats=5m --verbose=1 --log-file="$logs_path/site-$website-dropbox.txt"
+
+          ### Add install to Dropbox log file
+          echo "$(date +'%Y-%m-%d %H:%M') Finished incremental backup $website to Dropbox (${INDEX}/$#)" >> $logs_path/backup-dropbox.txt
+
+          ### Grabs last 6 lines of output from dropbox transfer to log file
+          tail -6 $logs_path/site-$website-dropbox.txt >> $logs_path/backup-dropbox.txt
 
         fi
 
