@@ -18,6 +18,11 @@ $protocol = $_GET['protocol'];
 $port = $_GET['port'];
 
 $file = $_SERVER['HOME'] . '/.rclone.conf';
+if (!file_exists($file)) {
+	// Try alternative location
+	$file = $_SERVER['HOME'] . '/.config/rclone/rclone.conf';
+}
+
 $file = file_get_contents($file);
 
 $pattern = '/\[(.+)\]\ntype\s=\ssftp\nhost\s=\s(.+)\nuser\s=\s(.+)\nport\s=\s(\d+)\npass\s=\s(.+)/';
