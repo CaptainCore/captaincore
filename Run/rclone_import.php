@@ -17,13 +17,13 @@ $password = $_GET['password'];
 $protocol = $_GET['protocol'];
 $port = $_GET['port'];
 
-$file = $_SERVER['HOME'] . '/.rclone.conf';
-if (!file_exists($file)) {
+$file_rclone_config = $_SERVER['HOME'] . '/.rclone.conf';
+if (!file_exists($file_rclone_config)) {
 	// Try alternative location
-	$file = $_SERVER['HOME'] . '/.config/rclone/rclone.conf';
+	$file_rclone_config = $_SERVER['HOME'] . '/.config/rclone/rclone.conf';
 }
 
-$file = file_get_contents($file);
+$file = file_get_contents($file_rclone_config);
 
 $pattern = '/\[(.+)\]\ntype\s=\ssftp\nhost\s=\s(.+)\nuser\s=\s(.+)\nport\s=\s(\d+)\npass\s=\s(.+)/';
 preg_match_all($pattern, $file, $matches);
@@ -58,11 +58,10 @@ if ($found_install != true) {
 	array("4n" => "user = $username") +
 	array("5n" => "port = $port") +
 	array("6n" => "pass = $password") +
-	array("7n" => "") +
-	array_slice($lines, $key, count($lines) - 1, true);
+	array("7n" => "");
 
 	# outputs new additions to file
 	$new_content = implode( PHP_EOL, $new_lines);
-	file_put_contents($_SERVER['HOME'] . '/.rclone.conf', $new_content);
+	file_put_contents($file_rclone_config, $new_content);
 
 }
