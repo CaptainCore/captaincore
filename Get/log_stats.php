@@ -1,9 +1,9 @@
 <?php
 ##
-##		Loads new install configurations into config.sh and logins.sh via command line
+##		Extracts stats from lftp log files
 ##
 ## 		Pass arguments from command line like this
-##		php log_stats.php log=/Users/austinginder/Logs/2017-06-29/09-16-4a06d39
+##		php log_stats.php log=Logs/2017-07-01/20-25-f6c28f5/site-anchorhost.txt
 ##
 ##		assign command line arguments to varibles
 ## 		new=anchorhosting becomes $_GET['new']
@@ -15,7 +15,6 @@ $file = $_GET['log'];
 $total_new_files = 0;
 $total_modified_files = 0;
 $total_bytes = 0;
-
 
 if (file_exists($file)) {
   $file = file_get_contents($file);
@@ -46,5 +45,3 @@ $total_gb = round($total_bytes / 1024 / 1024 / 1024, 2);
 // return GBs transferred
 echo "Total files transferred: " . $total_new_files . " new and " . $total_modified_files . " modified<br>";
 echo "Total data transferred: " . $total_gb ." GB<br>";
-
-?>
