@@ -11,7 +11,7 @@
 ##
 ##      The following flags are also available
 ##      --use-local-lftp (Pull) Use lftp incremental sync instead of rclone
-##      --use-restic     (Push) Save to restic B2 backup instead of Dropbox
+##      --use-restic     (Push) Save to restic B2 backup
 ##
 
 # Load configuration
@@ -162,52 +162,17 @@ if [ $# -gt 0 ]; then
             folder_size=`find $path/$domain/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
         fi
 
-        ### Restic Snapshot to Backblaze
-        if [[ $flag_use_restic == true ]]; then
+        ### Incremental backup upload to Dropbox
 
-          echo "$(date +'%Y-%m-%d %H:%M') Begin incremental restic backup $website to B2 (${INDEX}/$#)" >> $logs_path/backup-log.txt
+        timebegin=$(date +"%s")
+        echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to Dropbox (${INDEX}/$#)" >> $logs_path/backup-log.txt
+        $path_rclone/rclone sync $path/$domain Anchor-Dropbox:Backup/Sites/$domain -v --exclude .DS_Store --transfers=1 --stats=5m --log-file="$logs_path/site-$website-dropbox.txt"
 
-          install_env=production
+        ### Add install to Dropbox log file
+        echo "$(date +'%Y-%m-%d %H:%M') Finished incremental backup $website to Dropbox (${INDEX}/$#)" >> $logs_path/backup-dropbox.txt
 
-          if [[ "$website" == *staging ]]; then
-            install_env=staging
-          fi
-
-          ### Begin restic snapshot
-          restic_output=$( { $path_restic/restic -r b2:AnchorHost:Backup backup ~/Backup/$domain/ --tag $website --tag $install_env --force > $logs_path/site-$website-restic.txt; } 2>&1 )
-
-          ### Check for new snapshot
-          if [[ "$OSTYPE" == "linux-gnu" ]]; then
-              restic_snapshot=`tail $logs_path/site-$website-restic.txt | grep -oP '[^\s]+(?= saved)'`
-
-          elif [[ "$OSTYPE" == "darwin"* ]]; then
-              restic_snapshot=`tail $logs_path/site-$website-restic.txt | ggrep -oP '[^\s]+(?= saved)'`
-          fi
-
-          if [[ "$restic_snapshot" != "" ]]; then
-            ### Snapshot found, add snapshot to Anchor backend
-            curl "https://anchor.host/anchor-api/$domain/?storage=$folder_size&archive=$restic_snapshot&token=$token"
-            echo "$restic_output"
-            echo "$restic_output" >> $logs_path/backup-b2.txt
-            echo "$(date +'%Y-%m-%d %H:%M') Finished restic backup $website to B2 (${INDEX}/$#)" >> $logs_path/backup-b2.txt
-          else
-            ### Snapshot not found, add error to backup-b2.txt log
-            echo "$(date +'%Y-%m-%d %H:%M') Failed restic backup $website to B2 (${INDEX}/$#): $restic_output" >> $logs_path/backup-b2.txt
-          fi
-        else
-          ### Incremental backup upload to Dropbox
-
-          timebegin=$(date +"%s")
-          echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to Dropbox (${INDEX}/$#)" >> $logs_path/backup-log.txt
-          $path_rclone/rclone sync $path/$domain Anchor-Dropbox:Backup/Sites/$domain -v --exclude .DS_Store --stats=5m --log-file="$logs_path/site-$website-dropbox.txt"
-
-          ### Add install to Dropbox log file
-          echo "$(date +'%Y-%m-%d %H:%M') Finished incremental backup $website to Dropbox (${INDEX}/$#)" >> $logs_path/backup-dropbox.txt
-
-          ### Grabs last 6 lines of output from dropbox transfer to log file
-          tail -6 $logs_path/site-$website-dropbox.txt >> $logs_path/backup-dropbox.txt
-
-        fi
+        ### Grabs last 6 lines of output from dropbox transfer to log file
+        tail -6 $logs_path/site-$website-dropbox.txt >> $logs_path/backup-dropbox.txt
 
 				### Views for yearly stats
 				views=`php $path_scripts/Get/stats.php domain=$domain`
@@ -261,6 +226,35 @@ if [ $# -gt 0 ]; then
 	| mutt -e 'set content_type=text/html' -s "Backup completed: $# installs | $backup_date" -a $logs_path/backup-log.txt -- support@anchor.host
 
 	cd ~
+
+  ### Start Restic backup to B2
+  if [[ $flag_use_restic == true ]]; then
+
+    ### Begin restic snapshot
+    restic_output=$( { $path_restic/restic -r b2:AnchorHost:Restic backup ~/Backup/ > $logs_path/backup-restic.txt; } 2>&1 )
+
+    ### Check for new snapshot
+    if [[ "$OSTYPE" == "linux-gnu" ]]; then
+        restic_snapshot=`tail $logs_path/backup-restic.txt | grep -oP '[^\s]+(?= saved)'`
+
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        restic_snapshot=`tail $logs_path/backup-restic.txt | ggrep -oP '[^\s]+(?= saved)'`
+    fi
+
+    if [[ "$restic_snapshot" != "" ]]; then
+      ### Snapshot found, add snapshot to Anchor backend
+      curl "https://anchor.host/anchor-api/anchor.host/?storage=$folder_size&archive=$restic_snapshot&token=$token"
+      echo "$restic_output"
+      echo "$restic_output" >> $logs_path/backup-b2.txt
+      echo "$(date +'%Y-%m-%d %H:%M') Finished restic backup $website to B2 (${INDEX}/$#)" >> $logs_path/backup-b2.txt
+    else
+      ### Snapshot not found, add error to backup-b2.txt log
+      echo "$(date +'%Y-%m-%d %H:%M') Failed restic backup $website to B2 (${INDEX}/$#): $restic_output" >> $logs_path/backup-b2.txt
+    fi
+
+  fi
+
+
 
 fi
 }
