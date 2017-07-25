@@ -65,16 +65,15 @@ if ($new_install) {
 			$new_lines = array_slice($lines, 0, $key - $lines_removed, true) +
 			array("1n" => "		". $new_install.")") +
 			array("2n" => "			### FTP info") +
-			array("3n" => "			echo \"Credentials loaded for install: \$website\"") +
-			array("4n" => "			domain=$domain") +
-			array("5n" => "			username=$username") +
-			array("6n" => "			password='$password'") +
-			array("7n" => "			ipAddress='$address'") +
-			array("8n" => "			protocol='$protocol'") +
-			array("9n" => "			port='$port'") +
-			array("10n" => "			preloadusers='$preloadusers'") +
-			array("11n" => "			homedir='$homedir'") +
-			array("12n" => "			;;") +
+			array("3n" => "			domain=$domain") +
+			array("4n" => "			username=$username") +
+			array("5n" => "			password='$password'") +
+			array("6n" => "			ipAddress='$address'") +
+			array("7n" => "			protocol='$protocol'") +
+			array("8n" => "			port='$port'") +
+			array("9n" => "			preloadusers='$preloadusers'") +
+			array("10n" => "			homedir='$homedir'") +
+			array("11n" => "			;;") +
 			array_slice($lines, $key - $lines_removed, count($lines) - 1, true);
 
 		}
@@ -95,16 +94,15 @@ if ($new_install) {
 		$new_lines = array_slice($lines, 0, $key, true) +
 		array("1n" => "		". $new_install.")") +
 		array("2n" => "			### FTP info") +
-		array("3n" => "			echo \"Credentials loaded for install: \$website\"") +
-		array("4n" => "			domain=$domain") +
-		array("5n" => "			username=$username") +
-		array("6n" => "			password='$password'") +
-		array("7n" => "			ipAddress='$address'") +
-		array("8n" => "			protocol='$protocol'") +
-		array("9n" => "			port='$port'") +
-		array("10n" => "			preloadusers='$preloadusers'") +
-		array("11n" => "			homedir='$homedir'") +
-		array("12n" => "			;;") +
+		array("3n" => "			domain=$domain") +
+		array("4n" => "			username=$username") +
+		array("5n" => "			password='$password'") +
+		array("6n" => "			ipAddress='$address'") +
+		array("7n" => "			protocol='$protocol'") +
+		array("8n" => "			port='$port'") +
+		array("9n" => "			preloadusers='$preloadusers'") +
+		array("10n" => "			homedir='$homedir'") +
+		array("11n" => "			;;") +
 		array_slice($lines, $key, count($lines) - 1, true);
 
 		# outputs new additions to file
