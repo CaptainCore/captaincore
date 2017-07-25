@@ -49,6 +49,7 @@ do
   then
     (( count=$count + 1 ))
     echo "Removing " ${backups[$i]}
+    mv $path/${backups[$i]} $path_tmp/_orphaned/${backups[$i]}
   fi
 done
 
