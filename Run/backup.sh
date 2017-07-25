@@ -274,12 +274,12 @@ if [ $# -gt 0 ]; then
 
 	cd ~
 
+  if [[ $flag_use_restic == true ]]; then
+    $path_rclone/rclone sync ~/Restic/ Anchor-B2:AnchorHost/Restic/ -v
+  fi
+
 fi
 }
-
-if [[ $flag_use_restic == true ]]; then
-  $path_rclone/rclone sync ~/Restic/ Anchor-B2:AnchorHost/Restic/
-fi
 
 ### See if any specific sites are selected
 if [ ${#arguments[*]} -gt 0 ]
