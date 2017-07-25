@@ -278,7 +278,7 @@ fi
 }
 
 if [[ $flag_use_restic == true ]]; then
-  $path_rclone/rclone  sync ~/Restic/ Anchor-B2:AnchorHost/Restic/
+  $path_rclone/rclone sync ~/Restic/ Anchor-B2:AnchorHost/Restic/
 fi
 
 ### See if any specific sites are selected
