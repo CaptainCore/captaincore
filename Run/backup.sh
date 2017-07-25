@@ -206,14 +206,19 @@ if [ $# -gt 0 ]; then
           ### Check for new snapshot
           if [[ "$OSTYPE" == "linux-gnu" ]]; then
               restic_snapshot=`tail $logs_path/site-$website-restic.txt | grep -oP '[^\s]+(?= saved)'`
+              
+              ### Begin folder size in bytes without apparent-size flag
+              folder_size=`du -s --block-size=1 $path/$domain/`
+              folder_size=`echo $folder_size | cut -d' ' -f 1`
 
           elif [[ "$OSTYPE" == "darwin"* ]]; then
               restic_snapshot=`tail $logs_path/site-$website-restic.txt | ggrep -oP '[^\s]+(?= saved)'`
+              folder_size=`find $path/$domain/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
           fi
 
           if [[ "$restic_snapshot" != "" ]]; then
             ### Snapshot found, add snapshot to Anchor backend
-            curl "https://anchor.host/anchor-api/anchor.host/?storage=$folder_size&archive=$restic_snapshot&token=$token"
+            curl "https://anchor.host/anchor-api/$domain/?storage=$folder_size&archive=$restic_snapshot&token=$token"
             echo "$(date +'%Y-%m-%d %H:%M') Finished restic backup $website (${INDEX}/$#)" >> $logs_path/backup-restic.txt
           else
             ### Snapshot not found, add error to backup-b2.txt log
@@ -271,6 +276,10 @@ if [ $# -gt 0 ]; then
 
 fi
 }
+
+if [[ $flag_use_restic == true ]]; then
+  rclone sync ~/Restic/ Anchor-B2:AnchorHost/Restic/
+fi
 
 ### See if any specific sites are selected
 if [ ${#arguments[*]} -gt 0 ]
