@@ -206,7 +206,7 @@ if [ $# -gt 0 ]; then
           ### Check for new snapshot
           if [[ "$OSTYPE" == "linux-gnu" ]]; then
               restic_snapshot=`tail $logs_path/site-$website-restic.txt | grep -oP '[^\s]+(?= saved)'`
-              
+
               ### Begin folder size in bytes without apparent-size flag
               folder_size=`du -s --block-size=1 $path/$domain/`
               folder_size=`echo $folder_size | cut -d' ' -f 1`
@@ -278,7 +278,7 @@ fi
 }
 
 if [[ $flag_use_restic == true ]]; then
-  rclone sync ~/Restic/ Anchor-B2:AnchorHost/Restic/
+  $path_rclone/rclone  sync ~/Restic/ Anchor-B2:AnchorHost/Restic/
 fi
 
 ### See if any specific sites are selected
