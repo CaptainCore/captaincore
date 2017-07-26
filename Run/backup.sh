@@ -91,6 +91,7 @@ if [ $# -gt 0 ]; then
 			then
 				## Add FTP error to log file
 				echo "FTP response: $website ($ftp_output)<br>" >> $logs_path/backup-log.txt
+        echo "FTP response: $website ($ftp_output)"
 			else
 				## No errors found, run the backup
 
@@ -122,6 +123,9 @@ if [ $# -gt 0 ]; then
 
         else
         ### Incremental backup locally with rclone
+
+          echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
+          echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to local (${INDEX}/$#)"
 
           ### Lookup rclone
           remotes=$($path_rclone/rclone listremotes)
@@ -169,10 +173,12 @@ if [ $# -gt 0 ]; then
 
         timebegin=$(date +"%s")
         echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to Dropbox (${INDEX}/$#)" >> $logs_path/backup-log.txt
+        echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to Dropbox (${INDEX}/$#)"
         $path_rclone/rclone sync $path/$domain Anchor-Dropbox:Backup/Sites/$domain -v --exclude .DS_Store --transfers=1 --stats=5m --log-file="$logs_path/site-$website-dropbox.txt"
 
         ### Add install to Dropbox log file
         echo "$(date +'%Y-%m-%d %H:%M') Finished incremental backup $website to Dropbox (${INDEX}/$#)" >> $logs_path/backup-dropbox.txt
+        echo "$(date +'%Y-%m-%d %H:%M') Finished incremental backup $website to Dropbox (${INDEX}/$#)"
 
         ### Grabs last 6 lines of output from dropbox transfer to log file
         tail -6 $logs_path/site-$website-dropbox.txt >> $logs_path/backup-dropbox.txt
