@@ -220,9 +220,11 @@ if [ $# -gt 0 ]; then
             ### Snapshot found, add snapshot to Anchor backend
             curl "https://anchor.host/anchor-api/$domain/?storage=$folder_size&archive=$restic_snapshot&token=$token"
             echo "$(date +'%Y-%m-%d %H:%M') Finished restic backup $website (${INDEX}/$#)" >> $logs_path/backup-restic.txt
+            echo "$(date +'%Y-%m-%d %H:%M') Finished restic backup $website (${INDEX}/$#)"
           else
             ### Snapshot not found, add error to backup-b2.txt log
             echo "$(date +'%Y-%m-%d %H:%M') Failed restic backup $website (${INDEX}/$#): $restic_output" >> $logs_path/backup-restic.txt
+            echo "$(date +'%Y-%m-%d %H:%M') Failed restic backup $website (${INDEX}/$#): $restic_output"
           fi
 
         fi
