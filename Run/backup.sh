@@ -197,7 +197,7 @@ if [ $# -gt 0 ]; then
           fi
 
           ### Begin restic snapshot
-          restic_output=$( { $path_restic/restic -r ~/Restic backup ~/Backup/$domain/ --tag $website --tag $install_env > $logs_path/site-$website-restic.txt; } 2>&1 )
+          restic_output=$( { $path_restic/restic -r ~/Restic backup ~/Backup/$domain/ --tag $website --tag $install_env --force > $logs_path/site-$website-restic.txt; } 2>&1 )
 
           if [[ "$restic_output" != "" ]]; then
               echo "$restic_output" >> $logs_path/backup-restic.txt
