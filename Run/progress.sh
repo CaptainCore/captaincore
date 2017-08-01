@@ -26,7 +26,7 @@ fi
 
 backup_log=$( { ls ~/Logs/$most_recent_date/$most_recent_log/backup-log.txt; } 2>&1 )
 local_log=$( { ls ~/Logs/$most_recent_date/$most_recent_log/backup-local.txt; } 2>&1 )
-dropbox_log=$( { ls ~/Logs/$most_recent_date/$most_recent_log/backup-dropbox.txt; } 2>&1 )
+remote_log=$( { ls ~/Logs/$most_recent_date/$most_recent_log/backup-remote.txt; } 2>&1 )
 b2_log=$( { ls ~/Logs/$most_recent_date/$most_recent_log/backup-b2.txt; } 2>&1 )
 
 # current FTP backup
@@ -69,13 +69,13 @@ if [[ "$backup_log" != *"No such file or directory"* ]]; then
 
 fi
 
-if [[ "$dropbox_log" != *"No such file or directory"* ]]; then
+if [[ "$remote_log" != *"No such file or directory"* ]]; then
 
   # Output the file name and a line break
-  printf "Selected Dropbox Log: \e[1;32m$dropbox_log\e[0m\n"
+  printf "Selected Remote Log: \e[1;32m$remote_log\e[0m\n"
 
-  # Calculate Dropbox transfer
-  calc_dropbox=`php ~/Scripts/Get/transferred_stats.php file=$dropbox_log`
-  echo $calc_dropbox | awk '{gsub("<br>","\n")};1'
+  # Calculate Remote transfer
+  calc_remote=`php ~/Scripts/Get/transferred_stats.php file=$remote_log`
+  echo $calc_remote | awk '{gsub("<br>","\n")};1'
 
 fi
