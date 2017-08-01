@@ -169,19 +169,19 @@ if [ $# -gt 0 ]; then
             folder_size=`find $path/$domain/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
         fi
 
-        ### Incremental backup upload to Dropbox
+        ### Incremental backup upload to Remote
 
         timebegin=$(date +"%s")
-        echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to Dropbox (${INDEX}/$#)" >> $logs_path/backup-log.txt
-        echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to Dropbox (${INDEX}/$#)"
-        $path_rclone/rclone sync $path/$domain Anchor-Dropbox:Backup/Sites/$domain -v --exclude .DS_Store --transfers=1 --stats=5m --log-file="$logs_path/site-$website-dropbox.txt"
+        echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to Remote (${INDEX}/$#)" >> $logs_path/backup-log.txt
+        echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to Remote (${INDEX}/$#)"
+        $path_rclone/rclone sync $path/$domain Anchor-B2:Sites/$domain -v --exclude .DS_Store --transfers=1 --stats=5m --log-file="$logs_path/site-$website-remote.txt"
 
-        ### Add install to Dropbox log file
-        echo "$(date +'%Y-%m-%d %H:%M') Finished incremental backup $website to Dropbox (${INDEX}/$#)" >> $logs_path/backup-dropbox.txt
-        echo "$(date +'%Y-%m-%d %H:%M') Finished incremental backup $website to Dropbox (${INDEX}/$#)"
+        ### Add install to Remote log file
+        echo "$(date +'%Y-%m-%d %H:%M') Finished incremental backup $website to Remote (${INDEX}/$#)" >> $logs_path/backup-remote.txt
+        echo "$(date +'%Y-%m-%d %H:%M') Finished incremental backup $website to Remote (${INDEX}/$#)"
 
-        ### Grabs last 6 lines of output from dropbox transfer to log file
-        tail -6 $logs_path/site-$website-dropbox.txt >> $logs_path/backup-dropbox.txt
+        ### Grabs last 6 lines of output from remote transfer to log file
+        tail -6 $logs_path/site-$website-remote.txt >> $logs_path/backup-remote.txt
 
 				### Views for yearly stats
 				views=`php $path_scripts/Get/stats.php domain=$domain`
@@ -277,7 +277,7 @@ if [ $# -gt 0 ]; then
 	shareurl=`echo $shareurl | grep -o 'https.*'`
 
 	### Generate overall emails
-	( echo "$(php $path_scripts/Get/transferred_stats.php file=$logs_path/backup-dropbox.txt)" && printf "<a href='$shareurl'>View Logs</a><br><br>" && grep -r "FTP response" $logs_path/backup-log.txt; ) \
+	( echo "$(php $path_scripts/Get/transferred_stats.php file=$logs_path/backup-remote.txt)" && printf "<a href='$shareurl'>View Logs</a><br><br>" && grep -r "FTP response" $logs_path/backup-log.txt; ) \
 	| mutt -e 'set content_type=text/html' -s "Backup completed: $# installs | $backup_date" -a $logs_path/backup-log.txt -- support@anchor.host
 
 	cd ~
