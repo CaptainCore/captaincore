@@ -73,8 +73,14 @@ $pattern = '/(\d.*)(?=\sElapsed time)/';
 preg_match_all($pattern, $last_match, $matches);
 $total_transferred = array_sum($matches[0]);
 
+// Elapsed time
+$pattern = '/(?:Elapsed time:\s+)(\d.*)/';
+preg_match_all($pattern, $last_match, $matches);
+$elapsed_time = $matches[1][0];
+
 // return GBs transferred
 echo "Total data transferred: " . $total_gb ." GB<br>";
 echo "Total file errors: " . $total_errors . "<br>";
 echo "Total file checkes: " . $total_checks . "<br>";
 echo "Total files transferred: ". $total_transferred . "<br>";
+echo "Elapsed time: ". $elapsed_time . "<br>";
