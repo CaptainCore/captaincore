@@ -31,9 +31,10 @@ b2_log=$( { ls ~/Logs/$most_recent_date/$most_recent_log/backup-b2.txt; } 2>&1 )
 
 # current FTP backup
 site_backup=`ls -rt ~/Logs/$most_recent_date/$most_recent_log/site-* | tail -1 | xargs -n 1 basename`
+site_backup_log=$( { ls ~/Logs/$most_recent_date/$most_recent_log/$site_backup; } 2>&1 )
 
 # Output sync status
-printf "Selected Site: \e[1;32m$site_backup\e[0m\n"
+printf "Selected Site: \e[1;32m$site_backup_log\e[0m\n"
 tail -5 ~/Logs/$most_recent_date/$most_recent_log/$site_backup
 printf "\n"
 
