@@ -172,13 +172,13 @@ if [ $# -gt 0 ]; then
         ### Incremental backup upload to Remote
 
         timebegin=$(date +"%s")
-        echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to Remote (${INDEX}/$#)" >> $logs_path/backup-log.txt
-        echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to Remote (${INDEX}/$#)"
-        $path_rclone/rclone sync $path/$domain Anchor-B2:Sites/$domain -v --exclude .DS_Store --transfers=1 --stats=5m --log-file="$logs_path/site-$website-remote.txt"
+        echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to remote (${INDEX}/$#)" >> $logs_path/backup-log.txt
+        echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to remote (${INDEX}/$#)"
+        $path_rclone/rclone sync $path/$domain Anchor-B2:AnchorHostBackup/Sites/$domain -v --exclude .DS_Store --stats=5m --log-file="$logs_path/site-$website-remote.txt"
 
         ### Add install to Remote log file
-        echo "$(date +'%Y-%m-%d %H:%M') Finished incremental backup $website to Remote (${INDEX}/$#)" >> $logs_path/backup-remote.txt
-        echo "$(date +'%Y-%m-%d %H:%M') Finished incremental backup $website to Remote (${INDEX}/$#)"
+        echo "$(date +'%Y-%m-%d %H:%M') Finished incremental backup $website to remote (${INDEX}/$#)" >> $logs_path/backup-remote.txt
+        echo "$(date +'%Y-%m-%d %H:%M') Finished incremental backup $website to remote (${INDEX}/$#)"
 
         ### Grabs last 6 lines of output from remote transfer to log file
         tail -6 $logs_path/site-$website-remote.txt >> $logs_path/backup-remote.txt
