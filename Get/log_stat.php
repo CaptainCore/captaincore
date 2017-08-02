@@ -22,6 +22,37 @@ if (file_exists($file)) {
 
 }
 
+function secs_to_str($duration) {
+    $periods = array(
+        'day' => 86400,
+        'hour' => 3600,
+        'minute' => 60,
+        'second' => 1
+    );
+
+    $parts = array();
+
+    foreach ($periods as $name => $dur) {
+        $div = floor($duration / $dur);
+
+        if ($div == 0)
+            continue;
+        else
+            if ($div == 1)
+                $parts[] = $div . " " . $name;
+            else
+                $parts[] = $div . " " . $name . "s";
+        $duration %= $dur;
+    }
+
+    $last = array_pop($parts);
+
+    if (empty($parts))
+        return $last;
+    else
+        return join(', ', $parts) . " and " . $last;
+}
+
 // Last item in array
 $match_count = count($matches[0]) - 1;
 
@@ -78,5 +109,30 @@ $pattern = '/(?:Elapsed time:\s+)(\d.*)/';
 preg_match_all($pattern, $last_match, $matches);
 $elapsed_time = $matches[1][0];
 
+$total_time_in_seconds = 0;
+
+  // Search for hours
+  if (strpos($elapsed_time, 'h') !== false) {
+    $pattern = '/(.+)(?:h)(.+)(?:m)(.+)(?:s)/';
+    preg_match_all($pattern, $elapsed_time, $matches);
+    $hours = $matches[1][0] * 60 * 60;
+    $minutes = $matches[2][0] * 60;
+    $seconds = $matches[3][0] + $hours + $minutes;
+  // Search for minutes
+  } elseif (strpos($elapsed_time, 'm') !== false) {
+    $pattern = '/(.+)(?:m)(.+)(?:s)/';
+    preg_match_all($pattern, $elapsed_time, $matches);
+    $minutes = $matches[1][0] * 60;
+    $seconds = $matches[2][0] + $minutes;
+  // Search for seconds
+  } elseif (strpos($elapsed_time, 's') !== false) {
+    $pattern = '/(.+)(?:s)/';
+    preg_match_all($pattern, $elapsed_time, $matches);
+    $seconds = $matches[1][0];
+  }
+  $total_time_in_seconds = $total_time_in_seconds + $seconds;
+
+$total_time = secs_to_str($total_time_in_seconds);
+
 // return GBs transferred
-echo $total_gb ." GB - " . $total_errors . " errors - " . $total_checks . " checks - ". $total_transferred . " transferred - ". $elapsed_time;
+echo $total_gb ." GB - " . $total_errors . " errors - " . $total_checks . " checks - ". $total_transferred . " transferred - ". $total_time;
