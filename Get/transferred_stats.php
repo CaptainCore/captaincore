@@ -14,6 +14,37 @@ if ($_GET && $_GET['file']) {
 	$file = "~/Logs/anchor_dropbox_log_overall.txt";
 }
 
+function secs_to_str($duration) {
+    $periods = array(
+        'day' => 86400,
+        'hour' => 3600,
+        'minute' => 60,
+        'second' => 1
+    );
+
+    $parts = array();
+
+    foreach ($periods as $name => $dur) {
+        $div = floor($duration / $dur);
+
+        if ($div == 0)
+            continue;
+        else
+            if ($div == 1)
+                $parts[] = $div . " " . $name;
+            else
+                $parts[] = $div . " " . $name . "s";
+        $duration %= $dur;
+    }
+
+    $last = array_pop($parts);
+
+    if (empty($parts))
+        return $last;
+    else
+        return join(', ', $parts) . " and " . $last;
+}
+
 if (file_exists($file)) {
 $file = file_get_contents($file);
 	// Bytes
@@ -54,11 +85,39 @@ $file = file_get_contents($file);
 	preg_match_all($pattern, $file, $matches);
 	$total_transferred = array_sum($matches[0]);
 
-	// return GBs transferred
-	echo "Total data transferred: " . $total_gb ." GB<br>";
-	echo "Total file errors: " . $total_errors . "<br>";
-	echo "Total file checkes: " . $total_checks . "<br>";
-	echo "Total files transferred: ". $total_transferred . "<br>";
-}
+	// Elapsed time
+	$pattern = '/(?:Elapsed time:\s+)(\d.*)/';
+	preg_match_all($pattern, $file, $matches);
+	$elapsed_time = $matches[1];
 
-?>
+	$total_time_in_seconds = 0;
+
+	foreach($elapsed_time as $time) {
+
+		// Search for hours
+		if (strpos($time, 'h') !== false) {
+			$pattern = '/(.+)(?:h)(.+)(?:m)(.+)(?:s)/';
+			preg_match_all($pattern, $time, $matches);
+			$hours = $matches[1][0] * 60 * 60;
+			$minutes = $matches[2][0] * 60;
+			$seconds = $matches[3][0] + $hours + $minutes;
+		// Search for minutes
+		} elseif (strpos($time, 'm') !== false) {
+			$pattern = '/(.+)(?:m)(.+)(?:s)/';
+			preg_match_all($pattern, $time, $matches);
+			$minutes = $matches[1][0] * 60;
+			$seconds = $matches[2][0] + $minutes;
+		// Search for seconds
+		} elseif (strpos($time, 's') !== false) {
+			$pattern = '/(.+)(?:s)/';
+			preg_match_all($pattern, $time, $matches);
+			$seconds = $matches[1][0];
+		}
+		$total_time_in_seconds = $total_time_in_seconds + $seconds;
+	}
+
+	$total_time = secs_to_str($total_time_in_seconds);
+
+	// return GBs transferred
+	echo $total_gb ." GB  - " . $total_errors . " errors - " . $total_checks . " checks - $total_transferred transferred - $total_time";
+}

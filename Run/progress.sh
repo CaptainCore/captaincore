@@ -45,7 +45,8 @@ site_backup_log=$( { ls ~/Logs/$most_recent_date/$most_recent_log/$site_backup; 
 # Output sync status
 printf "Selected Site: \e[1;32m$site_backup_log\e[0m\n"
 calc_site_backup_log=`php ~/Scripts/Get/log_stat.php log=$site_backup_log`
-echo $calc_site_backup_log | awk '{gsub("<br>","\n")};1'
+echo $calc_site_backup_log
+printf "\n"
 
 if [[ "$b2_log" != *"No such file or directory"* ]]; then
 
@@ -54,7 +55,8 @@ if [[ "$b2_log" != *"No such file or directory"* ]]; then
 
   # Calculate B2 transfer
   calc_b2=`php ~/Scripts/Get/restic_stats.php log=$b2_log`
-  echo $calc_b2 | awk '{gsub("<br>","\n")};1'
+  echo $calc_b2
+	printf "\n"
 
 fi
 
@@ -66,7 +68,8 @@ if [[ "$local_log" != *"No such file or directory"* ]]; then
   # Calculate log stats
 	calc_log_stats=`php ~/Scripts/Get/transferred_stats.php file=$local_log`
   #calc_log_stats=`php ~/Scripts/Get/log_stats.php log=$local_log`
-  echo $calc_log_stats | awk '{gsub("<br>","\n")};1'
+  echo $calc_log_stats
+	printf "\n"
 
 fi
 
@@ -77,6 +80,7 @@ if [[ "$remote_log" != *"No such file or directory"* ]]; then
 
   # Calculate Remote transfer
   calc_remote=`php ~/Scripts/Get/transferred_stats.php file=$remote_log`
-  echo $calc_remote | awk '{gsub("<br>","\n")};1'
+  echo $calc_remote
+	printf "\n"
 
 fi
