@@ -135,4 +135,6 @@ $total_time_in_seconds = 0;
 $total_time = secs_to_str($total_time_in_seconds);
 
 // return GBs transferred
-echo $total_gb ." GB - " . $total_errors . " errors - " . $total_checks . " checks - ". $total_transferred . " transferred - ". $total_time;
+if ($total_time) {
+  echo $total_gb ." GB - " . $total_errors . " errors - " . $total_checks . " checks - ". $total_transferred . " transferred - ". $total_time;
+}
