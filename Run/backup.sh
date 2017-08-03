@@ -12,7 +12,6 @@
 ##      The following flags are also available
 ##      --use-direct     (Pull and Push) Directly from sftp to Dropbox
 ##      --use-local-lftp (Pull) Use lftp incremental sync instead of rclone
-##      --use-restic     (Push) Save to restic backup
 ##
 
 # Load configuration
@@ -96,8 +95,6 @@ if [ $# -gt 0 ]; then
 				## No errors found, run the backup
 
         timebegin=$(date +"%s")
-
-        if [[ $flag_use_restic != true ]]; then
 
         ### Incremental backup locally with lftp
         if [[ $flag_use_local_lftp == true ]]; then
@@ -189,52 +186,6 @@ if [ $# -gt 0 ]; then
 				# Post folder size bytes and yearly views to ACF field
 				curl "https://anchor.host/anchor-api/$domain/?storage=$folder_size&views=$views&token=$token"
 
-        fi
-
-        ### Start Restic backup
-        if [[ $flag_use_restic == true ]]; then
-
-          echo "$(date +'%Y-%m-%d %H:%M') Begin incremental restic backup $website (${INDEX}/$#)" >> $logs_path/backup-log.txt
-
-          install_env=production
-
-          if [[ "$website" == *staging ]]; then
-            install_env=staging
-          fi
-
-          ### Begin restic snapshot
-          restic_output=$( { $path_restic/restic -r ~/Restic backup ~/Backup/$domain/ --tag $website --tag $install_env --force > $logs_path/site-$website-restic.txt; } 2>&1 )
-
-          if [[ "$restic_output" != "" ]]; then
-              echo "$restic_output" >> $logs_path/backup-restic.txt
-          fi
-
-          ### Check for new snapshot
-          if [[ "$OSTYPE" == "linux-gnu" ]]; then
-              restic_snapshot=`tail $logs_path/site-$website-restic.txt | grep -oP '[^\s]+(?= saved)'`
-
-              ### Begin folder size in bytes without apparent-size flag
-              folder_size=`du -s --block-size=1 $path/$domain/`
-              folder_size=`echo $folder_size | cut -d' ' -f 1`
-
-          elif [[ "$OSTYPE" == "darwin"* ]]; then
-              restic_snapshot=`tail $logs_path/site-$website-restic.txt | ggrep -oP '[^\s]+(?= saved)'`
-              folder_size=`find $path/$domain/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
-          fi
-
-          if [[ "$restic_snapshot" != "" ]]; then
-            ### Snapshot found, add snapshot to Anchor backend
-            curl "https://anchor.host/anchor-api/$domain/?storage=$folder_size&archive=$restic_snapshot&token=$token"
-            echo "$(date +'%Y-%m-%d %H:%M') Finished restic backup $website (${INDEX}/$#)" >> $logs_path/backup-restic.txt
-            echo "$(date +'%Y-%m-%d %H:%M') Finished restic backup $website (${INDEX}/$#)"
-          else
-            ### Snapshot not found, add error to backup-b2.txt log
-            echo "$(date +'%Y-%m-%d %H:%M') Failed restic backup $website (${INDEX}/$#): $restic_output" >> $logs_path/backup-restic.txt
-            echo "$(date +'%Y-%m-%d %H:%M') Failed restic backup $website (${INDEX}/$#): $restic_output"
-          fi
-
-        fi
-
 			fi
 
 			### Generate log
@@ -281,10 +232,6 @@ if [ $# -gt 0 ]; then
 	| mutt -e 'set content_type=text/html' -s "Backup completed: $# installs | $backup_date" -a $logs_path/backup-log.txt -- support@anchor.host
 
 	cd ~
-
-  if [[ $flag_use_restic == true ]]; then
-    $path_rclone/rclone sync ~/Restic/ Anchor-B2:AnchorHost/Restic/ -v
-  fi
 
 fi
 }
