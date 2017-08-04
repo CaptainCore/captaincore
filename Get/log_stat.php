@@ -143,5 +143,5 @@ if (count($matches[0]) > 0) {
   }
 
 } else {
-  echo "0 GB - 0 errors - 0 checks - 0 transferred - 0 minutes";
+  echo "0.00 GB - 0 errors - 0 checks - 0 transferred - 0 minutes";
 }
