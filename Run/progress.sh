@@ -39,12 +39,20 @@ if [[ "$backup_log" != *"No such file or directory"* ]]; then
 fi
 
 # current FTP backup
+site_backup_list=(`ls -rt ~/Logs/$most_recent_date/$most_recent_log/site-* | tail -2 | xargs -n 1 basename`)
 site_backup=`ls -rt ~/Logs/$most_recent_date/$most_recent_log/site-* | tail -1 | xargs -n 1 basename`
-site_backup_log=$( { ls ~/Logs/$most_recent_date/$most_recent_log/$site_backup; } 2>&1 )
+site_backup_log_1=$( { ls ~/Logs/$most_recent_date/$most_recent_log/${site_backup_list[0]}; } 2>&1 )
+site_backup_log_2=$( { ls ~/Logs/$most_recent_date/$most_recent_log/${site_backup_list[1]}; } 2>&1 )
 
 # Output sync status
-printf "Selected Site: \e[1;32m$site_backup_log\e[0m\n"
-calc_site_backup_log=`php ~/Scripts/Get/log_stat.php log=$site_backup_log`
+printf "Recent modified: \e[1;32m$site_backup_log_1\e[0m\n"
+calc_site_backup_log=`php ~/Scripts/Get/log_stat.php log=$site_backup_log_1`
+echo $calc_site_backup_log
+printf "\n"
+
+# Output sync status
+printf "Recent modified: \e[1;32m$site_backup_log_2\e[0m\n"
+calc_site_backup_log=`php ~/Scripts/Get/log_stat.php log=$site_backup_log_2`
 echo $calc_site_backup_log
 printf "\n"
 
