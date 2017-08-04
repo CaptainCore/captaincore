@@ -45,16 +45,12 @@ site_backup_log_1=$( { ls ~/Logs/$most_recent_date/$most_recent_log/${site_backu
 site_backup_log_2=$( { ls ~/Logs/$most_recent_date/$most_recent_log/${site_backup_list[1]}; } 2>&1 )
 
 # Output sync status
-printf "Recent modified: \e[1;32m$site_backup_log_1\e[0m\n"
 calc_site_backup_log=`php ~/Scripts/Get/log_stat.php log=$site_backup_log_1`
-echo $calc_site_backup_log
-printf "\n"
+printf "\e[1;32m${site_backup_list[0]}\e[0m $calc_site_backup_log\n"
 
 # Output sync status
-printf "Recent modified: \e[1;32m$site_backup_log_2\e[0m\n"
 calc_site_backup_log=`php ~/Scripts/Get/log_stat.php log=$site_backup_log_2`
-echo $calc_site_backup_log
-printf "\n"
+printf "\e[1;32m${site_backup_list[1]}\e[0m $calc_site_backup_log\n"
 
 if [[ "$b2_log" != *"No such file or directory"* ]]; then
 
@@ -70,25 +66,28 @@ fi
 
 if [[ "$local_log" != *"No such file or directory"* ]]; then
 
-  # Output the log folder name
-  printf "Selected Local Log: \e[1;32m$local_log\e[0m\n"
+  # Grab filename
+	local_log_name=`echo $local_log | xargs -n 1 basename`
 
   # Calculate log stats
 	calc_log_stats=`php ~/Scripts/Get/transferred_stats.php file=$local_log`
-  #calc_log_stats=`php ~/Scripts/Get/log_stats.php log=$local_log`
-  echo $calc_log_stats
-	printf "\n"
+
+	# Output the log folder name
+	printf "\e[1;32m$local_log_name\e[0m $calc_log_stats\n"
 
 fi
 
 if [[ "$remote_log" != *"No such file or directory"* ]]; then
 
-  # Output the file name and a line break
-  printf "Selected Remote Log: \e[1;32m$remote_log\e[0m\n"
+	# Grab filename
+	remote_log_name=`echo $remote_log | xargs -n 1 basename`
 
   # Calculate Remote transfer
   calc_remote=`php ~/Scripts/Get/transferred_stats.php file=$remote_log`
-  echo $calc_remote
-	printf "\n"
+
+	# Output the file name and a line break
+	printf "\e[1;32m$remote_log_name\e[0m $calc_remote\n"
 
 fi
+
+printf "\n"
