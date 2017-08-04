@@ -46,11 +46,11 @@ site_backup_log_2=$( { ls ~/Logs/$most_recent_date/$most_recent_log/${site_backu
 
 # Output sync status
 calc_site_backup_log=`php ~/Scripts/Get/log_stat.php log=$site_backup_log_1`
-printf "\e[1;32m${site_backup_list[0]}\e[0m $calc_site_backup_log\n"
+printf "$calc_site_backup_log (\e[1;32m${site_backup_list[0]}\e[0m)\n"
 
 # Output sync status
 calc_site_backup_log=`php ~/Scripts/Get/log_stat.php log=$site_backup_log_2`
-printf "\e[1;32m${site_backup_list[1]}\e[0m $calc_site_backup_log\n"
+printf "$calc_site_backup_log (\e[1;32m${site_backup_list[1]}\e[0m)\n"
 
 if [[ "$b2_log" != *"No such file or directory"* ]]; then
 
@@ -73,7 +73,7 @@ if [[ "$local_log" != *"No such file or directory"* ]]; then
 	calc_log_stats=`php ~/Scripts/Get/transferred_stats.php file=$local_log`
 
 	# Output the log folder name
-	printf "\e[1;32m$local_log_name\e[0m $calc_log_stats\n"
+	printf "$calc_log_stats (\e[1;32m$local_log_name\e[0m)\n"
 
 fi
 
@@ -86,7 +86,7 @@ if [[ "$remote_log" != *"No such file or directory"* ]]; then
   calc_remote=`php ~/Scripts/Get/transferred_stats.php file=$remote_log`
 
 	# Output the file name and a line break
-	printf "\e[1;32m$remote_log_name\e[0m $calc_remote\n"
+	printf "$calc_remote (\e[1;32m$remote_log_name\e[0m)\n"
 
 fi
 
