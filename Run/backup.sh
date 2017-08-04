@@ -94,8 +94,6 @@ if [ $# -gt 0 ]; then
 			else
 				## No errors found, run the backup
 
-        timebegin=$(date +"%s")
-
         ### Incremental backup locally with lftp
         if [[ $flag_use_local_lftp == true ]]; then
 
@@ -112,11 +110,8 @@ if [ $# -gt 0 ]; then
   				## Debug mode
   				# extras="debug -o $logs_path/site-$website-debug.txt"
   				lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set net:reconnect-interval-base 5;set net:reconnect-interval-multiplier 1;set ftp:ssl-allow no;mirror --only-newer --delete --parallel=4 --exclude .git/ --exclude .DS_Store --exclude Thumbs.db --exclude all-in-one-event-calendar/cache/ --verbose=1 $homedir $path/$domain; exit" -u $username,$password -p $port $protocol://$ipAddress >> $logs_path/site-$website.txt
-  				timeend=$(date +"%s")
-  				diff=$(($timeend-$timebegin))
   				echo "" >> $logs_path/site-$website.txt
           tail $logs_path/site-$website.txt >> $logs_path/backup-local.txt
-  				echo "$(($diff / 60)) minutes and $(($diff % 60)) seconds elapsed." >> $logs_path/site-$website.txt
 
         else
         ### Incremental backup locally with rclone
@@ -149,11 +144,8 @@ if [ $# -gt 0 ]; then
   				fi
 
           $path_rclone/rclone sync sftp-$website:$homedir $path/$domain/ --exclude .DS_Store --verbose=1 --log-file="$logs_path/site-$website.txt"
-  				timeend=$(date +"%s")
-  				diff=$(($timeend-$timebegin))
   				echo "" >> $logs_path/site-$website.txt
           tail $logs_path/site-$website.txt >> $logs_path/backup-local.txt
-  				echo "$(($diff / 60)) minutes and $(($diff % 60)) seconds elapsed." >> $logs_path/site-$website.txt
         fi
 
         if [[ "$OSTYPE" == "linux-gnu" ]]; then
@@ -187,12 +179,6 @@ if [ $# -gt 0 ]; then
 				curl "https://anchor.host/anchor-api/$domain/?storage=$folder_size&views=$views&token=$token"
 
 			fi
-
-			### Generate log
-			timeend=$(date +"%s")
-			diff=$(($timeend-$timebegin))
-			echo "$(($diff / 60)) minutes and $(($diff % 60)) seconds elapsed." >> $logs_path/site-$website.txt
-			echo "" >> $logs_path/site-$website.txt
 
 		fi
 
