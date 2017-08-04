@@ -76,7 +76,7 @@ $file = file_get_contents($file);
 	$total_errors = array_sum($matches[0]);
 
 	// Checks
-	$pattern = '/(\d.*)(?=\sTransferred)/';
+	$pattern = '/(\d+)(?=\nTransferred)/';
 	preg_match_all($pattern, $file, $matches);
 	$total_checks = array_sum($matches[0]);
 
