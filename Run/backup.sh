@@ -160,17 +160,13 @@ if [ $# -gt 0 ]; then
 
         ### Incremental backup upload to Remote
 
-        timebegin=$(date +"%s")
-        echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to remote (${INDEX}/$#)" >> $logs_path/backup-log.txt
-        echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to remote (${INDEX}/$#)"
-        $path_rclone/rclone sync $path/$domain Anchor-B2:AnchorHostBackup/Sites/$domain -v --exclude .DS_Store --transfers=32 --stats=5m --log-file="$logs_path/site-$website-remote.txt"
+        echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $website to remote (${INDEX}/$#)" >> $logs_path/backup-log.txt
+        echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $website to remote (${INDEX}/$#)"
+        ts $path_rclone/rclone sync $path/$domain Anchor-B2:AnchorHostBackup/Sites/$domain -v --exclude .DS_Store --transfers=32 --stats=5m --log-file="$logs_path/site-$website-remote.txt"
 
         ### Add install to Remote log file
-        echo "$(date +'%Y-%m-%d %H:%M') Finished incremental backup $website to remote (${INDEX}/$#)" >> $logs_path/backup-remote.txt
-        echo "$(date +'%Y-%m-%d %H:%M') Finished incremental backup $website to remote (${INDEX}/$#)"
-
         ### Grabs last 6 lines of output from remote transfer to log file
-        tail -6 $logs_path/site-$website-remote.txt >> $logs_path/backup-remote.txt
+        ts sh -c "tail -6 $logs_path/site-$website-remote.txt >> $logs_path/backup-remote.txt"
 
 				### Views for yearly stats
 				views=`php $path_scripts/Get/stats.php domain=$domain`
@@ -194,6 +190,10 @@ if [ $# -gt 0 ]; then
 
 		let INDEX=${INDEX}+1
 	done
+
+  echo "$(date +'%Y-%m-%d %H:%M') Waiting for task spooler to finish"
+  ts -w
+  echo "$(date +'%Y-%m-%d %H:%M') Task spooler completed, resuming"
 
 	### End time tracking
 	overalltimeend=$(date +"%s")
