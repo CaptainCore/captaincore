@@ -142,4 +142,6 @@ if (count($matches[0]) > 0) {
     echo $total_gb ." GB - " . $total_errors . " errors - " . $total_checks . " checks - ". $total_transferred . " transferred - ". $total_time;
   }
 
+} else {
+  echo "0 GB - 0 errors - 0 checks - 0 transferred - 0 minutes";
 }
