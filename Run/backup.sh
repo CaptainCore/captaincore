@@ -191,16 +191,16 @@ if [ $# -gt 0 ]; then
 		let INDEX=${INDEX}+1
 	done
 
-  echo "$(date +'%Y-%m-%d %H:%M') Waiting for task spooler to finish"
+  echo "$(date +'%Y-%m-%d %H:%M') Finishing queued remote backups"
+  echo "$(date +'%Y-%m-%d %H:%M') Finishing queued remote backups" >> $logs_path/backup-log.txt
   ts -w
-  echo "$(date +'%Y-%m-%d %H:%M') Task spooler completed, resuming"
+  echo "$(date +'%Y-%m-%d %H:%M') Finished queued remote backups"
+  echo "$(date +'%Y-%m-%d %H:%M') Finished queued remote backups" >> $logs_path/backup-log.txt
 
 	### End time tracking
 	overalltimeend=$(date +"%s")
-	echo "" >> $logs_path/backup-log.txt
 	diff=$(($overalltimeend-$overalltimebegin))
 	echo "$(date +'%Y-%m-%d %H:%M') $(($diff / 3600)) hours, $((($diff / 60) % 60)) minutes and $(($diff % 60)) seconds elapsed." >> $logs_path/backup-log.txt
-	echo "" >> $logs_path/backup-log.txt
 
 	### Generate logs
 	cd $logs_path
@@ -214,7 +214,7 @@ if [ $# -gt 0 ]; then
 	shareurl=`echo $shareurl | grep -o 'https.*'`
 
 	### Generate overall emails
-	( echo "$(php $path_scripts/Get/transferred_stats.php file=$logs_path/backup-remote.txt)" && printf "<a href='$shareurl'>View Logs</a><br><br>" && grep -r "FTP response" $logs_path/backup-log.txt; ) \
+	( echo "$(php $path_scripts/Get/transferred_stats.php file=$logs_path/backup-remote.txt)" && printf "<br><a href='$shareurl'>View Logs</a><br><br>" && grep -r "FTP response" $logs_path/backup-log.txt; ) \
 	| mutt -e 'set content_type=text/html' -s "Backup completed: $# installs | $backup_date" -a $logs_path/backup-log.txt -- support@anchor.host
 
 	cd ~
