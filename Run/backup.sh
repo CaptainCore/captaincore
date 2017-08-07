@@ -162,7 +162,7 @@ if [ $# -gt 0 ]; then
 
         echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $website to remote (${INDEX}/$#)" >> $logs_path/backup-log.txt
         echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $website to remote (${INDEX}/$#)"
-        ts $path_rclone/rclone sync $path/$domain Anchor-B2:AnchorHostBackup/Sites/$domain -v --exclude .DS_Store --transfers=32 --log-file="$logs_path/site-$website-remote.txt"
+        ts $path_rclone/rclone sync $path/$domain Anchor-B2:AnchorHostBackup/Sites/$domain -v --exclude .DS_Store --fast-list --transfers=32 --log-file="$logs_path/site-$website-remote.txt"
 
         ### Add install to Remote log file
         ### Grabs last 6 lines of output from remote transfer to log file
