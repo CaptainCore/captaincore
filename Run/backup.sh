@@ -145,7 +145,7 @@ if [ $# -gt 0 ]; then
   				  ssh $remoteserver '~/scripts/db_backup.sh'
   				fi
 
-          $path_rclone/rclone sync sftp-$website:$homedir $path/$domain/ --exclude .DS_Store --verbose=1 --log-file="$logs_path/site-$website.txt"
+          $path_rclone/rclone sync sftp-$website:$homedir $path/$domain/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$website.txt"
   				echo "" >> $logs_path/site-$website.txt
           tail $logs_path/site-$website.txt >> $logs_path/backup-local.txt
         fi
