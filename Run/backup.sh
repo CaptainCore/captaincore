@@ -10,8 +10,9 @@
 ##      Script/Run/backup.sh
 ##
 ##      The following flags are also available
-##      --use-direct     (Pull and Push) Directly from sftp to Dropbox
+##      --use-direct     (Pull and Push) Directly from sftp to B2
 ##      --use-local-lftp (Pull) Use lftp incremental sync instead of rclone
+##      --skip-remote    (Pull Only) Skips push to B2
 ##
 
 # Load configuration
@@ -131,7 +132,8 @@ if [ $# -gt 0 ]; then
           done
 
           if [[ $rclone_remote_lookup == false ]]; then
-            echo "Generating rclone configs for $website"
+            echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $website" >> $logs_path/backup-log.txt
+            echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $website"
             hashed_password=$(go run ~/Scripts/Get/pw.go $password)
             php $path_scripts/Run/rclone_import.php install=$website address=$ipAddress username=$username password=$hashed_password protocol=$protocol port=$port
           fi
@@ -158,6 +160,7 @@ if [ $# -gt 0 ]; then
             folder_size=`find $path/$domain/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
         fi
 
+        if [[ $flag_skip_remote != true ]]; then
         ### Incremental backup upload to Remote
 
         echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $website to remote (${INDEX}/$#)" >> $logs_path/backup-log.txt
@@ -173,6 +176,7 @@ if [ $# -gt 0 ]; then
 
 				# Post folder size bytes and yearly views to ACF field
 				curl "https://anchor.host/anchor-api/$domain/?storage=$folder_size&views=$views&token=$token"
+        fi
 
 			fi
 
