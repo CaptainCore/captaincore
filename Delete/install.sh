@@ -1,4 +1,6 @@
-### Load configuration
+#!/bin/bash
+
+# Load configuration
 source ~/Scripts/config.sh
 
 if [ $# -gt 0 ]
