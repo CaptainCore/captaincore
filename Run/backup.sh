@@ -169,7 +169,7 @@ if [ $# -gt 0 ]; then
 
         ### Add install to Remote log file
         ### Grabs last 6 lines of output from remote transfer to log file
-        ts sh -c "tail -6 $logs_path/site-$website-remote.txt >> $logs_path/backup-remote.txt"
+        ts sh -c "echo \"Finished remote backup $website (${INDEX}/$#)\" >> $logs_path/backup-remote.txt && tail -6 $logs_path/site-$website-remote.txt >> $logs_path/backup-remote.txt"
 
 				### Views for yearly stats
 				views=`php $path_scripts/Get/stats.php domain=$domain`
