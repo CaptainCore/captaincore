@@ -145,9 +145,17 @@ if [ $# -gt 0 ]; then
   				  ssh $remoteserver '~/scripts/db_backup.sh'
   				fi
 
-          $path_rclone/rclone sync sftp-$website:$homedir $path/$domain/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$website.txt"
+          $path_rclone/rclone sync sftp-$website:$homedir $path/$domain/ --exclude .DS_Store --exclude *timthumb.txt --exclude /wp-content/uploads_from_s3/ --verbose=1 --log-file="$logs_path/site-$website.txt"
   				echo "" >> $logs_path/site-$website.txt
           tail $logs_path/site-$website.txt >> $logs_path/backup-local.txt
+        fi
+
+        ## Backup S3 uploads if needed
+        if [ -n "$s3bucket" ]
+        then
+          echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website (S3) to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
+          echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website (S3) to local (${INDEX}/$#)"
+          $path_rclone/rclone sync s3-$website:$s3bucket/$s3path $path/$domain/wp-content/uploads_from_s3/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$website-s3.txt"
         fi
 
         if [[ "$OSTYPE" == "linux-gnu" ]]; then
