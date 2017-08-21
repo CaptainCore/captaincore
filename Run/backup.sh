@@ -199,6 +199,8 @@ if [ $# -gt 0 ]; then
 		port=''
 		homedir=''
 		remoteserver=''
+    s3bucket=''
+    s3path=''
 
 		let INDEX=${INDEX}+1
 	done
