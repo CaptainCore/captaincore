@@ -118,16 +118,13 @@ if ($new_install) {
 		$new_contents = implode( PHP_EOL, $new_lines);
 		file_put_contents($_SERVER['HOME'] . '/Tmp/logins.sh', $new_contents);
 	}
-	
-	## 	run initial backup, setups up token, install plugins
-	##	and load custom configs into wp-config.php and .htaccess
-	##  in a background process. Sent email when completed.
-	$output = shell_exec($_SERVER['HOME'] . '/Scripts/Run/new_install.sh '. $new_install .' > /dev/null 2>/dev/null &');
 
+	echo "Skipping plugins and backup\n";
+	## 	setups up token and load custom configs into wp-config.php and .htaccess
+	##  in a background process. Sent email when completed.
+	$output = shell_exec($_SERVER['HOME'] . '/Scripts/Run/new_install_configs.sh '. $new_install .' > /dev/null 2>/dev/null &');
 
 }
-
-# echo $output;
 
 echo "Setting up ". $new_install;
 
