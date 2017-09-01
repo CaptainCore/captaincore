@@ -31,6 +31,8 @@ do
       ### upload deactivation plugin to mu-plugins
       lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set net:reconnect-interval-base 5;set net:reconnect-interval-multiplier 1;put -O $homedir/wp-content/mu-plugins/ $local_path/$plugin.php; exit" -u $username,$password -p $port $protocol://$ipAddress
 
+      echo "deactivated $domain"
+
     fi
 
     ### Clear out variables

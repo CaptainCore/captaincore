@@ -30,6 +30,8 @@ do
       ### remove deactivation plugin
       lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set ftp:ssl-allow no;rm $homedir/wp-content/mu-plugins/$plugin.php; exit" -u $username,$password -p $port $protocol://$ipAddress
 
+      echo "activated $domain"
+      
     fi
 
     ### Clear out variables
