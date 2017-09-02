@@ -17,12 +17,12 @@ $password = base64_decode(urldecode($_GET['password']));
 $address = $_GET['address'];
 $protocol = $_GET['protocol'];
 $port = $_GET['port'];
-$preloadusers = $_GET['preloadusers'];   // List of customer ID to which have users to preload.
-$homedir = $_GET['homedir'];
-$s3accesskey = $_GET['s3accesskey'];
-$s3secretkey = $_GET['s3secretkey'];
-$s3bucket = $_GET['s3bucket'];
-$s3path = $_GET['s3path'];
+$preloadusers = isset($_GET['preloadusers']) ? $_GET['preloadusers'] : '';   // List of customer ID to which have users to preload.
+$homedir = isset($_GET['homedir']) ? $_GET['homedir'] : '';
+$s3accesskey = isset($_GET['s3accesskey']) ? $_GET['s3accesskey'] : '';
+$s3secretkey = isset($_GET['s3secretkey']) ? $_GET['s3secretkey'] : '';
+$s3bucket = isset($_GET['s3bucket']) ? $_GET['s3bucket'] : '';
+$s3path = isset($_GET['s3path']) ? $_GET['s3path'] : '';
 
 if ($new_install) {
 
