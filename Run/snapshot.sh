@@ -1,6 +1,6 @@
 ### Load configuration
 #
-#	Usage: Script/snapshot.sh anchor.host
+#	Usage: Script/Run/snapshot.sh anchor.host
 #
 source ~/Scripts/config.sh
 

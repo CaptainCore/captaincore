@@ -3,7 +3,7 @@
 ##		Remove install configurations into config.sh and logins.sh via command line
 ##
 ## 		Pass arguments from command line like this
-##		php remove.php install=anchorhosting domain=anchor.host
+##		php Scripts/Delete/install.php install=anchorhosting domain=anchor.host
 ##
 ##		assign command line arguments to varibles
 ## 		install=anchorhosting becomes $_GET['install']
