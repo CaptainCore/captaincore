@@ -1,4 +1,4 @@
-### Load configuration 
+### Load configuration
 #
 #	Usage: Script/snapshot.sh anchor.host
 #
@@ -6,7 +6,7 @@ source ~/Scripts/config.sh
 
 if [ $# -gt 0 ]
 then
-	
+
 	## Generates snapshot archive
 	timedate=$(date +%Y-%m-%d)
 	tar -cvz --exclude=".git" --exclude="$site/wp-content/object-cache.php" --exclude="$site/wp-content/advanced-cache.php" --exclude=".gitignore" --exclude=".gitattributes" --exclude="_wpeprivate" -f $path_tmp/$1-$timedate.tar.gz -C ~/Backup/ $1/
@@ -21,11 +21,11 @@ then
         ### Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
         snapshot_size=`find $path_tmp/$1-$timedate.tar.gz -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
 	fi
-	
+
 	## Moves snapshot to Backblaze archive folder
-	$path_rclone/rclone move $path_tmp/$1-$timedate.tar.gz Anchor-Backblaze:AnchorHostBackup/Snapshots/$1/
+	$path_rclone/rclone move $path_tmp/$1-$timedate.tar.gz Anchor-B2:AnchorHostBackup/Snapshots/$1/
 
 	# Post snapshot to ACF field
 	curl "https://anchor.host/anchor-api/$1/?storage=$snapshot_size&archive=$1-$timedate.tar.gz&token=$token"
-	
+
 fi
