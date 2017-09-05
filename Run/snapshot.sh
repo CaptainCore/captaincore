@@ -42,7 +42,7 @@ done
 if [ $# -gt 0 ]
 then
 
-	$domain=${arguments[1]}
+	domain=${arguments[1]}
 
 	## Generates snapshot archive
 	timedate=$(date +%Y-%m-%d)
