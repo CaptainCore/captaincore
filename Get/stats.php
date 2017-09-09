@@ -7,13 +7,12 @@ parse_str(implode('&', array_slice($argv, 1)), $_GET);
 
 $domain = $_GET['domain'];
 
-
 // Connects to WordPress.com and pulls blog ids from anchorhost username
 $access_key = '***REMOVED***';
 
 
 if ($domain) {
-	
+
 	// Define vars
 	$count = 0;
 	$total = 0;
@@ -39,8 +38,8 @@ if ($domain) {
 	}
 
 	if (isset($stats["data"])) {
-	
-		// Preps views for last 12 months for html output while calculating usage. 
+
+		// Preps views for last 12 months for html output while calculating usage.
 		foreach ($stats["data"] as $stat) {
 			if ($stat[0]) {
 				$total = $total + 1;
@@ -64,5 +63,3 @@ if ($domain) {
 	}
 
 }
-
-?>
