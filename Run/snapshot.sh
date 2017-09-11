@@ -1,6 +1,8 @@
 ### Load configuration
 #
-#	Usage: Script/Run/snapshot.sh anchor.host
+#	Usage:
+#   Scripts/Run/snapshot.sh anchor.host
+#   Scripts/Run/snapshot.sh anchor.host --email=austin@anchor.host
 #
 source ~/Scripts/config.sh
 
@@ -56,13 +58,17 @@ then
 
 	elif [[ "$OSTYPE" == "darwin"* ]]; then
         ### Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
-        snapshot_size=`find $path_tmp/$domain-$timedate.tar.gz -type f -print0 | xargs -0 stat -f%z | awk '{b+=$domain} END {print b}'`
+        snapshot_size=`find $path_tmp/$domain-$timedate.tar.gz -type f -print0 | xargs -0 stat -f%z`
 	fi
 
 	## Moves snapshot to Backblaze archive folder
 	$path_rclone/rclone move $path_tmp/$domain-$timedate.tar.gz Anchor-B2:AnchorHostBackup/Snapshots/$domain/
 
 	# Post snapshot to ACF field
-	curl "https://anchor.host/anchor-api/$domain/?storage=$snapshot_size&archive=$domain-$timedate.tar.gz&email=$email&token=$token"
+  if [[ $ANCHOR_DEV_MODE == true ]]; then
+     curl "http://anchor.dev/anchor-api/$domain/?storage=$snapshot_size&archive=$domain-$timedate.tar.gz&email=$email&token=$token"
+   else
+     curl "https://anchor.host/anchor-api/$domain/?storage=$snapshot_size&archive=$domain-$timedate.tar.gz&email=$email&token=$token"
+   fi
 
 fi
