@@ -134,7 +134,7 @@ if [ $# -gt 0 ]; then
           if [[ $rclone_remote_lookup == false ]]; then
             echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $website" >> $logs_path/backup-log.txt
             echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $website"
-            hashed_password=$(go run ~/Scripts/Get/pw.go $password)
+            hashed_password=$($path_scripts/Get/pw $password)
             php $path_scripts/Run/rclone_import.php install=$website address=$ipAddress username=$username password=$hashed_password protocol=$protocol port=$port
           fi
 
