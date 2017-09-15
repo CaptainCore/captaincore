@@ -44,7 +44,9 @@ if [ $# -gt 0 ]; then
 
       core=`~/Scripts/Run/sshwpe.sh $website "wp core version"`
       themes=`~/Scripts/Run/sshwpe.sh $website "wp theme list --fields=name,title,status,update,version --format=json"`
+      themes="$(ruby -r cgi -e 'puts CGI.escape(ARGV[0])' "$themes")" ## URL encode with Ruby
       plugins=`~/Scripts/Run/sshwpe.sh $website "wp plugin list --fields=name,title,status,update,version --format=json"`
+      plugins="$(ruby -r cgi -e 'puts CGI.escape(ARGV[0])' "$plugins")"  ## URL encode with Ruby
 
       # Post CaptainCore info
       curl -g "https://anchor.host/anchor-api/$domain/?core=$core&themes=$themes&plugins=$plugins&token=$token"
