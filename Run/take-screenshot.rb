@@ -24,4 +24,4 @@ driver.navigate.to "http://"+@website
 
 # resize the window and take a screenshot
 driver.manage.window.resize_to(1200, 800)
-driver.save_screenshot "../Tmp/screenshot-"+@website+".png"
+driver.save_screenshot "Tmp/screenshot-"+@website+".png"
