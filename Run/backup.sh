@@ -74,12 +74,21 @@ if [ $# -gt 0 ]; then
 		### Load FTP credentials
 		source $path_scripts/logins.sh
 
-		### Credentials found, start the backup
-		if ! [ -z "$domain" ]
-		then
+    ### If subsite update stats and skip backup
+    if [[ $subsite == "true" ]]; then
 
-			if [ "$homedir" == "" ]
-			then
+      ### Views for yearly stats
+      views=`php $path_scripts/Get/stats.php domain=$website`
+
+      ### Updates stats with no storage since it's a subsite
+      curl "https://anchor.host/anchor-api/$website/?storage=0&views=$views&token=$token"
+
+    fi
+
+		### Credentials found, start the backup
+		if ! [ -z "$domain" ]; then
+
+			if [ "$homedir" == "" ]; then
 			   	homedir="/"
 			fi
 
@@ -87,8 +96,7 @@ if [ $# -gt 0 ]; then
 			ftp_output=$( { lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set ftp:ssl-allow no; ls; exit" -u $username,$password -p $port $protocol://$ipAddress > $logs_path/backup-ftp-ls.txt; } 2>&1 )
 
 			# Handle FTP errors
-			if [ -n "$ftp_output" ]
-			then
+			if [ -n "$ftp_output" ]; then
 				## Add FTP error to log file
 				echo "FTP response: $website ($ftp_output)<br>" >> $logs_path/backup-log.txt
         echo "FTP response: $website ($ftp_output)"
@@ -140,8 +148,7 @@ if [ $# -gt 0 ]; then
           fi
 
   				## Database backup (if remote server available)
-  				if [ -n "$remoteserver" ]
-  				then
+  				if [ -n "$remoteserver" ]; then
   					remoteserver="$username@$ipAddress -p $port"
   				  ssh $remoteserver '~/scripts/db_backup.sh'
   				fi
@@ -152,8 +159,7 @@ if [ $# -gt 0 ]; then
         fi
 
         ## Backup S3 uploads if needed
-        if [ -n "$s3bucket" ]
-        then
+        if [ -n "$s3bucket" ]; then
           echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website (S3) to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
           echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website (S3) to local (${INDEX}/$#)"
           $path_rclone/rclone sync s3-$website:$s3bucket/$s3path $path/$domain/wp-content/uploads_from_s3/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$website-s3.txt"
@@ -170,21 +176,21 @@ if [ $# -gt 0 ]; then
         fi
 
         if [[ $flag_skip_remote != true ]]; then
-        ### Incremental backup upload to Remote
+          ### Incremental backup upload to Remote
 
-        echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $website to remote (${INDEX}/$#)" >> $logs_path/backup-log.txt
-        echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $website to remote (${INDEX}/$#)"
-        ts $path_rclone/rclone sync $path/$domain Anchor-B2:AnchorHostBackup/Sites/$domain -v --exclude .DS_Store --fast-list --transfers=32 --log-file="$logs_path/site-$website-remote.txt"
+          echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $website to remote (${INDEX}/$#)" >> $logs_path/backup-log.txt
+          echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $website to remote (${INDEX}/$#)"
+          ts $path_rclone/rclone sync $path/$domain Anchor-B2:AnchorHostBackup/Sites/$domain -v --exclude .DS_Store --fast-list --transfers=32 --log-file="$logs_path/site-$website-remote.txt"
 
-        ### Add install to Remote log file
-        ### Grabs last 6 lines of output from remote transfer to log file
-        ts sh -c "echo \"Finished remote backup $website (${INDEX}/$#)\" >> $logs_path/backup-remote.txt && tail -6 $logs_path/site-$website-remote.txt >> $logs_path/backup-remote.txt"
+          ### Add install to Remote log file
+          ### Grabs last 6 lines of output from remote transfer to log file
+          ts sh -c "echo \"Finished remote backup $website (${INDEX}/$#)\" >> $logs_path/backup-remote.txt && tail -6 $logs_path/site-$website-remote.txt >> $logs_path/backup-remote.txt"
 
-				### Views for yearly stats
-				views=`php $path_scripts/Get/stats.php domain=$domain`
+  				### Views for yearly stats
+  				views=`php $path_scripts/Get/stats.php domain=$domain`
 
-				# Post folder size bytes and yearly views to ACF field
-				curl "https://anchor.host/anchor-api/$domain/?storage=$folder_size&views=$views&token=$token"
+  				# Post folder size bytes and yearly views to ACF field
+  				curl "https://anchor.host/anchor-api/$domain/?storage=$folder_size&views=$views&token=$token"
         fi
 
 			fi
@@ -202,6 +208,7 @@ if [ $# -gt 0 ]; then
 		remoteserver=''
     s3bucket=''
     s3path=''
+    subsite=''
 
 		let INDEX=${INDEX}+1
 	done
@@ -238,8 +245,7 @@ fi
 }
 
 ### See if any specific sites are selected
-if [ ${#arguments[*]} -gt 0 ]
-then
+if [ ${#arguments[*]} -gt 0 ]; then
 	# Backup selected installs
 	backup_install ${arguments[*]}
 else
