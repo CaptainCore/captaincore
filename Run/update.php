@@ -129,7 +129,7 @@ if ($install) {
 ## Rclone Import
 
 	# rclone obscure password
-	$password = shell_exec('source '. $_SERVER['HOME'] . '/Scripts/config.sh && $path_rclone/rclone obscure '. $password);
+	$password = shell_exec('. '. $_SERVER['HOME'] . '/Scripts/config.sh && $path_rclone/rclone obscure '. $password);
 
 	# locate rclone config file
 	$file_rclone_config = $_SERVER['HOME'] . '/.rclone.conf';
@@ -206,8 +206,8 @@ if ($found_install != true) {
 		    unset($lines[$i]);
 		}
 
-		# Updates current install in middle of file
-		$new_lines = array_slice($lines, 0, $line_count, true) +
+		# Updates current install end of file
+		$new_lines = array_slice($lines, 0, count($lines), true) +
 		array("1n" => "[sftp-$install]") +
 		array("2n" => "type = $protocol") +
 		array("3n" => "host = $address") +
