@@ -128,15 +128,19 @@ if ($install) {
 
 ## Rclone Import
 
-$file_rclone_config = $_SERVER['HOME'] . '/.rclone.conf';
-if (!file_exists($file_rclone_config)) {
-	// Try alternative location
-	$file_rclone_config = $_SERVER['HOME'] . '/.config/rclone/rclone.conf';
-}
+	# rclone obscure password
+	$password = shell_exec('source '. $_SERVER['HOME'] . '/Scripts/config.sh && $path_rclone/rclone obscure '. $password);
+
+	# locate rclone config file
+	$file_rclone_config = $_SERVER['HOME'] . '/.rclone.conf';
+	if (!file_exists($file_rclone_config)) {
+		// Try alternative location
+		$file_rclone_config = $_SERVER['HOME'] . '/.config/rclone/rclone.conf';
+	}
 
 $file = file_get_contents($file_rclone_config);
 
-$pattern = '/\[(.+)\]\ntype\s=\ssftp\nhost\s=\s(.+)\nuser\s=\s(.+)\nport\s=\s(\d+)\npass\s=\s(.+)/';
+$pattern = '/\[(.+)\]\ntype\s=\ssftp\nhost\s=\s(.+)\nuser\s=\s(.+)\nport\s=\s(\d+)\npass\s=\s/';
 preg_match_all($pattern, $file, $matches);
 
 $found_install = false;
@@ -201,8 +205,6 @@ if ($found_install != true) {
 		for ($i = $key_search; $i <= $key_search_last; $i++) {
 		    unset($lines[$i]);
 		}
-
-		$key = array_search("		*)", $lines);
 
 		# Updates current install in middle of file
 		$new_lines = array_slice($lines, 0, $line_count, true) +
