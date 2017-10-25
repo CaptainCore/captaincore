@@ -10,7 +10,7 @@ if (isset($argv)) {
 	parse_str(implode('&', array_slice($argv, 1)), $_GET);
 }
 
-$new_install = $_GET['install'];
+$install = $_GET['install'];
 $domain = $_GET['domain'];
 $username = $_GET['username'];
 $password = base64_decode(urldecode($_GET['password']));
@@ -24,7 +24,7 @@ $s3secretkey = isset($_GET['s3secretkey']) ? $_GET['s3secretkey'] : '';
 $s3bucket = isset($_GET['s3bucket']) ? $_GET['s3bucket'] : '';
 $s3path = isset($_GET['s3path']) ? $_GET['s3path'] : '';
 
-if ($new_install) {
+if ($install) {
 
 ## logins.sh
 
@@ -37,7 +37,7 @@ if ($new_install) {
 	$key = array_search("		*)", $lines);
 
 	# Looks for duplicate install name
-	$seach_needle = "\t\t$new_install)";
+	$seach_needle = "\t\t$install)";
 	$key_search = array_search($seach_needle, $lines);
 
 	if ($key_search) {
@@ -63,7 +63,7 @@ if ($new_install) {
 
 		# Add new install to end of array
 		$new_lines = array_slice($lines, 0, $key - $lines_removed, true) +
-		array("1n" => "		". $new_install.")") +
+		array("1n" => "		". $install.")") +
 		array("2n" => "			### FTP info") +
 		array("3n" => "			domain=$domain") +
 		array("4n" => "			username=$username") +
@@ -97,7 +97,7 @@ if ($new_install) {
 
 		# Add new install to end of array
 		$new_lines = array_slice($lines, 0, $key, true) +
-		array("1n" => "		". $new_install.")") +
+		array("1n" => "		". $install.")") +
 		array("2n" => "			### FTP info") +
 		array("3n" => "			domain=$domain") +
 		array("4n" => "			username=$username") +
@@ -122,10 +122,107 @@ if ($new_install) {
 	echo "Skipping plugins and backup\n";
 	## 	setups up token and load custom configs into wp-config.php and .htaccess
 	##  in a background process. Sent email when completed.
-	$output = shell_exec($_SERVER['HOME'] . '/Scripts/Run/new_install_configs.sh '. $new_install .' > /dev/null 2>/dev/null &');
+	$output = shell_exec($_SERVER['HOME'] . '/Scripts/Run/new_install_configs.sh '. $install .' > /dev/null 2>/dev/null &');
 
 }
 
-echo "Setting up ". $new_install;
+## Rclone Import
+
+$file_rclone_config = $_SERVER['HOME'] . '/.rclone.conf';
+if (!file_exists($file_rclone_config)) {
+	// Try alternative location
+	$file_rclone_config = $_SERVER['HOME'] . '/.config/rclone/rclone.conf';
+}
+
+$file = file_get_contents($file_rclone_config);
+
+$pattern = '/\[(.+)\]\ntype\s=\ssftp\nhost\s=\s(.+)\nuser\s=\s(.+)\nport\s=\s(\d+)\npass\s=\s(.+)/';
+preg_match_all($pattern, $file, $matches);
+
+$found_install = false;
+foreach ($matches[1] as $key => $value) {
+
+  $prefix = 'sftp_';
+  $value = substr($value, strlen($prefix));
+
+  if ($value == $install) {
+    $found_install = true;
+  }
+
+}
+
+if ($found_install != true) {
+  # Add to .rclone.conf file
+
+	$lines = explode( PHP_EOL, $file);
+	$line_count = count($lines);
+
+	# Add new install to end of array
+	$new_lines = array_slice($lines, 0, $line_count, true) +
+	array("1n" => "[sftp-$install]") +
+	array("2n" => "type = $protocol") +
+	array("3n" => "host = $address") +
+	array("4n" => "user = $username") +
+	array("5n" => "port = $port") +
+	array("6n" => "pass = $password") +
+	array("7n" => "");
+
+	# outputs new additions to file
+	$new_content = implode( PHP_EOL, $new_lines);
+	file_put_contents($file_rclone_config, $new_content);
+	echo "Added to rclone config\n";
+
+} else {
+
+	# Update existing entry in .rclone.conf file
+
+	$lines = explode( PHP_EOL, $file);
+	$line_count = count($lines);
+
+	# Looks for duplicate install name
+	$seach_needle = "[sftp-$install]";
+	$key_search = array_search($seach_needle, $lines);
+
+	if ($key_search) {
+
+		$i = 0;
+
+		// finds last line of install
+		do {
+			if ($lines[$key_search + $i] == "") {
+				$key_search_last = $key_search + $i;
+			} $i++;
+		} while ($lines[$key_search + $i -1] != "");
+
+		// stored the number of lines removed
+		$lines_removed = $i;
+
+		// loop through and remove the current install
+		for ($i = $key_search; $i <= $key_search_last; $i++) {
+		    unset($lines[$i]);
+		}
+
+		$key = array_search("		*)", $lines);
+
+		# Updates current install in middle of file
+		$new_lines = array_slice($lines, 0, $line_count, true) +
+		array("1n" => "[sftp-$install]") +
+		array("2n" => "type = $protocol") +
+		array("3n" => "host = $address") +
+		array("4n" => "user = $username") +
+		array("5n" => "port = $port") +
+		array("6n" => "pass = $password") +
+		array("7n" => "");
+
+		# outputs new additions to file
+		$new_content = implode( PHP_EOL, $new_lines);
+		file_put_contents($file_rclone_config, $new_content);
+
+	}
+
+	echo "Updating rclone config\n";
+}
+
+echo "Setting up ". $install;
 
 ?>
