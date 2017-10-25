@@ -168,8 +168,7 @@ if ($found_install != true) {
 	array("3n" => "host = $address") +
 	array("4n" => "user = $username") +
 	array("5n" => "port = $port") +
-	array("6n" => "pass = $password") +
-	array("7n" => "");
+	array("6n" => "pass = $password");
 
 	# outputs new additions to file
 	$new_content = implode( PHP_EOL, $new_lines);
@@ -213,8 +212,7 @@ if ($found_install != true) {
 		array("3n" => "host = $address") +
 		array("4n" => "user = $username") +
 		array("5n" => "port = $port") +
-		array("6n" => "pass = $password") +
-		array("7n" => "");
+		array("6n" => "pass = $password");
 
 		# outputs new additions to file
 		$new_content = implode( PHP_EOL, $new_lines);
