@@ -3,7 +3,7 @@
 ##		Loads new install configurations into logins.sh via command line
 ##
 ## 		Pass arguments from command line like this
-##		php new.php install=anchorhosting domain=anchor.host username=anchorhost password=random address=10.10.10.10 protocol=sftp port=2222
+##		php Scripts/Run/update.php install=anchorhosting domain=anchor.host username=anchorhost password=random address=anchorhost.wpengine.com protocol=sftp port=2222 staging_username=anchorhost-staging staging_password=randompassword staging_address=anchorhost.wpengine.com staging_protocol=sftp staging_port=2222 preloadusers=1737
 ##
 
 if (isset($argv)) {
