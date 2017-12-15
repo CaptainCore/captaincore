@@ -3,28 +3,33 @@
 ##		Loads new install configurations into logins.sh via command line
 ##
 ## 		Pass arguments from command line like this
-##		php new.php install=anchorhosting domain=anchor.host username=anchorhost password=random address=10.10.10.10 protocol=sftp port=2222
+##		php Scripts/Run/update.php install=anchorhosting domain=anchor.host username=anchorhost password=random address=anchorhost.wpengine.com protocol=sftp port=2222 staging_username=anchorhost-staging staging_password=randompassword staging_address=anchorhost.wpengine.com staging_protocol=sftp staging_port=2222 preloadusers=1737
 ##
 
 if (isset($argv)) {
 	parse_str(implode('&', array_slice($argv, 1)), $_GET);
 }
 
-$new_install = $_GET['install'];
+$install = $_GET['install'];
 $domain = $_GET['domain'];
 $username = $_GET['username'];
 $password = base64_decode(urldecode($_GET['password']));
 $address = $_GET['address'];
 $protocol = $_GET['protocol'];
 $port = $_GET['port'];
-$preloadusers = $_GET['preloadusers'];   // List of customer ID to which have users to preload.
-$homedir = $_GET['homedir'];
-$s3accesskey = $_GET['s3accesskey'];
-$s3secretkey = $_GET['s3secretkey'];
-$s3bucket = $_GET['s3bucket'];
-$s3path = $_GET['s3path'];
+$staging_username = isset($_GET['staging_username']) ? $_GET['staging_username'] : '';
+$staging_password = isset($_GET['staging_password']) ? base64_decode(urldecode($_GET['staging_password'])) : '';
+$staging_address = isset($_GET['staging_address']) ? $_GET['staging_address'] : '';
+$staging_protocol = isset($_GET['staging_protocol']) ? $_GET['staging_protocol'] : '';
+$staging_port = isset($_GET['staging_port']) ? $_GET['staging_port'] : '';
+$preloadusers = isset($_GET['preloadusers']) ? $_GET['preloadusers'] : '';   // List of customer ID to which have users to preload.
+$homedir = isset($_GET['homedir']) ? $_GET['homedir'] : '';
+$s3accesskey = isset($_GET['s3accesskey']) ? $_GET['s3accesskey'] : '';
+$s3secretkey = isset($_GET['s3secretkey']) ? $_GET['s3secretkey'] : '';
+$s3bucket = isset($_GET['s3bucket']) ? $_GET['s3bucket'] : '';
+$s3path = isset($_GET['s3path']) ? $_GET['s3path'] : '';
 
-if ($new_install) {
+if ($install) {
 
 ## logins.sh
 
@@ -34,10 +39,10 @@ if ($new_install) {
 	$lines = explode( PHP_EOL, $current);
 
 	# Find end of websites array
-	$key = array_search("		*)", $lines);
+	$key = array_search("\t\t*)", $lines);
 
 	# Looks for duplicate install name
-	$seach_needle = "\t\t$new_install)";
+	$seach_needle = "\t\t$install)";
 	$key_search = array_search($seach_needle, $lines);
 
 	if ($key_search) {
@@ -59,11 +64,11 @@ if ($new_install) {
 		    unset($lines[$i]);
 		}
 
-		$key = array_search("		*)", $lines);
+		$key = array_search("\t\t*)", $lines);
 
 		# Add new install to end of array
 		$new_lines = array_slice($lines, 0, $key - $lines_removed, true) +
-		array("1n" => "		". $new_install.")") +
+		array("1n" => "		". $install.")") +
 		array("2n" => "			### FTP info") +
 		array("3n" => "			domain=$domain") +
 		array("4n" => "			username=$username") +
@@ -71,13 +76,18 @@ if ($new_install) {
 		array("6n" => "			ipAddress='$address'") +
 		array("7n" => "			protocol='$protocol'") +
 		array("8n" => "			port='$port'") +
-		array("9n" => "			preloadusers='$preloadusers'") +
-		array("10n" => "			homedir='$homedir'") +
-		($s3accesskey != "" ? array("11n" => "			s3accesskey='$s3accesskey'"): array() ) +
-		($s3secretkey != "" ? array("12n" => "			s3secretkey='$s3secretkey'"): array() ) +
-		($s3bucket != "" ? array("13n" => "			s3bucket='$s3bucket'"): array() ) +
-		($s3path != "" ? array("14n" => "			s3path='$s3path'"): array() ) +
-		array("15n" => "			;;") +
+		($staging_username != "" ? array("9n" => "			staging_username='$staging_username'"): array() ) +
+		($staging_password != "" ? array("10n" => "			staging_password='$staging_password'"): array() ) +
+		($staging_address != "" ? array("11n" => "			staging_ipAddress='$staging_address'"): array() ) +
+		($staging_protocol != "" ? array("12n" => "			staging_protocol='$staging_protocol'"): array() ) +
+		($staging_port != "" ? array("13n" => "			staging_port='$staging_port'"): array() ) +
+		array("14n" => "			preloadusers='$preloadusers'") +
+		array("15n" => "			homedir='$homedir'") +
+		($s3accesskey != "" ? array("16n" => "			s3accesskey='$s3accesskey'"): array() ) +
+		($s3secretkey != "" ? array("17n" => "			s3secretkey='$s3secretkey'"): array() ) +
+		($s3bucket != "" ? array("18n" => "			s3bucket='$s3bucket'"): array() ) +
+		($s3path != "" ? array("19n" => "			s3path='$s3path'"): array() ) +
+		array("20n" => "			;;") +
 		array_slice($lines, $key - $lines_removed, count($lines) - 1, true);
 
 
@@ -97,38 +107,154 @@ if ($new_install) {
 
 		# Add new install to end of array
 		$new_lines = array_slice($lines, 0, $key, true) +
-		array("1n" => "		". $new_install.")") +
-		array("2n" => "			### FTP info") +
-		array("3n" => "			domain=$domain") +
-		array("4n" => "			username=$username") +
-		array("5n" => "			password='$password'") +
-		array("6n" => "			ipAddress='$address'") +
-		array("7n" => "			protocol='$protocol'") +
-		array("8n" => "			port='$port'") +
-		array("9n" => "			preloadusers='$preloadusers'") +
-		array("10n" => "			homedir='$homedir'") +
-		($s3accesskey != "" ? array("11n" => "			s3accesskey='$s3accesskey'"): array() ) +
-		($s3secretkey != "" ? array("12n" => "			s3secretkey='$s3secretkey'"): array() ) +
-		($s3bucket != "" ? array("13n" => "			s3bucket='$s3bucket'"): array() ) +
-		($s3path != "" ? array("14n" => "			s3path='$s3path'"): array() ) +
-		array("15n" => "			;;") +
+		array("$key-1n" => "		". $install.")") +
+		array("$key-2n" => "			### FTP info") +
+		array("$key-3n" => "			domain=$domain") +
+		array("$key-4n" => "			username=$username") +
+		array("$key-5n" => "			password='$password'") +
+		array("$key-6n" => "			ipAddress='$address'") +
+		array("$key-7n" => "			protocol='$protocol'") +
+		array("$key-8n" => "			port='$port'") +
+		($staging_username != "" ? array("$key-9n" => "			staging_username='$staging_username'"): array() ) +
+		($staging_password != "" ? array("$key=10n" => "			staging_password='$staging_password'"): array() ) +
+		($staging_address != "" ? array("$key-11n" => "			staging_ipAddress='$staging_address'"): array() ) +
+		($staging_protocol != "" ? array("$key-12n" => "			staging_protocol='$staging_protocol'"): array() ) +
+		($staging_port != "" ? array("$key-13n" => "			staging_port='$staging_port'"): array() ) +
+		array("$key-14n" => "			preloadusers='$preloadusers'") +
+		array("$key-15n" => "			homedir='$homedir'") +
+		($s3accesskey != "" ? array("$key-16n" => "			s3accesskey='$s3accesskey'"): array() ) +
+		($s3secretkey != "" ? array("$key-17n" => "			s3secretkey='$s3secretkey'"): array() ) +
+		($s3bucket != "" ? array("$key-18n" => "			s3bucket='$s3bucket'"): array() ) +
+		($s3path != "" ? array("$key-19n" => "			s3path='$s3path'"): array() ) +
+		array("$key-20n" => "			;;") +
 		array_slice($lines, $key, count($lines) - 1, true);
 
 		# outputs new additions to file
 		$new_contents = implode( PHP_EOL, $new_lines);
 		file_put_contents($_SERVER['HOME'] . '/Tmp/logins.sh', $new_contents);
 	}
-	
+
 	## 	run initial backup, setups up token, install plugins
 	##	and load custom configs into wp-config.php and .htaccess
 	##  in a background process. Sent email when completed.
 	$output = shell_exec($_SERVER['HOME'] . '/Scripts/Run/new_install.sh '. $new_install .' > /dev/null 2>/dev/null &');
 
+}
+
+## Rclone Import
+
+	# rclone obscure password
+	$password = shell_exec('. '. $_SERVER['HOME'] . '/Scripts/config.sh && $path_rclone/rclone obscure '. $password);
+	if ($staging_password) {
+		$staging_password = shell_exec('. '. $_SERVER['HOME'] . '/Scripts/config.sh && $path_rclone/rclone obscure '. $staging_password);
+	}
+
+	# locate rclone config file
+	$file_rclone_config = $_SERVER['HOME'] . '/.rclone.conf';
+	if (!file_exists($file_rclone_config)) {
+		// Try alternative location
+		$file_rclone_config = $_SERVER['HOME'] . '/.config/rclone/rclone.conf';
+	}
+
+$file = file_get_contents($file_rclone_config);
+
+$pattern = '/\[(.+)\]\ntype\s=\ssftp\nhost\s=\s(.+)\nuser\s=\s(.+)\nport\s=\s(\d+)\npass\s=\s(.+\s\n\[(.+-staging)\]\ntype\s=\ssftp\nhost\s=\s(.+)\nuser\s=\s(.+)\nport\s=\s(\d+)\npass\s=\s)?/';
+preg_match_all($pattern, $file, $matches);
+
+$found_install = false;
+foreach ($matches[1] as $key => $value) {
+
+  $prefix = 'sftp_';
+  $value = substr($value, strlen($prefix));
+
+  if ($value == $install) {
+    $found_install = true;
+  }
 
 }
 
-# echo $output;
+if ($found_install != true) {
+  # Add to .rclone.conf file
 
-echo "Setting up ". $new_install;
+	$lines = explode( PHP_EOL, $file);
+	$line_count = count($lines);
 
-?>
+	# Add new install to end of array
+	$new_lines = array_slice($lines, 0, $line_count, true) +
+	array("1n" => "[sftp-$install]") +
+	array("2n" => "type = $protocol") +
+	array("3n" => "host = $address") +
+	array("4n" => "user = $username") +
+	array("5n" => "port = $port") +
+	array("6n" => "pass = $password") +
+	($staging_username != "" ? array("7n" => "[sftp-$install-staging]"): array() ) +
+	($staging_protocol != "" ? array("8n" => "type = $staging_protocol"): array() ) +
+	($staging_address != "" ? array("9n" => "host = $staging_address"): array() ) +
+	($staging_username != "" ? array("10n" => "user = $staging_username"): array() ) +
+	($staging_port != "" ? array("11n" => "port = $staging_port"): array() ) +
+	($staging_password != "" ? array("12n" => "pass = $staging_password"): array() ) +
+	array();
+
+	# outputs new additions to file
+	$new_content = implode( PHP_EOL, $new_lines);
+	file_put_contents($file_rclone_config, $new_content);
+	echo "Added to rclone config\n";
+
+} else {
+
+	# Update existing entry in .rclone.conf file
+
+	$lines = explode( PHP_EOL, $file);
+	$line_count = count($lines);
+
+	# Looks for duplicate install name
+	$seach_needle = "[sftp-$install]";
+	$key_search = array_search($seach_needle, $lines);
+
+	if ($key_search) {
+
+		$key_search_id = array_search("sftp-newwebsite3",$matches[1]);
+		$key_search_row_count = substr_count( $matches[0][$key_search_id], "\n");
+
+		$i = 0;
+
+		// finds last line of install
+		do {
+			if ($lines[$key_search + $i] == "") {
+				$key_search_last = $key_search + $i;
+			} $i++;
+		} while ($lines[$key_search + $i -1] != "");
+
+		$key_search_last = $key_search + $key_search_row_count + 1;
+
+		// loop through and remove the current install
+		for ($i = $key_search; $i <= $key_search_last; $i++) {
+		    unset($lines[$i]);
+		}
+
+		# Updates current install end of file
+		$new_lines = array_slice($lines, 0, count($lines), true) +
+		array("1n" => "[sftp-$install]") +
+		array("2n" => "type = $protocol") +
+		array("3n" => "host = $address") +
+		array("4n" => "user = $username") +
+		array("5n" => "port = $port") +
+		array("6n" => "pass = $password") +
+		($staging_username != "" ? array("7n" => "[sftp-$install-staging]"): array() ) +
+		($staging_protocol != "" ? array("8n" => "type = $staging_protocol"): array() ) +
+		($staging_address != "" ? array("9n" => "host = $staging_address"): array() ) +
+		($staging_username != "" ? array("10n" => "user = $staging_username"): array() ) +
+		($staging_port != "" ? array("11n" => "port = $staging_port"): array() ) +
+		($staging_password != "" ? array("12n" => "pass = $staging_password"): array() ) +
+		array();
+
+		# outputs new additions to file
+		$new_content = implode( PHP_EOL, $new_lines);
+		file_put_contents($file_rclone_config, $new_content);
+
+	}
+
+	echo "Updating rclone config\n";
+}
+
+echo "Setting up ". $install;
