@@ -146,10 +146,10 @@ if [ $# -gt 0 ]; then
             php $path_scripts/Run/rclone_import.php install=$website address=$ipAddress username=$username password=$hashed_password protocol=$protocol port=$port
           fi
 
-  				## Database backup (if remote server available)
-  				if [ -n "$remoteserver" ]; then
+          ## Database backup (if remote server available)
+  				if [[ "$ipAddress" == *".kinsta.com" ]]; then
   					remoteserver="$username@$ipAddress -p $port"
-  				  ssh $remoteserver '~/scripts/db_backup.sh'
+  				  ssh $remoteserver 'cd public/ && wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql'
   				fi
 
           $path_rclone/rclone sync sftp-$website:$homedir $path/$domain/ --exclude .DS_Store --exclude *timthumb.txt --exclude /wp-content/uploads_from_s3/ --verbose=1 --log-file="$logs_path/site-$website.txt"
