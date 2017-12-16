@@ -137,7 +137,7 @@ if ($install) {
 	## 	run initial backup, setups up token, install plugins
 	##	and load custom configs into wp-config.php and .htaccess
 	##  in a background process. Sent email when completed.
-	$output = shell_exec($_SERVER['HOME'] . '/Scripts/Run/new_install.sh '. $new_install .' > /dev/null 2>/dev/null &');
+	$output = shell_exec($_SERVER['HOME'] . '/Scripts/Run/new_install.sh '. $install .' > /dev/null 2>/dev/null &');
 
 }
 
