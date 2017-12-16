@@ -109,10 +109,9 @@ if [ $# -gt 0 ]; then
           echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
 
   				## Database backup (if remote server available)
-  				if [ -n "$remoteserver" ]
-  				then
+  				if [[ "$ipAddress" == *".kinsta.com" ]]; then
   					remoteserver="$username@$ipAddress -p $port"
-  				  ssh $remoteserver '~/scripts/db_backup.sh'
+  				  ssh $remoteserver 'cd public/ && wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql'
   				fi
 
   				### Extra LFTP commands
