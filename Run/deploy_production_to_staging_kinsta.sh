@@ -57,8 +57,8 @@ if [ $# -gt 0 ]; then
 			fi
 
       # Prep ssh info for production and staging sites
-      remoteserver_production="$username@$ipAddress -p $port"
-      remoteserver_staging="$staging_username@$staging_ipAddress -p $staging_port"
+      remoteserver_production="-oStrictHostKeyChecking=no $username@$ipAddress -p $port"
+      remoteserver_staging="-oStrictHostKeyChecking=no $staging_username@$staging_ipAddress -p $staging_port"
 
       # Sync production to staging
       $path_rclone/rclone sync sftp-$website:$homedir/wp-content/ sftp-$website-staging:$homedir/wp-content/ --exclude .DS_Store --exclude *timthumb.txt --exclude /wp-content/uploads_from_s3/ --verbose=1
