@@ -66,6 +66,9 @@ if [ $# -gt 0 ]; then
       # Make database backup on production
       ssh $remoteserver_production 'cd public/ && wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql'
 
+      # Sync production to staging
+      $path_rclone/rclone sync sftp-$website:$homedir/wp-content/ sftp-$website-staging:$homedir/wp-content/ --exclude .DS_Store --exclude *timthumb.txt --exclude /wp-content/uploads_from_s3/ --verbose=1
+
       # Import database on staging
       ssh $remoteserver_staging 'cd public/ && wp db import wp-content/mysql.sql --skip-plugins --skip-themes'
 
