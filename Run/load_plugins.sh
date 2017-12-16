@@ -4,7 +4,7 @@
 ##      Preloading plugins to install
 ##
 ##      Pass arguments from command line like this
-##      Script/Run/load_plugin.sh install1 install2
+##      Scripts/Run/load_plugins.sh install1 install2
 ##
 
 ### Load configuration

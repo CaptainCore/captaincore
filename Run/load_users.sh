@@ -4,13 +4,13 @@
 ##      Deploys custom preloading users mu-plugin to batch of installs
 ##
 ##      Pass arguments from command line like this
-##      Script/Run/users.sh install1 install2
-## 
+##      Scripts/Run/load_users.sh install1 install2
+##
 ##      The users argument determines which json file to load user data from
 ##
 
 
-### Load configuration 
+### Load configuration
 source ~/Scripts/config.sh
 
 generate_admin () {
@@ -24,9 +24,9 @@ do
       ## assume its a command and strip out the argument as the user group
       group=${website##*=}
     else
-      ### Load FTP credentials 
+      ### Load FTP credentials
       source ~/Scripts/logins.sh
-      
+
       ### Credentials found, start the backup
       if ! [ -z "$domain" ]
       then
