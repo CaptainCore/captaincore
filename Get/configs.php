@@ -4,8 +4,8 @@
 ##
 ## 		Pass arguments from command line like this
 ##		php configs.php wpconfig=~/Documents/Scripts/wp-config.php htaccess=~/Documents/Scripts/.htaccess
-## 
-##		assign command line arguments to varibles 
+##
+##		assign command line arguments to varibles
 ## 		wpconfig=~/Documents/Scripts/wp-config.php becomes $_GET['wpconfig']
 ##
 
@@ -37,6 +37,15 @@ if (file_exists($wpconfig)) {
 		# Find line number to begin adding custom configs
 		$key = array_search('# WP Engine Settings', $lines);
 
+		# If not found try a WordPress default
+		if (!is_numeric($key)) {
+			$key = array_search("/* That's all, stop editing! Happy blogging. */", $lines);
+			if (is_numeric($key)) {
+				// Found using WordPress default, output above the line
+				$key = $key - 1;
+			}
+		}
+
 		# Add new item to array at begin of array
 		$new_lines = array_slice($lines, 0, $key + 1, true) +
 		array("1n" => "define( 'WPCOM_API_KEY', '***REMOVED***' );") +
@@ -62,6 +71,15 @@ if (file_exists($wpconfig)) {
 
 		# Find line number to begin adding custom configs
 		$key = array_search('# WP Engine Settings', $lines);
+
+		# If not found try a WordPress default
+		if (!is_numeric($key)) {
+			$key = array_search("/* That's all, stop editing! Happy blogging. */", $lines);
+			if (is_numeric($key)) {
+				// Found using WordPress default, output above the line
+				$key = $key - 1;
+			}
+		}
 
 		# Add new item to array at begin of array
 		$new_lines = array_slice($lines, 0, $key + 1, true) +
@@ -90,7 +108,7 @@ if (file_exists($wpconfig)) {
 		$key = array_search('# WP Engine Settings', $lines);
 
 		# If not found try a WordPress default
-		if (!is_numeric($key)) { 
+		if (!is_numeric($key)) {
 			$key = array_search("/* That's all, stop editing! Happy blogging. */", $lines);
 			if (is_numeric($key)) {
 				// Found using WordPress default, output above the line
@@ -125,7 +143,7 @@ if (file_exists($wpconfig)) {
 		$key = array_search('# WP Engine Settings', $lines);
 
 		# If not found try a WordPress default
-		if (!is_numeric($key)) { 
+		if (!is_numeric($key)) {
 			$key = array_search("/* That's all, stop editing! Happy blogging. */", $lines);
 			if (is_numeric($key)) {
 				// Found using WordPress default, output above the line
