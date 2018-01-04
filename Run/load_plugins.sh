@@ -12,7 +12,6 @@ source ~/Scripts/config.sh
 
 # Paths
 local_path="~/Backup/anchor.host/wp-content/plugins"
-remote_path="/wp-content/plugins"
 
 if [ $# -gt 0 ]
 then
@@ -29,6 +28,8 @@ then
 		### Credentials found, start the backup
 		if ! [ -z "$domain" ]
 		then
+
+			remote_path="$homedir/wp-content/plugins"
 
 			### Loop through static list of plugins
 			for plugin in akismet worker jetpack anchorhost-client gravityforms google-analytics-for-***REMOVED***
