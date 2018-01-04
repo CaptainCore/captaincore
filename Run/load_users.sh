@@ -41,7 +41,7 @@ do
         php ~/Scripts/Run/users.php install=$website token=$website_token customers=$preloadusers
 
         ### upload password plugin to mu-plugins
-        lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set ftp:ssl-allow no;put -O /wp-content/mu-plugins/ ~/Tmp/anchor_load_$website.php; exit" -u $username,$password -p $port $protocol://$ipAddress
+        lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set ftp:ssl-allow no;put -O $homedir/wp-content/mu-plugins/ ~/Tmp/anchor_load_$website.php; exit" -u $username,$password -p $port $protocol://$ipAddress
 
         ### Trigger website to load password
         wget --no-cache --spider $ipAddress/wp-admin/
@@ -49,7 +49,7 @@ do
         curl -Il $ipAddress/wp-login.php
 
         ## remove password plugin
-        lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set ftp:ssl-allow no;rm /wp-content/mu-plugins/anchor_load_$website.php; exit" -u $username,$password -p $port $protocol://$ipAddress
+        lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set ftp:ssl-allow no;rm $homedir/wp-content/mu-plugins/anchor_load_$website.php; exit" -u $username,$password -p $port $protocol://$ipAddress
 
       fi
 
