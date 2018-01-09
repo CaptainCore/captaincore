@@ -13,6 +13,7 @@
 ##      --use-direct     (Pull and Push) Directly from sftp to B2
 ##      --use-local-lftp (Pull) Use lftp incremental sync instead of rclone
 ##      --skip-remote    (Pull Only) Skips push to B2
+##      --with-staging   Also backup staging site
 ##
 
 # Load configuration
@@ -68,8 +69,7 @@ if [ $# -gt 0 ]; then
 
 	echo "Backing up $# installs"
 	INDEX=1
-	for website in "$@"
-	do
+	for website in "$@"; do
 
 		### Load FTP credentials
 		source $path_scripts/logins.sh
@@ -168,15 +168,14 @@ if [ $# -gt 0 ]; then
             ### Begin folder size in bytes without apparent-size flag
             folder_size=`du -s --block-size=1 $path/$domain/`
             folder_size=`echo $folder_size | cut -d' ' -f 1`
-
         elif [[ "$OSTYPE" == "darwin"* ]]; then
             ### Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
             folder_size=`find $path/$domain/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
         fi
 
         if [[ $flag_skip_remote != true ]]; then
+          
           ### Incremental backup upload to Remote
-
           echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $website to remote (${INDEX}/$#)" >> $logs_path/backup-log.txt
           echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $website to remote (${INDEX}/$#)"
           ts $path_rclone/rclone sync $path/$domain Anchor-B2:AnchorHostBackup/Sites/$domain -v --exclude .DS_Store --fast-list --transfers=32 --log-file="$logs_path/site-$website-remote.txt"
