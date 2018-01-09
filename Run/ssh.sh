@@ -31,7 +31,7 @@ do
       if ! [ -z "$domain" ]
       then
 
-        ## Database backup (if remote server available)
+        ## If website on Kinsta then connect SSH using their format
         if [[ "$ipAddress" == *".kinsta.com" ]]; then
 
           remoteserver="$username@$ipAddress -p $port"
@@ -40,15 +40,23 @@ do
           else
             ssh $remoteserver
           fi
+
+        else ## If not Kinsta then try connecting using WP Engine's format
+
+          if [ -n "$2" ]; then
+            ssh austin@anchor.host+$1@$1.ssh.wpengine.net "cd sites/$1/ && $2"
+          else
+            ssh austin@anchor.host+$1@$1.ssh.wpengine.net
+          fi
+
         fi
 
-        ## Database backup (if remote server available)
-        if [[ "$ipAddress" == *".wpengine.com" ]]; then
-          if [ -n "$2" ]; then
-            ssh austin@anchor.host+$1@ssh.gcp-us-central1-farm-01.wpengine.io "cd sites/$1/ && $2"
-          else
-            ssh austin@anchor.host+$1@ssh.gcp-us-central1-farm-01.wpengine.io
-          fi
+      else
+
+        if [ -n "$2" ]; then
+          ssh austin@anchor.host+$1@$1.ssh.wpengine.net "cd sites/$1/ && $2"
+        else
+          ssh austin@anchor.host+$1@$1.ssh.wpengine.net
         fi
 
       fi
