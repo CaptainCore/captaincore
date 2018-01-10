@@ -4,7 +4,7 @@
 ##      Deploy Kinsta's production to staging
 ##
 ##      Pass arguments from command line like this
-##      Scripts/Run/deploy_production_to_staging_kinsta.sh anchorhost
+##      Scripts/Run/deploy_production_to_staging_kinsta.sh anchorhost --callbback=1234
 ##
 
 # Load configuration
@@ -26,15 +26,22 @@ do
 done
 
 # Loop through flags and assign to varible. A flag "--skip-dropbox" becomes $flag_skip_dropbox
-for i in "${!flags[@]}"
-do
+for i in "${!flags[@]}"; do
 
 	# replace "-" with "_" and remove leading "--"
 	flag_name=`echo ${flags[$i]} | tr - _`
 	flag_name=`echo $flag_name | cut -c 3-`
 
-	# assigns to $flag_flagname
-	declare "flag_$flag_name"=true
+  if [[ $flag_name == *"="* ]]; then
+    # extract value
+    flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'`
+    flag_name=`echo $flag_name | perl -n -e '/(.+)?=.+/&& print $1'`
+    # assigns to $flag_flagname
+    declare "$flag_name"="$flag_value"
+  else
+    # assigns to $flag_flagname
+    declare "flag_$flag_name"=true
+  fi
 
 done
 
@@ -43,8 +50,7 @@ if [ $# -gt 0 ]; then
 
 	echo "Deploying $# staging sites"
 	INDEX=1
-	for website in "$@"
-	do
+	for website in "$@"; do
 
 		### Load FTP credentials
 		source $path_scripts/logins.sh
@@ -113,7 +119,4 @@ fi
 if [ ${#arguments[*]} -gt 0 ]; then
 	# Backup selected installs
 	deploy_staging ${arguments[*]}
-else
-	# Backup all installs
-	deploy_staging ${websites[@]}
 fi
