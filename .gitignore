@@ -1,5 +1,7 @@
 _/
+config
 config.sh
+logins
 logins.sh
 .DS_Store
 cookies.yaml
