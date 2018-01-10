@@ -1,0 +1,5 @@
+#!/bin/bash
+
+## Prep new config files
+mv ~/Tmp/logins ~/Scripts/
+chmod +x ~/Scripts/logins

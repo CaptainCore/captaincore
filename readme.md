@@ -1,4 +1,4 @@
-=== Anchor Hosting Scripts ===
+=== Anchor Hosting CLI ===
 Contributors: austinginder
 Tested up to: 4.1
 License: GPLv2 or later
@@ -6,14 +6,14 @@ License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
 
 == Description ==
-Collection of scripts for automating repeat WordPress tasks
+Collection of scripts for automating repeat WordPress tasks. Built using [Bash CLI](https://github.com/SierraSoftworks/bash-cli).
 
 = Website =
 https://anchor.host
 
 # Getting started
 
-* Copy config.sample.sh to config.sh and configure with appropriate folders
+* Copy config.sample.sh to config and configure with appropriate folders
 * Run `Scripts/dropbox_uploader.sh` and config with Dropbox account
 * Run `rclone config` and config Dropbox account
 
@@ -40,5 +40,3 @@ https://anchor.host
 
 		# Get stats
 		Get/stats.sh installname
-
-

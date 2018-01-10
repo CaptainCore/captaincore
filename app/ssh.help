@@ -1,0 +1,7 @@
+Kinsta and WP Engine SSH wrapper
+
+Connects to individual install over SSH
+ah ssh anchorhost1
+
+Runs command over SSH
+ah ssh anchorhost1 "wp plugins list"

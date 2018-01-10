@@ -1,0 +1,34 @@
+#! /usr/bin/env php
+<?php
+##
+##		Output array of installs from the logins
+##
+## 		Pass arguments from command line like this
+##		php Scripts/Get/installs.php file=logins
+##
+##		assign command line arguments to varibles
+## 		file=logins becomes $_GET['file']
+##
+
+parse_str(implode('&', array_slice($argv, 1)), $_GET);
+
+if ($_GET && $_GET['file']) {
+	$file = $_GET['file'];
+} else {
+	$file = $_SERVER["HOME"] . "/Scripts/logins";
+}
+
+if (file_exists($file)) {
+$file = file_get_contents($file);
+	// Matches the format: installname)\n\n\t   See: http://regexr.com/3de13
+	$pattern = '/(\w+)(?=\)\n\t\t)/';
+	preg_match_all($pattern, $file, $matches);
+
+	// print_r($matches);
+
+	$space_separated = implode(" ", $matches[0]);
+
+	echo $space_separated;
+}
+
+?>
