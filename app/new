@@ -4,7 +4,7 @@
 ##		Loads new install configurations into logins via command line
 ##
 ## 		Pass arguments from command line like this
-##		php Scripts/Run/update.php install=anchorhosting domain=anchor.host username=anchorhost password=random address=anchorhost.wpengine.com protocol=sftp port=2222 staging_username=anchorhost-staging staging_password=randompassword staging_address=anchorhost.wpengine.com staging_protocol=sftp staging_port=2222 preloadusers=1737
+##		ah new install=anchorhosting domain=anchor.host username=anchorhost password=random address=anchorhost.wpengine.com protocol=sftp port=2222 staging_username=anchorhost-staging staging_password=randompassword staging_address=anchorhost.wpengine.com staging_protocol=sftp staging_port=2222 preloadusers=1737
 ##
 
 if (isset($argv)) {
@@ -138,7 +138,7 @@ if ($install) {
 	## 	run initial backup, setups up token, install plugins
 	##	and load custom configs into wp-config.php and .htaccess
 	##  in a background process. Sent email when completed.
-	$output = shell_exec($_SERVER['HOME'] . '/app/prep/new_install '. $install .' > /dev/null 2>/dev/null &');
+	$output = shell_exec( 'ah prep '. $install .' > /dev/null 2>/dev/null &');
 
 }
 
