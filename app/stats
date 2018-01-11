@@ -7,21 +7,21 @@
 parse_str(implode('&', array_slice($argv, 1)), $_GET);
 
 $domain = $argv[1];
-$file =  $_SERVER["HOME"] . "/Scripts/config";
+
+// Loads CLI configs
+$file = $_SERVER["HOME"] . "/Scripts/config";
 if (file_exists($file)) {
 
 	$file = file_get_contents($file);
 	// Matches config keys and values
 	$pattern = '/(.+)=\"(.+)\"/';
 	preg_match_all($pattern, $file, $matches);
-	
+
 }
 
 // Connects to WordPress.com and pulls blog ids
 $access_key_id = array_search("access_key", $matches[1]);
 $access_key = $matches[2][$access_key_id];
-
-
 
 if ($domain) {
 
