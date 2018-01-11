@@ -1,9 +1,12 @@
-### Load configuration
-#
-#	Usage:
-#   Scripts/Run/snapshot.sh anchor.host
-#   Scripts/Run/snapshot.sh anchor.host --email=austin@anchor.host
-#
+#!/bin/bash
+
+##
+##		Creates Snapshot of website
+##
+## 		Pass arguments from command line like this
+##		ah snapshot anchor.host --email=austin@anchor.host --skip-remote
+##
+
 source ~/Scripts/config
 
 # Loop through arguments and seperate regular arguments from flags (--flag)
@@ -36,7 +39,7 @@ do
 	  declare "$flag_name"="$flag_value" # assigns to $flag_flagname
 	else
 	  # assigns to $flag_flagname boolen
-	  declare "flag_$flag_name"=true
+	  declare "$flag_name"=true
 	fi
 
 done
@@ -50,25 +53,29 @@ then
 	timedate=$(date +%Y-%m-%d)
 	tar -cvz --exclude=".git" --exclude="$site/wp-content/object-cache.php" --exclude="$site/wp-content/advanced-cache.php" --exclude=".gitignore" --exclude=".gitattributes" --exclude="_wpeprivate" -f $path_tmp/$domain-$timedate.tar.gz -C ~/Backup/ $domain/
 
-	### Grab snapshot size in bytes
+	## Grab snapshot size in bytes
 	if [[ "$OSTYPE" == "linux-gnu" ]]; then
-	    ### Begin folder size in bytes without apparent-size flag
-        snapshot_size=`du -s --block-size=1 $path_tmp/$domain-$timedate.tar.gz`
-        snapshot_size=`echo $snapshot_size | cut -d' ' -f 1`
+      ### Begin folder size in bytes without apparent-size flag
+      snapshot_size=`du -s --block-size=1 $path_tmp/$domain-$timedate.tar.gz`
+      snapshot_size=`echo $snapshot_size | cut -d' ' -f 1`
 
 	elif [[ "$OSTYPE" == "darwin"* ]]; then
-        ### Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
-        snapshot_size=`find $path_tmp/$domain-$timedate.tar.gz -type f -print0 | xargs -0 stat -f%z`
+      ### Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
+      snapshot_size=`find $path_tmp/$domain-$timedate.tar.gz -type f -print0 | xargs -0 stat -f%z`
 	fi
 
-	## Moves snapshot to Backblaze archive folder
-	$path_rclone/rclone move $path_tmp/$domain-$timedate.tar.gz Anchor-B2:AnchorHostBackup/Snapshots/$domain/
+  if [[ $skip_remote != true ]]; then
 
-	# Post snapshot to ACF field
-  if [[ $ANCHOR_DEV_MODE == true ]]; then
-     curl "http://anchor.dev/anchor-api/$domain/?storage=$snapshot_size&archive=$domain-$timedate.tar.gz&email=$email&token=$token"
-   else
-     curl "https://anchor.host/anchor-api/$domain/?storage=$snapshot_size&archive=$domain-$timedate.tar.gz&email=$email&token=$token"
-   fi
+  	## Moves snapshot to Backblaze archive folder
+  	$path_rclone/rclone move $path_tmp/$domain-$timedate.tar.gz Anchor-B2:AnchorHostBackup/Snapshots/$domain/
+
+  	## Post snapshot to ACF field
+    if [[ $ANCHOR_DEV_MODE == true ]]; then
+      curl "http://anchor.dev/anchor-api/$domain/?storage=$snapshot_size&archive=$domain-$timedate.tar.gz&email=$email&token=$token"
+    else
+      curl "https://anchor.host/anchor-api/$domain/?storage=$snapshot_size&archive=$domain-$timedate.tar.gz&email=$email&token=$token"
+    fi
+
+  fi
 
 fi
