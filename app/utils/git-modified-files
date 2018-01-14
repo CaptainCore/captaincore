@@ -1,0 +1,15 @@
+#! /usr/bin/env php
+<?php
+
+##
+##  git_status=`git status`
+##  modified_files=`ah utils git-modified-files $git_status`
+##
+
+preg_match_all(
+  '/modified: +(.+)/',
+   $argv[1],
+  $matches, PREG_PATTERN_ORDER
+);
+
+echo implode($matches[1], " ");

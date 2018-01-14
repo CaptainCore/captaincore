@@ -1,0 +1,17 @@
+#! /usr/bin/env php
+<?php
+
+##
+##  git_diff=`git diff HEAD $file`
+##  new_permissions=`ah utils git-diff-permission-check "$git_diff"`
+##
+
+preg_match_all(
+  '/old mode \d+(\d{3})\nnew mode \d+(\d{3})/',
+   $argv[1],
+  $matches, PREG_PATTERN_ORDER
+);
+
+if ( is_array($matches[1]) and is_array($matches[2])) {
+  echo $matches[1][0];
+}

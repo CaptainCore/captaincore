@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+
+##
+##		Resets file permissions within git repo on current directory
+##    (Useful when restoring .git repo and file permissions changed)
+##
+## 		ah utils git-permissions-reset
+##
+
+git_status=`git status`
+modified_files=`ah utils git-modified-files "$git_status"`
+for file in $modified_files; do
+  git_diff=`git diff HEAD $file`
+  new_permissions=`ah utils git-diff-permission-check "$git_diff"`
+  if [[ ! -z "$new_permissions" ]]; then
+    chmod $new_permissions $file
+    echo "Setting $file to $new_permissions"
+  fi
+done
