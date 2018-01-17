@@ -4,15 +4,16 @@
 ##      Batch backup of WordPress sites
 ##
 ##      Pass arguments from command line like this
-##      Script/Run/backup.sh install1 install2
+##      ah backup new install1 install2
 ##
 ##      Or backup everything like this
-##      Script/Run/backup.sh
+##      ah backup new
 ##
 ##      The following flags are also available
 ##      --use-direct     (Pull and Push) Directly from sftp to B2
 ##      --use-local-lftp (Pull) Use lftp incremental sync instead of rclone
 ##      --skip-remote    (Pull Only) Skips push to B2
+##      --skip-db        Skips database backup
 ##      --with-staging   Also backup staging site
 ##
 
@@ -109,11 +110,12 @@ if [ $# -gt 0 ]; then
 
           echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
 
-  				## Database backup (if remote server available)
-  				if [[ "$ipAddress" == *".kinsta.com" ]]; then
-  					remoteserver="$username@$ipAddress -p $port"
-  				  ssh $remoteserver 'cd public/ && wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql'
-  				fi
+          if [[ $flag_skip_db != true ]]; then
+            ## Database backup (if remote server available)
+    				if [[ "$ipAddress" == *".kinsta.com" ]] || [[ "$ipAddress" == *".wpengine.com" ]]; then
+              ah ssh $website "wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql"
+    				fi
+          fi
 
   				### Extra LFTP commands
   				## Debug mode
@@ -146,11 +148,12 @@ if [ $# -gt 0 ]; then
             rclone config create sftp-$website sftp host $ipAddress user $username port $port pass $(rclone obscure $password)
           fi
 
-          ## Database backup (if remote server available)
-  				if [[ "$ipAddress" == *".kinsta.com" ]]; then
-  					remoteserver="$username@$ipAddress -p $port"
-  				  ssh $remoteserver 'cd public/ && wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql'
-  				fi
+          if [[ $flag_skip_db != true ]]; then
+            ## Database backup (if remote server available)
+    				if [[ "$ipAddress" == *".kinsta.com" ]] || [[ "$ipAddress" == *".wpengine.com" ]]; then
+              ah ssh $website "wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql"
+    				fi
+          fi
 
           $path_rclone/rclone sync sftp-$website:$homedir $path/$domain/ --exclude .DS_Store --exclude *timthumb.txt --exclude /wp-content/uploads_from_s3/ --verbose=1 --log-file="$logs_path/site-$website.txt"
   				echo "" >> $logs_path/site-$website.txt
