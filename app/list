@@ -4,10 +4,7 @@
 ##		Output array of installs from the logins
 ##
 ## 		Pass arguments from command line like this
-##		php Scripts/Get/installs.php file=logins
-##
-##		assign command line arguments to varibles
-## 		file=logins becomes $_GET['file']
+##		ah list
 ##
 
 parse_str(implode('&', array_slice($argv, 1)), $_GET);

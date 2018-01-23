@@ -2,7 +2,7 @@
 <?php
 
 //  Pass arguments from command line like this
-//  php stats.php anchor.host
+//  ah stats anchor.host
 
 parse_str(implode('&', array_slice($argv, 1)), $_GET);
 
