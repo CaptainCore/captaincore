@@ -1,0 +1,5 @@
+#!/bin/bash
+
+whois=`whois $1`
+echo "$whois" | grep "Registrar:"
+echo "$whois" | grep "Reseller:"
