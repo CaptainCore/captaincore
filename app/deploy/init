@@ -52,24 +52,26 @@ if [ $# -gt 0 ]; then
 			fi
 
 			# captures FTP errors in $ftp_output and file listing within file called ftp_ls
-			ftp_output=$( { lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set ftp:ssl-allow no; ls; exit" -u $username,$password -p $port $protocol://$ipAddress > $path_tmp/ftp_ls; } 2>&1 )
+      ftp_output=$( { $path_rclone/rclone lsd sftp-$website:$homedir ; } 2>&1 )
+      ftp_search_for_***REMOVED***=`echo "$ftp_output" | perl -wnE'say for /wp-admin/g'`
 
 			# Handle FTP errors
-			if [ -n "$ftp_output" ]
-			then
+			if [ $ftp_search_for_***REMOVED*** != "wp-admin" ]; then
 				## Add FTP error to log file
 				echo "FTP response: $website ($ftp_output)"
 			else
 
 				### Pull down wp-config.php and .htaccess
-				lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set net:reconnect-interval-base 5;set net:reconnect-interval-multiplier 1;mirror --only-newer --parallel=2 --exclude '.*' --exclude '.*/' --include 'wp-config.php' --include '.htaccess' --verbose=2 $homedir $path/$domain; exit" -u $username,$password -p $port $protocol://$ipAddress
+        $path_rclone/rclone copy sftp-$website:$homedir/wp-config.php $path/$domain/
+        $path_rclone/rclone copy sftp-$website:$homedir/.htaccess $path/$domain/
 
 				## load custom configs into wp-config.php and .htaccess
 				php ~/Scripts/Get/configs.php wpconfig=$path/$domain/wp-config.php htaccess=$path/$domain/.htaccess
 				sleep 1s
 
 				### Push up modified wp-config.php and .htaccess
-				lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set net:reconnect-interval-base 5;set net:reconnect-interval-multiplier 1;mirror --only-newer --reverse --parallel=2 --exclude '.*' --exclude '.*/' --include 'wp-config.php' --include '.htaccess' --verbose=2 $path/$domain $homedir; exit" -u $username,$password -p $port $protocol://$ipAddress
+        $path_rclone/rclone copy $path/$domain/wp-config.php sftp-$website:$homedir/
+        $path_rclone/rclone copy $path/$domain/.htaccess sftp-$website:$homedir/
 
 				### Generate token
 				token=$(ah get token $domain)

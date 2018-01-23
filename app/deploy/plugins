@@ -35,7 +35,7 @@ then
 			for plugin in akismet worker jetpack anchorhost-client gravityforms google-analytics-for-***REMOVED***
 			do
 				### Upload plugin
-				lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set net:reconnect-interval-base 5;set net:reconnect-interval-multiplier 1;mirror --only-newer --delete --reverse --parallel=2 --exclude .git/ --exclude .DS_Store --exclude Thumbs.db --verbose=2 $local_path/$plugin $remote_path/$plugin; exit" -u $username,$password -p $port $protocol://$ipAddress
+				$path_rclone/rclone sync $local_path/$plugin sftp-$website:$remote_path/$plugin
 			done
 
 			### Loads token
@@ -48,7 +48,7 @@ then
 			for plugin in $plugins
 			do
 				### Upload plugin
-				lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set net:reconnect-interval-base 5;set net:reconnect-interval-multiplier 1;mirror --only-newer --delete --reverse --parallel=2 --exclude .git/ --exclude .DS_Store --exclude Thumbs.db --verbose=2 $local_path/$plugin $remote_path/$plugin; exit" -u $username,$password -p $port $protocol://$ipAddress
+				$path_rclone/rclone sync $local_path/$plugin sftp-$website:$remote_path/$plugin
 			done
 
 		fi

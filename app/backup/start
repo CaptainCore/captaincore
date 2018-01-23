@@ -11,7 +11,6 @@
 ##
 ##      The following flags are also available
 ##      --use-direct     (Pull and Push) Directly from sftp to B2
-##      --use-local-lftp (Pull) Use lftp incremental sync instead of rclone
 ##      --skip-remote    (Pull Only) Skips push to B2
 ##      --skip-db        Skips database backup
 ##      --with-staging   Also backup staging site
@@ -95,70 +94,51 @@ if [ $# -gt 0 ]; then
 			fi
 
 			# captures FTP errors in $ftp_output and file listing to log file
-			ftp_output=$( { lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set ftp:ssl-allow no; ls; exit" -u $username,$password -p $port $protocol://$ipAddress > $logs_path/backup-ftp-ls.txt; } 2>&1 )
+			ftp_output=$( { $path_rclone/rclone lsd sftp-$website:$homedir ; } 2>&1 )
+      ftp_search_for_***REMOVED***=`echo "$ftp_output" | perl -wnE'say for /wp-admin/g'`
 
 			# Handle FTP errors
-			if [ -n "$ftp_output" ]; then
+			if [ $ftp_search_for_***REMOVED*** != "wp-admin" ]; then
 				## Add FTP error to log file
 				echo "FTP response: $website ($ftp_output)<br>" >> $logs_path/backup-log.txt
         echo "FTP response: $website ($ftp_output)"
 			else
 				## No errors found, run the backup
 
-        ### Incremental backup locally with lftp
-        if [[ $flag_use_local_lftp == true ]]; then
-
-          echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
-
-          if [[ $flag_skip_db != true ]]; then
-            ## Database backup (if remote server available)
-    				if [[ "$ipAddress" == *".kinsta.com" ]] || [[ "$ipAddress" == *".wpengine.com" ]]; then
-              ah ssh $website "wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql"
-    				fi
-          fi
-
-  				### Extra LFTP commands
-  				## Debug mode
-  				# extras="debug -o $logs_path/site-$website-debug.txt"
-  				lftp -e "set sftp:auto-confirm yes;set net:max-retries 2;set net:reconnect-interval-base 5;set net:reconnect-interval-multiplier 1;set ftp:ssl-allow no;mirror --only-newer --delete --parallel=4 --exclude .git/ --exclude .DS_Store --exclude Thumbs.db --exclude all-in-one-event-calendar/cache/ --verbose=1 $homedir $path/$domain; exit" -u $username,$password -p $port $protocol://$ipAddress >> $logs_path/site-$website.txt
-  				echo "" >> $logs_path/site-$website.txt
-          tail $logs_path/site-$website.txt >> $logs_path/backup-local.txt
-
-        else
         ### Incremental backup locally with rclone
 
-          echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
-          echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to local (${INDEX}/$#)"
+        echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
+        echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to local (${INDEX}/$#)"
 
-          ### Lookup rclone
-          remotes=$($path_rclone/rclone listremotes)
+        ### Lookup rclone
+        remotes=$($path_rclone/rclone listremotes)
 
-          ### Check for rclone remote
-          rclone_remote_lookup=false
-          for item in ${remotes[@]}; do
-              if [[ sftp-$website: == "$item" ]]; then
-                rclone_remote_lookup=true
-              fi
-          done
+        ### Check for rclone remote
+        rclone_remote_lookup=false
+        for item in ${remotes[@]}; do
+            if [[ sftp-$website: == "$item" ]]; then
+              rclone_remote_lookup=true
+            fi
+        done
 
-          if [[ $rclone_remote_lookup == false ]]; then
-            source ~/.bash_profile
-            echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $website" >> $logs_path/backup-log.txt
-            echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $website"
-            rclone config create sftp-$website sftp host $ipAddress user $username port $port pass $(rclone obscure $password)
-          fi
-
-          if [[ $flag_skip_db != true ]]; then
-            ## Database backup (if remote server available)
-    				if [[ "$ipAddress" == *".kinsta.com" ]] || [[ "$ipAddress" == *".wpengine.com" ]]; then
-              ah ssh $website "wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql"
-    				fi
-          fi
-
-          $path_rclone/rclone sync sftp-$website:$homedir $path/$domain/ --exclude .DS_Store --exclude *timthumb.txt --exclude /wp-content/uploads_from_s3/ --verbose=1 --log-file="$logs_path/site-$website.txt"
-  				echo "" >> $logs_path/site-$website.txt
-          tail $logs_path/site-$website.txt >> $logs_path/backup-local.txt
+        if [[ $rclone_remote_lookup == false ]]; then
+          source ~/.bash_profile
+          echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $website" >> $logs_path/backup-log.txt
+          echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $website"
+          rclone config create sftp-$website sftp host $ipAddress user $username port $port pass $(rclone obscure $password)
         fi
+
+        if [[ $flag_skip_db != true ]]; then
+          ## Database backup (if remote server available)
+  				if [[ "$ipAddress" == *".kinsta.com" ]] || [[ "$ipAddress" == *".wpengine.com" ]]; then
+            ah ssh $website "wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql"
+  				fi
+        fi
+
+        $path_rclone/rclone sync sftp-$website:$homedir $path/$domain/ --exclude .DS_Store --exclude *timthumb.txt --exclude /wp-content/uploads_from_s3/ --verbose=1 --log-file="$logs_path/site-$website.txt"
+				echo "" >> $logs_path/site-$website.txt
+        tail $logs_path/site-$website.txt >> $logs_path/backup-local.txt
+
 
         ## Backup S3 uploads if needed
         if [ -n "$s3bucket" ]; then
