@@ -25,7 +25,7 @@ then
   ## If website on Kinsta then connect SSH using their format
   if [[ "$ipAddress" == *".kinsta.com" ]]; then
 
-    remoteserver="$username@$ipAddress -p $port"
+    remoteserver="-oStrictHostKeyChecking=no $username@$ipAddress -p $port"
     if [ -n "$2" ]; then
       ssh $remoteserver "cd public/ && $2"
     else
@@ -35,19 +35,19 @@ then
   else ## If not Kinsta then try connecting using WP Engine's format
 
     if [ -n "$2" ]; then
-      ssh austin@anchor.host+$1@$1.ssh.wpengine.net "cd sites/* && $2"
+      ssh -oStrictHostKeyChecking=no austin@anchor.host+$1@$1.ssh.wpengine.net "cd sites/* && $2"
     else
-      ssh austin@anchor.host+$1@$1.ssh.wpengine.net
+      ssh -oStrictHostKeyChecking=no austin@anchor.host+$1@$1.ssh.wpengine.net
     fi
 
   fi
 
-else
+else ## not recognized so attempt WP Engine's format
 
   if [ -n "$2" ]; then
-    ssh austin@anchor.host+$1@$1.ssh.wpengine.net "cd sites/* && $2"
+    ssh -oStrictHostKeyChecking=no austin@anchor.host+$1@$1.ssh.wpengine.net "cd sites/* && $2"
   else
-    ssh austin@anchor.host+$1@$1.ssh.wpengine.net
+    ssh -oStrictHostKeyChecking=no austin@anchor.host+$1@$1.ssh.wpengine.net
   fi
 
 fi
