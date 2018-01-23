@@ -14,6 +14,10 @@
 source ~/Scripts/config
 
 website=$1
+if [[ "$website" == *"-staging" ]]; then
+  website=${website//-staging/}
+  use_staging=true
+fi
 
 ### Load FTP credentials
 source ~/Scripts/logins
@@ -25,7 +29,11 @@ then
   ## If website on Kinsta then connect SSH using their format
   if [[ "$ipAddress" == *".kinsta.com" ]]; then
 
-    remoteserver="-oStrictHostKeyChecking=no $username@$ipAddress -p $port"
+    if [[ "$use_staging" != "true" ]]; then
+      remoteserver="-oStrictHostKeyChecking=no $username@$ipAddress -p $port"
+    else
+      remoteserver="-oStrictHostKeyChecking=no $staging_username@$staging_ipAddress -p $staging_port"
+    fi
     if [ -n "$2" ]; then
       ssh $remoteserver "cd public/ && $2"
     else
