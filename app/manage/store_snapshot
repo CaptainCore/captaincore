@@ -10,7 +10,7 @@
 # Load configuration
 source ~/Scripts/config
 
-read -p $'\e[31mWP Engine Download\e[0m: ' wpdownloadzip
+wpdownloadzip=$1
 wpdownloadzipfilename=`echo $wpdownloadzip | perl -n -e '/\/(site.+.zip)/&& print $1'`
 wget $wpdownloadzip
 $path_rclone/rclone move $wpdownloadzipfilename Anchor-Dropbox:Backup/Archive/ -v
