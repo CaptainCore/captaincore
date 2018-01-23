@@ -1,0 +1,5 @@
+#!/bin/bash
+
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+dnsrecon="${root_path}lib/dnsrecon/dnsrecon.py"
+$dnsrecon -d $1
