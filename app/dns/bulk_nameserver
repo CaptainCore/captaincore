@@ -4,7 +4,7 @@
 ##      Bulk nameserver output
 ##
 ##      Pass arguments from command line like this
-##      ah dns bulk_check_nameservers website1.com website2.com website3.com
+##      ah dns bulk_nameservers website1.com website2.com website3.com
 ##
 ##			Expected output
 ##			website1.com	nameserver1.com, nameserver2.com, nameserver3.com
