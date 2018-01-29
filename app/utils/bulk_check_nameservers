@@ -1,0 +1,22 @@
+#!/bin/bash
+
+##
+##      Bulk nameserver output
+##
+##      Pass arguments from command line like this
+##      ah utils bulk_check_nameservers website1.com website2.com website3.com
+##
+##			Expected output
+##			website1.com	nameserver1.com, nameserver2.com, nameserver3.com
+##			website2.com	nameserver1.com, nameserver2.com, nameserver3.com
+##
+
+lightblue='\033[0;34m'
+nocolor='\033[0m' # No Color
+
+for var in "$@"
+do
+	dnslookup=`dig $var NS +short`
+	echo -e "${lightblue}${var}${nocolor} - $dnslookup" | tr '\n' ' '
+	echo ""
+done
