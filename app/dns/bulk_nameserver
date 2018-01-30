@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/zsh
 
 ##
 ##      Bulk nameserver output
@@ -17,6 +17,6 @@ nocolor='\033[0m' # No Color
 for var in "$@"
 do
 	dnslookup=`dig $var NS +short`
-	echo -e "${lightblue}${var}${nocolor} - $dnslookup" | tr '\n' ' '
-	echo ""
+	dnslookup_sorted=(`echo $dnslookup | sort -n`)
+	echo -e "${lightblue}${var}${nocolor} - ${dnslookup_sorted[@]}"
 done
