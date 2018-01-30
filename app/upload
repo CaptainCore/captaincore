@@ -1,0 +1,18 @@
+#!/bin/bash
+
+##
+##      WP Engine SSH uploader
+##
+##      Uploads file to WP Engine install over ssh
+##      ah upload anchorhost1 "~/Download/migration.zip"
+##
+
+if [ -n "$2" ]; then
+  scp $2 austin@anchor.host+$1@$1.ssh.wpengine.net:/home/wpe-user/sites/$1
+else
+  echo 'Missing argument. Ex: ah upload anchorhost1 "~/Download/migration.zip'
+fi
+
+
+## TO DO, make work with Kinsta. Format looks like:
+# scp -P 20034 /Users/austinginder/Downloads/backup-welovelenses.com-12-31-2017.tar.gz welovelenses@35.197.201.225:private/
