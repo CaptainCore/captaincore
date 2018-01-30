@@ -93,12 +93,29 @@ if [ $# -gt 0 ]; then
 			   	homedir="/"
 			fi
 
+			### Lookup rclone
+			remotes=$($path_rclone/rclone listremotes)
+
+			### Check for rclone remote
+			rclone_remote_lookup=false
+			for item in ${remotes[@]}; do
+					if [[ sftp-$website: == "$item" ]]; then
+						rclone_remote_lookup=true
+					fi
+			done
+
+			if [[ $rclone_remote_lookup == false ]]; then
+				echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $website" >> $logs_path/backup-log.txt
+				echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $website"
+				$path_rclone/rclone config create sftp-$website sftp host $ipAddress user $username port $port pass $($path_rclone/rclone obscure $password)
+			fi
+
 			# captures FTP errors in $ftp_output and file listing to log file
 			ftp_output=$( { $path_rclone/rclone lsd sftp-$website:$homedir ; } 2>&1 )
       ftp_search_for_***REMOVED***=`echo "$ftp_output" | perl -wnE'say for /wp-admin/g'`
 
 			# Handle FTP errors
-			if [ $ftp_search_for_***REMOVED*** != "wp-admin" ]; then
+			if [[ $ftp_search_for_***REMOVED*** != "wp-admin" ]]; then
 				## Add FTP error to log file
 				echo "FTP response: $website ($ftp_output)<br>" >> $logs_path/backup-log.txt
         echo "FTP response: $website ($ftp_output)"
@@ -109,24 +126,6 @@ if [ $# -gt 0 ]; then
 
         echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
         echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to local (${INDEX}/$#)"
-
-        ### Lookup rclone
-        remotes=$($path_rclone/rclone listremotes)
-
-        ### Check for rclone remote
-        rclone_remote_lookup=false
-        for item in ${remotes[@]}; do
-            if [[ sftp-$website: == "$item" ]]; then
-              rclone_remote_lookup=true
-            fi
-        done
-
-        if [[ $rclone_remote_lookup == false ]]; then
-          source ~/.bash_profile
-          echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $website" >> $logs_path/backup-log.txt
-          echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $website"
-          rclone config create sftp-$website sftp host $ipAddress user $username port $port pass $(rclone obscure $password)
-        fi
 
         if [[ $flag_skip_db != true ]]; then
           ## Database backup (if remote server available)
