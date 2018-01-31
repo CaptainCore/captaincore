@@ -4,31 +4,31 @@
 ##		Loads new install configurations into logins via command line
 ##
 ## 		Pass arguments from command line like this
-##		ah new install=anchorhosting domain=anchor.host username=anchorhost password=random address=anchorhost.wpengine.com protocol=sftp port=2222 staging_username=anchorhost-staging staging_password=randompassword staging_address=anchorhost.wpengine.com staging_protocol=sftp staging_port=2222 preloadusers=1737
+##		ah new --install=anchorhosting --domain=anchor.host --username=anchorhost --password=random --address=anchorhost.wpengine.com --protocol=sftp --port=2222 --staging_username=anchorhost-staging --staging_password=randompassword --staging_address=anchorhost.wpengine.com --staging_protocol=sftp --staging_port=2222 --preloadusers=1737
 ##
 
 if (isset($argv)) {
 	parse_str(implode('&', array_slice($argv, 1)), $_GET);
 }
 
-$install = $_GET['install'];
-$domain = $_GET['domain'];
-$username = $_GET['username'];
-$password = base64_decode(urldecode($_GET['password']));
-$address = $_GET['address'];
-$protocol = $_GET['protocol'];
-$port = $_GET['port'];
-$staging_username = isset($_GET['staging_username']) ? $_GET['staging_username'] : '';
-$staging_password = isset($_GET['staging_password']) ? base64_decode(urldecode($_GET['staging_password'])) : '';
-$staging_address = isset($_GET['staging_address']) ? $_GET['staging_address'] : '';
-$staging_protocol = isset($_GET['staging_protocol']) ? $_GET['staging_protocol'] : '';
-$staging_port = isset($_GET['staging_port']) ? $_GET['staging_port'] : '';
-$preloadusers = isset($_GET['preloadusers']) ? $_GET['preloadusers'] : '';   // List of customer ID to which have users to preload.
-$homedir = isset($_GET['homedir']) ? $_GET['homedir'] : '';
-$s3accesskey = isset($_GET['s3accesskey']) ? $_GET['s3accesskey'] : '';
-$s3secretkey = isset($_GET['s3secretkey']) ? $_GET['s3secretkey'] : '';
-$s3bucket = isset($_GET['s3bucket']) ? $_GET['s3bucket'] : '';
-$s3path = isset($_GET['s3path']) ? $_GET['s3path'] : '';
+$install = $_GET['--install'];
+$domain = $_GET['--domain'];
+$username = $_GET['--username'];
+$password = base64_decode(urldecode($_GET['--password']));
+$address = $_GET['--address'];
+$protocol = $_GET['--protocol'];
+$port = $_GET['--port'];
+$staging_username = isset($_GET['--staging_username']) ? $_GET['--staging_username'] : '';
+$staging_password = isset($_GET['--staging_password']) ? base64_decode(urldecode($_GET['--staging_password'])) : '';
+$staging_address = isset($_GET['--staging_address']) ? $_GET['--staging_address'] : '';
+$staging_protocol = isset($_GET['--staging_protocol']) ? $_GET['--staging_protocol'] : '';
+$staging_port = isset($_GET['--staging_port']) ? $_GET['--staging_port'] : '';
+$preloadusers = isset($_GET['--preloadusers']) ? $_GET['--preloadusers'] : '';   // List of customer ID to which have users to preload.
+$homedir = isset($_GET['--homedir']) ? $_GET['--homedir'] : '';
+$s3accesskey = isset($_GET['--s3accesskey']) ? $_GET['--s3accesskey'] : '';
+$s3secretkey = isset($_GET['--s3secretkey']) ? $_GET['--s3secretkey'] : '';
+$s3bucket = isset($_GET['--s3bucket']) ? $_GET['--s3bucket'] : '';
+$s3path = isset($_GET['--s3path']) ? $_GET['--s3path'] : '';
 
 if ($install) {
 
