@@ -7,12 +7,43 @@
 ##      ah upload anchorhost1 "~/Download/migration.zip"
 ##
 
-if [ -n "$2" ]; then
-  scp $2 austin@anchor.host+$1@$1.ssh.wpengine.net:/home/wpe-user/sites/$1
-else
-  echo 'Missing argument. Ex: ah upload anchorhost1 "~/Download/migration.zip'
+### Load configuration
+source ~/Scripts/config
+
+website=$1
+
+### Load FTP credentials
+source ~/Scripts/logins
+
+### Credentials found, start the backup
+if ! [ -z "$domain" ]
+then
+
+  ## If website on Kinsta then connect SSH using their format
+  if [[ "$ipAddress" == *".kinsta.com" ]]; then
+
+		if [ -n "$2" ]; then
+			scp -P $port $2 $username@$ipAddress:private/
+		else
+			echo 'Missing argument. Ex: ah upload anchorhost1 "~/Download/migration.zip'
+		fi
+
+  else ## If not Kinsta then try connecting using WP Engine's format
+		echo "Uploading..."
+		if [ -n "$2" ]; then
+		  scp -P 22 $2 austin@anchor.host+$1@$1.ssh.wpengine.net:sites/$1/_wpeprivate/
+		else
+		  echo 'Missing argument. Ex: ah upload anchorhost1 "~/Download/migration.zip'
+		fi
+
+  fi
+
+else ## not recognized so attempt WP Engine's format
+
+	if [ -n "$2" ]; then
+	  scp -P 22 $2 austin@anchor.host+$1@$1.ssh.wpengine.net:sites/$1/_wpeprivate/
+	else
+	  echo 'Missing argument. Ex: ah upload anchorhost1 "~/Download/migration.zip'
+	fi
+
 fi
-
-
-## TO DO, make work with Kinsta. Format looks like:
-# scp -P 20034 /Users/austinginder/Downloads/backup-welovelenses.com-12-31-2017.tar.gz welovelenses@35.197.201.225:private/
