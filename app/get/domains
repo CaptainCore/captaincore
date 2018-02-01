@@ -4,7 +4,7 @@
 ##		Output array of domains from the logins
 ##
 ## 		Pass arguments from command line like this
-##		php Scripts/Get/domains.php
+##		ah get domains
 ##
 
 parse_str(implode('&', array_slice($argv, 1)), $_GET);
