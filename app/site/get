@@ -1,0 +1,61 @@
+#! /usr/bin/env php
+<?php
+##
+##		Output array of installs from the logins
+##
+## 		Pass arguments from command line like this
+##		ah get <install> --field=domain
+##
+##		Expected results
+##		anchor.host
+##
+
+if (isset($argv)) {
+	parse_str(implode('&', array_slice($argv, 1)), $_GET);
+}
+
+$install = $argv[1];
+if (isset($_GET['--field'])) {
+	$field = $_GET['--field'];
+}
+
+if ($_GET && isset($_GET['file'])) {
+	$file = $_GET['file'];
+} else {
+	$file = $_SERVER["HOME"] . "/Scripts/logins";
+}
+
+if (file_exists($file)) {
+$file = file_get_contents($file);
+	// Matches the format: installname)\n\n\t   See: http://regexr.com/3de13
+	$pattern = '/(\w+)\)\n\t\t.+\n([\w\W]+?)\n\t\t\t;;/';
+	preg_match_all($pattern, $file, $matches);
+
+	// $matches[1]  stores the install names
+	// $matches[2]  stores the rest of the fields with tabs and spaces
+	// print_r($matches[2]);
+	foreach($matches[1] as $key => $value) {
+		if ($value == $install) {
+			$install_id = $key;
+		}
+	}
+
+if (isset($install_id)) {
+	$install_data_raw = $matches[2][$install_id];
+	//list($k, $v) = explode('\n', str_replace("\t","",$install_data_raw));
+	//$result[ $k ] = $v;
+	$install_data = explode("\n", str_replace("\t","",$install_data_raw) );
+
+	foreach($install_data as $key => $value) {
+		$install_data_row = explode("=", $value);
+		$install_data[$install_data_row[0]] = stripslashes($install_data_row[1]);
+    unset($install_data[$key]);
+	}
+		//print_r($install_data);
+}
+	if (isset($field)) {
+		echo $install_data[$field];
+	} else {
+		echo json_encode($install_data);
+	}
+}
