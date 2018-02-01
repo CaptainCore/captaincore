@@ -4,7 +4,7 @@
 ##		Creates Snapshot of website
 ##
 ## 		Pass arguments from command line like this
-##		ah snapshot anchor.host --email=austin@anchor.host --skip-remote
+##		ah snapshot anchorhost --email=austin@anchor.host --skip-remote
 ##
 
 source ~/Scripts/config
@@ -47,11 +47,11 @@ done
 if [ $# -gt 0 ]
 then
 
-	domain=${arguments[1]}
+	domain=`ah site get ${arguments[1]} --field=domain`
 
 	## Generates snapshot archive
 	timedate=$(date +%Y-%m-%d)
-	tar -cvz --exclude=".git" --exclude="$site/wp-content/object-cache.php" --exclude="$site/wp-content/advanced-cache.php" --exclude=".gitignore" --exclude=".gitattributes" --exclude="_wpeprivate" -f $path_tmp/$domain-$timedate.tar.gz -C ~/Backup/ $domain/
+	tar -cvz --exclude=".git" --exclude="$domain/wp-content/object-cache.php" --exclude="$domain/wp-content/advanced-cache.php" --exclude=".gitignore" --exclude=".gitattributes" --exclude="_wpeprivate" -f $path_tmp/$domain-$timedate.tar.gz -C ~/Backup/ $domain/
 
 	## Grab snapshot size in bytes
 	if [[ "$OSTYPE" == "linux-gnu" ]]; then
@@ -71,7 +71,7 @@ then
 
   	## Post snapshot to ACF field
     if [[ $ANCHOR_DEV_MODE == true ]]; then
-      curl "http://anchor.dev/anchor-api/$domain/?storage=$snapshot_size&archive=$domain-$timedate.tar.gz&email=$email&token=$token"
+      curl "https://dev.anchor/anchor-api/$domain/?storage=$snapshot_size&archive=$domain-$timedate.tar.gz&email=$email&token=$token"
     else
       curl "https://anchor.host/anchor-api/$domain/?storage=$snapshot_size&archive=$domain-$timedate.tar.gz&email=$email&token=$token"
     fi
