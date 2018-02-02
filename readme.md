@@ -1,9 +1,6 @@
 === CaptainCore CLI ===
 Contributors: austinginder
-Tested up to: 4.1
-License: GPLv2 or later
-License URI: http://www.gnu.org/licenses/gpl-2.0.html
-
+License: The MIT License
 
 == Description ==
 Collection of scripts for automating repeat WordPress tasks. Built using [Bash CLI](https://github.com/SierraSoftworks/bash-cli).
