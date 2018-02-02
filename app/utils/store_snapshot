@@ -4,7 +4,7 @@
 ##      Download and store WP Engine snapshot on Dropbox
 ##
 ##      Pass arguments from command line like this
-##      ah manage store_snapshot
+##      captaincore manage store_snapshot
 ##
 
 # Load configuration

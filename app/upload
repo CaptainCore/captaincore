@@ -4,7 +4,7 @@
 ##      WP Engine SSH uploader
 ##
 ##      Uploads file to WP Engine install over ssh
-##      ah upload anchorhost1 "~/Download/migration.zip"
+##      captaincore upload anchorhost1 "~/Download/migration.zip"
 ##
 
 ### Load configuration
@@ -25,7 +25,7 @@ then
 		if [ -n "$2" ]; then
 			scp -P $port $2 $username@$ipAddress:private/
 		else
-			echo 'Missing argument. Ex: ah upload anchorhost1 "~/Download/migration.zip'
+			echo 'Missing argument. Ex: captaincore upload anchorhost1 "~/Download/migration.zip'
 		fi
 
   else ## If not Kinsta then try connecting using WP Engine's format
@@ -33,7 +33,7 @@ then
 		if [ -n "$2" ]; then
 		  scp -P 22 $2 austin@anchor.host+$1@$1.ssh.wpengine.net:sites/$1/_wpeprivate/
 		else
-		  echo 'Missing argument. Ex: ah upload anchorhost1 "~/Download/migration.zip'
+		  echo 'Missing argument. Ex: captaincore upload anchorhost1 "~/Download/migration.zip'
 		fi
 
   fi
@@ -43,7 +43,7 @@ else ## not recognized so attempt WP Engine's format
 	if [ -n "$2" ]; then
 	  scp -P 22 $2 austin@anchor.host+$1@$1.ssh.wpengine.net:sites/$1/_wpeprivate/
 	else
-	  echo 'Missing argument. Ex: ah upload anchorhost1 "~/Download/migration.zip'
+	  echo 'Missing argument. Ex: captaincore upload anchorhost1 "~/Download/migration.zip'
 	fi
 
 fi

@@ -4,7 +4,7 @@
 ##      Bulk domain output
 ##
 ##      Pass arguments from command line like this
-##      ah dns bulk_domain website1.com website2.com website3.com
+##      captaincore dns bulk_domain website1.com website2.com website3.com
 ##
 ##			Expected output
 ##			website1.com	Registrar: Tucows Reseller: Hover.com

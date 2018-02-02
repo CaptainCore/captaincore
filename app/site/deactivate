@@ -4,7 +4,7 @@
 ##      Deploys custom deactivate mu-plugin to batch of installs
 ##
 ##      Pass arguments from command line like this
-##      ah manage deactivate install1 install2
+##      captaincore manage deactivate install1 install2
 ##
 
 

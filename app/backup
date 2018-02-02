@@ -4,10 +4,10 @@
 ##      Batch backup of WordPress sites
 ##
 ##      Pass arguments from command line like this
-##      ah backup new install1 install2
+##      captaincore backup new install1 install2
 ##
 ##      Or backup everything like this
-##      ah backup new
+##      captaincore backup new
 ##
 ##      The following flags are also available
 ##      --use-direct     (Pull and Push) Directly from sftp to B2
@@ -130,7 +130,7 @@ if [ $# -gt 0 ]; then
         if [[ $flag_skip_db != true ]]; then
           ## Database backup (if remote server available)
   				if [[ "$ipAddress" == *".kinsta.com" ]] || [[ "$ipAddress" == *".wpengine.com" ]]; then
-            ah ssh $website "wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql"
+            captaincore ssh $website "wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql"
   				fi
         fi
 
@@ -216,7 +216,7 @@ if [ $# -gt 0 ]; then
 	shareurl=`echo $shareurl | grep -o 'https.*'`
 
 	### Generate overall emails
-	( echo "$(ah get transferred_stats file=$logs_path/backup-remote.txt)" && printf "<br><a href='$shareurl'>View Logs</a><br><br>" && grep -r "FTP response" $logs_path/backup-log.txt; ) \
+	( echo "$(captaincore get transferred_stats file=$logs_path/backup-remote.txt)" && printf "<br><a href='$shareurl'>View Logs</a><br><br>" && grep -r "FTP response" $logs_path/backup-log.txt; ) \
 	| mutt -e 'set content_type=text/html' -s "Backup completed: $# installs | $backup_date" -a $logs_path/backup-log.txt -- support@anchor.host
 
 	cd ~

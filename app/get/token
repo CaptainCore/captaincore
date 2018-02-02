@@ -2,8 +2,8 @@
 <?php
 
 //  Pass arguments from command line like this
-//  ah get token anchor.host
-//  ah get token file=~/Sites/anchor.dev/wp-config.php
+//  captaincore get token anchor.host
+//  captaincore get token file=~/Sites/anchor.dev/wp-config.php
 
 parse_str(implode('&', array_slice($argv, 1)), $_GET);
 

@@ -4,7 +4,7 @@
 ##      WP Engine SSH download
 ##
 ##      Downloads file from WP Engine/Kinsta install over ssh
-##      ah download anchorhost1 logo.png
+##      captaincore download anchorhost1 logo.png
 ##
 
 # Load configuration
@@ -26,7 +26,7 @@ then
 		if [ -n "$2" ]; then
 			scp -P $port $username@$ipAddress:public/$2 $2
 		else
-			echo 'Missing argument. Ex: ah download anchorhost1 logo.png'
+			echo 'Missing argument. Ex: captaincore download anchorhost1 logo.png'
 		fi
 
   else ## If not Kinsta then try connecting using WP Engine's format
@@ -34,7 +34,7 @@ then
 		if [ -n "$2" ]; then
 		  scp -P 22 austin@anchor.host+$1@$1.ssh.wpengine.net:sites/$1/$2 $2
 		else
-		  echo 'Missing argument. Ex: ah download anchorhost1 logo.png'
+		  echo 'Missing argument. Ex: captaincore download anchorhost1 logo.png'
 		fi
 
   fi
@@ -44,7 +44,7 @@ else ## not recognized so attempt WP Engine's format
 	if [ -n "$2" ]; then
 	  scp -P 22 austin@anchor.host+$1@$1.ssh.wpengine.net:sites/$1/$2 $2
 	else
-	  echo 'Missing argument. Ex: ah download anchorhost1 logo.png'
+	  echo 'Missing argument. Ex: captaincore download anchorhost1 logo.png'
 	fi
 
 fi

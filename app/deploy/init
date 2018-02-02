@@ -74,7 +74,7 @@ if [ $# -gt 0 ]; then
         $path_rclone/rclone copy $path/$domain/.htaccess sftp-$website:$homedir/
 
 				### Generate token
-				token=$(ah get token $domain)
+				token=$(captaincore get token $domain)
 
 				### Generate backup link
 				shareurl=`$path_scripts/Run/dropbox_uploader.sh share Backup/Sites/$domain`

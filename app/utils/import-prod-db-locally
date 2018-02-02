@@ -4,7 +4,7 @@
 ##      Import production database to local WordPress site
 ##
 ##      Pass arguments from command line like this
-##      ah utils import-prod-db-locally anchorhost
+##      captaincore utils import-prod-db-locally anchorhost
 ##
 
 # Load configuration
@@ -63,7 +63,7 @@ if [ $# -gt 0 ]; then
 			fi
 
       # Make database backup on production
-      ah ssh $website "wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql"
+      captaincore ssh $website "wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql"
 
       # Sync production to staging
       $path_rclone/rclone copy sftp-$website:$homedir/wp-content/mysql.sql wp-content/ --verbose=1

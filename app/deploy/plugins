@@ -39,7 +39,7 @@ then
 			done
 
 			### Loads token
-			website_token=$(ah get token $domain)
+			website_token=$(captaincore get token $domain)
 
 			### Load dynamic list of plugins for install
 			plugins=`php ~/Scripts/Run/plugin-generate.php token=$website_token customers=$preloadusers`

@@ -4,7 +4,7 @@
 ##		Resets file permissions within git repo on current directory
 ##    (Useful when restoring .git repo and file permissions changed)
 ##
-## 		ah utils git-permissions-reset
+## 		captaincore utils git-permissions-reset
 ##
 
 git_status=`git status`

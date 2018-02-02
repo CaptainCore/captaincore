@@ -3,10 +3,10 @@
 ##		Pres new install configurations into logins via command line
 ##
 ## 		Pass arguments from command line like this
-##		ah prep anchorhosting
+##		captaincore prep anchorhosting
 ##
 ##    Skip users and plugin deployment
-##    ah prep anchorhosting --skip-deployment
+##    captaincore prep anchorhosting --skip-deployment
 ##
 
 
@@ -52,20 +52,20 @@ chmod +x ~/Scripts/logins
 if [[ $skip_deployment != true ]]; then
 
   ## load custom configs into wp-config.php and .htaccess, setups up token
-  ah deploy init $1
+  captaincore deploy init $1
   echo "load custom configs into wp-config.php and .htaccess"
   echo "Setting up token"
 
   ## loads users
-  ah deploy users $1
+  captaincore deploy users $1
   echo "Preload Users"
 
   ## install plugins
-  ah deploy plugins $1
+  captaincore deploy plugins $1
   echo "Preload Plugins"
 
   ## run initial backup
-  ah backup new $1
+  captaincore backup new $1
   echo "Running Initial Backup"
 
 fi

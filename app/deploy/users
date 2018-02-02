@@ -32,7 +32,7 @@ do
       then
 
         ### Loads token
-        website_token=$(ah get token $domain)
+        website_token=$(captaincore get token $domain)
 
         ### Generate JSON file based on preloaded list
         php ~/Scripts/Run/users-generate-json.php token=$website_token customers=$preloadusers website=$website

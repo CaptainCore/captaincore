@@ -4,10 +4,10 @@
 ##      SSH wrapper for Kinsta and WP Engine
 ##
 ##      Connects to individual install over SSH
-##      ah ssh anchorhost1
+##      captaincore ssh anchorhost1
 ##
 ##      Runs command over SSH
-##      ah ssh anchorhost1 "wp plugins list"
+##      captaincore ssh anchorhost1 "wp plugins list"
 ##
 
 # Load configuration

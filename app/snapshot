@@ -4,7 +4,7 @@
 ##		Creates Snapshot of website
 ##
 ## 		Pass arguments from command line like this
-##		ah snapshot anchorhost --email=austin@anchor.host --skip-remote
+##		captaincore snapshot anchorhost --email=austin@anchor.host --skip-remote
 ##
 
 source ~/Scripts/config
