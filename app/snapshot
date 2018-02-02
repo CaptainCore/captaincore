@@ -70,7 +70,7 @@ then
   	$path_rclone/rclone move $path_tmp/$domain-$timedate.tar.gz Anchor-B2:AnchorHostBackup/Snapshots/$domain/
 
   	## Post snapshot to ACF field
-    if [[ $ANCHOR_DEV_MODE == true ]]; then
+    if [[ $captaincore_dev == true ]]; then
       curl "https://dev.anchor/anchor-api/$domain/?storage=$snapshot_size&archive=$domain-$timedate.tar.gz&email=$email&token=$token"
     else
       curl "https://anchor.host/anchor-api/$domain/?storage=$snapshot_size&archive=$domain-$timedate.tar.gz&email=$email&token=$token"
