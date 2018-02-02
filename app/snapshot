@@ -47,7 +47,7 @@ done
 if [ $# -gt 0 ]
 then
 
-	domain=`ah site get ${arguments[1]} --field=domain`
+	domain=`captaincore site get ${arguments[1]} --field=domain`
 
 	## Generates snapshot archive
 	timedate=$(date +%Y-%m-%d)

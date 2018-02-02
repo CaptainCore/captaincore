@@ -2,4 +2,4 @@
 
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 version=`cat ${root_path}app/.version`
-echo "Anchor Hosting CLI v$version"
+echo "CaptainCore CLI v$version"

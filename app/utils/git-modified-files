@@ -3,7 +3,7 @@
 
 ##
 ##  git_status=`git status`
-##  modified_files=`ah utils git-modified-files $git_status`
+##  modified_files=`captaincore utils git-modified-files $git_status`
 ##
 
 preg_match_all(

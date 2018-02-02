@@ -3,7 +3,7 @@
 
 ##
 ##  git_diff=`git diff HEAD $file`
-##  new_permissions=`ah utils git-diff-permission-check "$git_diff"`
+##  new_permissions=`captaincore utils git-diff-permission-check "$git_diff"`
 ##
 
 preg_match_all(

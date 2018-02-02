@@ -1,4 +1,4 @@
-=== Anchor Hosting CLI ===
+=== CaptainCore CLI ===
 Contributors: austinginder
 Tested up to: 4.1
 License: GPLv2 or later

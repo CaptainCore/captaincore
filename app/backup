@@ -79,7 +79,7 @@ if [ $# -gt 0 ]; then
     if [[ $subsite == "true" ]]; then
 
       ### Views for yearly stats
-      views=`ah stats $website`
+      views=`captaincore stats $website`
 
       ### Updates stats with no storage since it's a subsite
       curl "https://anchor.host/anchor-api/$website/?storage=0&views=$views&token=$token"
@@ -212,7 +212,7 @@ if [ $# -gt 0 ]; then
 	$path_rclone/rclone sync $logs/$backup_date/$backup_time-$auth Anchor-Dropbox:Backup/Logs/$backup_date/$backup_time-$auth --exclude .DS_Store
 
 	### Generate dropbox link to logs
-	shareurl=`ah utils dropbox_uploader share Backup/Logs/$backup_date/$backup_time-$auth`
+	shareurl=`captaincore utils dropbox_uploader share Backup/Logs/$backup_date/$backup_time-$auth`
 	shareurl=`echo $shareurl | grep -o 'https.*'`
 
 	### Generate overall emails

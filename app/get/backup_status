@@ -45,11 +45,11 @@ site_backup_log_1=$( { ls ~/Logs/$most_recent_date/$most_recent_log/${site_backu
 site_backup_log_2=$( { ls ~/Logs/$most_recent_date/$most_recent_log/${site_backup_list[1]}; } 2>&1 )
 
 # Output sync status
-calc_site_backup_log=`ah get log_stat log=$site_backup_log_1`
+calc_site_backup_log=`captaincore get log_stat log=$site_backup_log_1`
 printf "$calc_site_backup_log (\e[1;32m${site_backup_list[0]}\e[0m)\n"
 
 # Output sync status
-calc_site_backup_log=`ah get log_stat log=$site_backup_log_2`
+calc_site_backup_log=`captaincore get log_stat log=$site_backup_log_2`
 printf "$calc_site_backup_log (\e[1;32m${site_backup_list[1]}\e[0m)\n"
 
 if [[ "$b2_log" != *"No such file or directory"* ]]; then
@@ -70,7 +70,7 @@ if [[ "$local_log" != *"No such file or directory"* ]]; then
 	local_log_name=`echo $local_log | xargs -n 1 basename`
 
   # Calculate log stats
-	calc_log_stats=`ah get transferred_stats file=$local_log`
+	calc_log_stats=`captaincore get transferred_stats file=$local_log`
 
 	# Output the log folder name
 	printf "$calc_log_stats (\e[1;32m$local_log_name\e[0m)\n"
