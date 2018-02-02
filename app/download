@@ -7,13 +7,14 @@
 ##      ah download anchorhost1 logo.png
 ##
 
-### Load configuration
-source ~/Scripts/config
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source $root_path/config
 
 website=$1
 
 ### Load FTP credentials
-source ~/Scripts/logins
+source $root_path/logins
 
 ### Credentials found, start the backup
 if ! [ -z "$domain" ]
