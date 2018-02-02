@@ -10,8 +10,9 @@
 ##      ah ssh anchorhost1 "wp plugins list"
 ##
 
-### Load configuration
-source ~/Scripts/config
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source $root_path/config
 
 website=$1
 if [[ "$website" == *"-staging" ]]; then
@@ -20,7 +21,7 @@ if [[ "$website" == *"-staging" ]]; then
 fi
 
 ### Load FTP credentials
-source ~/Scripts/logins
+source $root_path/logins
 
 ### Credentials found, start the backup
 if ! [ -z "$domain" ]
@@ -43,9 +44,9 @@ then
   else ## If not Kinsta then try connecting using WP Engine's format
 
     if [ -n "$2" ]; then
-      ssh -oStrictHostKeyChecking=no austin@anchor.host+$1@$1.ssh.wpengine.net "cd sites/* && $2"
+      ssh -oStrictHostKeyChecking=no $wpe_ssh_user+$1@$1.ssh.wpengine.net "cd sites/* && $2"
     else
-      ssh -oStrictHostKeyChecking=no austin@anchor.host+$1@$1.ssh.wpengine.net
+      ssh -oStrictHostKeyChecking=no $wpe_ssh_user+$1@$1.ssh.wpengine.net
     fi
 
   fi
@@ -53,9 +54,9 @@ then
 else ## not recognized so attempt WP Engine's format
 
   if [ -n "$2" ]; then
-    ssh -oStrictHostKeyChecking=no austin@anchor.host+$1@$1.ssh.wpengine.net "cd sites/* && $2"
+    ssh -oStrictHostKeyChecking=no $wpe_ssh_user+$1@$1.ssh.wpengine.net "cd sites/* && $2"
   else
-    ssh -oStrictHostKeyChecking=no austin@anchor.host+$1@$1.ssh.wpengine.net
+    ssh -oStrictHostKeyChecking=no $wpe_ssh_user+$1@$1.ssh.wpengine.net
   fi
 
 fi
