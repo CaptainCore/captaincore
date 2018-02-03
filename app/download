@@ -24,7 +24,7 @@ then
   if [[ "$ipAddress" == *".kinsta.com" ]]; then
 
 		if [ -n "$2" ]; then
-			scp -P $port $username@$ipAddress:public/$2 $2
+			scp -o StrictHostKeyChecking=no -P $port $username@$ipAddress:public/$2 $2
 		else
 			echo 'Missing argument. Ex: captaincore download anchorhost1 logo.png'
 		fi
@@ -32,7 +32,7 @@ then
   else ## If not Kinsta then try connecting using WP Engine's format
 		echo "Download..."
 		if [ -n "$2" ]; then
-		  scp -P 22 austin@anchor.host+$1@$1.ssh.wpengine.net:sites/$1/$2 $2
+		  scp -o StrictHostKeyChecking=no -P 22 $wpe_ssh_user+$1@$1.ssh.wpengine.net:sites/$1/$2 $2
 		else
 		  echo 'Missing argument. Ex: captaincore download anchorhost1 logo.png'
 		fi
@@ -42,7 +42,7 @@ then
 else ## not recognized so attempt WP Engine's format
 
 	if [ -n "$2" ]; then
-	  scp -P 22 austin@anchor.host+$1@$1.ssh.wpengine.net:sites/$1/$2 $2
+	  scp -o StrictHostKeyChecking=no -P 22 $wpe_ssh_user+$1@$1.ssh.wpengine.net:sites/$1/$2 $2
 	else
 	  echo 'Missing argument. Ex: captaincore download anchorhost1 logo.png'
 	fi
