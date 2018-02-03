@@ -4,7 +4,7 @@
 ##		Output array of installs from the logins
 ##
 ## 		Pass arguments from command line like this
-##		captaincore list
+##		captaincore config list
 ##
 
 parse_str(implode('&', array_slice($argv, 1)), $_GET);
@@ -12,7 +12,7 @@ parse_str(implode('&', array_slice($argv, 1)), $_GET);
 if ($_GET && $_GET['file']) {
 	$file = $_GET['file'];
 } else {
-	$file = $_SERVER["HOME"] . "/Scripts/logins";
+	$file = $_SERVER["HOME"] . "/.captaincore-cli/logins";
 }
 
 if (file_exists($file)) {
@@ -27,5 +27,3 @@ $file = file_get_contents($file);
 
 	echo $space_separated;
 }
-
-?>

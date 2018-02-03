@@ -4,7 +4,7 @@
 ##		Output array of installs from the logins
 ##
 ## 		Pass arguments from command line like this
-##		captaincore get <install> --field=domain
+##		captaincore config get <install> --field=domain
 ##
 ##		Expected results
 ##		anchor.host
@@ -22,7 +22,7 @@ if (isset($_GET['--field'])) {
 if ($_GET && isset($_GET['file'])) {
 	$file = $_GET['file'];
 } else {
-	$file = $_SERVER["HOME"] . "/Scripts/logins";
+	$file = $_SERVER["HOME"] . "/.captaincore-cli/logins";
 }
 
 if (file_exists($file)) {

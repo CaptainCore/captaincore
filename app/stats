@@ -9,7 +9,7 @@ parse_str(implode('&', array_slice($argv, 1)), $_GET);
 $domain = $argv[1];
 
 // Loads CLI configs
-$file = $_SERVER["HOME"] . "/Scripts/config";
+$file = $_SERVER["HOME"] . "/.captaincore-cli/config";
 if (file_exists($file)) {
 
 	$file = file_get_contents($file);
