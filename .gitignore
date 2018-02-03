@@ -1,5 +1,6 @@
 _/
 config
+!config/
 config.sh
 logins
 logins.sh
