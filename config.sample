@@ -1,13 +1,20 @@
-### Configurations
-access_key=="#####################"
-token="#####################"
-auth=="#####################"
-path="/Users/username/Backup"
-logs="/Users/username/Logs"
-path_dropbox="/Users/username/Tmp/Snapshots"
-path_rclone="/Users/username/Downloads/rclone-v1.38-osx-amd64"
-path_tmp="/Users/username/Tmp"
-path_scripts="/Users/username/Scripts"
+# Configurations
 
-# Dynamically collect the install names based on the logins case.
-websites=`ah list installs`
+## Keys
+access_key="#####################"      # WordPress API Key
+token="#####################"						# WordPress Token Key for captaincore CLI
+auth="#####################"						# WordPress Auth Key for captaincore CLI
+local_wp_db_pw="#####################"	# Local MariaDB password
+
+## Paths
+path="/Users/username/Backup"                                  # Backup Folder
+logs="/Users/username/Logs"                                    # Log Folder
+path_dropbox="/Users/username/Tmp/Snapshots"                   # Dropbox
+path_rclone="/Users/username/Downloads/rclone-v1.39-osx-amd64" # Rclone
+path_tmp="/Users/username/Tmp"                                 # Tmp Folder
+path_scripts="/Users/username/Scripts"                         # Scripts Folder
+
+## Vars
+websites=`captaincore site list`	# Install names
+wpe_ssh_user=email@captaincore.io	# WP SSH username
+# captaincore_dev=true						# Enable DEV Mode
