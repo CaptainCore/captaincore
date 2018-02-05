@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Load configuration
-source ~/Scripts/config
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source $root_path/config
 
 if [ $# -gt 0 ]
 then

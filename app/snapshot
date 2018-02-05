@@ -7,7 +7,9 @@
 ##		captaincore snapshot anchorhost --email=austin@anchor.host --skip-remote
 ##
 
-source ~/Scripts/config
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source $root_path/config
 
 # Loop through arguments and seperate regular arguments from flags (--flag)
 for var in "$@"
