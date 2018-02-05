@@ -8,7 +8,8 @@
 ##
 
 # Load configuration
-source ~/Scripts/config
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source $root_path/config
 
 duplicate_installs=(`echo ${websites[@]} | awk '{gsub(" ","\n")};1' | awk '!($0 in seen){seen[$0];next} 1'`)
 
