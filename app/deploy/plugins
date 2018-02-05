@@ -4,11 +4,12 @@
 ##      Preloading plugins to install
 ##
 ##      Pass arguments from command line like this
-##      Scripts/Run/load_plugins.sh install1 install2
+##      captaincore deploy plugins install1 install2
 ##
 
-### Load configuration
-source ~/Scripts/config
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source $root_path/config
 
 # Paths
 local_path="~/Backup/anchor.host/wp-content/plugins"
@@ -23,7 +24,7 @@ then
 		website=${!var}
 
 		### Load FTP credentials
-		source ~/Scripts/logins
+		source $root_path/logins
 
 		### Credentials found, start the backup
 		if ! [ -z "$domain" ]
@@ -42,7 +43,7 @@ then
 			website_token=$(captaincore get token $domain)
 
 			### Load dynamic list of plugins for install
-			plugins=`php ~/Scripts/Run/plugin-generate.php token=$website_token customers=$preloadusers`
+			plugins=`captaincore generate plugins --token=$website_token --customers=$preloadusers`
 
 			### Loop through dynamic list of plugins
 			for plugin in $plugins
