@@ -11,6 +11,8 @@
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source $root_path/config
 
+website=$1
+
 # Loop through arguments and seperate regular arguments from flags (--flag)
 for var in "$@"
 do
@@ -49,7 +51,7 @@ done
 if [ $# -gt 0 ]
 then
 
-	domain=`captaincore config get ${arguments[1]} --field=domain`
+	domain=`captaincore config get $website --field=domain`
 
 	## Generates snapshot archive
 	timedate=$(date +%Y-%m-%d)
