@@ -10,6 +10,8 @@
 ##		anchor.host
 ##
 
+$root_path = explode( '/app/', $argv[0] )[0];
+
 if (isset($argv)) {
 	parse_str(implode('&', array_slice($argv, 1)), $_GET);
 }
@@ -22,7 +24,7 @@ if (isset($_GET['--field'])) {
 if ($_GET && isset($_GET['file'])) {
 	$file = $_GET['file'];
 } else {
-	$file = $_SERVER["HOME"] . "/.captaincore-cli/logins";
+	$file = "$root_path/.captaincore-cli/logins";
 }
 
 if (file_exists($file)) {
