@@ -68,9 +68,6 @@ if ($install) {
 		$output = shell_exec('captaincore config process');
 		// Make final snapshot then remove local files
 		$output = shell_exec('captaincore snapshot '. $install .' --delete-after-snapshot --email=support@anchor.host > /dev/null 2>/dev/null &');
-		// Removed from rclone
-		$output = shell_exec('rclone config delete sftp-'. $install);
-
 	}
 
 }
