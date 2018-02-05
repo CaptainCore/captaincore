@@ -51,7 +51,7 @@ if (isset($install_id)) {
 		$install_data[$install_data_row[0]] = stripslashes($install_data_row[1]);
     unset($install_data[$key]);
 	}
-		//print_r($install_data);
+
 }
 	if (isset($field)) {
 		echo $install_data[$field];
