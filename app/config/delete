@@ -4,7 +4,7 @@
 ##		Remove install configurations into config and logins via command line
 ##
 ## 		Pass arguments from command line like this
-##		php Scripts/Delete/install.php install=anchorhosting domain=anchor.host
+##		captaincore config delete --install=anchorhosting --domain=anchor.host
 ##
 ##		assign command line arguments to varibles
 ## 		install=anchorhosting becomes $_GET['install']
@@ -16,8 +16,8 @@ if (isset($argv)) {
 	parse_str(implode('&', array_slice($argv, 1)), $_GET);
 }
 
-$install = $_GET("--install");
-$domain = $_GET("--domain");
+$install = $_GET['--install'];
+$domain = $_GET['--domain'];
 
 if ($install) {
 
