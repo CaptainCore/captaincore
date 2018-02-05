@@ -1,1 +1,1 @@
-<install> <domain> [--homedir=<homedir>]
+--install=<install> --domain=<domain>

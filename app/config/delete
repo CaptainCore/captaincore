@@ -10,21 +10,23 @@
 ## 		install=anchorhosting becomes $_GET['install']
 ##
 
+$root_path = explode( '/app/', $argv[0] )[0];
+
 if (isset($argv)) {
 	parse_str(implode('&', array_slice($argv, 1)), $_GET);
 }
 
-$install = $argv[1];
-$domain = $argv[2];
+$install = $_GET("--install");
+$domain = $_GET("--domain");
 
 if ($install) {
 
 ## logins
 
 	# Reads current backup logins
-	$file = $_SERVER['HOME'] . '/Scripts/logins';
+	$file = "$root_path/logins";
 	$current = file_get_contents($file);
-	$lines = explode( PHP_EOL, $current);
+	$lines = explode( PHP_EOL, $current );
 
 	# Find end of websites array
 	$key = array_search("		*)", $lines);
@@ -62,8 +64,13 @@ if ($install) {
 
 	// Runs cleanup if install was removed. Also makes sure that the $domain contains at least a period.
 	if (strpos($domain, '.') !== false) {
-		$output = shell_exec('sh ' . $_SERVER['HOME'] . '/Scripts/Delete/install.sh '. $domain .' > /dev/null 2>/dev/null &');
+		// Updated new logins
+		$output = shell_exec('captaincore config process');
+		// Make final snapshot then remove local files
+		$output = shell_exec('captaincore snapshot '. $install .' --delete-after-snapshot --email=support@anchor.host > /dev/null 2>/dev/null &');
+		// Removed from rclone
 		$output = shell_exec('rclone config delete sftp-'. $install);
+
 	}
 
 }

@@ -1,0 +1,14 @@
+#!/bin/bash
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source $root_path/config
+
+if [ ! -f ~/Tmp/logins ]; then
+	echo "No new logins to process"
+else
+	## Prep new config files
+	echo "updating logins"
+	mv ~/Tmp/logins $root_path
+	chmod +x $root_path/logins
+fi
