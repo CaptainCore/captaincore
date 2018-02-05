@@ -64,8 +64,6 @@ if ($install) {
 
 	// Runs cleanup if install was removed. Also makes sure that the $domain contains at least a period.
 	if (strpos($domain, '.') !== false) {
-		// Updated new logins
-		$output = shell_exec('captaincore config process');
 		// Make final snapshot then remove local files
 		$output = shell_exec('captaincore snapshot '. $install .' --delete-after-snapshot --email=support@anchor.host > /dev/null 2>/dev/null &');
 	}

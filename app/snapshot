@@ -89,6 +89,8 @@ then
 		rclone config delete sftp-$website-staging
 		## Removes directory from backup server
 		rm -rf ~/Backup/$domain
+		## Process the removed logins
+		captaincore config process
 	fi
 
 fi
