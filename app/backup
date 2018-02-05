@@ -94,7 +94,7 @@ if [ $# -gt 0 ]; then
 			fi
 
 			### Lookup rclone
-			remotes=$($path_rclone/rclone listremotes)
+			remotes=$(rclone listremotes)
 
 			### Check for rclone remote
 			rclone_remote_lookup=false
@@ -111,7 +111,7 @@ if [ $# -gt 0 ]; then
 			fi
 
 			# captures FTP errors in $ftp_output and file listing to log file
-			ftp_output=$( { $path_rclone/rclone lsd sftp-$website:$homedir ; } 2>&1 )
+			ftp_output=$( { rclone lsd sftp-$website:$homedir ; } 2>&1 )
       ftp_search_for_***REMOVED***=`echo "$ftp_output" | perl -wnE'say for /wp-admin/g'`
 
 			# Handle FTP errors
@@ -134,7 +134,7 @@ if [ $# -gt 0 ]; then
   				fi
         fi
 
-        $path_rclone/rclone sync sftp-$website:$homedir $path/$domain/ --exclude .DS_Store --exclude *timthumb.txt --exclude /wp-content/uploads_from_s3/ --verbose=1 --log-file="$logs_path/site-$website.txt"
+        rclone sync sftp-$website:$homedir $path/$domain/ --exclude .DS_Store --exclude *timthumb.txt --exclude /wp-content/uploads_from_s3/ --verbose=1 --log-file="$logs_path/site-$website.txt"
 				echo "" >> $logs_path/site-$website.txt
         tail $logs_path/site-$website.txt >> $logs_path/backup-local.txt
 
@@ -143,7 +143,7 @@ if [ $# -gt 0 ]; then
         if [ -n "$s3bucket" ]; then
           echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website (S3) to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
           echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website (S3) to local (${INDEX}/$#)"
-          $path_rclone/rclone sync s3-$website:$s3bucket/$s3path $path/$domain/wp-content/uploads_from_s3/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$website-s3.txt"
+          rclone sync s3-$website:$s3bucket/$s3path $path/$domain/wp-content/uploads_from_s3/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$website-s3.txt"
         fi
 
         if [[ "$OSTYPE" == "linux-gnu" ]]; then
@@ -160,7 +160,7 @@ if [ $# -gt 0 ]; then
           ### Incremental backup upload to Remote
           echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $website to remote (${INDEX}/$#)" >> $logs_path/backup-log.txt
           echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $website to remote (${INDEX}/$#)"
-          ts $path_rclone/rclone sync $path/$domain Anchor-B2:AnchorHostBackup/Sites/$domain -v --exclude .DS_Store --fast-list --transfers=32 --log-file="$logs_path/site-$website-remote.txt"
+          ts rclone sync $path/$domain Anchor-B2:AnchorHostBackup/Sites/$domain -v --exclude .DS_Store --fast-list --transfers=32 --log-file="$logs_path/site-$website-remote.txt"
 
           ### Add install to Remote log file
           ### Grabs last 6 lines of output from remote transfer to log file
@@ -209,7 +209,7 @@ if [ $# -gt 0 ]; then
 	tar -cvzf logs.tar.gz *
 
 	### Upload logs to Dropbox
-	$path_rclone/rclone sync $logs/$backup_date/$backup_time-$auth Anchor-Dropbox:Backup/Logs/$backup_date/$backup_time-$auth --exclude .DS_Store
+	rclone sync $logs/$backup_date/$backup_time-$auth Anchor-Dropbox:Backup/Logs/$backup_date/$backup_time-$auth --exclude .DS_Store
 
 	### Generate dropbox link to logs
 	shareurl=`captaincore utils dropbox_uploader share Backup/Logs/$backup_date/$backup_time-$auth`

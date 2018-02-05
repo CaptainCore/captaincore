@@ -53,7 +53,7 @@ if [ $# -gt 0 ]; then
 			fi
 
 			# captures FTP errors in $ftp_output and file listing within file called ftp_ls
-      ftp_output=$( { $path_rclone/rclone lsd sftp-$website:$homedir ; } 2>&1 )
+      ftp_output=$( { rclone lsd sftp-$website:$homedir ; } 2>&1 )
       ftp_search_for_***REMOVED***=`echo "$ftp_output" | perl -wnE'say for /wp-admin/g'`
 
 			# Handle FTP errors
@@ -63,16 +63,16 @@ if [ $# -gt 0 ]; then
 			else
 
 				### Pull down wp-config.php and .htaccess
-        $path_rclone/rclone copy sftp-$website:$homedir/wp-config.php $path/$domain/
-        $path_rclone/rclone copy sftp-$website:$homedir/.htaccess $path/$domain/
+        rclone copy sftp-$website:$homedir/wp-config.php $path/$domain/
+        rclone copy sftp-$website:$homedir/.htaccess $path/$domain/
 
 				## load custom configs into wp-config.php and .htaccess
 				php ~/Scripts/Get/configs.php wpconfig=$path/$domain/wp-config.php htaccess=$path/$domain/.htaccess
 				sleep 1s
 
 				### Push up modified wp-config.php and .htaccess
-        $path_rclone/rclone copy $path/$domain/wp-config.php sftp-$website:$homedir/
-        $path_rclone/rclone copy $path/$domain/.htaccess sftp-$website:$homedir/
+        rclone copy $path/$domain/wp-config.php sftp-$website:$homedir/
+        rclone copy $path/$domain/.htaccess sftp-$website:$homedir/
 
 				### Generate token
 				token=$(captaincore get token $domain)

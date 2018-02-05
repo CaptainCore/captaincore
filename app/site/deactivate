@@ -28,7 +28,7 @@ for (( i = 1; i <= $#; i++ )); do
     if ! [ -z "$domain" ]; then
 
       ### upload deactivation plugin to mu-plugins
-      $path_rclone/rclone copy $local_path/$plugin.php sftp-$website:$homedir/wp-content/mu-plugins/
+      rclone copy $local_path/$plugin.php sftp-$website:$homedir/wp-content/mu-plugins/
 
       echo "deactivated $domain"
 

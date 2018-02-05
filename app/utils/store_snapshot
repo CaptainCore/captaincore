@@ -15,4 +15,4 @@ source $root_path/config
 wpdownloadzip=$1
 wpdownloadzipfilename=`echo $wpdownloadzip | perl -n -e '/\/(site.+.zip)/&& print $1'`
 wget $wpdownloadzip
-$path_rclone/rclone move $wpdownloadzipfilename Anchor-Dropbox:Backup/Archive/ -v
+rclone move $wpdownloadzipfilename Anchor-Dropbox:Backup/Archive/ -v

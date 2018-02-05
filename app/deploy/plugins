@@ -36,7 +36,7 @@ then
 			for plugin in akismet worker jetpack anchorhost-client gravityforms google-analytics-for-***REMOVED***
 			do
 				### Upload plugin
-				$path_rclone/rclone sync $local_path/$plugin sftp-$website:$remote_path/$plugin
+				rclone sync $local_path/$plugin sftp-$website:$remote_path/$plugin
 			done
 
 			### Loads token
@@ -49,7 +49,7 @@ then
 			for plugin in $plugins
 			do
 				### Upload plugin
-				$path_rclone/rclone sync $local_path/$plugin sftp-$website:$remote_path/$plugin
+				rclone sync $local_path/$plugin sftp-$website:$remote_path/$plugin
 			done
 
 		fi

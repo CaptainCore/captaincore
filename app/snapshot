@@ -69,7 +69,7 @@ then
   if [[ $skip_remote != true ]]; then
 
   	## Moves snapshot to Backblaze archive folder
-  	$path_rclone/rclone move $path_tmp/$domain-$timedate.tar.gz Anchor-B2:AnchorHostBackup/Snapshots/$domain/
+  	rclone move $path_tmp/$domain-$timedate.tar.gz Anchor-B2:AnchorHostBackup/Snapshots/$domain/
 
   	## Post snapshot to ACF field
     if [[ $captaincore_dev == true ]]; then

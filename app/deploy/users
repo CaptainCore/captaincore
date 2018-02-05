@@ -42,7 +42,7 @@ do
         php ~/Scripts/Run/users.php install=$website token=$website_token customers=$preloadusers
 
         ### upload password plugin to mu-plugins
-        $path_rclone/rclone copy ~/Tmp/anchor_load_$website.php sftp-$website:$homedir/wp-content/mu-plugins/
+        rclone copy ~/Tmp/anchor_load_$website.php sftp-$website:$homedir/wp-content/mu-plugins/
 
         ### Trigger website to load password
         wget --no-cache --spider $ipAddress/wp-admin/
@@ -50,7 +50,7 @@ do
         curl -Il $ipAddress/wp-login.php
 
         ## remove password plugin
-        $path_rclone/rclone delete sftp-$website:$homedir/wp-content/mu-plugins/anchor_load_$website.php
+        rclone delete sftp-$website:$homedir/wp-content/mu-plugins/anchor_load_$website.php
 
       fi
 

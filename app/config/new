@@ -145,9 +145,9 @@ if ($install) {
 ## Rclone Import
 
 	# rclone obscure password
-	$password = shell_exec('. '. $_SERVER['HOME'] . '/Scripts/config && $path_rclone/rclone obscure '. $password);
+	$password = shell_exec('rclone obscure '. $password);
 	if ($staging_password) {
-		$staging_password = shell_exec('. '. $_SERVER['HOME'] . '/Scripts/config && $path_rclone/rclone obscure '. $staging_password);
+		$staging_password = shell_exec('rclone obscure '. $staging_password);
 	}
 
 	# locate rclone config file
