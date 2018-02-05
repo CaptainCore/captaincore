@@ -107,7 +107,7 @@ if [ $# -gt 0 ]; then
 			if [[ $rclone_remote_lookup == false ]]; then
 				echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $website" >> $logs_path/backup-log.txt
 				echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $website"
-				$path_rclone/rclone config create sftp-$website sftp host $ipAddress user $username port $port pass $($path_rclone/rclone obscure $password)
+				captaincore generate rclone $website
 			fi
 
 			# captures FTP errors in $ftp_output and file listing to log file
