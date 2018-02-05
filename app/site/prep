@@ -46,8 +46,7 @@ do
 done
 
 ## Prep new config files
-mv ~/Tmp/logins ~/Scripts/
-chmod +x ~/Scripts/logins
+captaincore config process
 
 if [[ $skip_deployment != true ]]; then
 
@@ -65,7 +64,7 @@ if [[ $skip_deployment != true ]]; then
   echo "Preload Plugins"
 
   ## run initial backup
-  captaincore backup new $1
+  captaincore backup $1
   echo "Running Initial Backup"
 
 fi

@@ -4,38 +4,40 @@
 ##		Loads new install configurations into logins via command line
 ##
 ## 		Pass arguments from command line like this
-##		php Scripts/Run/update.php install=anchorhosting domain=anchor.host username=anchorhost password=random address=anchorhost.wpengine.com protocol=sftp port=2222 staging_username=anchorhost-staging staging_password=randompassword staging_address=anchorhost.wpengine.com staging_protocol=sftp staging_port=2222 preloadusers=1737
+##		captaincore config update --install=anchorhosting --domain=anchor.host --username=anchorhost --password=random --address=anchorhost.wpengine.com --protocol=sftp --port=2222 ---staging_username=anchorhost-staging --staging_password=randompassword --staging_address=anchorhost.wpengine.com --staging_protocol=sftp --staging_port=2222 --preloadusers=1737
 ##
+
+$root_path = explode( '/app/', $argv[0] )[0];
 
 if (isset($argv)) {
 	parse_str(implode('&', array_slice($argv, 1)), $_GET);
 }
 
-$install = $_GET['install'];
-$domain = $_GET['domain'];
-$username = $_GET['username'];
-$password = base64_decode(urldecode($_GET['password']));
-$address = $_GET['address'];
-$protocol = $_GET['protocol'];
-$port = $_GET['port'];
-$staging_username = isset($_GET['staging_username']) ? $_GET['staging_username'] : '';
-$staging_password = isset($_GET['staging_password']) ? base64_decode(urldecode($_GET['staging_password'])) : '';
-$staging_address = isset($_GET['staging_address']) ? $_GET['staging_address'] : '';
-$staging_protocol = isset($_GET['staging_protocol']) ? $_GET['staging_protocol'] : '';
-$staging_port = isset($_GET['staging_port']) ? $_GET['staging_port'] : '';
-$preloadusers = isset($_GET['preloadusers']) ? $_GET['preloadusers'] : '';   // List of customer ID to which have users to preload.
-$homedir = isset($_GET['homedir']) ? $_GET['homedir'] : '';
-$s3accesskey = isset($_GET['s3accesskey']) ? $_GET['s3accesskey'] : '';
-$s3secretkey = isset($_GET['s3secretkey']) ? $_GET['s3secretkey'] : '';
-$s3bucket = isset($_GET['s3bucket']) ? $_GET['s3bucket'] : '';
-$s3path = isset($_GET['s3path']) ? $_GET['s3path'] : '';
+$install = $_GET['--install'];
+$domain = $_GET['--domain'];
+$username = $_GET['--username'];
+$password = base64_decode(urldecode($_GET['--password']));
+$address = $_GET['--address'];
+$protocol = $_GET['--protocol'];
+$port = $_GET['--port'];
+$staging_username = isset($_GET['--staging_username']) ? $_GET['--staging_username'] : '';
+$staging_password = isset($_GET['--staging_password']) ? base64_decode(urldecode($_GET['--staging_password'])) : '';
+$staging_address = isset($_GET['--staging_address']) ? $_GET['--staging_address'] : '';
+$staging_protocol = isset($_GET['--staging_protocol']) ? $_GET['--staging_protocol'] : '';
+$staging_port = isset($_GET['--staging_port']) ? $_GET['--staging_port'] : '';
+$preloadusers = isset($_GET['--preloadusers']) ? $_GET['--preloadusers'] : '';   // List of customer ID to which have users to preload.
+$homedir = isset($_GET['--homedir']) ? $_GET['--homedir'] : '';
+$s3accesskey = isset($_GET['--s3accesskey']) ? $_GET['--s3accesskey'] : '';
+$s3secretkey = isset($_GET['--s3secretkey']) ? $_GET['--s3secretkey'] : '';
+$s3bucket = isset($_GET['--s3bucket']) ? $_GET['--s3bucket'] : '';
+$s3path = isset($_GET['--s3path']) ? $_GET['--s3path'] : '';
 
 if ($install) {
 
 ## logins
 
 	# Reads current backup logins
-	$file = $_SERVER['HOME'] . '/Scripts/logins';
+	$file = $root_path . '/logins';
 	$current = file_get_contents($file);
 	$lines = explode( PHP_EOL, $current);
 
@@ -91,7 +93,6 @@ if ($install) {
 		array("20n" => "			;;") +
 		array_slice($lines, $key - $lines_removed, count($lines) - 1, true);
 
-
 		if ($new_lines) {
 			# outputs new additions to file
 			$new_contents = implode( PHP_EOL, $new_lines);
@@ -138,16 +139,16 @@ if ($install) {
 	echo "Skipping plugins and backup\n";
 	## 	setups up token and load custom configs into wp-config.php and .htaccess
 	##  in a background process. Sent email when completed.
-	$output = shell_exec($_SERVER['HOME'] . '/Scripts/Run/new_install_configs.sh '. $install .' > /dev/null 2>/dev/null &');
+	$output = shell_exec( "captaincore site prep $install --skip-deployment > /dev/null 2>/dev/null &" );
 
 }
 
 ## Rclone Import
 
 	# rclone obscure password
-	$password = shell_exec('. '. $_SERVER['HOME'] . '/Scripts/config && $path_rclone/rclone obscure '. $password);
+	$password = shell_exec('rclone obscure '. $password);
 	if ($staging_password) {
-		$staging_password = shell_exec('. '. $_SERVER['HOME'] . '/Scripts/config && $path_rclone/rclone obscure '. $staging_password);
+		$staging_password = shell_exec('rclone obscure '. $staging_password);
 	}
 
 	# locate rclone config file
@@ -214,7 +215,7 @@ if ($found_install != true) {
 
 	if ($key_search) {
 
-		$key_search_id = array_search("sftp-newwebsite3",$matches[1]);
+		$key_search_id = array_search("sftp-$install",$matches[1]);
 		$key_search_row_count = substr_count( $matches[0][$key_search_id], "\n");
 
 		$i = 0;
