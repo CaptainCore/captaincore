@@ -10,6 +10,7 @@ https://captaincore.io
 ## Getting started
 
 - Install `captaincore` command by running `sudo ln -s ~/.captaincore-cli/cli /usr/local/bin/captaincore`
+- Download latest rclone and install system wide by running `sudo ln -s ~/Download/rclone-v1.39-osx-amd64/rclone /usr/local/bin/rclone`
 - Run `captaincore utils dropbox_uploader` and config with Dropbox account
 - Copy config.sample.sh to config and configure with appropriate folders
 - Run `rclone config` and config Dropbox account
