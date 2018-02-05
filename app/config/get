@@ -24,7 +24,7 @@ if (isset($_GET['--field'])) {
 if ($_GET && isset($_GET['file'])) {
 	$file = $_GET['file'];
 } else {
-	$file = "$root_path/.captaincore-cli/logins";
+	$file = "$root_path/logins";
 }
 
 if (file_exists($file)) {
