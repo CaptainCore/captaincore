@@ -4,8 +4,10 @@
 ##		Loads new install configurations into logins via command line
 ##
 ## 		Pass arguments from command line like this
-##		captaincore new --install=anchorhosting --domain=anchor.host --username=anchorhost --password=random --address=anchorhost.wpengine.com --protocol=sftp --port=2222 --staging_username=anchorhost-staging --staging_password=randompassword --staging_address=anchorhost.wpengine.com --staging_protocol=sftp --staging_port=2222 --preloadusers=1737
+##		captaincore config new --install=anchorhosting --domain=anchor.host --username=anchorhost --password=random --address=anchorhost.wpengine.com --protocol=sftp --port=2222 --staging_username=anchorhost-staging --staging_password=randompassword --staging_address=anchorhost.wpengine.com --staging_protocol=sftp --staging_port=2222 --preloadusers=1737
 ##
+
+$root_path = explode( '/app/', $argv[0] )[0];
 
 if (isset($argv)) {
 	parse_str(implode('&', array_slice($argv, 1)), $_GET);
@@ -35,7 +37,7 @@ if ($install) {
 ## logins
 
 	# Reads current backup logins
-	$file = $_SERVER['HOME'] . '/Scripts/logins';
+	$file = $root_path . '/logins';
 	$current = file_get_contents($file);
 	$lines = explode( PHP_EOL, $current);
 
