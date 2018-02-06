@@ -31,7 +31,7 @@ if ($domain) {
 	$months = "";
 
 	// Pull stats from WordPress API
-	$curl = curl_init( 'https://public-api.***REMOVED***.com/rest/v1/sites/'.$domain.'/stats/visits?unit=month&quantity=12' );
+	$curl = curl_init( 'https://public-api.wordpress.com/rest/v1/sites/'.$domain.'/stats/visits?unit=month&quantity=12' );
 	curl_setopt( $curl, CURLOPT_HTTPHEADER, array( 'Authorization: Bearer ' . $access_key ) );
 	curl_setopt( $curl, CURLOPT_RETURNTRANSFER, 1);
 	$response = curl_exec( $curl );
@@ -41,7 +41,7 @@ if ($domain) {
 		// Attempt to load www version
 
 		// Pull stats from WordPress API
-		$curl = curl_init( 'https://public-api.***REMOVED***.com/rest/v1/sites/www.'.$domain.'/stats/visits?unit=month&quantity=12' );
+		$curl = curl_init( 'https://public-api.wordpress.com/rest/v1/sites/www.'.$domain.'/stats/visits?unit=month&quantity=12' );
 		curl_setopt( $curl, CURLOPT_HTTPHEADER, array( 'Authorization: Bearer ' . $access_key ) );
 		curl_setopt( $curl, CURLOPT_RETURNTRANSFER, 1);
 		$response = curl_exec( $curl );

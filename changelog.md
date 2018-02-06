@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.1.1] - 2018-02-05
+### Added
+- Argument `--delete-after-snapshot` to `captaincore snapshot`
+- Config process command `captaincore config process` which will safely update the logins only when needed
+- Generate rclone commmand `captaincore generate rclone <install>` which now imports staging credentials automatically.
+- Setup instructions to readme.md for installing rclone systemwide
+
+### Changed
+- Load bash config file dynamically
+- Upgraded `captaincore config update` command to new format
+- Switch `captaincore config update` and `captaincore backup` to use new generate rclone command
+- Delete command format is now `captaincore config delete --install=<install> --domain=<domain>`
+- Only make snapshot if domain for install is found
+
+### Removed
+- Unnecessary delete.sh support file
+- Bash variable $path_rclone
+
 ## [0.1.0] - 2018-02-02
 ### Added
 - Bulk domain lookup command `captaincore dns domain <domain>`

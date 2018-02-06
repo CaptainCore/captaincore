@@ -33,7 +33,7 @@ then
 			remote_path="$homedir/wp-content/plugins"
 
 			### Loop through static list of plugins
-			for plugin in akismet worker jetpack anchorhost-client gravityforms google-analytics-for-***REMOVED***
+			for plugin in akismet worker jetpack anchorhost-client gravityforms google-analytics-for-wordpress
 			do
 				### Upload plugin
 				rclone sync $local_path/$plugin sftp-$website:$remote_path/$plugin

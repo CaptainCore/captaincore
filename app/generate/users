@@ -29,7 +29,7 @@ $content = <<<EOT
 add_filter( 'wp_mail_from', function( \$email ) {
     \$site = get_site_url();
     \$parse = parse_url(\$site);
-    \$email = "***REMOVED***@". \$parse['host'];
+    \$email = "wordpress@". \$parse['host'];
     return \$email;
 });
 

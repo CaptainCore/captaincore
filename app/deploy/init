@@ -54,10 +54,10 @@ if [ $# -gt 0 ]; then
 
 			# captures FTP errors in $ftp_output and file listing within file called ftp_ls
       ftp_output=$( { rclone lsd sftp-$website:$homedir ; } 2>&1 )
-      ftp_search_for_***REMOVED***=`echo "$ftp_output" | perl -wnE'say for /wp-admin/g'`
+      ftp_search_for_wordpress=`echo "$ftp_output" | perl -wnE'say for /wp-admin/g'`
 
 			# Handle FTP errors
-			if [ $ftp_search_for_***REMOVED*** != "wp-admin" ]; then
+			if [ $ftp_search_for_wordpress != "wp-admin" ]; then
 				## Add FTP error to log file
 				echo "FTP response: $website ($ftp_output)"
 			else
