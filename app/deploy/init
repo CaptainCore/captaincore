@@ -75,14 +75,14 @@ if [ $# -gt 0 ]; then
         rclone copy $path/$domain/.htaccess sftp-$website:$homedir/
 
 				### Generate token
-				token=$(captaincore get token $domain)
+				token_key=$(captaincore get token $domain)
 
 				### Generate backup link
 				shareurl=`$path_scripts/Run/dropbox_uploader.sh share Backup/Sites/$domain`
 				shareurl=`echo $shareurl | grep -o 'https.*'`
 
 				### Assign token and backup link
-				curl "https://anchor.host/anchor-api/$domain/?token=$token&auth=$auth"
+				curl "https://anchor.host/anchor-api/$domain/?token=$token&token_key=$token_key"
 				sleep 1s
 
 			fi
