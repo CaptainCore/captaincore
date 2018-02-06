@@ -4,7 +4,7 @@
 ##      Deploys custom preloading users mu-plugin to batch of installs
 ##
 ##      Pass arguments from command line like this
-##      Scripts/Run/load_users.sh install1 install2
+##      captaincore deploy users install1 install2
 ##
 ##      The users argument determines which json file to load user data from
 ##
@@ -26,7 +26,7 @@ do
       group=${website##*=}
     else
       ### Load FTP credentials
-      source ~/Scripts/logins
+			source $root_path/logins
 
       ### Credentials found, start the backup
       if ! [ -z "$domain" ]
@@ -36,10 +36,10 @@ do
         website_token=$(captaincore get token $domain)
 
         ### Generate JSON file based on preloaded list
-        php ~/Scripts/Run/users-generate-json.php token=$website_token customers=$preloadusers website=$website
+        captaincore generate users-json --token=$website_token --customers=$preloadusers --website=$website
 
         ### Generate mu-plugin file based on a predefined user group
-        php ~/Scripts/Run/users.php install=$website token=$website_token customers=$preloadusers
+        captaincore generate users --install=$website --token=$website_token --customers=$preloadusers
 
         ### upload password plugin to mu-plugins
         rclone copy ~/Tmp/anchor_load_$website.php sftp-$website:$homedir/wp-content/mu-plugins/

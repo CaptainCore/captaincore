@@ -4,7 +4,7 @@
 ##		Generates a json file based on an API call to anchor.host containing list of users to preload
 ##
 ## 		Pass arguments from command line like this
-##		php users-generate-json.php token=random customers=1294,1245 website=anchorhost
+##		captaincore generate users-json --token=random --customers=1294,1245 --website=anchorhost
 ##
 ##		assign command line arguments to varibles
 ## 		userlist=~/Documents/Scripts/userlist.csv becomes $_GET['userlist']
@@ -14,9 +14,9 @@ if (isset($argv)) {
     parse_str(implode('&', array_slice($argv, 1)), $_GET);
 }
 
-$website = $_GET['website'];
-$token = $_GET['token'];
-$customers = explode(",", $_GET['customers'] );
+$website = $_GET['--website'];
+$token = $_GET['--token'];
+$customers = explode(",", $_GET['--customers'] );
 
 $preloaded_users = array();
 

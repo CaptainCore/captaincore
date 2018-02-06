@@ -4,7 +4,7 @@
 ##		Generates a self destructing WordPress mu-plugin which will preload WordPress users
 ##
 ## 		Pass arguments from command line like this
-##		php users.php install=anchorhosting
+##		captaincore generate users --install=anchorhosting
 ##
 ##		assign command line arguments to varibles
 ## 		userlist=~/Documents/Scripts/userlist.json becomes $_GET['userlist']
@@ -14,9 +14,9 @@ if (isset($argv)) {
 	parse_str(implode('&', array_slice($argv, 1)), $_GET);
 }
 
-$install = $_GET['install'];
-$token = $_GET['token'];
-$customers = explode(",", $_GET['customers'] );
+$install = $_GET['--install'];
+$token = $_GET['--token'];
+$customers = explode(",", $_GET['--customers'] );
 $userlist = $_SERVER['HOME'] . "/Tmp/userlist-$install.json";
 $json = json_decode(file_get_contents($userlist), true);
 $generated_plugin = $_SERVER['HOME'] ."/Tmp/anchor_load_$install.php";
