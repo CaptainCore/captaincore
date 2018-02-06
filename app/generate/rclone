@@ -19,7 +19,9 @@ then
 
 	echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $website"
 	# Add new WordPress site to Rclone
-	rclone config create sftp-$website sftp host $ipAddress user $username port $port pass $(rclone obscure $password)
-	rclone config create sftp-$website-staging sftp host $staging_ipAddress user $staging_username port $staging_port pass $(rclone obscure $staging_password)
+	rclone_pass=$(rclone obscure $password)
+	rclone_pass_staging=$(rclone obscure $staging_password)
+	rclone config create sftp-$website sftp host $ipAddress user $username port $port pass $rclone_pass
+	rclone config create sftp-$website-staging sftp host $staging_ipAddress user $staging_username port $staging_port pass $rclone_pass_staging
 
 fi
