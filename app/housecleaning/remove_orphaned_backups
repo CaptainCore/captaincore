@@ -43,7 +43,7 @@ do
   website=${websites[@]}
 
   ### Load FTP credentials
-  source $path_scripts/logins
+  source $root_path/logins
 
   containsElement "${backups[$i]}" "${websites[@]}"
   if [ $? == 1 ]

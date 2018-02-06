@@ -16,7 +16,7 @@ then
 		website=${!var}
 
 		### Load FTP credentials
-		source $path_scripts/logins
+		source $root_path/logins
 
 		### Credentials found, start the backup
 		if ! [ -z "$domain" ]
