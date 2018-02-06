@@ -82,7 +82,7 @@ if [ $# -gt 0 ]; then
 				shareurl=`echo $shareurl | grep -o 'https.*'`
 
 				### Assign token and backup link
-				curl "https://anchor.host/backup/$domain/?link=$shareurl&token=$token&auth=$auth"
+				curl "https://anchor.host/anchor-api/$domain/?token=$token&auth=$auth"
 				sleep 1s
 
 			fi
