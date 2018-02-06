@@ -4,7 +4,7 @@
 ##		Loads custom configurations into wp-config.php and .htaccess
 ##
 ## 		Pass arguments from command line like this
-##		php configs.php wpconfig=~/Documents/Scripts/wp-config.php htaccess=~/Documents/Scripts/.htaccess
+##		captaincore get configs --wpconfig=~/Documents/Scripts/wp-config.php --htaccess=~/Documents/Scripts/.htaccess
 ##
 ##		assign command line arguments to varibles
 ## 		wpconfig=~/Documents/Scripts/wp-config.php becomes $_GET['wpconfig']
@@ -14,8 +14,8 @@ if (isset($argv)) {
 	parse_str(implode('&', array_slice($argv, 1)), $_GET);
 }
 
-$wpconfig = $_GET['wpconfig'];
-$htaccess = $_GET['htaccess'];
+$wpconfig = $_GET['--wpconfig'];
+$htaccess = $_GET['--htaccess'];
 $domain = basename(dirname($wpconfig));
 
 ## customizes wp-config.php
@@ -240,5 +240,3 @@ function array_find($needle, array $haystack)
     }
     return false;
 }
-
-?>
