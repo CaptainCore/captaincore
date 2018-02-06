@@ -83,7 +83,7 @@ if [[ "$remote_log" != *"No such file or directory"* ]]; then
 	remote_log_name=`echo $remote_log | xargs -n 1 basename`
 
   # Calculate Remote transfer
-  calc_remote=`php ~/Scripts/Get/transferred_stats.php file=$remote_log`
+  calc_remote=`captaincore get transferred_stats file=$remote_log`
 
 	# Output the file name and a line break
 	printf "$calc_remote (\e[1;32m$remote_log_name\e[0m)\n"
