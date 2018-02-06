@@ -56,7 +56,11 @@ if (isset($install_id)) {
 
 }
 	if (isset($field)) {
-		echo $install_data[$field];
+		if ( isset($install_data) ) {
+			echo $install_data[$field];
+		} else {
+			echo "";
+		}
 	} else {
 		echo json_encode($install_data);
 	}
