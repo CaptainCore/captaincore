@@ -51,7 +51,14 @@ done
 if [ $# -gt 0 ]
 then
 
+	snapshot_website() {
 	domain=`captaincore config get $website --field=domain`
+
+	## Return error if domain not found
+	if [[ "$domain" == "" ]]; then
+		echo "Can't locate website for install $website"
+		return 1
+	fi
 
 	## Generates snapshot archive
 	timedate=$(date +%Y-%m-%d)
@@ -92,5 +99,7 @@ then
 		## Process the removed logins
 		captaincore config process
 	fi
+	}
+	snapshot_website
 
 fi
