@@ -141,10 +141,10 @@ if ($install) {
 	##  in a background process. Sent email when completed.
 	$output = shell_exec( "captaincore site prep $install --skip-deployment" );
 
-}
+	## Rclone Import
+	echo "Updating rclone config\n";
+	$output = shell_exec("captaincore generate rclone $install");
 
-## Rclone Import
-echo "Updating rclone config\n";
-$output = shell_exec("captaincore generate rclone $install");
+}
 
 echo "Setting up ". $install;
