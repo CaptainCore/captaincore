@@ -78,8 +78,8 @@ if [ $# -gt 0 ]; then
 				token_key=$(captaincore get token $domain)
 
 				### Generate backup link
-				shareurl=`$path_scripts/Run/dropbox_uploader.sh share Backup/Sites/$domain`
-				shareurl=`echo $shareurl | grep -o 'https.*'`
+				# shareurl=`$path_scripts/Run/dropbox_uploader.sh share Backup/Sites/$domain`
+				# shareurl=`echo $shareurl | grep -o 'https.*'`
 
 				### Assign token and backup link
 				curl "https://anchor.host/anchor-api/$domain/?token=$token&token_key=$token_key"
