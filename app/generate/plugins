@@ -25,18 +25,24 @@ foreach ($customers as $customer) {
     curl_setopt( $curl, CURLOPT_RETURNTRANSFER, 1);
     $response = curl_exec( $curl );
     $json_results_website = json_decode($response, true);
-    $plugins = $json_results_website["preloaded_plugins"];
+		if (isset($json_results_website["preloaded_plugins"])) {
 
-    foreach ($plugins as $plugin) {
-        $preloaded_plugins[] = $plugin;
-    }
+			$preloaded_plugins = [];
+
+	    $plugins = $json_results_website["preloaded_plugins"];
+
+	    foreach ($plugins as $plugin) {
+	        $preloaded_plugins[] = $plugin;
+	    }
+		}
 }
 
 $output = "";
-
-foreach ($preloaded_plugins as $preloaded_plugin) {
-	$plugin = $preloaded_plugin["plugin"];
-    $output .= $plugin . " ";
+if (isset($preloaded_plugins)) {
+	foreach ($preloaded_plugins as $preloaded_plugin) {
+		$plugin = $preloaded_plugin["plugin"];
+	    $output .= $plugin . " ";
+	}
 }
 
 echo trim($output);
