@@ -8,22 +8,29 @@
 ##
 
 site=$1
+site_address=`captaincore config get $site --field="ipAddress"`
 
-# Extract a JSON value from a BASH script (https://gist.github.com/cjus/1047794)
-function jsonValue() {
-	KEY=$1
-	num=$2
-	awk -F"[,:}]" '{for(i=1;i<=NF;i++){if($i~/'$KEY'\042/){print $(i+1)}}}' | tr -d '"' | sed -n ${num}p
-}
+if [[ $site_address == *".kinsta.com"* ]]; then
 
-# Check for authorized_keys using rclone's JSON
-check_for_keys=`rclone lsjson sftp-${site}:.ssh/authorized_keys --no-modtime`
+	# Extract a JSON value from a BASH script (https://gist.github.com/cjus/1047794)
+	function jsonValue() {
+		KEY=$1
+		num=$2
+		awk -F"[,:}]" '{for(i=1;i<=NF;i++){if($i~/'$KEY'\042/){print $(i+1)}}}' | tr -d '"' | sed -n ${num}p
+	}
 
-# Read the "Path" JSON value
-found_authorized_keys=`echo $check_for_keys | jsonValue Path`
+	# Check for authorized_keys using rclone's JSON
+	check_for_keys=`rclone lsjson sftp-${site}:.ssh/authorized_keys --no-modtime`
 
-if [[ "$found_authorized_keys" == "authorized_keys" ]]; then
-	echo "found keys: TODO append to bottom of file";
+	# Read the "Path" JSON value
+	found_authorized_keys=`echo $check_for_keys | jsonValue Path`
+
+	if [[ "$found_authorized_keys" == "authorized_keys" ]]; then
+		echo "found keys: TODO append to bottom of file";
+	else
+		cat ~/.ssh/id_rsa.pub | rclone rcat sftp-${site}:.ssh/authorized_keys
+	fi
+
 else
-	cat ~/.ssh/id_rsa.pub | rclone rcat sftp-${site}:.ssh/authorized_keys
+	echo "Not a Kinsta site, skipping ssh keys"
 fi

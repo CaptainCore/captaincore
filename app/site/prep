@@ -63,6 +63,9 @@ if [[ $skip_deployment != true ]]; then
   captaincore deploy plugins $1
   echo "Preload Plugins"
 
+	## Deploy SSH keys
+	captaincore deploy keys $1
+
   ## run initial backup
   captaincore backup $1
   echo "Running Initial Backup"
