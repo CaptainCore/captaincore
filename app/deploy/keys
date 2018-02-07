@@ -1,0 +1,29 @@
+#!/bin/bash
+
+##
+##      Preloading SSH Keys (Kinsta Only)
+##
+##      Pass arguments from command line like this
+##      captaincore deploy keys <install>
+##
+
+site=$1
+
+# Extract a JSON value from a BASH script (https://gist.github.com/cjus/1047794)
+function jsonValue() {
+	KEY=$1
+	num=$2
+	awk -F"[,:}]" '{for(i=1;i<=NF;i++){if($i~/'$KEY'\042/){print $(i+1)}}}' | tr -d '"' | sed -n ${num}p
+}
+
+# Check for authorized_keys using rclone's JSON
+check_for_keys=`rclone lsjson sftp-${site}:.ssh/authorized_keys --no-modtime`
+
+# Read the "Path" JSON value
+found_authorized_keys=`echo $check_for_keys | jsonValue Path`
+
+if [[ "$found_authorized_keys" == "authorized_keys" ]]; then
+	echo "found keys: TODO append to bottom of file";
+else
+	cat ~/.ssh/id_rsa.pub | rclone rcat sftp-${site}:.ssh/authorized_keys
+fi
