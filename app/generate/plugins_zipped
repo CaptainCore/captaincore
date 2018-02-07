@@ -1,0 +1,22 @@
+#!/bin/bash
+
+##
+##		Generates zip files for paid plugins for deployment purposes
+##
+## 		Pass arguments from command line like this
+##		captaincore generate plugins_zipped
+##
+
+# TODO - Move static list to CaptainCore Plugin
+
+## admin-columns-pro : Admin Columns Pro
+## cac-addon-acf : Admin Columns - Advanced Custom Fields add-on
+## advanced-custom-fields-pro : Advanced Custom Fields Pro
+## advanced-responsive-video-embedder : Advanced Responsive Video Embedder
+## arve-pro : Advanced Responsive Video Embedder Pro
+
+plugins=(anchorhost-client gravityforms admin-columns-pro cac-addon-acf advanced-custom-fields-pro advanced-responsive-video-embedder arve-pro)
+
+for plugin in ${plugins[@]}; do
+	captaincore ssh anchorhost "cd wp-content/plugins; zip -r ${plugin}.zip $plugin"
+done
