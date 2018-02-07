@@ -137,12 +137,16 @@ if ($install) {
 		file_put_contents($_SERVER['HOME'] . '/Tmp/logins', $new_contents);
 	}
 
+	## Prep new config files
+	$output = shell_exec( "captaincore config process" );
+
+	## Rclone Import
+	echo "Updating rclone config\n";
+	$output = shell_exec("captaincore generate rclone $install");
+
 	## 	run initial backup, setups up token, install plugins
 	##	and load custom configs into wp-config.php and .htaccess
 	##  in a background process. Sent email when completed.
-	echo "Updating rclone config\n";
-	$output = shell_exec( "captaincore config process" );
-	$output = shell_exec( "captaincore generate rclone $install" );
 	$output = shell_exec( 'captaincore site prep '. $install .' > /dev/null 2>/dev/null &');
 
 }

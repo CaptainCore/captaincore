@@ -136,14 +136,17 @@ if ($install) {
 		file_put_contents($_SERVER['HOME'] . '/Tmp/logins', $new_contents);
 	}
 
-	echo "Skipping plugins and backup\n";
-	## 	setups up token and load custom configs into wp-config.php and .htaccess
-	##  in a background process. Sent email when completed.
-	$output = shell_exec( "captaincore site prep $install --skip-deployment" );
+	## Prep new config files
+	$output = shell_exec( "captaincore config process" );
 
 	## Rclone Import
 	echo "Updating rclone config\n";
 	$output = shell_exec("captaincore generate rclone $install");
+
+	## 	setups up token and load custom configs into wp-config.php and .htaccess
+	##  in a background process. Sent email when completed.
+	echo "Skipping plugins and backup\n";
+	$output = shell_exec( "captaincore site prep $install --skip-deployment" );
 
 }
 

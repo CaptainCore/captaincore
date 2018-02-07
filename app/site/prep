@@ -1,4 +1,5 @@
 #!/bin/bash
+
 ##
 ##		Pres new install configurations into logins via command line
 ##
@@ -8,7 +9,6 @@
 ##    Skip users and plugin deployment
 ##    captaincore prep anchorhosting --skip-deployment
 ##
-
 
 # Loop through arguments and seperate regular arguments from flags (--flag)
 for var in "$@"
@@ -45,15 +45,15 @@ do
 
 done
 
-## Prep new config files
-captaincore config process
-
 if [[ $skip_deployment != true ]]; then
 
   ## load custom configs into wp-config.php and .htaccess, setups up token
   captaincore deploy init $1
   echo "load custom configs into wp-config.php and .htaccess"
   echo "Setting up token"
+
+	## Deploy SSH keys
+	captaincore deploy keys $1
 
   ## loads users
   captaincore deploy users $1
@@ -62,9 +62,6 @@ if [[ $skip_deployment != true ]]; then
   ## install plugins
   captaincore deploy plugins $1
   echo "Preload Plugins"
-
-	## Deploy SSH keys
-	captaincore deploy keys $1
 
   ## run initial backup
   captaincore backup $1
