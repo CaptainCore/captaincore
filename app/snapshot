@@ -62,29 +62,30 @@ then
 
 	## Generates snapshot archive
 	timedate=$(date +%Y-%m-%d)
-	tar -cvz --exclude=".git" --exclude="$domain/wp-content/object-cache.php" --exclude="$domain/wp-content/advanced-cache.php" --exclude=".gitignore" --exclude=".gitattributes" --exclude="_wpeprivate" -f $path_tmp/$domain-$timedate.tar.gz -C ~/Backup/ $domain/
+	cd ~/Backup/
+	zip -r $path_tmp/$domain-$timedate.zip $domain/ --exclude=$domain/_wpeprivate/\* --exclude=\*.git\* --exclude=$domain/wp-content/advanced-cache.php --exclude=$domain/wp-content/mu-plugins/mu-plugin.php --exclude=$domain/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$domain/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$domain/wp-content/mu-plugins/wpengine-common/\*
 
 	## Grab snapshot size in bytes
 	if [[ "$OSTYPE" == "linux-gnu" ]]; then
       ### Begin folder size in bytes without apparent-size flag
-      snapshot_size=`du -s --block-size=1 $path_tmp/$domain-$timedate.tar.gz`
+      snapshot_size=`du -s --block-size=1 $path_tmp/$domain-$timedate.zip`
       snapshot_size=`echo $snapshot_size | cut -d' ' -f 1`
 
 	elif [[ "$OSTYPE" == "darwin"* ]]; then
       ### Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
-      snapshot_size=`find $path_tmp/$domain-$timedate.tar.gz -type f -print0 | xargs -0 stat -f%z`
+      snapshot_size=`find $path_tmp/$domain-$timedate.zip -type f -print0 | xargs -0 stat -f%z`
 	fi
 
   if [[ $skip_remote != true ]]; then
 
   	## Moves snapshot to Backblaze archive folder
-  	rclone move $path_tmp/$domain-$timedate.tar.gz Anchor-B2:AnchorHostBackup/Snapshots/$domain/
+  	rclone move $path_tmp/$domain-$timedate.zip Anchor-B2:AnchorHostBackup/Snapshots/$domain/
 
   	## Post snapshot to ACF field
     if [[ $captaincore_dev == true ]]; then
-      curl "https://dev.anchor/anchor-api/$domain/?storage=$snapshot_size&archive=$domain-$timedate.tar.gz&email=$email&token=$token"
+      curl "https://dev.anchor/anchor-api/$domain/?storage=$snapshot_size&archive=$domain-$timedate.zip&email=$email&token=$token"
     else
-      curl "https://anchor.host/anchor-api/$domain/?storage=$snapshot_size&archive=$domain-$timedate.tar.gz&email=$email&token=$token"
+      curl "https://anchor.host/anchor-api/$domain/?storage=$snapshot_size&archive=$domain-$timedate.zip&email=$email&token=$token"
     fi
 
   fi
