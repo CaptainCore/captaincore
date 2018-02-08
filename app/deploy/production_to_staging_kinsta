@@ -4,7 +4,7 @@
 ##      Deploy Kinsta's production to staging
 ##
 ##      Pass arguments from command line like this
-##      Scripts/Run/deploy_production_to_staging_kinsta.sh anchorhost --callbback=1234
+##      captaincore deploy production_to_staging_kinsta anchorhost --callbback=1234
 ##
 
 # Load configuration
