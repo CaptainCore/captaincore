@@ -167,7 +167,7 @@ if [ $# -gt 0 ]; then
           ts sh -c "echo \"Finished remote backup $website (${INDEX}/$#)\" >> $logs_path/backup-remote.txt && tail -6 $logs_path/site-$website-remote.txt >> $logs_path/backup-remote.txt"
 
   				### Views for yearly stats
-  				views=`php $path_scripts/Get/stats.php domain=$domain`
+  				views=`captaincore stats $website`
 
   				# Post folder size bytes and yearly views to ACF field
   				curl "https://anchor.host/anchor-api/$domain/?storage=$folder_size&views=$views&token=$token"
