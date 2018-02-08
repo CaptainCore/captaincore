@@ -1,0 +1,112 @@
+#!/bin/bash
+
+##
+##      Generates usage stats (Storage and Views) for CaptainCore Plugin
+##
+##      Pass arguments from command line like this
+##      captaincore generate usage install1 install2
+##
+##      Or backup everything like this
+##      captaincore generate usage
+##
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source $root_path/config
+
+# Loop through arguments and seperate regular arguments from flags (--flag)
+for var in "$@"
+do
+	# If starts with "--" then assign it to a flag array
+    if [[ $var == --* ]]
+    then
+    	count=1+${#flags[*]}
+    	flags[$count]=$var
+    # Else assign to an arguments array
+    else
+    	count=1+${#arguments[*]}
+    	arguments[$count]=$var
+    fi
+done
+
+# Loop through flags and assign to varible. A flag "--skip-dropbox" becomes $flag_skip_dropbox
+for i in "${!flags[@]}"
+do
+
+	# replace "-" with "_" and remove leading "--"
+	flag_name=`echo ${flags[$i]} | tr - _`
+	flag_name=`echo $flag_name | cut -c 3-`
+
+	# assigns to $flag_flagname
+	declare "flag_$flag_name"=true
+
+done
+
+generate_usage () {
+if [ $# -gt 0 ]; then
+
+	echo "Generating usage stats for $# websites"
+	INDEX=1
+	for website in "$@"; do
+
+		### Load FTP credentials
+		source $root_path/logins
+
+    ### If subsite update stats and skip backup
+    if [[ $subsite == "true" ]]; then
+
+      ### Views for yearly stats
+      views=`captaincore stats $domain`
+
+      ### Updates stats with no storage since it's a subsite
+      curl "https://anchor.host/anchor-api/$website/?storage=0&views=$views&token=$token"
+
+    fi
+
+		### Credentials found, start the backup
+		if ! [ -z "$domain" ]; then
+
+        if [[ "$OSTYPE" == "linux-gnu" ]]; then
+            ### Begin folder size in bytes without apparent-size flag
+            folder_size=`du -s --block-size=1 $path/$domain/`
+            folder_size=`echo $folder_size | cut -d' ' -f 1`
+        elif [[ "$OSTYPE" == "darwin"* ]]; then
+            ### Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
+            folder_size=`find $path/$domain/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
+        fi
+
+				### Views for yearly stats
+				views=`captaincore stats $domain`
+
+				# Post folder size bytes and yearly views to ACF field
+				curl "https://anchor.host/anchor-api/$domain/?storage=$folder_size&views=$views&token=$token"
+
+		fi
+
+		### Clear out variables
+		domain=''
+		username=''
+		password=''
+		ipAddress=''
+		protocol=''
+		port=''
+		homedir=''
+		remoteserver=''
+    s3bucket=''
+    s3path=''
+    subsite=''
+
+		let INDEX=${INDEX}+1
+	done
+
+fi
+}
+
+### See if any specific sites are selected
+if [ ${#arguments[*]} -gt 0 ]; then
+	# Backup selected installs
+	generate_usage ${arguments[*]}
+else
+	# Backup all installs
+	generate_usage ${websites[@]}
+fi
