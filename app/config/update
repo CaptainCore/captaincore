@@ -141,7 +141,7 @@ if ($install) {
 
 	## Rclone Import
 	echo "Updating rclone config\n";
-	$output = shell_exec("captaincore generate rclone $install");
+	$output = shell_exec( "captaincore generate rclone $install" );
 
 	## 	setups up token and load custom configs into wp-config.php and .htaccess
 	##  in a background process. Sent email when completed.
