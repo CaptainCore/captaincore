@@ -80,7 +80,7 @@ if [ $# -gt 0 ]; then
 
 				# Post folder size bytes and yearly views to ACF field
 				curl "https://anchor.host/anchor-api/$domain/?storage=$folder_size&views=$views&token=$token"
-
+				echo "Generated $domain"
 		fi
 
 		### Clear out variables
