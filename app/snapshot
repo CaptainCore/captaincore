@@ -63,7 +63,7 @@ then
 	## Generates snapshot archive
 	timedate=$(date +%Y-%m-%d)
 	cd ~/Backup/
-	zip -r $path_tmp/$domain-$timedate.zip $domain/ --exclude=$domain/_wpeprivate/\* --exclude=\*.git\* --exclude=$domain/wp-content/advanced-cache.php --exclude=$domain/wp-content/mu-plugins/mu-plugin.php --exclude=$domain/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$domain/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$domain/wp-content/mu-plugins/wpengine-common/\*
+	zip -r $path_tmp/$domain-$timedate.zip $domain/ --exclude=$domain/_wpeprivate/\* --exclude=\*.git\* --exclude=$domain/wp-content/advanced-cache.php --exclude=$domain/wp-content/mu-plugins/mu-plugin.php --exclude=$domain/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$domain/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$domain/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$domain/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$domain/wp-content/mu-plugins/wpengine-common/\*
 
 	## Grab snapshot size in bytes
 	if [[ "$OSTYPE" == "linux-gnu" ]]; then
