@@ -4,7 +4,7 @@
 ##		Creates Quicksave (plugins/themes) of website
 ##
 ## 		Pass arguments from command line like this
-##		captaincore generate quicksave anchorhost --email=austin@anchor.host --skip-remote
+##		captaincore generate quicksave anchorhost
 ##
 
 # Load configuration
@@ -60,13 +60,68 @@ then
 		return 1
 	fi
 
-	## Generates snapshot archive
-	timedate=$(date +%Y-%m-%d)
-	cd ~/Backup/
-	zip -r ~/Quicksaves/$domain-$timedate.zip $domain/ --include=$domain/wp-content/plugins/\* --include=$domain/wp-content/themes/\*
+	timedate=$(date +%Y-%m-%d_%H-%M-%S)
 
-	## Store plugin json
-	captaincore ssh $website "wp plugin list --format=json --skip-themes --skip-plugins --skip-packages" > ~/Quicksaves/$domain-$timedate.json
+	## Sync to git repo
+	mkdir -p ~/Quicksaves/$domain/mu-plugins
+	mkdir -p ~/Quicksaves/$domain/plugins
+	mkdir -p ~/Quicksaves/$domain/themes
+	mkdir -p ~/Quicksaves/$domain/versions
+	cd ~/Quicksaves/$domain/
+	if [ ! -d ".git" ]; then
+	  git init
+	fi
+	rsync -a --delete --exclude=.git ~/Backup/$domain/wp-content/mu-plugins/ ~/Quicksaves/$domain/mu-plugins
+	rsync -a --delete --exclude=.git ~/Backup/$domain/wp-content/plugins/ ~/Quicksaves/$domain/plugins
+	rsync -a --delete --exclude=.git ~/Backup/$domain/wp-content/themes/ ~/Quicksaves/$domain/themes
+
+	## Store plugin/theme in json
+	# captaincore ssh $website "wp plugin list --format=json --skip-themes --skip-plugins --skip-packages" > ~/Quicksaves/$domain/versions/plugins.json
+	# captaincore ssh $website "wp theme list --format=json --skip-themes --skip-plugins --skip-packages" > ~/Quicksaves/$domain/versions/themes.json
+	# captaincore ssh $website "wp core version --skip-themes --skip-plugins --skip-packages" > ~/Quicksaves/$domain/versions/core.json
+
+	## Nasty bash hack in order to grab all of the details from one single SSH tunnel (WP Engine connection is slow)
+	response=$(captaincore ssh $website 'wp plugin list --format=json --skip-themes --skip-plugins --skip-packages; echo ""; wp theme list --format=json --skip-themes --skip-plugins --skip-packages; echo ""; wp core version --skip-themes --skip-plugins --skip-packages')
+	IFS=$'\n' read -rd '' -a response_parsed <<<"$response"
+	echo ${response_parsed[0]} > ~/Quicksaves/$domain/versions/plugins.json
+	echo ${response_parsed[1]} > ~/Quicksaves/$domain/versions/themes.json
+	echo ${response_parsed[2]} > ~/Quicksaves/$domain/versions/core.json
+
+	plugin_data=`cat ~/Quicksaves/$domain/versions/plugins.json`
+	theme_data=`cat ~/Quicksaves/$domain/versions/themes.json`
+	core_version=`cat ~/Quicksaves/$domain/versions/core.json`
+
+	# Add all files to git repo
+	git add -A
+
+	# Current git status
+	git_status=`git status -s`
+
+	if [[ "$git_status" == "" ]]; then
+		# Skip quicksave as nothing changed
+		echo "Quicksave skipped as nothing changed"
+		return 1
+	fi
+
+	# New commit
+	git_commit=`git commit -m "quicksave on $timedate"`
+
+	# Save git hash
+	githash=`git log -n 1 --pretty=format:"%H"`  #To get only hash value of commit
+	echo "Git hash $githash"
+	## TO DO: Add hash somewhere for listing/restore purposes
+
+	### Adds quicksave to CaptainCore Plugin
+	if [[ "$captaincore_dev" == true ]]; then
+		curl -k --globoff "$captaincore_api/$domain/?git_commit=$githash&core=$core_version&plugins=$plugin_data&themes=$theme_data&token=$token"
+	else
+		curl --globoff "$captaincore_api/$domain/?git_commit=$githash&core=$core_version&plugins=$plugin_data&themes=$theme_data&token=$token"
+	fi
+
+	## Generates snapshot archive
+	#cd ~/Backup/
+	#zip -r ~/Quicksaves/$domain-$timedate.zip $domain/ --include=$domain/wp-content/plugins/\* --include=$domain/wp-content/themes/\*
+
 
 	}
 	snapshot_website
