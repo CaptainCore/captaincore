@@ -134,10 +134,13 @@ if [ $# -gt 0 ]; then
   				fi
         fi
 
+				# Backup site locally
         rclone sync sftp-$website:$homedir $path/$domain/ --exclude .DS_Store --exclude *timthumb.txt --exclude /wp-content/uploads_from_s3/ --verbose=1 --log-file="$logs_path/site-$website.txt"
 				echo "" >> $logs_path/site-$website.txt
         tail $logs_path/site-$website.txt >> $logs_path/backup-local.txt
 
+				# Generate quicksave archives for themes/plugins
+				captaincore generate quicksave $website
 
         ## Backup S3 uploads if needed
         if [ -n "$s3bucket" ]; then
