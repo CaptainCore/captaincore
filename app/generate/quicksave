@@ -107,15 +107,16 @@ then
 	git_commit=`git commit -m "quicksave on $timedate"`
 
 	# Save git hash
-	githash=`git log -n 1 --pretty=format:"%H"`  #To get only hash value of commit
-	echo "Git hash $githash"
-	## TO DO: Add hash somewhere for listing/restore purposes
+	git_hash=`git log -n 1 --pretty=format:"%H"`  #To get only hash value of commit
+	git_status=`git show $git_hash --shortstat --format=`
+
+	echo "Git hash $git_hash"
 
 	### Adds quicksave to CaptainCore Plugin
 	if [[ "$captaincore_dev" == true ]]; then
-		curl -k --globoff "$captaincore_api/$domain/?git_commit=$githash&core=$core_version&plugins=$plugin_data&themes=$theme_data&token=$token"
+		curl -k --globoff "$captaincore_api/$domain/?git_commit=$git_hash&git_status=$git_status&core=$core_version&plugins=$plugin_data&themes=$theme_data&token=$token"
 	else
-		curl --globoff "$captaincore_api/$domain/?git_commit=$githash&core=$core_version&plugins=$plugin_data&themes=$theme_data&token=$token"
+		curl --globoff "$captaincore_api/$domain/?git_commit=$git_hash&git_status=$git_status&core=$core_version&plugins=$plugin_data&themes=$theme_data&token=$token"
 	fi
 
 	## Generates snapshot archive
