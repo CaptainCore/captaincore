@@ -71,9 +71,10 @@ then
 	if [ ! -d ".git" ]; then
 	  git init
 	fi
-	rsync -a --delete --exclude=.git ~/Backup/$domain/wp-content/mu-plugins/ ~/Quicksaves/$domain/mu-plugins
-	rsync -a --delete --exclude=.git ~/Backup/$domain/wp-content/plugins/ ~/Quicksaves/$domain/plugins
-	rsync -a --delete --exclude=.git ~/Backup/$domain/wp-content/themes/ ~/Quicksaves/$domain/themes
+
+	rsync -a --delete --exclude=.git --exclude="*.log" --exclude=cache/ ~/Backup/$domain/wp-content/mu-plugins/ ~/Quicksaves/$domain/mu-plugins
+	rsync -a --delete --exclude=.git --exclude="*.log" --exclude=cache/ ~/Backup/$domain/wp-content/plugins/ ~/Quicksaves/$domain/plugins
+	rsync -a --delete --exclude=.git --exclude="*.log" --exclude=cache/ ~/Backup/$domain/wp-content/themes/ ~/Quicksaves/$domain/themes
 
 	## Store plugin/theme in json
 	# captaincore ssh $website "wp plugin list --format=json --skip-themes --skip-plugins --skip-packages" > ~/Quicksaves/$domain/versions/plugins.json
