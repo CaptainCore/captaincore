@@ -4,7 +4,7 @@
 ##		Creates Quicksave (plugins/themes) of website
 ##
 ## 		Pass arguments from command line like this
-##		captaincore generate quicksave anchorhost [--force]
+##		captaincore generate quicksave anchorhost [--force] [--debug]
 ##
 
 # Load configuration
@@ -112,6 +112,11 @@ then
 	git_status=`echo -e "$git_status" | sed -e 's/^[[:space:]]*//' | base64`
 
 	echo "Git hash $git_hash"
+
+	if [[ "$debug" == "true" ]]; then
+		echo ""$captaincore_api/$domain/?git_commit=$git_hash&git_status=$git_status&core=$core_version&plugins=$plugin_data&themes=$theme_data&token=$token""
+		return 1
+	fi
 
 	### Adds quicksave to CaptainCore Plugin
 	if [[ "$captaincore_dev" == true ]]; then
