@@ -109,9 +109,9 @@ then
 	# Save git hash
 	git_hash=`git log -n 1 --pretty=format:"%H"`  #To get only hash value of commit
 	git_status=`git show $git_hash --shortstat --format=`
-	git_status=`echo -e "$git_status" | sed -e 's/^[[:space:]]*//' | base64`
-	plugin_data=`echo -n $plugin_data | base64`
-	theme_data=`echo -n $theme_data | base64`
+	git_status=`echo -e "$git_status" | sed -e 's/^[[:space:]]*//' | base64 -w 0`
+	plugin_data=`echo -e $plugin_data | base64 -w 0`
+	theme_data=`echo -e $theme_data | base64 -w 0`
 	echo "Git hash $git_hash"
 
 	if [[ "$debug" == "true" ]]; then
