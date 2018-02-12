@@ -114,7 +114,7 @@ then
 	echo "Git hash $git_hash"
 
 	if [[ "$debug" == "true" ]]; then
-		echo ""$captaincore_api/$domain/?git_commit=$git_hash&git_status=$git_status&core=$core_version&plugins=$plugin_data&themes=$theme_data&token=$token""
+		echo "$captaincore_api/$domain/?git_commit=$git_hash&git_status=$git_status&core=$core_version&plugins=$plugin_data&themes=$theme_data&token=$token"
 		return 1
 	fi
 
