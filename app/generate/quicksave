@@ -110,8 +110,8 @@ then
 	git_hash=`git log -n 1 --pretty=format:"%H"`  #To get only hash value of commit
 	git_status=`git show $git_hash --shortstat --format=`
 	git_status=`echo -e "$git_status" | sed -e 's/^[[:space:]]*//' | base64`
-	plugin_data=`echo $plugin_data | base64`
-	theme_data=`echo $theme_data | base64`
+	plugin_data=`echo -e $plugin_data | base64`
+	theme_data=`echo -e $theme_data | base64`
 	echo "Git hash $git_hash"
 
 	if [[ "$debug" == "true" ]]; then
