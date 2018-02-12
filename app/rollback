@@ -1,0 +1,82 @@
+#!/bin/bash
+
+##
+##		Rollback (theme/plugin) from a quicksave
+##
+## 		Pass arguments from command line like this
+##		captaincore rollback <install> <commit> [--plugin=<plugin>] [--theme=<theme>] [--all-plugins] [--all-themes]
+##
+website=$1
+commit=$2
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source $root_path/config
+
+### Load FTP credentials
+source $root_path/logins
+
+# if [ "$homedir" == "" ]; then
+# 		homedir="/"
+# fi
+
+# Loop through arguments and seperate regular arguments from flags (--flag)
+for var in "$@"
+do
+	# If starts with "--" then assign it to a flag array
+    if [[ $var == --* ]]
+    then
+    	count=1+${#flags[*]}
+    	flags[$count]=$var
+    # Else assign to an arguments array
+    else
+    	count=1+${#arguments[*]}
+    	arguments[$count]=$var
+    fi
+done
+
+# Loop through flags and assign to varible. A flag "--email=austin@anchor.host" becomes $email
+for i in "${!flags[@]}"
+do
+
+	# replace "-" with "_" and remove leading "--"
+	flag_name=`echo ${flags[$i]} | tr - _`
+	flag_name=`echo $flag_name | cut -c 3-`
+
+	# detected flag contains data
+	if [[ $flag_name == *"="* ]]; then
+	  flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
+	  flag_name=`echo $flag_name | perl -n -e '/(.+)?=.+/&& print $1'` # extract name
+	  declare "$flag_name"="$flag_value" # assigns to $flag_flagname
+	else
+	  # assigns to $flag_flagname boolen
+	  declare "$flag_name"=true
+	fi
+
+done
+
+echo $homedir
+
+if [[ "$plugin" != "" ]]; then
+
+	echo "Rolling back plugin $plugin"
+	cd ~/Quicksaves/$domain/
+	mkdir -p ~/Tmp/restore/$commit/
+	git archive --format=zip $commit:plugins/$plugin/ > ~/Tmp/restore/$commit/$plugin.zip
+	captaincore upload $website ~/Tmp/restore/$commit/$plugin.zip --public
+	captaincore ssh $website "wp plugin install $plugin.zip --force --skip-plugins --skip-themes --skip-packages; rm $plugin.zip"
+	rm -rf ~/Tmp/restore/$commit/
+
+fi
+
+if [[ "$theme" != "" ]]; then
+
+	echo "Rolling back theme $theme"
+	cd ~/Quicksaves/$domain/
+	mkdir -p ~/Tmp/restore/$commit/
+	git archive --format=zip $commit:themes/$theme/ > ~/Tmp/restore/$commit/$theme.zip
+	captaincore upload $website ~/Tmp/restore/$commit/$theme.zip --public
+	captaincore ssh $website "wp theme install $theme.zip --force --skip-plugins --skip-themes --skip-packages; rm $theme.zip"
+	rm -rf ~/Tmp/restore/$commit/
+	
+fi
