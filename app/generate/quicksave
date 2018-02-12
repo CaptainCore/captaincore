@@ -81,7 +81,7 @@ then
 	# captaincore ssh $website "wp core version --skip-themes --skip-plugins --skip-packages" > ~/Quicksaves/$domain/versions/core.json
 
 	## Nasty bash hack in order to grab all of the details from one single SSH tunnel (WP Engine connection is slow)
-	response=$(captaincore ssh $website 'wp plugin list --format=json --skip-themes --skip-plugins --skip-packages; echo ""; wp theme list --format=json --skip-themes --skip-plugins --skip-packages; echo ""; wp core version --skip-themes --skip-plugins --skip-packages')
+	response=$(captaincore ssh $website 'wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp theme list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp core version --skip-themes --skip-plugins --skip-packages')
 	IFS=$'\n' read -rd '' -a response_parsed <<<"$response"
 	echo ${response_parsed[0]} > ~/Quicksaves/$domain/versions/plugins.json
 	echo ${response_parsed[1]} > ~/Quicksaves/$domain/versions/themes.json
