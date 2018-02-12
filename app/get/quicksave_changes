@@ -4,7 +4,7 @@
 ##		Grabs the Quicksave git commit status log
 ##
 ## 		Pass arguments from command line like this
-##		captaincore get quicksave_commit_status <install> <git_hash>
+##		captaincore get quicksave_changes <install> <git_hash>
 ##
 
 # Load configuration
@@ -65,7 +65,7 @@ then
 		cd ~/Quicksaves/$domain/
 		git_show=`git show $git_hash --name-status --format=`
 		echo "$git_show"
-		
+
 	}
 	quicksave_commit_status
 

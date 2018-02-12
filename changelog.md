@@ -1,11 +1,31 @@
 # Changelog
 
+## [0.1.2] - 2018-02-11
+### Added
+- Deploy ssh keys `captaincore deploy keys <install>` which is needed before using SSH/WP CLI on Kinsta sites.
+- Generate plugin zips for easy deployment `captaincore generate plugins_zipped`
+- Quicksave command `captaincore generate quicksave <install>` which captures nightly version numbers for plugins, themes and core.
+- Get quicksave changes command `captaincore get quicksave_changes <install> <git_hash>`
+
+### Changed
+- Simplified internals for `captaincore config new`
+- Upgraded deploy users to new format
+- Rewrote `captaincore deploy plugins` to use SSH/WP-CLI
+- Deploy token using Anchor API
+- Fix for stats during nightly backup
+- Changed backup snapshots to use Zip format because non geeks don't know what tar files are
+
+### Removed
+- Deploy to backup API
+
 ## [0.1.1] - 2018-02-05
 ### Added
 - Argument `--delete-after-snapshot` to `captaincore snapshot`
 - Config process command `captaincore config process` which will safely update the logins only when needed
 - Generate rclone commmand `captaincore generate rclone <install>` which now imports staging credentials automatically.
 - Setup instructions to readme.md for installing rclone systemwide
+- Generate usage command `captaincore generate usage`
+- Command for grabbing Quicksave changes from git repo
 
 ### Changed
 - Load bash config file dynamically
