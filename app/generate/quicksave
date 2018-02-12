@@ -4,7 +4,7 @@
 ##		Creates Quicksave (plugins/themes) of website
 ##
 ## 		Pass arguments from command line like this
-##		captaincore generate quicksave anchorhost
+##		captaincore generate quicksave anchorhost [--force]
 ##
 
 # Load configuration
@@ -97,7 +97,7 @@ then
 	# Current git status
 	git_status=`git status -s`
 
-	if [[ "$git_status" == "" ]]; then
+	if [[ "$git_status" == "" && "$force" != "true" ]]; then
 		# Skip quicksave as nothing changed
 		echo "Quicksave skipped as nothing changed"
 		return 1
