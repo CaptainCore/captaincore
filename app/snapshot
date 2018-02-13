@@ -13,6 +13,9 @@ source $root_path/config
 
 website=$1
 
+# Generate fresh backup
+captaincore snapshot $website
+
 # Loop through arguments and seperate regular arguments from flags (--flag)
 for var in "$@"
 do
