@@ -44,7 +44,7 @@ then
   else ## If not Kinsta then try connecting using WP Engine's format
 
     if [ -n "$2" ]; then
-      ssh -oStrictHostKeyChecking=no $wpe_ssh_user+$1@$1.ssh.wpengine.net "cd sites/* && $2"
+      ssh -oStrictHostKeyChecking=no $wpe_ssh_user+$1@$1.ssh.wpengine.net "rm ~/.wp-cli/config.yml; cd sites/* && $2"
     else
       ssh -oStrictHostKeyChecking=no $wpe_ssh_user+$1@$1.ssh.wpengine.net
     fi
@@ -54,7 +54,7 @@ then
 else ## not recognized so attempt WP Engine's format
 
   if [ -n "$2" ]; then
-    ssh -oStrictHostKeyChecking=no $wpe_ssh_user+$1@$1.ssh.wpengine.net "cd sites/* && $2"
+    ssh -oStrictHostKeyChecking=no $wpe_ssh_user+$1@$1.ssh.wpengine.net "rm ~/.wp-cli/config.yml; cd sites/* && $2"
   else
     ssh -oStrictHostKeyChecking=no $wpe_ssh_user+$1@$1.ssh.wpengine.net
   fi
