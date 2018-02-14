@@ -7,7 +7,7 @@
 ##      captaincore ssh anchorhost1
 ##
 ##      Runs command over SSH
-##      captaincore ssh anchorhost1 "wp plugins list"
+##      captaincore ssh anchorhost1 "wp plugin list"
 ##
 
 # Load configuration
