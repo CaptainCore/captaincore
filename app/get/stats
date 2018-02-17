@@ -42,7 +42,7 @@ then
 			views=`php $path_scripts/Get/stats.php domain=$domain`
 
 			# Post folder size bytes and yearly views to ACF field
-			curl "https://anchor.host/anchor-api/$domain/?storage=$folder_size&views=$views&token=$token"
+			curl --data-urlencode "storage=$folder_size" --data-urlencode "views=$views" --data-urlencode "token=$token" "$captaincore_api/$domain/"
 
 		fi
 

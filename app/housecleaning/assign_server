@@ -67,7 +67,7 @@ if [ $# -gt 0 ]; then
       ## curl up the findings to anchor-api
       if [[ $server_id =~ ^-?[0-9]+$ ]]
       then
-        curl "https://anchor.host/anchor-api/$domain/?server=$website_ip&token=$token"
+				curl --data-urlencode "server=$website_ip" --data-urlencode "token=$token" "$captaincore_api/$domain/"
       fi
 
 		fi

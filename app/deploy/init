@@ -82,7 +82,7 @@ if [ $# -gt 0 ]; then
 				# shareurl=`echo $shareurl | grep -o 'https.*'`
 
 				### Assign token and backup link
-				curl "https://anchor.host/anchor-api/$domain/?token=$token&token_key=$token_key"
+				curl --data-urlencode "git_commit=$git_hash" --data-urlencode "token=$token" --data-urlencode "token_key=$token_key" "$captaincore_api/$domain/"
 				sleep 1s
 
 			fi

@@ -86,9 +86,9 @@ then
 
   	## Post snapshot to ACF field
     if [[ $captaincore_dev == true ]]; then
-      curl "https://dev.anchor/anchor-api/$domain/?storage=$snapshot_size&archive=$domain-$timedate.zip&email=$email&token=$token"
+			curl -k --data-urlencode "storage=$snapshot_size" --data-urlencode "archive=$domain-$timedate.zip" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
     else
-      curl "https://anchor.host/anchor-api/$domain/?storage=$snapshot_size&archive=$domain-$timedate.zip&email=$email&token=$token"
+			curl --data-urlencode "storage=$snapshot_size" --data-urlencode "archive=$domain-$timedate.zip" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
     fi
 
   fi

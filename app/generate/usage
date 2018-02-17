@@ -59,7 +59,7 @@ if [ $# -gt 0 ]; then
       views=`captaincore stats $domain`
 
       ### Updates stats with no storage since it's a subsite
-      curl "https://anchor.host/anchor-api/$website/?storage=0&views=$views&token=$token"
+      curl --data-urlencode "storage=0" --data-urlencode "views=$views" --data-urlencode "token=$token" "$captaincore_api/$website/"
 
     fi
 
@@ -79,7 +79,7 @@ if [ $# -gt 0 ]; then
 				views=`captaincore stats $domain`
 
 				# Post folder size bytes and yearly views to ACF field
-				curl "https://anchor.host/anchor-api/$domain/?storage=$folder_size&views=$views&token=$token"
+				curl --data-urlencode "storage=$folder_size" --data-urlencode "views=$views" --data-urlencode "token=$token" "$captaincore_api/$domain/"
 				echo "Generated $domain"
 		fi
 
