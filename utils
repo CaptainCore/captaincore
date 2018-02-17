@@ -20,7 +20,9 @@ function bcli_trim_whitespace() {
 }
 
 function bcli_show_header() {
-    echo -e "$(bcli_trim_whitespace "$(cat "$1/.name")")"
-    echo -e "${COLOR_CYAN}Version  ${COLOR_NORMAL}$(bcli_trim_whitespace "$(cat "$1/.version")")"
-    echo -e "${COLOR_CYAN}Author   ${COLOR_NORMAL}$(bcli_trim_whitespace "$(cat "$1/.author")")"
+	  echo -e ""
+    echo -e "${COLOR_CYAN}Name    ${COLOR_NORMAL}$(bcli_trim_whitespace "$(cat "$1/.name")")"
+		echo -e "${COLOR_CYAN}Desc    ${COLOR_NORMAL}$(bcli_trim_whitespace "$(cat "$1/.desc")")"
+    echo -e "${COLOR_CYAN}Version ${COLOR_NORMAL}$(bcli_trim_whitespace "$(cat "$1/.version")")"
+    echo -e "${COLOR_CYAN}Author  ${COLOR_NORMAL}$(bcli_trim_whitespace "$(cat "$1/.author")")"
 }

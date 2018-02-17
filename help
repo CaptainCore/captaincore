@@ -7,7 +7,7 @@ CLI_ENTRYPOINT=`basename "$1"`
 
 # If we don't have any additional help arguments, then show the app's
 # header as well.
-if [ $# == 0 ]; then
+if [ $# == 1 ]; then
     bcli_show_header "$ROOT_DIR/app"
 fi
 
@@ -23,10 +23,11 @@ done
 # If we've got a directory's helpfile to show, then print out the list of
 # commands in that directory along with its help content.
 if [[ -d "$HELP_FILE" ]]; then
-    echo -e "${COLOR_GREEN}$CLI_ENTRYPOINT ${COLOR_CYAN}${@:2:$(($HELP_ARG_START-1))} ${COLOR_NORMAL}"
+    # echo -e "${COLOR_GREEN}$CLI_ENTRYPOINT ${COLOR_CYAN}${@:2:$(($HELP_ARG_START-1))} ${COLOR_NORMAL}"
 
     # If there's a help file available for this directory, then show it.
     if [[ -f "$HELP_FILE/.help" ]]; then
+			  echo ""
         cat "$HELP_FILE/.help"
         echo ""
     fi
