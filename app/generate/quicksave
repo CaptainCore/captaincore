@@ -72,9 +72,9 @@ then
 	  git init
 	fi
 
-	rsync -a --delete --exclude=.git --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ ~/Backup/$domain/wp-content/mu-plugins/ ~/Quicksaves/$domain/mu-plugins
-	rsync -a --delete --exclude=.git --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ ~/Backup/$domain/wp-content/plugins/ ~/Quicksaves/$domain/plugins
-	rsync -a --delete --exclude=.git --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ ~/Backup/$domain/wp-content/themes/ ~/Quicksaves/$domain/themes
+	rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ ~/Backup/$domain/wp-content/mu-plugins/ ~/Quicksaves/$domain/mu-plugins
+	rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ ~/Backup/$domain/wp-content/plugins/ ~/Quicksaves/$domain/plugins
+	rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ ~/Backup/$domain/wp-content/themes/ ~/Quicksaves/$domain/themes
 
 	## Store plugin/theme in json
 	# captaincore ssh $website "wp plugin list --format=json --skip-themes --skip-plugins --skip-packages" > ~/Quicksaves/$domain/versions/plugins.json
@@ -91,6 +91,9 @@ then
 	plugin_data=`cat ~/Quicksaves/$domain/versions/plugins.json`
 	theme_data=`cat ~/Quicksaves/$domain/versions/themes.json`
 	core_version=`cat ~/Quicksaves/$domain/versions/core.json`
+	# plugin_data=$(git show $git_hash:versions/plugins.json --format=)
+	# theme_data=$(git show $git_hash:versions/themes.json --format=)
+	# core_version=$(git show $git_hash:versions/core.json --format=)
 
 	# Add all files to git repo
 	git add -A
