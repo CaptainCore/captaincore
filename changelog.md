@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.3] - 2018-02-18
+### Added
+- Rollback command `captaincore rollback <install> <commit> [--plugin=<plugin>] [--theme=<theme>]`
+- Argument `--force` to `captaincore generate quicksave` to manually force add even if no changes were made
+- Argument `--public` to `captaincore upload <install>` which is used for the new rollback command
+- Get quicksave status command `captaincore get quicksave_status <install> <git_hash>`
+- URL encoding to curl commands
+- Added Kinsta staging support to `captaincore upload`
+
+### Changed
+- Excluded unnecessary files for quicksave `*.log, *.log.txt and cache/`
+- Patch to work around WPE SSH WP-CLI username bug
+- Curl now posts to CaptainCore API
+- Updated header info for `captaincore`
+
 ## [0.1.2] - 2018-02-11
 ### Added
 - Deploy ssh keys `captaincore deploy keys <install>` which is needed before using SSH/WP CLI on Kinsta sites.
