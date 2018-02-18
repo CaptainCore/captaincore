@@ -12,6 +12,10 @@ root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_
 source $root_path/config
 
 website=$1
+if [[ "$website" == *"-staging" ]]; then
+  website=${website//-staging/}
+  use_staging=true
+fi
 
 ### Load FTP credentials
 source $root_path/logins
@@ -59,11 +63,20 @@ then
   if [[ "$ipAddress" == *".kinsta.com" ]]; then
 
 		if [ -n "$2" ]; then
-			if [[ "$public" == "true" ]]; then
-				scp -o StrictHostKeyChecking=no -P $port $2 $username@$ipAddress:public/
-			else
-				scp -o StrictHostKeyChecking=no -P $port $2 $username@$ipAddress:private/
-			fi
+			if [[ "$use_staging" != "true" ]]; then
+				if [[ "$public" == "true" ]]; then
+					scp -o StrictHostKeyChecking=no -P $port $2 $username@$ipAddress:public/
+				else
+					scp -o StrictHostKeyChecking=no -P $port $2 $username@$ipAddress:private/
+				fi
+	    else
+				if [[ "$public" == "true" ]]; then
+					scp -o StrictHostKeyChecking=no -P $staging_port $2 $staging_username@$staging_ipAddress:public/
+				else
+					scp -o StrictHostKeyChecking=no -P $staging_port $2 $staging_username@$staging_ipAddress:private/
+				fi
+	    fi
+
 		else
 			echo 'Missing argument. Ex: captaincore upload anchorhost1 "~/Download/migration.zip'
 		fi
