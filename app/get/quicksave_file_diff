@@ -68,7 +68,7 @@ then
 		fi
 
 		cd ~/Quicksaves/$domain/
-		git_diff=`git diff $git_hash $git_hash_compare $file`
+		git_diff=`git diff $git_hash $git_hash_compare -- $file`
 		echo "$git_diff"
 
 	}
