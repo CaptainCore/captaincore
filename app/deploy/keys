@@ -21,14 +21,22 @@ if [[ $site_address == *".kinsta.com"* ]]; then
 
 	# Check for authorized_keys using rclone's JSON
 	check_for_keys=`rclone lsjson sftp-${site}:.ssh/authorized_keys --no-modtime`
+	check_for_keys_staging=`rclone lsjson sftp-${site}-staging:.ssh/authorized_keys --no-modtime`
 
 	# Read the "Path" JSON value
 	found_authorized_keys=`echo $check_for_keys | jsonValue Path`
+	found_authorized_staging_keys=`echo $check_for_keys_staging | jsonValue Path`
 
 	if [[ "$found_authorized_keys" == "authorized_keys" ]]; then
 		echo "found keys: TODO append to bottom of file";
 	else
 		cat ~/.ssh/id_rsa.pub | rclone rcat sftp-${site}:.ssh/authorized_keys
+	fi
+
+	if [[ "$found_authorized_staging_keys" == "authorized_keys" ]]; then
+		echo "found keys on staging: TODO append to bottom of file";
+	else
+		cat ~/.ssh/id_rsa.pub | rclone rcat sftp-${site}-staging:.ssh/authorized_keys
 	fi
 
 else
