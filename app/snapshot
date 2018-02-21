@@ -17,8 +17,7 @@ website=$1
 captaincore backup $website
 
 # Loop through arguments and seperate regular arguments from flags (--flag)
-for var in "$@"
-do
+for var in "$@"; do
 	# If starts with "--" then assign it to a flag array
     if [[ $var == --* ]]
     then
@@ -32,8 +31,7 @@ do
 done
 
 # Loop through flags and assign to varible. A flag "--email=austin@anchor.host" becomes $email
-for i in "${!flags[@]}"
-do
+for i in "${!flags[@]}"; do
 
 	# replace "-" with "_" and remove leading "--"
 	flag_name=`echo ${flags[$i]} | tr - _`
