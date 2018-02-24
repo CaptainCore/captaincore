@@ -64,7 +64,7 @@ if [[ "$plugin" != "" ]]; then
 	mkdir -p ~/Tmp/restore/$commit/
 	git archive --format=zip $commit:plugins/$plugin/ > ~/Tmp/restore/$commit/$plugin.zip
 	captaincore upload $website ~/Tmp/restore/$commit/$plugin.zip --public
-	captaincore ssh $website "wp plugin install $plugin.zip --force --skip-plugins --skip-themes --skip-packages; rm $plugin.zip"
+	captaincore ssh $website --command="wp plugin install $plugin.zip --force --skip-plugins --skip-themes --skip-packages; rm $plugin.zip"
 	rm -rf ~/Tmp/restore/$commit/
 
 fi
@@ -76,7 +76,7 @@ if [[ "$theme" != "" ]]; then
 	mkdir -p ~/Tmp/restore/$commit/
 	git archive --format=zip $commit:themes/$theme/ > ~/Tmp/restore/$commit/$theme.zip
 	captaincore upload $website ~/Tmp/restore/$commit/$theme.zip --public
-	captaincore ssh $website "wp theme install $theme.zip --force --skip-plugins --skip-themes --skip-packages; rm $theme.zip"
+	captaincore ssh $website --command="wp theme install $theme.zip --force --skip-plugins --skip-themes --skip-packages; rm $theme.zip"
 	rm -rf ~/Tmp/restore/$commit/
-	
+
 fi

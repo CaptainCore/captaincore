@@ -66,7 +66,7 @@ if [ $# -gt 0 ]; then
 			timestamp=$(date +%s)
 
 			# Store production url
-			production_url=`captaincore ssh $website "wp option get home --skip-themes --skip-plugins"`
+			production_url=`captaincore ssh $website --command="wp option get home --skip-themes --skip-plugins"`
 
 			# Remove trailing slash if found
 			if [[ "${production_url:(-1)}" == "/" ]]; then
@@ -74,19 +74,19 @@ if [ $# -gt 0 ]; then
 			fi
 
 			# Make staging snapshot with unique timestamp
-			captaincore ssh $website-staging "wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/"
+			captaincore ssh $website-staging --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/"
 
 			# Download staging snapshot to production site and import database
-			captaincore ssh $website "wget https://staging-${website}.kinsta.com/wp-content_$timestamp.zip; mv wp-content_$timestamp.zip wp-content.zip; rm -rf wp-content/; unzip wp-content.zip; rm wp-content.zip; wp db import wp-content/mysql.sql --skip-plugins --skip-themes"
+			captaincore ssh $website --command="wget https://staging-${website}.kinsta.com/wp-content_$timestamp.zip; mv wp-content_$timestamp.zip wp-content.zip; rm -rf wp-content/; unzip wp-content.zip; rm wp-content.zip; wp db import wp-content/mysql.sql --skip-plugins --skip-themes"
 
 			# Remove from production_to_staging_kinsta
-			captaincore ssh $website-staging "rm -f wp-content_$timestamp.zip"
+			captaincore ssh $website-staging --command="rm -f wp-content_$timestamp.zip"
 
       # Find and replace urls
-      captaincore ssh $website "wp search-replace http://staging-${website}.kinsta.com $production_url --all-tables --skip-plugins --skip-themes; wp search-replace https://staging-${website}.kinsta.com $production_url --all-tables --skip-plugins --skip-themes"
+      captaincore ssh $website --command="wp search-replace http://staging-${website}.kinsta.com $production_url --all-tables --skip-plugins --skip-themes; wp search-replace https://staging-${website}.kinsta.com $production_url --all-tables --skip-plugins --skip-themes"
 
       # Disable search privacy and deactivate disable email on production site
-      captaincore ssh $website "wp option update blog_public 1 --skip-plugins --skip-themes; wp plugin deactivate disable-emails --skip-plugins --skip-themes"
+      captaincore ssh $website --command="wp option update blog_public 1 --skip-plugins --skip-themes; wp plugin deactivate disable-emails --skip-plugins --skip-themes"
 
 			## Post completion to CaptainCore API
 			if [[ $captaincore_dev == true ]]; then

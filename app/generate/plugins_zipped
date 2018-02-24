@@ -18,5 +18,5 @@
 plugins=(anchorhost-client gravityforms admin-columns-pro cac-addon-acf advanced-custom-fields-pro advanced-responsive-video-embedder arve-pro)
 
 for plugin in ${plugins[@]}; do
-	captaincore ssh anchorhost "cd wp-content/plugins; zip -r ${plugin}.zip $plugin"
+	captaincore ssh anchorhost --command="cd wp-content/plugins; zip -r ${plugin}.zip $plugin"
 done

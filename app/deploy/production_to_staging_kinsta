@@ -66,19 +66,19 @@ if [ $# -gt 0 ]; then
 			timestamp=$(date +%s)
 
 			# Make production snapshot with unique timestamp
-			captaincore ssh $website "wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/"
+			captaincore ssh $website --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/"
 
 			# Download production snapshot to staging site and import database
-			captaincore ssh $website-staging "wget http://$ipAddress/wp-content_$timestamp.zip; mv wp-content_$timestamp.zip wp-content.zip; rm -rf wp-content/; unzip wp-content.zip; rm wp-content.zip; wp db import wp-content/mysql.sql --skip-plugins --skip-themes"
+			captaincore ssh $website-staging --command="wget http://$ipAddress/wp-content_$timestamp.zip; mv wp-content_$timestamp.zip wp-content.zip; rm -rf wp-content/; unzip wp-content.zip; rm wp-content.zip; wp db import wp-content/mysql.sql --skip-plugins --skip-themes"
 
 			# Remove from production_to_staging_kinsta
-			captaincore ssh $website "rm -f wp-content_$timestamp.zip"
+			captaincore ssh $website --command="rm -f wp-content_$timestamp.zip"
 
       # Find and replace urls
-      captaincore ssh $website-staging "wp search-replace //$domain //staging-$website.kinsta.com --all-tables --skip-plugins --skip-themes; wp search-replace //www.$domain //staging-$website.kinsta.com --all-tables --skip-plugins --skip-themes"
+      captaincore ssh $website-staging --command="wp search-replace //$domain //staging-$website.kinsta.com --all-tables --skip-plugins --skip-themes; wp search-replace //www.$domain //staging-$website.kinsta.com --all-tables --skip-plugins --skip-themes"
 
       # Enable search privacy and disable email on staging site
-      captaincore ssh $website-staging "wp option update blog_public 0 --skip-plugins --skip-themes; wp plugin install log-emails disable-emails --skip-plugins --skip-themes && wp plugin activate log-emails disable-emails --skip-plugins --skip-themes"
+      captaincore ssh $website-staging --command="wp option update blog_public 0 --skip-plugins --skip-themes; wp plugin install log-emails disable-emails --skip-plugins --skip-themes && wp plugin activate log-emails disable-emails --skip-plugins --skip-themes"
 
 			## Post completion to CaptainCore API
 			if [[ $captaincore_dev == true ]]; then
