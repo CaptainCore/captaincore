@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.4] - 2018-02-25
+### Added
+- Quicksave file diff command `captaincore get quicksave_file_diff <install> <git_hash_current> <git_hash_previous> <file>`
+- New command `captaincore deploy staging_to_production_kinsta <install> --email=<email>`
+- New command `captaincore ssh-batch <command>`
+- Argument `--email=<email>` to `captaincore deploy production_to_staging_kinsta`
+
+### Changed
+- `captaincore deploy keys <install>` now deploys to Kinsta staging sites
+- Major performance increases to `captaincore deploy production_to_staging_kinsta`. Switch over to zip/extract wp-content folder instead of sftp sync.
+
 ## [0.1.3] - 2018-02-18
 ### Added
 - Rollback command `captaincore rollback <install> <commit> [--plugin=<plugin>] [--theme=<theme>]`

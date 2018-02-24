@@ -98,11 +98,11 @@ if (file_exists($wpconfig)) {
 	$lines = explode( PHP_EOL, $current);
 
 	# Looks for a Anchor Hosting Domain
-	$seach_needle = 'ANCHORHOST_DOMAIN';
+	$seach_needle = 'CAPTIONCORE_DOMAIN';
 	$key_search = array_find($seach_needle, $lines);
 
 	if ($key_search) {
-		echo "ANCHORHOST_DOMAIN already added\n";
+		echo "CAPTIONCORE_DOMAIN already added\n";
 	} else {
 
 		# Find line number to begin adding custom configs
@@ -119,7 +119,7 @@ if (file_exists($wpconfig)) {
 
 		# Add new item to array at begin of array
 		$new_lines = array_slice($lines, 0, $key + 1, true) +
-		array("1n" => "define( 'ANCHORHOST_DOMAIN', '". $domain."' );") +
+		array("1n" => "define( 'CAPTIONCORE_DOMAIN', '". $domain."' );") +
 		array_slice($lines, $key, count($lines) - 1, true);
 
 		# outputs new revisions to file
