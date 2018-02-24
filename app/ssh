@@ -7,56 +7,138 @@
 ##      captaincore ssh anchorhost1
 ##
 ##      Runs command over SSH
-##      captaincore ssh anchorhost1 "wp plugin list"
+##      captaincore ssh anchorhost1 --command="wp plugin list"
+##
+##      Runs script over SSH
+##      captaincore ssh anchorhost1 --script="~/Scripts/update_plugins"
+##
+##      Runs command over SSH to mutiple installs
+##      captaincore ssh anchorhost1 anchorhost2 anchorhost3 --command="wp plugin list"
 ##
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source $root_path/config
 
-website=$1
-if [[ "$website" == *"-staging" ]]; then
-  website=${website//-staging/}
-  use_staging=true
+# Loop through arguments and seperate regular arguments from flags (--flag)
+for var in "$@"
+do
+	# If starts with "--" then assign it to a flag array
+    if [[ $var == --* ]]
+    then
+    	count=1+${#flags[*]}
+    	flags[$count]=$var
+    # Else assign to an arguments array
+    else
+    	count=1+${#arguments[*]}
+    	arguments[$count]=$var
+    fi
+done
+
+# Loop through flags and assign to varible. A flag "--email=austin@anchor.host" becomes $email
+for i in "${!flags[@]}"; do
+
+	# replace "-" with "_" and remove leading "--"
+	flag_name=`echo ${flags[$i]} | cut -c 3-`
+
+	# detected flag contains data
+	if [[ $flag_name == *"="* ]]; then
+	  flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
+	  flag_name=`echo $flag_name | perl -n -e '/(.+)?=.+/&& print $1'` # extract name
+	  declare "$flag_name"="$flag_value" # assigns to $flag_flagname
+	else
+	  # assigns to $flag_flagname boolen
+	  declare "$flag_name"=true
+	fi
+
+done
+
+ssh_wrapper () {
+if [ $# -gt 0 ]; then
+
+	if [ -n "$script" ]; then
+	echo "Running SSH command on $# installs"
+	fi
+	if [ -n "$command" ]; then
+	echo "Running SSH command on $# installs"
+	fi
+
+	for website in "$@"; do
+
+		if [[ "$website" == *"-staging" ]]; then
+			website=${website//-staging/}
+			use_staging=true
+		fi
+
+		### Load FTP credentials
+		source $root_path/logins
+
+		### Credentials found, start the backup
+		if ! [ -z "$domain" ]; then
+
+		  ## If website on Kinsta then connect SSH using their format
+		  if [[ "$ipAddress" == *".kinsta.com" ]]; then
+
+				# Kinsta's command prep
+				commandprep="cd public/ &&"
+
+				# Kinsta ssh address format
+		    if [[ "$use_staging" != "true" ]]; then
+		      remoteserver="-oStrictHostKeyChecking=no $username@$ipAddress -p $port"
+		    else
+		      remoteserver="-oStrictHostKeyChecking=no $staging_username@$staging_ipAddress -p $staging_port"
+		    fi
+
+		  else ## If not Kinsta then try connecting using WP Engine's format
+
+				# WP Engine command prep
+				commandprep="rm ~/.wp-cli/config.yml; cd sites/* &&"
+
+				# WP Engine ssh address format
+		    remoteserver="-oStrictHostKeyChecking=no $wpe_ssh_user+$website@$website.ssh.wpengine.net"
+
+		  fi
+
+			# Runs ssh
+			if [ -n "$script" ]; then
+				ssh $remoteserver "$commandprep bash -s" < $script
+			elif [ -n "$command" ]; then
+				ssh $remoteserver "$commandprep $command"
+			else
+				ssh $remoteserver
+			fi
+
+		else
+
+			## not recognized
+		  echo "$domain website host provider not recognized"
+
+		fi
+		### Clear out variables
+		domain=''
+		username=''
+		password=''
+		ipAddress=''
+		protocol=''
+		port=''
+		homedir=''
+		remoteserver=''
+		s3bucket=''
+		s3path=''
+		subsite=''
+		unset use_staging
+
+		let INDEX=${INDEX}+1
+	done
+
 fi
+}
 
-### Load FTP credentials
-source $root_path/logins
-
-### Credentials found, start the backup
-if ! [ -z "$domain" ]
-then
-
-  ## If website on Kinsta then connect SSH using their format
-  if [[ "$ipAddress" == *".kinsta.com" ]]; then
-
-    if [[ "$use_staging" != "true" ]]; then
-      remoteserver="-oStrictHostKeyChecking=no $username@$ipAddress -p $port"
-    else
-      remoteserver="-oStrictHostKeyChecking=no $staging_username@$staging_ipAddress -p $staging_port"
-    fi
-    if [ -n "$2" ]; then
-      ssh $remoteserver "cd public/ && $2"
-    else
-      ssh $remoteserver
-    fi
-
-  else ## If not Kinsta then try connecting using WP Engine's format
-
-    if [ -n "$2" ]; then
-      ssh -oStrictHostKeyChecking=no $wpe_ssh_user+$1@$1.ssh.wpengine.net "rm ~/.wp-cli/config.yml; cd sites/* && $2"
-    else
-      ssh -oStrictHostKeyChecking=no $wpe_ssh_user+$1@$1.ssh.wpengine.net
-    fi
-
-  fi
-
-else ## not recognized so attempt WP Engine's format
-
-  if [ -n "$2" ]; then
-    ssh -oStrictHostKeyChecking=no $wpe_ssh_user+$1@$1.ssh.wpengine.net "rm ~/.wp-cli/config.yml; cd sites/* && $2"
-  else
-    ssh -oStrictHostKeyChecking=no $wpe_ssh_user+$1@$1.ssh.wpengine.net
-  fi
-
+### See if any specific sites are selected
+if [ ${#arguments[*]} -gt 0 ]; then
+	# Backup selected installs
+	ssh_wrapper ${arguments[*]}
+else
+	# Backup all installs
+	ssh_wrapper ${websites[@]}
 fi
