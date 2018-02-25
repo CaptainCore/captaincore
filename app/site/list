@@ -4,7 +4,20 @@
 ##		Output array of installs from the logins
 ##
 ## 		Pass arguments from command line like this
-##		captaincore config list
+##		captaincore site list [--all] [--staging] [--plugin=<plugin>] [--theme=<theme>]
+##
+##		TO DO
+##		- switch backend from TXT files to local copy of WordPress.
+##		- switch over to bash script
+##
+##		Usage would look something like this to check for websites with WooCommerce and return only the website install names in bash array
+## 		websites=( $(wp post list --post_type=captcore_website --meta_key=plugins --meta_value='"name":"woocommerce"' --meta_compare="LIKE" --fields=install --format=json | json -a install) )
+##
+##		Create
+##		wp post create --meta_input='{"install":"anchorhost1","address":"anchorhost1.wpengine.com"}' --post_title='anchorhost1.wpengine.com' --post_status=publish --post_type=captcore_website
+##
+##		List all
+##		echo $(wp post list --post_type=captcore_website --fields=install | json -a install)
 ##
 
 parse_str(implode('&', array_slice($argv, 1)), $_GET);
