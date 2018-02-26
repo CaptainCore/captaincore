@@ -4,10 +4,10 @@
 ##		Pres new install configurations into logins via command line
 ##
 ## 		Pass arguments from command line like this
-##		captaincore prep anchorhosting
+##		captaincore site prep <install>
 ##
 ##    Skip users and plugin deployment
-##    captaincore site prep anchorhosting --skip-deployment
+##    captaincore site prep <install> --skip-deployment
 ##
 
 # Loop through arguments and seperate regular arguments from flags (--flag)
