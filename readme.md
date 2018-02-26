@@ -2,7 +2,7 @@
 [![Logo](https://captaincore.io/wp-content/uploads/2018/02/main-web-icons-captain.png)](https://captaincore.io)
 
 ## Description
-Bulk management tools for WordPress websites. Supports hosting providers [WP Engine](https://wpengine.com/) and [Kinsta](https://kinsta.com/). Powers the CaptainCore Dashboard (WordPress plugin). Built using [Bash CLI](https://github.com/SierraSoftworks/bash-cli).
+Bulk management toolkit for WordPress sites. Supports hosting providers [WP Engine](https://wpengine.com/) and [Kinsta](https://kinsta.com/). Powers the CaptainCore Server (WordPress plugin). Built using [Bash CLI](https://github.com/SierraSoftworks/bash-cli).
 
 ## Website
 https://captaincore.io
