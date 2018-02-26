@@ -54,7 +54,7 @@ then
 
 	quicksave_status() {
 
-		domain=`captaincore config get $website --field=domain`
+		domain=`captaincore site get $website --field=domain`
 
 		## Return error if domain not found
 		if [[ "$domain" == "" ]]; then
