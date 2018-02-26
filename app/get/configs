@@ -15,7 +15,9 @@ if (isset($argv)) {
 }
 
 $wpconfig = $_GET['--wpconfig'];
-$htaccess = $_GET['--htaccess'];
+if(isset($_GET['--htaccess'])) {
+	$htaccess = $_GET['--htaccess'];
+}
 $domain = basename(dirname($wpconfig));
 
 ## customizes wp-config.php
@@ -98,6 +100,83 @@ if (file_exists($wpconfig)) {
 	$lines = explode( PHP_EOL, $current);
 
 	# Looks for a Anchor Hosting Domain
+	$seach_needle = 'CAPTIONCORE_BRANDING';
+	$key_search = array_find($seach_needle, $lines);
+
+	if ($key_search) {
+		echo "CAPTIONCORE_BRANDING already added\n";
+	} else {
+
+		# Find line number to begin adding custom configs
+		$key = array_search('# WP Engine Settings', $lines);
+
+		# If not found try a WordPress default
+		if (!is_numeric($key)) {
+			$key = array_search("/* That's all, stop editing! Happy blogging. */", $lines);
+			if (is_numeric($key)) {
+				// Found using WordPress default, output above the line
+				$key = $key - 1;
+			}
+		}
+
+		# Add new item to array at begin of array
+		$new_lines = array_slice($lines, 0, $key + 1, true) +
+		array("1n" => "define( 'CAPTIONCORE_BRANDING', serialize( array(") +
+		array("2n" => "	'name' => 'Anchor Hosting Client',") +
+		array("3n" => "	'title' => 'Anchor Hosting Client',") +
+		array("4n" => "	'author' => 'Anchor Hosting',") +
+		array("5n" => "	'authoruri' => 'https://anchor.host'") +
+		array("6n" => ") ) );") +
+		array_slice($lines, $key, count($lines) - 1, true);
+
+		# outputs new revisions to file
+		$new_contents = implode( PHP_EOL, $new_lines);
+		$output = file_put_contents($wpconfig, $new_contents);
+		echo "CAPTIONCORE_BRANDING added\n";
+	}
+
+	# Reads in updated wp-config.php file
+	$file = $wpconfig;
+	$current = file_get_contents($file);
+	$lines = explode( PHP_EOL, $current);
+
+	# Looks for a Anchor Hosting Domain
+	$seach_needle = 'CAPTIONCORE_SERVER';
+	$key_search = array_find($seach_needle, $lines);
+
+	if ($key_search) {
+		echo "CAPTIONCORE_SERVER already added\n";
+	} else {
+
+		# Find line number to begin adding custom configs
+		$key = array_search('# WP Engine Settings', $lines);
+
+		# If not found try a WordPress default
+		if (!is_numeric($key)) {
+			$key = array_search("/* That's all, stop editing! Happy blogging. */", $lines);
+			if (is_numeric($key)) {
+				// Found using WordPress default, output above the line
+				$key = $key - 1;
+			}
+		}
+
+		# Add new item to array at begin of array
+		$new_lines = array_slice($lines, 0, $key + 1, true) +
+		array("1n" => "define( 'CAPTIONCORE_SERVER', 'anchor.host' );") +
+		array_slice($lines, $key, count($lines) - 1, true);
+
+		# outputs new revisions to file
+		$new_contents = implode( PHP_EOL, $new_lines);
+		$output = file_put_contents($wpconfig, $new_contents);
+		echo "CAPTIONCORE_SERVER added\n";
+	}
+
+	# Reads in updated wp-config.php file
+	$file = $wpconfig;
+	$current = file_get_contents($file);
+	$lines = explode( PHP_EOL, $current);
+
+	# Looks for a Anchor Hosting Domain
 	$seach_needle = 'CAPTIONCORE_DOMAIN';
 	$key_search = array_find($seach_needle, $lines);
 
@@ -125,6 +204,7 @@ if (file_exists($wpconfig)) {
 		# outputs new revisions to file
 		$new_contents = implode( PHP_EOL, $new_lines);
 		$output = file_put_contents($wpconfig, $new_contents);
+		echo "CAPTIONCORE_DOMAIN added\n";
 	}
 
 	# Reads in updated wp-config.php file
@@ -164,7 +244,7 @@ if (file_exists($wpconfig)) {
 }
 
 ## customizes .htaccess
-if (file_exists($htaccess)) {
+if (isset($htaccess) and file_exists($htaccess)) {
 
 	# Reads in .htaccess file
 	$file = $htaccess;
@@ -231,8 +311,7 @@ if (file_exists($htaccess)) {
  * @author Bran van der Meer <branmovic@gmail.com>
  * @since 29-01-2010
  */
-function array_find($needle, array $haystack)
-{
+function array_find($needle, array $haystack) {
     foreach ($haystack as $key => $value) {
         if (false !== stripos($value, $needle)) {
             return $key;
