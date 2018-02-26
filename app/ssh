@@ -77,14 +77,14 @@ if [ $# -gt 0 ]; then
 		if ! [ -z "$domain" ]; then
 
 		  ## If website on Kinsta then connect SSH using their format
-		  if [[ "$ipAddress" == *".kinsta.com" ]]; then
+		  if [[ "$address" == *".kinsta.com" ]]; then
 
 				# Kinsta's command prep
 				commandprep="cd public/ &&"
 
 				# Kinsta ssh address format
 		    if [[ "$use_staging" != "true" ]]; then
-		      remoteserver="-oStrictHostKeyChecking=no $username@$ipAddress -p $port"
+		      remoteserver="-oStrictHostKeyChecking=no $username@$address -p $port"
 		    else
 		      remoteserver="-oStrictHostKeyChecking=no $staging_username@$staging_ipAddress -p $staging_port"
 		    fi

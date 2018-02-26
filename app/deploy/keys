@@ -8,7 +8,7 @@
 ##
 
 site=$1
-site_address=`captaincore config get $site --field="ipAddress"`
+site_address=`captaincore site get $site --field="address"`
 
 if [[ $site_address == *".kinsta.com"* ]]; then
 

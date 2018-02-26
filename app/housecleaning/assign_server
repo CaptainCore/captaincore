@@ -58,7 +58,7 @@ if [ $# -gt 0 ]; then
 		then
 
       ## Grab current IP from host name
-      dig_output=`dig $ipAddress`
+      dig_output=`dig $address`
       website_ip=`echo $dig_output | perl -n -e '/ANSWER SECTION: .+ IN A (.+?) /&& print $1'`
 
       ## map to correct server

@@ -45,9 +45,9 @@ do
         rclone copy ~/Tmp/anchor_load_$website.php sftp-$website:$homedir/wp-content/mu-plugins/
 
         ### Trigger website to load password
-        wget --no-cache --spider $ipAddress/wp-admin/
+        wget --no-cache --spider $address/wp-admin/
         sleep 1
-        curl -Il $ipAddress/wp-login.php
+        curl -Il $address/wp-login.php
 
         ## remove password plugin
         rclone delete sftp-$website:$homedir/wp-content/mu-plugins/anchor_load_$website.php

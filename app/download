@@ -21,10 +21,10 @@ if ! [ -z "$domain" ]
 then
 
   ## If website on Kinsta then connect SSH using their format
-  if [[ "$ipAddress" == *".kinsta.com" ]]; then
+  if [[ "$address" == *".kinsta.com" ]]; then
 
 		if [ -n "$2" ]; then
-			scp -o StrictHostKeyChecking=no -P $port $username@$ipAddress:public/$2 $2
+			scp -o StrictHostKeyChecking=no -P $port $username@$address:public/$2 $2
 		else
 			echo 'Missing argument. Ex: captaincore download anchorhost1 logo.png'
 		fi
