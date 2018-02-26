@@ -82,7 +82,7 @@ then
 	# captaincore ssh $website --command="wp core version --skip-themes --skip-plugins --skip-packages" > ~/Quicksaves/$domain/versions/core.json
 
 	## Nasty bash hack in order to grab all of the details from one single SSH tunnel (WP Engine connection is slow)
-	response=$(captaincore ssh $website --command='wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp theme list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp core version --skip-themes --skip-plugins --skip-packages')
+	response=$(captaincore ssh $website --command='wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp theme list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp core version --skip-themes --skip-plugins --skip-packages; echo ""; wp option get home --skip-themes --skip-plugins --skip-packages')
 	IFS=$'\n' read -rd '' -a response_parsed <<<"$response"
 	echo ${response_parsed[0]} > ~/Quicksaves/$domain/versions/plugins.json
 	echo ${response_parsed[1]} > ~/Quicksaves/$domain/versions/themes.json
@@ -91,6 +91,7 @@ then
 	plugin_data=`cat ~/Quicksaves/$domain/versions/plugins.json`
 	theme_data=`cat ~/Quicksaves/$domain/versions/themes.json`
 	core_version=`cat ~/Quicksaves/$domain/versions/core.json`
+	home_url=${response_parsed[3]}
 	# plugin_data=$(git show $git_hash:versions/plugins.json --format=)
 	# theme_data=$(git show $git_hash:versions/themes.json --format=)
 	# core_version=$(git show $git_hash:versions/core.json --format=)
@@ -125,9 +126,9 @@ then
 
 	### Adds quicksave to CaptainCore Plugin
 	if [[ "$captaincore_dev" == true ]]; then
-		curl -k --data-urlencode "git_commit=$git_hash" --data-urlencode "git_status=$git_status" --data-urlencode "core=$core_version" --data-urlencode "plugins=$plugin_data" --data-urlencode "themes=$theme_data" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+		curl -k --data-urlencode "home_url=$home_url" --data-urlencode "git_commit=$git_hash" --data-urlencode "git_status=$git_status" --data-urlencode "core=$core_version" --data-urlencode "plugins=$plugin_data" --data-urlencode "themes=$theme_data" --data-urlencode "token=$token" "$captaincore_api/$domain/"
 	else
-		curl --data-urlencode "git_commit=$git_hash" --data-urlencode "git_status=$git_status" --data-urlencode "core=$core_version" --data-urlencode "plugins=$plugin_data" --data-urlencode "themes=$theme_data" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+		curl --data-urlencode "home_url=$home_url" --data-urlencode "git_commit=$git_hash" --data-urlencode "git_status=$git_status" --data-urlencode "core=$core_version" --data-urlencode "plugins=$plugin_data" --data-urlencode "themes=$theme_data" --data-urlencode "token=$token" "$captaincore_api/$domain/"
 	fi
 
 	## Generates snapshot archive
