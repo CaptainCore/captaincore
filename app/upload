@@ -18,7 +18,7 @@ if [[ "$website" == *"-staging" ]]; then
 fi
 
 ### Load FTP credentials
-source $root_path/logins
+eval $(captaincore site get $website --bash)
 
 # Loop through arguments and seperate regular arguments from flags (--flag)
 for var in "$@"
