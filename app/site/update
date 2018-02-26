@@ -1,153 +1,49 @@
-#! /usr/bin/env php
-<?php
+#!/bin/bash
 ##
 ##		Loads new install configurations into logins via command line
 ##
 ## 		Pass arguments from command line like this
-##		captaincore config update --install=anchorhosting --domain=anchor.host --username=anchorhost --password=random --address=anchorhost.wpengine.com --protocol=sftp --port=2222 ---staging_username=anchorhost-staging --staging_password=randompassword --staging_address=anchorhost.wpengine.com --staging_protocol=sftp --staging_port=2222 --preloadusers=1737
+##		captaincore site update <install> --id=<id> --domain=<domain> --username=<username> --password=<password> --address=<address> --protocol=<protocol> --port=<port> --staging_username=<staging_username> --staging_password=<staging_password> --staging_address=<staging_address> --staging_protocol=<staging_protocol> --staging_port=<staging_port> [--preloadusers=<preloadusers>] [--homedir=<homedir>] [--s3accesskey=<s3accesskey>] [--s3secretkey=<s3secretkey>] [--s3bucket=<s3bucket>] [--s3path=<s3path>]
+##
+##		Example
+##		captaincore site add anchorhosting --id=1234 --domain=anchor.host --username=anchorhost --password=random --address=anchorhost.wpengine.com --protocol=sftp --port=2222 --staging_username=anchorhost-staging --staging_password=randompassword --staging_address=anchorhost.wpengine.com --staging_protocol=sftp --staging_port=2222 --preloadusers=1737
 ##
 
-$root_path = explode( '/app/', $argv[0] )[0];
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 
-if (isset($argv)) {
-	parse_str(implode('&', array_slice($argv, 1)), $_GET);
-}
+# Loop through arguments and seperate regular arguments from flags (--flag)
+for var in "$@"; do
+	# If starts with "--" then assign it to a flag array
+    if [[ $var == --* ]]
+    then
+    	count=1+${#flags[*]}
+    	flags[$count]=$var
+    # Else assign to an arguments array
+    else
+    	count=1+${#arguments[*]}
+    	arguments[$count]=$var
+    fi
+done
 
-$install = $_GET['--install'];
-$domain = $_GET['--domain'];
-$username = $_GET['--username'];
-$password = base64_decode(urldecode($_GET['--password']));
-$address = $_GET['--address'];
-$protocol = $_GET['--protocol'];
-$port = $_GET['--port'];
-$staging_username = isset($_GET['--staging_username']) ? $_GET['--staging_username'] : '';
-$staging_password = isset($_GET['--staging_password']) ? base64_decode(urldecode($_GET['--staging_password'])) : '';
-$staging_address = isset($_GET['--staging_address']) ? $_GET['--staging_address'] : '';
-$staging_protocol = isset($_GET['--staging_protocol']) ? $_GET['--staging_protocol'] : '';
-$staging_port = isset($_GET['--staging_port']) ? $_GET['--staging_port'] : '';
-$preloadusers = isset($_GET['--preloadusers']) ? $_GET['--preloadusers'] : '';   // List of customer ID to which have users to preload.
-$homedir = isset($_GET['--homedir']) ? $_GET['--homedir'] : '';
-$s3accesskey = isset($_GET['--s3accesskey']) ? $_GET['--s3accesskey'] : '';
-$s3secretkey = isset($_GET['--s3secretkey']) ? $_GET['--s3secretkey'] : '';
-$s3bucket = isset($_GET['--s3bucket']) ? $_GET['--s3bucket'] : '';
-$s3path = isset($_GET['--s3path']) ? $_GET['--s3path'] : '';
+# Loop through flags and assign to varible. A flag "--email=austin@anchor.host" becomes $email
+for i in "${!flags[@]}"; do
 
-if ($install) {
+	# replace "-" with "_" and remove leading "--"
+	flag_name=`echo ${flags[$i]} | cut -c 3-`
 
-## logins
+	# detected flag contains data
+	if [[ $flag_name == *"="* ]]; then
+	  flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
+	  flag_name=`echo $flag_name | perl -n -e '/(.+)?=.+/&& print $1'` # extract name
+		flags[$i]=$flag_name=$flag_value
+	  declare "$flag_name"="$flag_value" # assigns to $flag_flagname
+	else
+	  # assigns to $flag_flagname boolen
+	  declare "$flag_name"=true
+	fi
 
-	# Reads current backup logins
-	$file = $root_path . '/logins';
-	$current = file_get_contents($file);
-	$lines = explode( PHP_EOL, $current);
+done
 
-	# Find end of websites array
-	$key = array_search("\t\t*)", $lines);
-
-	# Looks for duplicate install name
-	$seach_needle = "\t\t$install)";
-	$key_search = array_search($seach_needle, $lines);
-
-	if ($key_search) {
-
-		$i = 0;
-
-		// finds last line of install
-		do {
-			if ($lines[$key_search + $i] == "\t\t\t;;") {
-				$key_search_last = $key_search + $i;
-			} $i++;
-		} while ($lines[$key_search + $i -1] != "\t\t\t;;");
-
-		// stored the number of lines removed
-		$lines_removed = $i;
-
-		// loop through and remove the current install
-		for ($i = $key_search; $i <= $key_search_last; $i++) {
-		    unset($lines[$i]);
-		}
-
-		$key = array_search("\t\t*)", $lines);
-
-		# Add new install to end of array
-		$new_lines = array_slice($lines, 0, $key - $lines_removed, true) +
-		array("1n" => "		". $install.")") +
-		array("2n" => "			### FTP info") +
-		array("3n" => "			domain=$domain") +
-		array("4n" => "			username=$username") +
-		array("5n" => "			password='$password'") +
-		array("6n" => "			ipAddress='$address'") +
-		array("7n" => "			protocol='$protocol'") +
-		array("8n" => "			port='$port'") +
-		($staging_username != "" ? array("9n" => "			staging_username='$staging_username'"): array() ) +
-		($staging_password != "" ? array("10n" => "			staging_password='$staging_password'"): array() ) +
-		($staging_address != "" ? array("11n" => "			staging_ipAddress='$staging_address'"): array() ) +
-		($staging_protocol != "" ? array("12n" => "			staging_protocol='$staging_protocol'"): array() ) +
-		($staging_port != "" ? array("13n" => "			staging_port='$staging_port'"): array() ) +
-		array("14n" => "			preloadusers='$preloadusers'") +
-		array("15n" => "			homedir='$homedir'") +
-		($s3accesskey != "" ? array("16n" => "			s3accesskey='$s3accesskey'"): array() ) +
-		($s3secretkey != "" ? array("17n" => "			s3secretkey='$s3secretkey'"): array() ) +
-		($s3bucket != "" ? array("18n" => "			s3bucket='$s3bucket'"): array() ) +
-		($s3path != "" ? array("19n" => "			s3path='$s3path'"): array() ) +
-		array("20n" => "			;;") +
-		array_slice($lines, $key - $lines_removed, count($lines) - 1, true);
-
-		if ($new_lines) {
-			# outputs new additions to file
-			$new_contents = implode( PHP_EOL, $new_lines);
-			file_put_contents($_SERVER['HOME'] . '/Tmp/logins', $new_contents);
-		} else {
-			# outputs new additions to file
-			$new_contents = implode( PHP_EOL, $lines);
-			file_put_contents($_SERVER['HOME'] . '/Tmp/logins', $new_contents);
-		}
-
-	} else {
-
-		# Duplicate key not found. Adds new install to the end of the file.
-
-		# Add new install to end of array
-		$new_lines = array_slice($lines, 0, $key, true) +
-		array("$key-1n" => "		". $install.")") +
-		array("$key-2n" => "			### FTP info") +
-		array("$key-3n" => "			domain=$domain") +
-		array("$key-4n" => "			username=$username") +
-		array("$key-5n" => "			password='$password'") +
-		array("$key-6n" => "			ipAddress='$address'") +
-		array("$key-7n" => "			protocol='$protocol'") +
-		array("$key-8n" => "			port='$port'") +
-		($staging_username != "" ? array("$key-9n" => "			staging_username='$staging_username'"): array() ) +
-		($staging_password != "" ? array("$key=10n" => "			staging_password='$staging_password'"): array() ) +
-		($staging_address != "" ? array("$key-11n" => "			staging_ipAddress='$staging_address'"): array() ) +
-		($staging_protocol != "" ? array("$key-12n" => "			staging_protocol='$staging_protocol'"): array() ) +
-		($staging_port != "" ? array("$key-13n" => "			staging_port='$staging_port'"): array() ) +
-		array("$key-14n" => "			preloadusers='$preloadusers'") +
-		array("$key-15n" => "			homedir='$homedir'") +
-		($s3accesskey != "" ? array("$key-16n" => "			s3accesskey='$s3accesskey'"): array() ) +
-		($s3secretkey != "" ? array("$key-17n" => "			s3secretkey='$s3secretkey'"): array() ) +
-		($s3bucket != "" ? array("$key-18n" => "			s3bucket='$s3bucket'"): array() ) +
-		($s3path != "" ? array("$key-19n" => "			s3path='$s3path'"): array() ) +
-		array("$key-20n" => "			;;") +
-		array_slice($lines, $key, count($lines) - 1, true);
-
-		# outputs new additions to file
-		$new_contents = implode( PHP_EOL, $new_lines);
-		file_put_contents($_SERVER['HOME'] . '/Tmp/logins', $new_contents);
-	}
-
-	## Prep new config files
-	$output = shell_exec( "captaincore config process" );
-
-	## Rclone Import
-	echo "Updating rclone config\n";
-	$output = shell_exec( "captaincore generate rclone $install" );
-
-	## 	setups up token and load custom configs into wp-config.php and .htaccess
-	##  in a background process. Sent email when completed.
-	echo "Skipping plugins and backup\n";
-	$output = shell_exec( "captaincore site prep $install --skip-deployment" );
-
-}
-
-echo "Setting up ". $install;
+cd $root_path/data
+wp eval-file ../lib/php/site-update.php install=$1 ${flags[@]}

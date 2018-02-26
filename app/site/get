@@ -1,67 +1,66 @@
-#! /usr/bin/env php
-<?php
+#!/bin/bash
+
 ##
 ##		Output array of installs from the logins
 ##
 ## 		Pass arguments from command line like this
-##		captaincore config get <install> --field=domain
+##		captaincore site get <install> --field=domain [--bash]
 ##
 ##		Expected results
 ##		anchor.host
 ##
 
-$root_path = explode( '/app/', $argv[0] )[0];
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 
-if (isset($argv)) {
-	parse_str(implode('&', array_slice($argv, 1)), $_GET);
+# Loop through arguments and seperate regular arguments from flags (--flag)
+for var in "$@"
+do
+	# If starts with "--" then assign it to a flag array
+    if [[ $var == --* ]]
+    then
+    	count=1+${#flags[*]}
+    	flags[$count]=$var
+    # Else assign to an arguments array
+    else
+    	count=1+${#arguments[*]}
+    	arguments[$count]=$var
+    fi
+done
+
+# Loop through flags and assign to varible. A flag "--email=austin@anchor.host" becomes $email
+for i in "${!flags[@]}"; do
+
+	# replace "-" with "_" and remove leading "--"
+	flag_name=`echo ${flags[$i]} | tr - _`
+	flag_name=`echo $flag_name | cut -c 3-`
+
+	# detected flag contains data
+	if [[ $flag_name == *"="* ]]; then
+	  flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
+	  flag_name=`echo $flag_name | perl -n -e '/(.+)?=.+/&& print $1'` # extract name
+	  declare "$flag_name"="$flag_value" # assigns to $flag_flagname
+	else
+	  # assigns to $flag_flagname boolen
+	  declare "$flag_name"=true
+	fi
+
+done
+
+cd $root_path/data
+
+process_get() {
+if [[ "$bash" == "true" ]]; then
+	website_id=$(captaincore site get $1 --field=ID)
+	wp eval-file ${root_path}lib/php/site-get.php $website_id
+	return 1
+fi
+
+if [[ "$field" == "" ]]; then
+	declare -a rows
+	wp post list --post_type=captcore_website --meta_key=install --meta_value="$1" --meta_compare="=" --fields="ID,install,address,username,password,protocol,port,install_staging,address_staging,username_staging,password_staging,protocol_staging,port_staging" --format=json | json
+else
+	wp post list --post_type=captcore_website --meta_key=install --meta_value="$1" --meta_compare="=" --fields=$field --format=json | json -a $field
+fi
 }
-
-$install = $argv[1];
-if (isset($_GET['--field'])) {
-	$field = $_GET['--field'];
-}
-
-if ($_GET && isset($_GET['file'])) {
-	$file = $_GET['file'];
-} else {
-	$file = "$root_path/logins";
-}
-
-if (file_exists($file)) {
-$file = file_get_contents($file);
-	// Matches the format: installname)\n\n\t   See: http://regexr.com/3de13
-	$pattern = '/(\w+)\)\n\t\t.+\n([\w\W]+?)\n\t\t\t;;/';
-	preg_match_all($pattern, $file, $matches);
-
-	// $matches[1]  stores the install names
-	// $matches[2]  stores the rest of the fields with tabs and spaces
-	// print_r($matches[2]);
-	foreach($matches[1] as $key => $value) {
-		if ($value == $install) {
-			$install_id = $key;
-		}
-	}
-
-if (isset($install_id)) {
-	$install_data_raw = $matches[2][$install_id];
-	//list($k, $v) = explode('\n', str_replace("\t","",$install_data_raw));
-	//$result[ $k ] = $v;
-	$install_data = explode("\n", str_replace("\t","",$install_data_raw) );
-
-	foreach($install_data as $key => $value) {
-		$install_data_row = explode("=", $value);
-		$install_data[$install_data_row[0]] = stripslashes($install_data_row[1]);
-    unset($install_data[$key]);
-	}
-
-}
-	if (isset($field)) {
-		if ( isset($install_data) ) {
-			echo $install_data[$field];
-		} else {
-			echo "";
-		}
-	} else {
-		echo json_encode($install_data);
-	}
-}
+process_get $1
