@@ -53,7 +53,7 @@ if [ $# -gt 0 ]
 then
 
 	snapshot_website() {
-	domain=`captaincore config get $website --field=domain`
+	domain=`captaincore site get $website --field=domain`
 
 	## Return error if domain not found
 	if [[ "$domain" == "" ]]; then
@@ -98,8 +98,6 @@ then
 		rclone config delete sftp-$website-staging
 		## Removes directory from backup server
 		rm -rf ~/Backup/$domain
-		## Process the removed logins
-		captaincore config process
 	fi
 	}
 	snapshot_website

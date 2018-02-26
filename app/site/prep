@@ -7,7 +7,7 @@
 ##		captaincore prep anchorhosting
 ##
 ##    Skip users and plugin deployment
-##    captaincore prep anchorhosting --skip-deployment
+##    captaincore site prep anchorhosting --skip-deployment
 ##
 
 # Loop through arguments and seperate regular arguments from flags (--flag)
@@ -47,13 +47,13 @@ done
 
 if [[ $skip_deployment != true ]]; then
 
-  ## load custom configs into wp-config.php and .htaccess, setups up token
-  captaincore deploy init $1
-  echo "load custom configs into wp-config.php and .htaccess"
-  echo "Setting up token"
-
 	## Deploy SSH keys
 	captaincore deploy keys $1
+
+	## load custom configs into wp-config.php and .htaccess, setups up token
+	captaincore deploy init $1
+	echo "load custom configs into wp-config.php and .htaccess"
+	echo "Setting up token"
 
   ## loads users
   captaincore deploy users $1
