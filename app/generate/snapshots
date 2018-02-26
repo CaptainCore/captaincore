@@ -16,7 +16,7 @@ then
 		website=${!var}
 
 		### Load FTP credentials
-		source $root_path/logins
+		eval $(captaincore site get $website --bash)
 
 		### Credentials found, start the backup
 		if ! [ -z "$domain" ]

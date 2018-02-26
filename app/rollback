@@ -14,7 +14,7 @@ root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_
 source $root_path/config
 
 ### Load FTP credentials
-source $root_path/logins
+eval $(captaincore site get $website --bash)
 
 # if [ "$homedir" == "" ]; then
 # 		homedir="/"
