@@ -5,7 +5,7 @@ parse_str( implode( '&', $args ) );
 
 // Decodes passwords
 $password         = base64_decode( urldecode( $password ) );
-$password_staging = base64_decode( urldecode( $password ) );
+$password_staging = base64_decode( urldecode( $password_staging ) );
 
 // Check if site
 $found_site = get_post( $id );
