@@ -5,7 +5,7 @@ parse_str( implode( '&', $args ) );
 
 // Decodes passwords
 $password         = base64_decode( urldecode( $password ) );
-$password_staging = base64_decode( urldecode( $password ) );
+$password_staging = base64_decode( urldecode( $password_staging ) );
 
 // Check if site
 $found_site = get_post( $id );
@@ -36,6 +36,7 @@ if ( $found_site ) {
 			'homedir_staging'           => $homedir_staging,
 			'database_username_staging' => $database_username_staging,
 			'database_password_staging' => $database_password_staging,
+			'preloadusers'              => $preloadusers,
 			's3accesskey '              => $s3accesskey,
 			's3secretkey '              => $s3secretkey,
 			's3bucket'                  => $s3bucket,
@@ -46,16 +47,19 @@ if ( $found_site ) {
 
 	echo "Site updated\n";
 
-	wp_update_post( $my_post );
+	$site = wp_update_post( $my_post );
+	print_r( $site );
 
 } else {
 
 	$my_post = array(
 
-		'ID'          => $id,
-		'post_title'  => $domain,
-		'post_status' => 'publish',
-		'meta_input'  => array(
+		'import_id'    => intval( $id ),
+		'post_title'   => $domain,
+		'post_status'  => 'publish',
+		'post_content' => ' ',
+		'post_author'  => '1',
+		'meta_input'   => array(
 			'install'                   => $install,
 			'address'                   => $address,
 			'username'                  => $username,
@@ -74,6 +78,7 @@ if ( $found_site ) {
 			'homedir_staging'           => $homedir_staging,
 			'database_username_staging' => $database_username_staging,
 			'database_password_staging' => $database_password_staging,
+			'preloadusers'              => $preloadusers,
 			's3accesskey '              => $s3accesskey,
 			's3secretkey '              => $s3secretkey,
 			's3bucket'                  => $s3bucket,
@@ -83,9 +88,12 @@ if ( $found_site ) {
 	);
 
 
-	wp_insert_post( $my_post );
+	$result = wp_insert_post( $my_post, true );
 	echo "Site added\n";
-
+	if ( is_wp_error( $result ) ) {
+		$error_string = $result->get_error_message();
+		echo $error_string;
+	}
 }
 
 // Rclone Import

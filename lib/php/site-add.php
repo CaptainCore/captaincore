@@ -53,7 +53,7 @@ if ( $found_site ) {
 
 	$my_post = array(
 
-		'ID'          => $id,
+		'import_id'   => intval( $id ),
 		'post_title'  => $domain,
 		'post_status' => 'publish',
 		'meta_input'  => array(
@@ -75,6 +75,7 @@ if ( $found_site ) {
 			'homedir_staging'           => $homedir_staging,
 			'database_username_staging' => $database_username_staging,
 			'database_password_staging' => $database_password_staging,
+			'preloadusers'              => $preloadusers,
 			's3accesskey '              => $s3accesskey,
 			's3secretkey '              => $s3secretkey,
 			's3bucket'                  => $s3bucket,
@@ -84,9 +85,12 @@ if ( $found_site ) {
 	);
 
 
-	wp_insert_post( $my_post );
+	wp_insert_post( $my_post, true );
 	echo "Site added\n";
-
+	if ( is_wp_error( $result ) ) {
+		$error_string = $result->get_error_message();
+		echo $error_string;
+	}
 }
 
 // Rclone Import
