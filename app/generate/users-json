@@ -22,7 +22,7 @@ $preloaded_users = array();
 
 foreach ($customers as $customer) {
 
-    $curl = curl_init( "https://anchor.host/wp-json/wp/v2/customer/$customer/?token=$token" );
+    $curl = curl_init( "https://anchor.host/wp-json/wp/v2/captcore_customer/$customer/?token=$token" );
     curl_setopt( $curl, CURLOPT_RETURNTRANSFER, 1);
     $response = curl_exec( $curl );
     $json_results_website = json_decode($response, true);
