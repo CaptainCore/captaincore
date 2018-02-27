@@ -135,7 +135,14 @@ then
 	#cd ~/Backup/
 	#zip -r ~/Quicksaves/$domain-$timedate.zip $domain/ --include=$domain/wp-content/plugins/\* --include=$domain/wp-content/themes/\*
 
-
+	## Store updated info in WordPress datastore
+	site_id=$(captaincore site get $website --field=ID)
+	cd $root_path/data
+	wp post meta update $site_id plugins ${response_parsed[0]}
+	wp post meta update $site_id themes ${response_parsed[1]}
+	wp post meta update $site_id core ${response_parsed[2]}
+	wp post meta update $site_id home_url ${response_parsed[2]}
+	
 	}
 	snapshot_website
 
