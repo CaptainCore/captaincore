@@ -18,13 +18,17 @@ then
 	rclone config delete sftp-$website-staging
 
 	echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $website"
+
+	password=$(captaincore site get $website --field=password)
+	password_staging=$(captaincore site get $website --field=password_staging)
+
 	# Add new WordPress site to Rclone
 	rclone_pass=$(rclone obscure $password)
 	rclone config create sftp-$website sftp host $address user $username port $port pass $rclone_pass
 
-	if [[ "$staging_password" != "" ]]; then
-		rclone_pass_staging=$(rclone obscure $staging_password)
-		rclone config create sftp-$website-staging sftp host $staging_ipAddress user $staging_username port $staging_port pass $rclone_pass_staging
+	if [[ "$password_staging" != "" ]]; then
+		rclone_pass_staging=$(rclone obscure $password_staging)
+		rclone config create sftp-$website-staging sftp host $address_staging user $username_staging port $port_staging pass $rclone_pass_staging
 	fi
 
 fi
