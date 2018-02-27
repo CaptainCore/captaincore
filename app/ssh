@@ -88,7 +88,7 @@ if [ $# -gt 0 ]; then
 		    if [[ "$use_staging" != "true" ]]; then
 		      remoteserver="-oStrictHostKeyChecking=no $username@$address -p $port"
 		    else
-		      remoteserver="-oStrictHostKeyChecking=no $staging_username@$staging_ipAddress -p $staging_port"
+		      remoteserver="-oStrictHostKeyChecking=no $username_staging@$address_staging -p $port_staging"
 		    fi
 
 		  else ## If not Kinsta then try connecting using WP Engine's format
@@ -121,7 +121,7 @@ if [ $# -gt 0 ]; then
 		domain=''
 		username=''
 		password=''
-		ipAddress=''
+		address=''
 		protocol=''
 		port=''
 		homedir=''

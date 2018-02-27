@@ -56,7 +56,7 @@ then
 		domain=''
 		username=''
 		password=''
-		ipAddress=''
+		address=''
 		protocol=''
 		port=''
 

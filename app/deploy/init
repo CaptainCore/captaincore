@@ -93,7 +93,7 @@ if [ $# -gt 0 ]; then
 		domain=''
 		username=''
 		password=''
-		ipAddress=''
+		address=''
 		protocol=''
 		port=''
 		homedir=''

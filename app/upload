@@ -71,9 +71,9 @@ then
 				fi
 	    else
 				if [[ "$public" == "true" ]]; then
-					scp -o StrictHostKeyChecking=no -P $staging_port $2 $staging_username@$staging_ipAddress:public/
+					scp -o StrictHostKeyChecking=no -P $port_staging $2 $username_staging@$address_staging:public/
 				else
-					scp -o StrictHostKeyChecking=no -P $staging_port $2 $staging_username@$staging_ipAddress:private/
+					scp -o StrictHostKeyChecking=no -P $port_staging $2 $username_staging@$address_staging:private/
 				fi
 	    fi
 

@@ -58,7 +58,7 @@ do
       domain=''
       username=''
       password=''
-      ipAddress=''
+      address=''
       protocol=''
       port=''
     fi

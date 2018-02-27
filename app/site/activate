@@ -35,7 +35,7 @@ for (( i = 1; i <= $#; i++ )); do
     domain=''
     username=''
     password=''
-    ipAddress=''
+    address=''
     protocol=''
     port=''
 
