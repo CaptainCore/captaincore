@@ -56,6 +56,8 @@ if [ $# -gt 0 ]; then
 		### Credentials found, start the backup
 		if ! [ -z "$domain" ]; then
 
+			echo "${INDEX}/$# - $domain"
+
 			## Nasty bash hack in order to grab all of the details from one single SSH tunnel (WP Engine connection is slow)
 			response=$(captaincore ssh $website --command='wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp theme list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp core version --skip-themes --skip-plugins --skip-packages; echo ""; wp option get home --skip-themes --skip-plugins --skip-packages')
 			IFS=$'\n' read -rd '' -a response_parsed <<<"$response"
