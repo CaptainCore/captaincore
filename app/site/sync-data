@@ -60,17 +60,19 @@ if [ $# -gt 0 ]; then
 
 			## Nasty bash hack in order to grab all of the details from one single SSH tunnel (WP Engine connection is slow)
 			response=$(captaincore ssh $website --command='wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp theme list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp core version --skip-themes --skip-plugins --skip-packages; echo ""; wp option get home --skip-themes --skip-plugins --skip-packages')
-			IFS=$'\n' read -rd '' -a response_parsed <<<"$response"
-			home_url=${response_parsed[3]}
+			if [[ "$response" != "" ]]; then
+				IFS=$'\n' read -rd '' -a response_parsed <<<"$response"
+				home_url=${response_parsed[3]}
 
-			## Store updated info in WordPress datastore
-			site_id=$(captaincore site get $website --field=ID)
-			cd $root_path/data
-			wp post meta update $site_id plugins "${response_parsed[0]}"
-			wp post meta update $site_id themes "${response_parsed[1]}"
-			wp post meta update $site_id core ${response_parsed[2]}
-			wp post meta update $site_id home_url ${response_parsed[3]}
-
+				## Store updated info in WordPress datastore
+				site_id=$(captaincore site get $website --field=ID)
+				cd $root_path/data
+				wp post meta update $site_id plugins "${response_parsed[0]}"
+				wp post meta update $site_id themes "${response_parsed[1]}"
+				wp post meta update $site_id core ${response_parsed[2]}
+				wp post meta update $site_id home_url ${response_parsed[3]}
+			fi
+			
 		fi
 
 		### Clear out variables
