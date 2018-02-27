@@ -16,7 +16,9 @@ if ( $found_site ) {
 
 		'ID'          => $id,
 		'post_title'  => $domain,
+		'post_type'   => 'captcore_website',
 		'post_status' => 'publish',
+		'post_author' => '1',
 		'meta_input'  => array(
 			'install'                   => $install,
 			'address'                   => $address,
@@ -55,7 +57,9 @@ if ( $found_site ) {
 
 		'import_id'   => intval( $id ),
 		'post_title'  => $domain,
+		'post_type'   => 'captcore_website',
 		'post_status' => 'publish',
+		'post_author' => '1',
 		'meta_input'  => array(
 			'install'                   => $install,
 			'address'                   => $address,
