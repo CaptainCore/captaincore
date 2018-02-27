@@ -34,6 +34,7 @@ if ( $found_site ) {
 			'protocol_staging'          => $protocol_staging,
 			'port_staging'              => $port_staging,
 			'homedir_staging'           => $homedir_staging,
+			'preloadusers'              => $preloadusers,
 			'database_username_staging' => $database_username_staging,
 			'database_password_staging' => $database_password_staging,
 			's3accesskey '              => $s3accesskey,
