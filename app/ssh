@@ -56,12 +56,12 @@ done
 ssh_wrapper () {
 if [ $# -gt 0 ]; then
 
-	if [ -n "$script" ]; then
-	echo "Running SSH command on $# installs"
-	fi
-	if [ -n "$command" ]; then
-	echo "Running SSH command on $# installs"
-	fi
+	#if [ -n "$script" ]; then
+	#	echo "Running SSH command on $# installs"
+	#fi
+	#if [ -n "$command" ]; then
+	#	echo "Running SSH command on $# installs"
+	#fi
 
 	for website in "$@"; do
 
