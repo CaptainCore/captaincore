@@ -43,6 +43,7 @@ if ( $found_site ) {
 			's3secretkey '              => $s3secretkey,
 			's3bucket'                  => $s3bucket,
 			's3path '                   => $s3path,
+			'status'                    => 'active',
 
 		),
 	);
@@ -84,6 +85,7 @@ if ( $found_site ) {
 			's3secretkey '              => $s3secretkey,
 			's3bucket'                  => $s3bucket,
 			's3path '                   => $s3path,
+			'status'                    => 'active',
 
 		),
 	);
