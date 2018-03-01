@@ -99,12 +99,12 @@ if (file_exists($wpconfig)) {
 	$current = file_get_contents($file);
 	$lines = explode( PHP_EOL, $current);
 
-	# Looks for a Anchor Hosting Domain
-	$seach_needle = 'CAPTIONCORE_BRANDING';
+	# Looks for a CaptainCore Branding
+	$seach_needle = 'CAPTAINCORE_BRANDING';
 	$key_search = array_find($seach_needle, $lines);
 
 	if ($key_search) {
-		echo "CAPTIONCORE_BRANDING already added\n";
+		echo "CAPTAINCORE_BRANDING already added\n";
 	} else {
 
 		# Find line number to begin adding custom configs
@@ -121,7 +121,7 @@ if (file_exists($wpconfig)) {
 
 		# Add new item to array at begin of array
 		$new_lines = array_slice($lines, 0, $key + 1, true) +
-		array("1n" => "define( 'CAPTIONCORE_BRANDING', serialize( array(") +
+		array("1n" => "define( 'CAPTAINCORE_BRANDING', serialize( array(") +
 		array("2n" => "	'name' => 'Anchor Hosting Client',") +
 		array("3n" => "	'title' => 'Anchor Hosting Client',") +
 		array("4n" => "	'author' => 'Anchor Hosting',") +
@@ -132,7 +132,7 @@ if (file_exists($wpconfig)) {
 		# outputs new revisions to file
 		$new_contents = implode( PHP_EOL, $new_lines);
 		$output = file_put_contents($wpconfig, $new_contents);
-		echo "CAPTIONCORE_BRANDING added\n";
+		echo "CAPTAINCORE_BRANDING added\n";
 	}
 
 	# Reads in updated wp-config.php file
@@ -140,12 +140,12 @@ if (file_exists($wpconfig)) {
 	$current = file_get_contents($file);
 	$lines = explode( PHP_EOL, $current);
 
-	# Looks for a Anchor Hosting Domain
-	$seach_needle = 'CAPTIONCORE_SERVER';
+	# Looks for a CaptainCore Server
+	$seach_needle = 'CAPTAINCORE_SERVER';
 	$key_search = array_find($seach_needle, $lines);
 
 	if ($key_search) {
-		echo "CAPTIONCORE_SERVER already added\n";
+		echo "CAPTAINCORE_SERVER already added\n";
 	} else {
 
 		# Find line number to begin adding custom configs
@@ -162,13 +162,13 @@ if (file_exists($wpconfig)) {
 
 		# Add new item to array at begin of array
 		$new_lines = array_slice($lines, 0, $key + 1, true) +
-		array("1n" => "define( 'CAPTIONCORE_SERVER', 'anchor.host' );") +
+		array("1n" => "define( 'CAPTAINCORE_SERVER', 'anchor.host' );") +
 		array_slice($lines, $key, count($lines) - 1, true);
 
 		# outputs new revisions to file
 		$new_contents = implode( PHP_EOL, $new_lines);
 		$output = file_put_contents($wpconfig, $new_contents);
-		echo "CAPTIONCORE_SERVER added\n";
+		echo "CAPTAINCORE_SERVER added\n";
 	}
 
 	# Reads in updated wp-config.php file
@@ -176,12 +176,12 @@ if (file_exists($wpconfig)) {
 	$current = file_get_contents($file);
 	$lines = explode( PHP_EOL, $current);
 
-	# Looks for a Anchor Hosting Domain
-	$seach_needle = 'CAPTIONCORE_DOMAIN';
+	# Looks for a CaptainCore Domain
+	$seach_needle = 'CAPTAINCORE_DOMAIN';
 	$key_search = array_find($seach_needle, $lines);
 
 	if ($key_search) {
-		echo "CAPTIONCORE_DOMAIN already added\n";
+		echo "CAPTAINCORE_DOMAIN already added\n";
 	} else {
 
 		# Find line number to begin adding custom configs
@@ -198,13 +198,13 @@ if (file_exists($wpconfig)) {
 
 		# Add new item to array at begin of array
 		$new_lines = array_slice($lines, 0, $key + 1, true) +
-		array("1n" => "define( 'CAPTIONCORE_DOMAIN', '". $domain."' );") +
+		array("1n" => "define( 'CAPTAINCORE_DOMAIN', '". $domain."' );") +
 		array_slice($lines, $key, count($lines) - 1, true);
 
 		# outputs new revisions to file
 		$new_contents = implode( PHP_EOL, $new_lines);
 		$output = file_put_contents($wpconfig, $new_contents);
-		echo "CAPTIONCORE_DOMAIN added\n";
+		echo "CAPTAINCORE_DOMAIN added\n";
 	}
 
 	# Reads in updated wp-config.php file
