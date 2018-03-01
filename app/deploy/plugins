@@ -28,7 +28,7 @@ then
 		then
 
 			### Install standard set of plugins via WP-CLI
-			captaincore ssh $website --command="wp plugin install akismet worker jetpack google-analytics-for-wordpress https://anchor.host/wp-content/plugins/gravityforms.zip https://anchor.host/wp-content/plugins/anchorhost-client.zip --force"
+			captaincore ssh $website --command="wp plugin install akismet worker jetpack google-analytics-for-wordpress https://anchor.host/wp-content/plugins/gravityforms.zip https://anchor.host/wp-content/plugins/captaincore-client.zip --force"
 
 			### Loads token
 			website_token=$(captaincore get token $domain)
