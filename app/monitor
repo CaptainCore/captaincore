@@ -4,7 +4,7 @@
 ##		Site Monitor Check
 ##
 ## 		Usage
-##		captaincore monitor <site>
+##		captaincore monitor <site> [--parallel=<number-of-checks>]
 ##
 
 # Load configuration
@@ -37,7 +37,7 @@ for i in "${!flags[@]}"; do
 	# detected flag contains data
 	if [[ $flag_name == *"="* ]]; then
 	  flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
-	  flag_name=`echo $flag_name | perl -n -e '/(.+)?=.+/&& print $1'` # extract name
+	  flag_name=`echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1'` # extract name
 	  declare "$flag_name"="$flag_value" # assigns to $flag_flagname
 	else
 	  # assigns to $flag_flagname boolen
@@ -50,13 +50,17 @@ monitor_check () {
 if [ $# -gt 0 ]; then
 
 	output=()
-	echo "Running monitor check $# sites"
 
 	for website in "$@"; do
 
 		### Load FTP credentials
 		home_url=$(captaincore site get $website --field=home_url)
-		response=$(curl -A "$user_agent" --write-out %{http_code} --silent --output /dev/null $home_url)
+		if [[ "$home_url" != "" ]]; then
+			response=$(curl -A "$user_agent" --write-out %{http_code} --silent --output /dev/null $home_url)
+			echo "Response code $response for $home_url"
+		else
+			echo "Skipping $website, WordPress home url not found"
+		fi
 		#if [[ "$response" != "200" ]]; then
 			# Compares $home_url IP with $address IP. If different then send email showing the difference
 
@@ -64,7 +68,7 @@ if [ $# -gt 0 ]; then
 			output+="Response code $response for $home_url"
 		#fi
 
-		echo "Response code $response for $home_url"
+
 
 		#	#send email
 		# output "Response code $response for $address" per each item in array
@@ -79,9 +83,43 @@ fi
 
 ### See if any specific sites are selected
 if [ ${#arguments[*]} -gt 0 ]; then
+
 	# Backup selected installs
+	echo "Running monitor check ${#arguments[*]} sites"
 	monitor_check ${arguments[*]}
 else
-	# Backup all installs
-	monitor_check ${websites[@]}
+
+	all_sites=(${websites[@]})
+
+	if [[ "$parallel" -gt "0" ]]; then
+
+		site_count=${#all_sites[*]}
+		echo "Running monitor check ${#all_sites[*]} sites"
+		parallel_sets=$(($site_count / $parallel))
+		for parallel_set in `seq 1 $parallel_sets`; do
+
+			set_needed=$(( $parallel_set *  $parallel ))
+
+			if [[ "$set_needed" -lt "$site_count" ]]; then
+
+				current_parallel=$(($parallel_set * $parallel))
+				last_parallel=$(($current_parallel + $parallel - 1))
+
+				for i in `seq $current_parallel $last_parallel`; do
+						if [[ "$i" -lt "$site_count" ]]; then
+							monitor_check ${all_sites[$i]} &
+						fi
+				done
+
+				wait
+
+			fi
+
+		done
+	else
+		echo "Running monitor check ${#all_sites[*]} sites"
+		# Backup all installs
+		monitor_check ${websites[@]}
+	fi
+
 fi
