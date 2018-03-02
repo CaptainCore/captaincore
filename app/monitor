@@ -1,0 +1,87 @@
+#!/bin/bash
+
+##
+##		Site Monitor Check
+##
+## 		Usage
+##		captaincore monitor <site>
+##
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source $root_path/config
+
+user_agent="captaincore/1.0 (CaptainCore Health Check by CaptaionCore.io)"
+
+# Loop through arguments and seperate regular arguments from flags (--flag)
+for var in "$@"
+do
+	# If starts with "--" then assign it to a flag array
+    if [[ $var == --* ]]
+    then
+    	count=1+${#flags[*]}
+    	flags[$count]=$var
+    # Else assign to an arguments array
+    else
+    	count=1+${#arguments[*]}
+    	arguments[$count]=$var
+    fi
+done
+
+# Loop through flags and assign to varible. A flag "--email=austin@anchor.host" becomes $email
+for i in "${!flags[@]}"; do
+
+	# replace "-" with "_" and remove leading "--"
+	flag_name=`echo ${flags[$i]} | cut -c 3-`
+
+	# detected flag contains data
+	if [[ $flag_name == *"="* ]]; then
+	  flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
+	  flag_name=`echo $flag_name | perl -n -e '/(.+)?=.+/&& print $1'` # extract name
+	  declare "$flag_name"="$flag_value" # assigns to $flag_flagname
+	else
+	  # assigns to $flag_flagname boolen
+	  declare "$flag_name"=true
+	fi
+
+done
+
+monitor_check () {
+if [ $# -gt 0 ]; then
+
+	output=()
+	echo "Running monitor check $# sites"
+
+	for website in "$@"; do
+
+		### Load FTP credentials
+		home_url=$(captaincore site get $website --field=home_url)
+		response=$(curl -A "$user_agent" --write-out %{http_code} --silent --output /dev/null $home_url)
+		#if [[ "$response" != "200" ]]; then
+			# Compares $home_url IP with $address IP. If different then send email showing the difference
+
+			# Adds $domain and $repsonse to new array
+			output+="Response code $response for $address"
+		#fi
+
+		echo "Response code $response for $address"
+
+		#	#send email
+		# output "Response code $response for $address" per each item in array
+		#	#echo "$output" | mutt -e 'set content_type=text/html' -s "Monitor: 3 errors" -- support@anchor.host
+
+	done
+
+	# Send 1 email for entire check
+
+fi
+}
+
+### See if any specific sites are selected
+if [ ${#arguments[*]} -gt 0 ]; then
+	# Backup selected installs
+	monitor_check ${arguments[*]}
+else
+	# Backup all installs
+	monitor_check ${websites[@]}
+fi
