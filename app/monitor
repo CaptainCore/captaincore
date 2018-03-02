@@ -61,10 +61,10 @@ if [ $# -gt 0 ]; then
 			# Compares $home_url IP with $address IP. If different then send email showing the difference
 
 			# Adds $domain and $repsonse to new array
-			output+="Response code $response for $address"
+			output+="Response code $response for $home_url"
 		#fi
 
-		echo "Response code $response for $address"
+		echo "Response code $response for $home_url"
 
 		#	#send email
 		# output "Response code $response for $address" per each item in array
