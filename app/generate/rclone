@@ -24,11 +24,11 @@ then
 
 	# Add new WordPress site to Rclone
 	rclone_pass=$(rclone obscure $password)
-	rclone config create sftp-$website sftp host $address user $username port $port pass $rclone_pass
+	rclone config create sftp-$website $protocol host $address user $username port $port pass $rclone_pass
 
 	if [[ "$password_staging" != "" ]]; then
 		rclone_pass_staging=$(rclone obscure $password_staging)
-		rclone config create sftp-$website-staging sftp host $address_staging user $username_staging port $port_staging pass $rclone_pass_staging
+		rclone config create sftp-$website-staging $protocol_staging host $address_staging user $username_staging port $port_staging pass $rclone_pass_staging
 	fi
 
 fi
