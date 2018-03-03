@@ -5,7 +5,7 @@ parse_str( implode( '&', $args ) );
 
 // Decodes passwords
 $password         = base64_decode( urldecode( $password ) );
-$password_staging = base64_decode( urldecode( $password_staging ) );
+$staging_password = base64_decode( urldecode( $staging_password ) );
 
 // Check if site
 $found_site = get_post( $id );
@@ -29,15 +29,15 @@ if ( $found_site ) {
 			'homedir'                   => $homedir,
 			'database_username'         => $database_username,
 			'database_password'         => $database_password,
-			'install_staging'           => $install_staging,
-			'address_staging'           => $address_staging,
-			'username_staging'          => $username_staging,
-			'password_staging'          => $password_staging,
-			'protocol_staging'          => $protocol_staging,
-			'port_staging'              => $port_staging,
-			'homedir_staging'           => $homedir_staging,
-			'database_username_staging' => $database_username_staging,
-			'database_password_staging' => $database_password_staging,
+			'install_staging'           => $staging_install,
+			'address_staging'           => $staging_address,
+			'username_staging'          => $staging_username,
+			'password_staging'          => $staging_password,
+			'protocol_staging'          => $staging_protocol,
+			'port_staging'              => $staging_port,
+			'homedir_staging'           => $staging_homedir,
+			'database_username_staging' => $staging_database_username,
+			'database_password_staging' => $staging_database_password,
 			'preloadusers'              => $preloadusers,
 			's3accesskey '              => $s3accesskey,
 			's3secretkey '              => $s3secretkey,
@@ -50,8 +50,7 @@ if ( $found_site ) {
 
 	echo "Site updated\n";
 
-	$site = wp_update_post( $my_post );
-	print_r( $site );
+	$site = wp_update_post( $my_post, true );
 
 } else {
 
@@ -72,15 +71,15 @@ if ( $found_site ) {
 			'homedir'                   => $homedir,
 			'database_username'         => $database_username,
 			'database_password'         => $database_password,
-			'install_staging'           => $install_staging,
-			'address_staging'           => $address_staging,
-			'username_staging'          => $username_staging,
-			'password_staging'          => $password_staging,
-			'protocol_staging'          => $protocol_staging,
-			'port_staging'              => $port_staging,
-			'homedir_staging'           => $homedir_staging,
-			'database_username_staging' => $database_username_staging,
-			'database_password_staging' => $database_password_staging,
+			'install_staging'           => $staging_install,
+			'address_staging'           => $staging_address,
+			'username_staging'          => $staging_username,
+			'password_staging'          => $staging_password,
+			'protocol_staging'          => $staging_protocol,
+			'port_staging'              => $staging_port,
+			'homedir_staging'           => $staging_homedir,
+			'database_username_staging' => $staging_database_username,
+			'database_password_staging' => $staging_database_password,
 			'preloadusers'              => $preloadusers,
 			's3accesskey '              => $s3accesskey,
 			's3secretkey '              => $s3secretkey,
@@ -90,7 +89,6 @@ if ( $found_site ) {
 
 		),
 	);
-
 
 	$result = wp_insert_post( $my_post, true );
 	echo "Site added\n";
