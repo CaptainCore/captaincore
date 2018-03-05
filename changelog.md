@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.1.5] - 2018-03-04
+### Added
+- Arguments `--command=<command>` and `--script=<file>` to `captaincore ssh`
+- Argument `--bash` to `captaincore site get <install>` which allows bash to read credentials stored in CLI's own private WordPress storage.
+- New method for loading site credentials into bash
+- Command `captaincore site sync-data [<install>]`
+- Command `captaincore monitor <site>`
+- Argument `[--parallel=<number-of-checks>]` to `captaincore monitor` which controls how many health checks are run at the same time
+
+### Changed
+- Site credentials are now stored in private WordPress site within CaptainCore CLI.  
+- Switched internal commands to use new ssh argument `--command=<command>`
+- Moved site functions from `config` command under `site` command
+- Renamed site command `new` to `add` for better consistency  
+- Major rework on all `captaincore site` commands to use new WordPress storage.
+- Added argument `--field=<field>` to `captaincore site list`
+- Fixed regex bug with ssh argument `--command`
+- Fixed backups for sites not running WordPress
+- Support for ftp sites backups only
+
+### Removed
+- Command `captaincore ssh-batch` and merged functionality into `captaincore ssh`
+- Default docs for `captaincore cli install`
+- Command `captaincore site process` as it's no longer needed since switching over credential storage to WordPress.
+- Local text based `logins` file which previously was storing site credentials.
+- Command `captaincore get domains` as functionality has been merged with `captaincore site list --field=domain`
+
 ## [0.1.4] - 2018-02-25
 ### Added
 - Quicksave file diff command `captaincore get quicksave_file_diff <install> <git_hash_current> <git_hash_previous> <file>`
@@ -10,6 +37,7 @@
 ### Changed
 - `captaincore deploy keys <install>` now deploys to Kinsta staging sites
 - Major performance increases to `captaincore deploy production_to_staging_kinsta`. Switch over to zip/extract wp-content folder instead of sftp sync.
+- Standardized site address PHP varible. All $ipAddress are now $address.
 
 ## [0.1.3] - 2018-02-18
 ### Added

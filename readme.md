@@ -14,6 +14,11 @@ https://captaincore.io
 - Run `captaincore utils dropbox_uploader` and config with Dropbox account
 - Copy config.sample.sh to config and configure with appropriate folders
 - Run `rclone config` and config Dropbox account
+- Install WP-CLI `curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar; chmod +x wp-cli.phar; sudo mv wp-cli.phar /usr/local/bin/wp`
+- Install JSON package `sudo npm install --global json`
+- Install NGINX `sudo apt-get install nginx && sudo systemctl enable nginx.service && sudo systemctl start nginx.service`
+- Install MariaDB `sudo apt-get install mariadb-server mariadb-client && sudo systemctl enable mysql.service && sudo systemctl start mysql.service && sudo mysql_secure_installation`
+- Copy MariaDB root password to `~/.captaincore-cli/config` as `local_wp_db_pw="<db-password>"`
 
 ## Usage
 
