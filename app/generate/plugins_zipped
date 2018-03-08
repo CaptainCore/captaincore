@@ -15,7 +15,7 @@
 ## advanced-responsive-video-embedder : Advanced Responsive Video Embedder
 ## arve-pro : Advanced Responsive Video Embedder Pro
 
-plugins=(captaincore-client gravityforms admin-columns-pro cac-addon-acf advanced-custom-fields-pro advanced-responsive-video-embedder arve-pro)
+plugins=(captaincore-client gravityforms admin-columns-pro cac-addon-acf advanced-custom-fields-pro advanced-responsive-video-embedder arve-pro wpmudev-updates wp-smush-pro)
 
 for plugin in ${plugins[@]}; do
 	captaincore ssh anchorhost --command="cd wp-content/plugins; zip -r ${plugin}.zip $plugin"
