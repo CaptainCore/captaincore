@@ -60,21 +60,17 @@ if [ $# -gt 0 ]; then
 		### Credentials found, start the backup
 		if ! [ -z "$domain" ]; then
 
-			if [ "$homedir" == "" ]; then
-			   	homedir="/"
-			fi
-
       # Make database backup on production
       captaincore ssh $website --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql"
 
       # Sync production to staging
-      rclone copy sftp-$website:$homedir/wp-content/mysql.sql wp-content/ --verbose=1
+      rclone copy sftp-$website:${homedir}/wp-content/mysql.sql wp-content/ --verbose=1
 
       # Import database locally
       wp db import wp-content/mysql.sql --skip-plugins --skip-themes
 
       # Disable emails
-      wp plugin install log-emails disable-emails --skip-plugins --skip-themes
+      wp plugin install log-emails disable-emails --skip-plugins --skip-themes --activate --force
 
       # Update urls
       current_url=`wp option get home`
