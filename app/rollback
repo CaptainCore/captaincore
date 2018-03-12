@@ -4,7 +4,7 @@
 ##		Rollback (theme/plugin) from a quicksave
 ##
 ## 		Pass arguments from command line like this
-##		captaincore rollback <install> <commit> [--plugin=<plugin>] [--theme=<theme>] [--all-plugins] [--all-themes]
+##		captaincore rollback <install> <commit> [--plugin=<plugin>] [--theme=<theme>] [--all-plugins] [--all-themes] [--all]
 ##
 website=$1
 commit=$2
@@ -77,6 +77,18 @@ if [[ "$theme" != "" ]]; then
 	git archive --format=zip $commit:themes/$theme/ > ~/Tmp/restore/$commit/$theme.zip
 	captaincore upload $website ~/Tmp/restore/$commit/$theme.zip --public
 	captaincore ssh $website --command="wp theme install $theme.zip --force --skip-plugins --skip-themes --skip-packages; rm $theme.zip"
+	rm -rf ~/Tmp/restore/$commit/
+
+fi
+
+if [[ "$all" == "true" ]]; then
+
+	echo "Rolling back entire quicksave"
+	cd ~/Quicksaves/$domain/
+	mkdir -p ~/Tmp/restore/$commit/
+	git archive --format=zip $commit: > ~/Tmp/restore/$commit/quicksave_$commit.zip
+	captaincore upload $website ~/Tmp/restore/$commit/quicksave_$commit.zip --public
+	captaincore ssh $website --command="echo '<?php \$upgrading = time(); ?>' > .maintenance; rm -rf wp-content/themes/; unzip -o ${commit}_all.zip 'themes/*' -d wp-content/; rm -rf wp-content/plugins/; unzip -o ${commit}_all.zip 'plugins/*' -d wp-content/; rm -rf wp-content/mu-plugins/; unzip -o ${commit}_all.zip 'mu-plugins/*' -d wp-content/; rm .maintenance"
 	rm -rf ~/Tmp/restore/$commit/
 
 fi
