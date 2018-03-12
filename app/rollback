@@ -86,9 +86,9 @@ if [[ "$all" == "true" ]]; then
 	echo "Rolling back entire quicksave"
 	cd ~/Quicksaves/$domain/
 	mkdir -p ~/Tmp/restore/$commit/
-	git archive --format=zip $commit: > ~/Tmp/restore/$commit/quicksave_$commit.zip
-	captaincore upload $website ~/Tmp/restore/$commit/quicksave_$commit.zip --public
-	echo '<?php $upgrading = time(); ?>' | captaincore ssh $website --command="cat > .maintenance; rm -rf wp-content/themes/; unzip -o ${commit}_all.zip 'themes/*' -d wp-content/; rm -rf wp-content/plugins/; unzip -o ${commit}_all.zip 'plugins/*' -d wp-content/; rm -rf wp-content/mu-plugins/; unzip -o ${commit}_all.zip 'mu-plugins/*' -d wp-content/; rm .maintenance"
+	git archive --format=zip $commit: > ~/Tmp/restore/$commit/quicksave_${commit}_all.zip
+	captaincore upload $website ~/Tmp/restore/$commit/quicksave_${commit}_all.zip --public
+	echo '<?php $upgrading = time(); ?>' | captaincore ssh $website --command="cat > .maintenance; rm -rf wp-content/themes/; unzip -o quicksave_${commit}_all.zip 'themes/*' -d wp-content/; rm -rf wp-content/plugins/; unzip -o quicksave_${commit}_all.zip 'plugins/*' -d wp-content/; rm -rf wp-content/mu-plugins/; unzip -o quicksave_${commit}_all.zip 'mu-plugins/*' -d wp-content/; rm .maintenance"
 	rm -rf ~/Tmp/restore/$commit/
 
 fi
