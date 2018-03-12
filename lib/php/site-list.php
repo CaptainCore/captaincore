@@ -1,7 +1,15 @@
 <?php
 
-// Converts arguments --staging --all --plugin=woocommerce --plugin_status=active --theme=anchorhost into $staging $all
-parse_str( str_replace('-', '_', implode( '&', $args ) ) );
+// Replaces dashes in keys with underscores
+foreach($args as $index => $arg) {
+	$split = strpos($arg, "=");
+	$key = str_replace('-', '_', substr( $arg , 0, $split ) );
+	$value = substr( $arg , $split, strlen( $arg ) );
+	$args[$index] = $key.$value;
+}
+
+// Converts arguments --staging --all into $staging $all
+parse_str( implode( '&', $args ) );
 
 if ( isset( $all ) ) {
 	echo 'all';
@@ -26,34 +34,70 @@ $arguments = array(
 	),
 );
 
-if ( $plugin and $plugin_status ) {
-	$pattern   = '{"name":"'.$plugin.'","title":"[^"]+","status":"'.$plugin_status.'","version"';
-	$arguments['meta_query'][] = array(
-		'key'     => 'plugins', // name of custom field
-		'value'   => $pattern,
-		'compare' => 'REGEXP',
-	);
-} elseif ( $plugin ) {
-	$arguments['meta_query'][] = array(
-		'key'     => 'plugins', // name of custom field
-		'value'   => '"name":"' . $plugin . '"', // matches exaclty "123", not just 123. This prevents a match for "1234"
-		'compare' => 'like',
-	);
-}
+if ( $filter ) {
 
-if ( $theme and $theme_status ) {
-	$pattern   = '{"name":"'.$theme.'","title":"[^"]+","status":"'.$theme_status.'","version"';
-	$arguments['meta_query'][] = array(
-		'key'     => 'themes', // name of custom field
-		'value'   => $pattern,
-		'compare' => 'REGEXP',
-	);
-} elseif ( $theme ) {
-	$arguments['meta_query'][] = array(
-		'key'     => 'themes', // name of custom field
-		'value'   => '"name":"' . $theme . '"', // matches exaclty "123", not just 123. This prevents a match for "1234"
-		'compare' => 'like',
-	);
+	if ( $filter and $filter_version and $filter_status and $filter_name ) {
+
+		$pattern   = '{"name":"'.$filter_name.'","title":"[^"]*","status":"'.$filter_status.'","version":"'.$filter_version.'"}';
+		$arguments['meta_query'][] = array(
+			'key'     => $filter .'s', // name of custom field
+			'value'   => $pattern,
+			'compare' => 'REGEXP',
+		);
+
+	} elseif ( $filter and $filter_status and $filter_name ) {
+
+		$pattern   = '{"name":"'.$filter_name.'","title":"[^"]*","status":"'.$filter_status.'","version":"[^"]*"}';
+		$arguments['meta_query'][] = array(
+			'key'     => $filter .'s', // name of custom field
+			'value'   => $pattern,
+			'compare' => 'REGEXP',
+		);
+
+	} elseif ( $filter and $filter_version and $filter_name ) {
+
+		$pattern   = '{"name":"'.$filter_name.'","title":"[^"]*","status":"[^"]*","version":"'.$filter_version.'"}';
+		$arguments['meta_query'][] = array(
+			'key'     => $filter .'s', // name of custom field
+			'value'   => $pattern,
+			'compare' => 'REGEXP',
+		);
+
+	} elseif ( $filter and $filter_name ) {
+
+		if ( $filter == "core" ) {
+			$filter_key = "core";
+		} else {
+			// Pluralize
+			$filter_key = $filter . "s";
+		}
+
+		$arguments['meta_query'][] = array(
+			'key'     => $filter_key, // name of custom field
+			'value'   => '"name":"' . $filter_name . '"', // matches exaclty "123", not just 123. This prevents a match for "1234"
+			'compare' => 'like',
+		);
+
+	} elseif ( $filter and $filter_version ) {
+		$arguments['meta_query']['relation'] = 'OR';
+		$pattern   = '{"name":"[^"]*","title":"[^"]*","status":"[^"]*","version":"'.$filter_version.'"}';
+		$arguments['meta_query'][] = array(
+			'key'     => 'plugins', // name of custom field
+			'value'   => $pattern,
+			'compare' => 'REGEXP',
+		);
+		$arguments['meta_query'][] = array(
+			'key'     => 'themes', // name of custom field
+			'value'   => $pattern,
+			'compare' => 'REGEXP',
+		);
+		$arguments['meta_query'][] = array(
+			'key'     => 'core', // name of custom field
+			'value'   => $filter_version, // matches exaclty "123", not just 123. This prevents a match for "1234"
+			'compare' => 'like',
+		);
+	}
+
 }
 
 $websites = get_posts( $arguments );

@@ -1,1 +1,1 @@
-[--all] [--staging] [--plugin=<plugin>] [--plugin-status=<plugin-status>] [--theme=<theme>] [--theme-status=<theme-status>]
+[--all] [--staging] [--filter=<theme|plugin|core>] [--filter-name=<name>] [--filter-version=<version>] [--filter-status=<active|inactive|dropin|must-use>] [--field=<field>]

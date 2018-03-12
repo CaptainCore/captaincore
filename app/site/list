@@ -4,7 +4,7 @@
 ##		Output array of installs from the logins
 ##
 ## 		Pass arguments from command line like this
-##		captaincore site list [--all] [--staging] [--plugin=<plugin>] [--plugin-status=<plugin-status>] [--theme=<theme>] [--theme-status=<theme-status>] [--field=<field>]
+##		[--all] [--staging] [--filter=<theme|plugin|core>] [--filter-name=<name>] [--filter-version=<version>] [--filter-status=<active|inactive|dropin|must-use>] [--field=<field>]
 ##
 ##		Usage would look something like this to check for websites with WooCommerce and return only the website install names in bash array
 ## 		websites=( $(wp post list --post_type=captcore_website --meta_key=plugins --meta_value='"name":"woocommerce"' --meta_compare="LIKE" --fields=install --format=json | json -a install) )
@@ -42,5 +42,10 @@ for i in "${!flags[@]}"; do
 
 done
 
-cd $root_path/data
+if [[ "$captaincore_dev" == "true" ]]; then
+	cd ~/Sites/dev
+else
+	cd $root_path/data
+fi
+
 wp eval-file ${root_path}lib/php/site-list.php ${flags[@]}
