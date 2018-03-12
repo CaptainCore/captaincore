@@ -1,7 +1,7 @@
 <?php
 
-// Converts arguments --staging --all --plugin=woocommerce --theme=anchorhost into $staging $all
-parse_str( implode( '&', $args ) );
+// Converts arguments --staging --all --plugin=woocommerce --plugin_status=active --theme=anchorhost into $staging $all
+parse_str( str_replace('-', '_', implode( '&', $args ) ) );
 
 if ( isset( $all ) ) {
 	echo 'all';
@@ -26,7 +26,14 @@ $arguments = array(
 	),
 );
 
-if ( $plugin ) {
+if ( $plugin and $plugin_status ) {
+	$pattern   = '{"name":"'.$plugin.'","title":"[^"]+","status":"'.$plugin_status.'","version"';
+	$arguments['meta_query'][] = array(
+		'key'     => 'plugins', // name of custom field
+		'value'   => $pattern,
+		'compare' => 'REGEXP',
+	);
+} elseif ( $plugin ) {
 	$arguments['meta_query'][] = array(
 		'key'     => 'plugins', // name of custom field
 		'value'   => '"name":"' . $plugin . '"', // matches exaclty "123", not just 123. This prevents a match for "1234"
@@ -34,7 +41,14 @@ if ( $plugin ) {
 	);
 }
 
-if ( $theme ) {
+if ( $theme and $theme_status ) {
+	$pattern   = '{"name":"'.$theme.'","title":"[^"]+","status":"'.$theme_status.'","version"';
+	$arguments['meta_query'][] = array(
+		'key'     => 'themes', // name of custom field
+		'value'   => $pattern,
+		'compare' => 'REGEXP',
+	);
+} elseif ( $theme ) {
 	$arguments['meta_query'][] = array(
 		'key'     => 'themes', // name of custom field
 		'value'   => '"name":"' . $theme . '"', // matches exaclty "123", not just 123. This prevents a match for "1234"
@@ -48,7 +62,7 @@ $results = array();
 
 foreach ( $websites as $website_id ) {
 
-		$site = get_post_meta( $website_id, 'install', true );
+	$site = get_post_meta( $website_id, 'install', true );
 
 	if ( $field ) {
 		if ( $field == 'domain' ) {
