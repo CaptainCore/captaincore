@@ -109,7 +109,9 @@ foreach ( $websites as $website_id ) {
 	$site = get_post_meta( $website_id, 'install', true );
 
 	if ( $field ) {
-		if ( $field == 'domain' ) {
+		if ( $field == 'ids' ) {
+			$site = $website_id;
+		} elseif ( $field == 'domain' ) {
 			$site = get_the_title( $website_id );
 		} else {
 			$site = get_post_meta( $website_id, $field, true );
