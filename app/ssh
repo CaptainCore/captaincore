@@ -100,10 +100,15 @@ if [ $# -gt 0 ]; then
 		    remoteserver="-oStrictHostKeyChecking=no $wpe_ssh_user+$website@$website.ssh.wpengine.net"
 
 		  fi
-
+			
 			# Runs ssh
 			if [ -n "$script" ]; then
-				ssh $remoteserver "$commandprep bash -s" < $script
+				# Check for file
+				if [ ! -f "$script" ]; then
+					# Not found so attempt to run a local script
+					script=$root_path/lib/ssh_scripts/$script
+				fi
+				ssh $remoteserver "$commandprep bash -s" < $script ${arguments[2]}
 			elif [ -n "$command" ]; then
 				ssh $remoteserver "$commandprep $command"
 			else
