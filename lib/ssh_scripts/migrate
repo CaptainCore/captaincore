@@ -1,5 +1,5 @@
-backupsnapshot=$@
-backupformat=`echo $backupsnapshot | perl -n -e '/.+\.(.+)/&& print $1'`
+backup_url=$@
+backupformat=`echo $backup_url | perl -n -e '/.+\.(.+)/&& print $1'`
 
 # Store current path
 homedir=$(pwd)
@@ -25,8 +25,14 @@ migrate_website() {
 		return 1
 	fi
 
-	cd ~/private
-	wget $backupsnapshot
+	cd $private
+
+	if [[ "$backup_url" == *"admin-ajax.php?action=pb_backupbuddy_backupbuddy&function=download_archive&backupbuddy_backup"* ]]; then
+		echo "Backup Buddy URL found";
+		backup_url=${backup_url/wp-admin\/admin-ajax.php?action=pb_backupbuddy_backupbuddy&function=download_archive&backupbuddy_backup=/wp-content\/uploads\/backupbuddy_backups/}
+	fi
+
+	wget $backup_url --progress=dot
 	if [[ "$backupformat" == "zip" ]]; then
 	  unzip -o *.zip
 	fi
@@ -37,26 +43,48 @@ migrate_website() {
 	  tar xvzf *.tar
 	fi
 	wordpresspath=`find * -type d -name 'wp-content' -print -quit`
-	rm -rf ~/public/wp-content/uploads
-	mv $wordpresspath/uploads ~/public/wp-content/
+	# Migrate uploads if found
+	if [ -d $wordpresspath/uploads ]; then
+		rm -rf $homedir/wp-content/uploads
+		mv $wordpresspath/uploads $homedir/wp-content/
+	fi
+	# Migrate themes if found
 	for d in $wordpresspath/themes/*/; do
-	  mv $d ~/public/wp-content/themes/
+	  mv $d $homedir/wp-content/themes/
 	done
+	# Migrate plugins if found
 	for d in $wordpresspath/plugins/*/; do
-	  mv $d ~/public/wp-content/plugins/
+	  mv $d $homedir/wp-content/plugins/
 	done
-	cd ~/public
+	cd $homedir
 	wp plugin delete wp-super-cache adminer wordfence w3-total-cache wp-file-cache broken-link-checker yet-another-related-posts-plugin comet-cache-1 woothemes-updater ewww-image-optimizer https-redirection really-simple-ssl hello wordpress-php-info force-strong-passwords --skip-plugins --skip-themes
-	cat ~/private/$wordpresspath/../wp-config.php | grep "$table_prefix"
-	rm -f ~/public/wp-content/advanced-cache.php
-	rm -f ~/public/wp-content/object-cache.php
-	cd ~/public/
+	cat $private/$wordpresspath/../wp-config.php | grep "$table_prefix"
+	rm -f $homedir/wp-content/advanced-cache.php
+	rm -f $homedir/wp-content/object-cache.php
+	cd $homedir
 	find . -type d -exec chmod 755 {} \;
 	find . -type f -exec chmod 644 {} \;
-	chmod 600 ~/public/wp-content/mysql.sql
-	wp rewrite flush --skip-plugins --skip-themes
+	chmod 600 $homedir/wp-content/mysql.sql
+
 	echo "Found the following database:"
-	find ~/public/wp-content/uploads ~/private/ -type f -name '*.sql'
+	find $homedir/wp-content/uploads $private -type f -name '*.sql'
+	databases=$(find $private -type f -name '*.sql')
+	database_count=$(echo -n $databases | grep -c '^')
+	if [[ "database_count" -gt "0" ]]; then
+		database_file=$(echo $databases | head -1)
+		if [ -f $database_file ]; then
+			wp db reset --yes
+			wp db import $database_file
+			wp cache flush --skip-plugins --skip-themes
+			wp rewrite flush --skip-plugins --skip-themes
+			wp_home_imported=`wp option get home`
+			wp search-replace $wp_home_imported $wp_home --all-tables
+			# convert MyISAM tables to InnoDB
+			wp db query "SELECT CONCAT('ALTER TABLE ', TABLE_SCHEMA,'.', TABLE_NAME, ' ENGINE=InnoDB;') FROM information_schema.TABLES WHERE ENGINE = 'MyISAM'" --skip-column-names > db_optimize.sql
+			wp db query < db_optimize.sql
+			rm db_optimize.sql
+		fi
+	fi
 
 }
 migrate_website
