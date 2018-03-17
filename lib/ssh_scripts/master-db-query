@@ -3,5 +3,5 @@ function join_by { local IFS="$1"; shift; echo "$*"; }
 site_ids=$(join_by , ${site_ids_to_sync})
 
 cd ~/.captaincore-cli/data/
-wp db export --tables=wp_posts --where="ID in ($site_ids)" --no-create-info=true
-wp db export --tables=wp_postmeta --where="post_id in ($site_ids)" --no-create-info=true
+wp db export - --no-create-info=true --tables=wp_posts --where="ID in ($site_ids)"
+wp db export - --no-create-info=true --tables=wp_postmeta --where="post_id in ($site_ids)"
