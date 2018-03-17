@@ -4,7 +4,7 @@
 ##      Sync CaptainCore local db with CaptainCore master db
 ##
 ##      Pass arguments from command line like this
-##      captaincore utils sync-with-master
+##      captaincore utils sync-with-master [<site-id>]
 ##
 
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
@@ -31,6 +31,17 @@ else
 	echo "Syncing site ids: ${site_ids_to_sync[@]}"
 	cd ~/.captaincore-cli/data
 	ssh $captaincore_master -p $captaincore_master_port "bash -s" < $root_path/lib/ssh_scripts/master-db-query ${site_ids_to_sync[@]} > sync.sql
+	wp db import sync.sql
+
+fi
+
+if [[ "$#" -gt "0" ]]; then
+
+	echo "Manually syncing $@"
+	cd ~/.captaincore-cli/data
+	wp db query "delete from wp_posts where ID in ($@);"
+	wp db query "delete from wp_postmeta where post_id in ($@);"
+	ssh $captaincore_master -p $captaincore_master_port "bash -s" < $root_path/lib/ssh_scripts/master-db-query $@ > sync.sql
 	wp db import sync.sql
 
 fi
