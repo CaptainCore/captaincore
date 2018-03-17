@@ -1,1 +1,1 @@
-<install> [<commands>]
+<install> [--command=<commands>] [--script=<file>] [--script-args=<script-args>]
