@@ -45,6 +45,7 @@ for i in "${!flags[@]}"; do
 	if [[ $flag_name == *"="* ]]; then
 	  flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
 	  flag_name=`echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1'` # extract name
+		flag_name=${flag_name/-/_}
 	  declare "$flag_name"="$flag_value" # assigns to $flag_flagname
 	else
 	  # assigns to $flag_flagname boolen
@@ -73,54 +74,55 @@ if [ $# -gt 0 ]; then
 		### Load FTP credentials
 		eval $(captaincore site get $website --bash)
 
+		if [[ "$address" == "" && "$captaincore_master" != "" ]]; then
+			echo "Site $website not found. Attempting sync with master ($captaincore_master)."
+			captaincore utils sync-with-master
+			eval $(captaincore site get $website --bash)
+		fi
+
 		if [[ "$protocol" == "sftp" ]]; then
 
-		### Credentials found, start the backup
-		if ! [ -z "$domain" ]; then
-
-		  ## If website on Kinsta then connect SSH using their format
-		  if [[ "$address" == *".kinsta.com" ]]; then
+			## If website on Kinsta then connect SSH using their format
+			if [[ "$address" == *".kinsta.com" ]]; then
 
 				# Kinsta's command prep
 				commandprep="cd public/ &&"
 
 				# Kinsta ssh address format
-		    if [[ "$use_staging" != "true" ]]; then
-		      remoteserver="-oStrictHostKeyChecking=no $username@$address -p $port"
-		    else
-		      remoteserver="-oStrictHostKeyChecking=no $username_staging@$address_staging -p $port_staging"
-		    fi
+				if [[ "$use_staging" != "true" ]]; then
+				  remoteserver="-oStrictHostKeyChecking=no $username@$address -p $port"
+				else
+				  remoteserver="-oStrictHostKeyChecking=no $username_staging@$address_staging -p $port_staging"
+				fi
 
-		  else ## If not Kinsta then try connecting using WP Engine's format
+			## If not Kinsta then try connecting using WP Engine's format
+			elif [[ "$address" == *".wpengine.com" ]]; then
 
 				# WP Engine command prep
 				commandprep="rm ~/.wp-cli/config.yml; cd sites/* &&"
 
 				# WP Engine ssh address format
 		    remoteserver="-oStrictHostKeyChecking=no $wpe_ssh_user+$website@$website.ssh.wpengine.net"
-
+			else
+				echo "$domain website host provider not recognized"
 		  fi
-			
+
 			# Runs ssh
+			if [[ "$commandprep" != "" ]]; then
 			if [ -n "$script" ]; then
 				# Check for file
 				if [ ! -f "$script" ]; then
 					# Not found so attempt to run a local script
 					script=$root_path/lib/ssh_scripts/$script
 				fi
-				ssh $remoteserver "$commandprep bash -s" < $script ${arguments[2]}
+				ssh $remoteserver "$commandprep bash -s" < $script $script_args
 			elif [ -n "$command" ]; then
 				ssh $remoteserver "$commandprep $command"
 			else
 				ssh $remoteserver
 			fi
+			fi
 
-		else
-
-			## not recognized
-		  echo "$domain website host provider not recognized"
-
-		fi
 		fi
 		### Clear out variables
 		domain=''
