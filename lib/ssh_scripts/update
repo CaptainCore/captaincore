@@ -1,0 +1,2 @@
+wp theme update --all --format=json
+wp plugin update --all --format=json
