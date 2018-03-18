@@ -1,4 +1,10 @@
-domain=`wp option get home`
+#!/bin/bash
+
+##
+##		Apply SSL using www url
+##
+
+domain=$(wp option get home)
 domain=${domain/http:\/\/www./}
 domain=${domain/https:\/\/www./}
 domain=${domain/http:\/\//}

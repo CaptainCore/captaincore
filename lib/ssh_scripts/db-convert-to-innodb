@@ -1,3 +1,9 @@
+#!/bin/bash
+
+##
+##		Convert MyISAM datbase tables to InnoDB
+##
+
 wp db query "SELECT CONCAT('ALTER TABLE ', TABLE_SCHEMA,'.', TABLE_NAME, ' ENGINE=InnoDB;') FROM information_schema.TABLES WHERE ENGINE = 'MyISAM'" --skip-column-names > db_optimize.sql
 wp db query < db_optimize.sql
 rm db_optimize.sql
