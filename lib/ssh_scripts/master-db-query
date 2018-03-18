@@ -1,3 +1,9 @@
+#!/bin/bash
+
+##
+##		Export select ids from CaptainCore CLI master
+##
+
 site_ids_to_sync=$@
 function join_by { local IFS="$1"; shift; echo "$*"; }
 site_ids=$(join_by , ${site_ids_to_sync})

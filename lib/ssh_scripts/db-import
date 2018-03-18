@@ -1,3 +1,9 @@
+#!/bin/bash
+
+##
+##		Import database
+##
+
 database_file=$@
 wp db reset --yes
 wp db import $database_file
