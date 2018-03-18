@@ -6,7 +6,7 @@
 ## 		Pass arguments from command line like this
 ##		captaincore get configs --wpconfig=~/Documents/Scripts/wp-config.php --htaccess=~/Documents/Scripts/.htaccess
 ##
-##		assign command line arguments to varibles
+##		assign command line arguments to variables
 ## 		wpconfig=~/Documents/Scripts/wp-config.php becomes $_GET['wpconfig']
 ##
 

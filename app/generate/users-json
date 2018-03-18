@@ -6,7 +6,7 @@
 ## 		Pass arguments from command line like this
 ##		captaincore generate users-json --token=random --customers=1294,1245 --website=anchorhost
 ##
-##		assign command line arguments to varibles
+##		assign command line arguments to variables
 ## 		userlist=~/Documents/Scripts/userlist.csv becomes $_GET['userlist']
 ##
 

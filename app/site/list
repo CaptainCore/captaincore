@@ -20,7 +20,7 @@
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 
-# Loop through arguments and seperate regular arguments from flags (--flag)
+# Loop through arguments and separate regular arguments from flags (--flag)
 for var in "$@"; do
 	# If starts with "--" then assign it to a flag array
     if [[ $var == --* ]]
@@ -34,7 +34,7 @@ for var in "$@"; do
     fi
 done
 
-# Loop through flags and assign to varible. A flag "--email=austin@anchor.host" becomes $email
+# Loop through flags and assign to variable. A flag "--email=austin@anchor.host" becomes $email
 for i in "${!flags[@]}"; do
 
 	# removes leading "--" to safely pass onto `wp eval-file` https://github.com/wp-cli/wp-cli/issues/1030

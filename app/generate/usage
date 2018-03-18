@@ -14,7 +14,7 @@
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source $root_path/config
 
-# Loop through arguments and seperate regular arguments from flags (--flag)
+# Loop through arguments and separate regular arguments from flags (--flag)
 for var in "$@"
 do
 	# If starts with "--" then assign it to a flag array
@@ -29,7 +29,7 @@ do
     fi
 done
 
-# Loop through flags and assign to varible. A flag "--skip-dropbox" becomes $flag_skip_dropbox
+# Loop through flags and assign to variable. A flag "--skip-dropbox" becomes $flag_skip_dropbox
 for i in "${!flags[@]}"
 do
 

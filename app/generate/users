@@ -6,7 +6,7 @@
 ## 		Pass arguments from command line like this
 ##		captaincore generate users --install=anchorhosting
 ##
-##		assign command line arguments to varibles
+##		assign command line arguments to variables
 ## 		userlist=~/Documents/Scripts/userlist.json becomes $_GET['userlist']
 ##
 

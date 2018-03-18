@@ -1,12 +1,12 @@
 #! /usr/bin/env php
 <?php
 ##
-##		Generates list of plugins (seperated by space) based on an API call to anchor.host containing list of plugins to preload
+##		Generates list of plugins (separated by space) based on an API call to anchor.host containing list of plugins to preload
 ##
 ## 		Pass arguments from command line like this
 ##		php plugin-generate.php token=random customers=1294,1245 website=anchorhost
 ##
-##		assign command line arguments to varibles
+##		assign command line arguments to variables
 ## 		userlist=~/Documents/Scripts/userlist.csv becomes $_GET['userlist']
 ##
 

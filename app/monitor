@@ -13,7 +13,7 @@ source $root_path/config
 
 user_agent="captaincore/1.0 (CaptainCore Health Check by CaptaionCore.io)"
 
-# Loop through arguments and seperate regular arguments from flags (--flag)
+# Loop through arguments and separate regular arguments from flags (--flag)
 for var in "$@"
 do
 	# If starts with "--" then assign it to a flag array
@@ -28,7 +28,7 @@ do
     fi
 done
 
-# Loop through flags and assign to varible. A flag "--email=austin@anchor.host" becomes $email
+# Loop through flags and assign to variable. A flag "--email=austin@anchor.host" becomes $email
 for i in "${!flags[@]}"; do
 
 	# replace "-" with "_" and remove leading "--"

@@ -6,7 +6,7 @@
 ## 		Pass arguments from command line like this
 ##		php log_stats.php log=Logs/2017-07-01/20-25-f6c28f5/site-anchorhost.txt
 ##
-##		assign command line arguments to varibles
+##		assign command line arguments to variables
 ## 		new=anchorhosting becomes $_GET['new']
 ##
 
