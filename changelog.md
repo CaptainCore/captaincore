@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.1.6] - 2018-03-18
+### Added
+- Subcommand `captaincore site search <search>` to find sites by domain
+- Argument `--all` to `captaincore rollback <site> <commit>` to rollback entire quicksave
+- Arguments `[--filter=<theme|plugin|core>]` `[--filter-slug=<slug>]` `[--filter-version=<version>]` `[--filter-status=<active|inactive|dropin|must-use>]` to `captaincore site list`
+- File to remove duplicate quicksaves with `wp eval-file remove-duplicate-quicksaves.php`
+- Added installations steps to generate local WordPress site to `captaincore cli install`
+- Usage info for rollback command `captaincore rollback --help`
+- Argument `[--script-args=<script-args>]` to `captaincore ssh --script`. Example: `captaincore ssh <site> --script=migrate --script-args=<backup-url>`
+- Collection of scripts (applyssl, applysslwithwww, db-import, migrate-to-kinsta) to be used with `captaincore ssh --script`.
+- Argument `--field=ids` to `captaincore site list`
+- Command `captaincore utils sync-with-master` to keep captaincore cli running locally in sync with master. To config add `captaincore_master` and `captaincore_master_port` vars to ~/.captaincore/config file.
+- Argument `[<site-id>]` to `captaincore utils sync-with-master` which will force sync a particular site by id
+
+### Changed
+- Deploy keys and generate token on `captaincore site update`.
+- Improvements to `captaincore utils store_snapshot`
+- If script doesn't exist attempt running locally. `captaincore ssh --script`
+- Updated usage info for ssh command `captaincore ssh --help`
+- Command `captaincore ssh` will attempt to retrieve unknown sites by triggering `captaincore utils sync-with-master`
+- Significant improvements to `migrate` script in order to work on both WP Engine and Kinsta.
+
+### Removed
+- Arguments `[--plugin]` `[--theme]` `[--plugin-status=<plugin-status>]` and `[--theme-status=<theme-status>]` have been removed and functionality moved to new filter arguments on `captaincore site list`
+
 ## [0.1.5] - 2018-03-04
 ### Added
 - Arguments `--command=<command>` and `--script=<file>` to `captaincore ssh`
