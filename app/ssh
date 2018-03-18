@@ -10,7 +10,7 @@
 ##      captaincore ssh anchorhost1 --command="wp plugin list"
 ##
 ##      Runs script over SSH
-##      captaincore ssh anchorhost1 --script="~/Scripts/update_plugins"
+##      captaincore ssh anchorhost1 --script=~/Scripts/update_plugins
 ##
 ##      Runs command over SSH to mutiple installs
 ##      captaincore ssh anchorhost1 anchorhost2 anchorhost3 --command="wp plugin list"
@@ -115,7 +115,7 @@ if [ $# -gt 0 ]; then
 					# Not found so attempt to run a local script
 					script=$root_path/lib/ssh_scripts/$script
 				fi
-				ssh $remoteserver "$commandprep bash -s" < $script $script_args
+				ssh $remoteserver "$commandprep bash -s --" < $script
 			elif [ -n "$command" ]; then
 				ssh $remoteserver "$commandprep $command"
 			else
