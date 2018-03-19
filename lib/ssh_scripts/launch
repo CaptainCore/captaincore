@@ -3,6 +3,8 @@
 ##
 ##		Launches site - updates url from dev to live, enable search engine and clears cache
 ##
+##		launch --install=<install> --domain=<domain>
+##
 
 # Loop through arguments and separate regular arguments from flags (--flag)
 for var in "$@"; do
