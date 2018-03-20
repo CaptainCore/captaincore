@@ -4,7 +4,7 @@
 ##		Creates Snapshot of website
 ##
 ## 		Pass arguments from command line like this
-##		captaincore snapshot anchorhost --email=austin@anchor.host --skip-remote
+##		captaincore snapshot <site> --email=<email> --skip-remote
 ##
 
 # Load configuration
