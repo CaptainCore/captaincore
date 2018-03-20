@@ -14,9 +14,9 @@ echo ${root_path}config
 wpdownloadzip=$1
 if [ -e $wpdownloadzip ]; then
 	echo "Found local file $wpdownloadzip"
-	rclone move $wpdownloadzip Anchor-Dropbox:Backup/Archive/ -v
+	rclone move $wpdownloadzip $rclone_archive -v
 else
 	wpdownloadzipfilename=`echo $wpdownloadzip | perl -n -e '/.+\/+(.+\.zip)/&& print $1'`
 	wget -O $wpdownloadzipfilename $wpdownloadzip
-	rclone move $wpdownloadzipfilename Anchor-Dropbox:Backup/Archive/ -v
+	rclone move $wpdownloadzipfilename $rclone_archive -v
 fi
