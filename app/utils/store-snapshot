@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/bin/bash
 
 ##
 ##      Download and store WP Engine snapshot on Dropbox
@@ -8,12 +8,11 @@
 ##
 
 # Load configuration
-# Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
-source $root_path/config
+echo ${root_path}config
 
 wpdownloadzip=$1
-if [ -f $wpdownloadzip ]; then
+if [ -e $wpdownloadzip ]; then
 	echo "Found local file $wpdownloadzip"
 	rclone move $wpdownloadzip Anchor-Dropbox:Backup/Archive/ -v
 else
