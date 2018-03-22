@@ -21,6 +21,7 @@ root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_
 source $root_path/config
 
 # Loop through arguments and separate regular arguments from flags (--flag)
+all_arguments=($@)
 for var in "$@"; do
 	# If starts with "--" then assign it to a flag array
     if [[ $var == --* ]]; then
@@ -114,10 +115,10 @@ if [ $# -gt 0 ]; then
 				# Check for file
 				if [ ! -f "$script" ]; then
 					# Not found so attempt to run a local script
-					script=$root_path/lib/ssh_scripts/$script
+					script=${root_path}lib/ssh_scripts/$script
 				fi
-				# Pass all arguments found after --script=<script> argument into remote script 
-				ssh $remoteserver "$commandprep bash -s --" < $script ${flags[*]:$script_position}
+				# Pass all arguments found after --script=<script> argument into remote script
+				ssh $remoteserver "$commandprep bash -s --" < $script ${all_arguments[*]:$script_position}
 			elif [ -n "$command" ]; then
 				ssh $remoteserver "$commandprep $command"
 			else
