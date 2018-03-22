@@ -76,7 +76,7 @@ migrate_website() {
 		backup_url=${backup_url/wp-admin\/admin-ajax.php?action=pb_backupbuddy_backupbuddy&function=download_archive&backupbuddy_backup=/wp-content\/uploads\/backupbuddy_backups/}
 	fi
 
-	wget $backup_url --progress=dot
+	wget --progress=bar:force:noscroll $backup_url
 	if [[ "$backupformat" == "zip" ]]; then
 	  unzip -o *.zip
 	fi
@@ -123,7 +123,7 @@ migrate_website() {
 			wp rewrite flush --skip-plugins --skip-themes
 			wp_home_imported=`wp option get home`
 			if [[ "$skip_url_override" != "true" ]]; then
-				wp search-replace $wp_home_imported $wp_home --all-tables
+				wp search-replace $wp_home_imported $wp_home --skip-plugins --skip-themes --all-tables
 			fi
 			# convert MyISAM tables to InnoDB
 			wp db query "SELECT CONCAT('ALTER TABLE ', TABLE_SCHEMA,'.', TABLE_NAME, ' ENGINE=InnoDB;') FROM information_schema.TABLES WHERE ENGINE = 'MyISAM'" --skip-column-names > db_optimize.sql
