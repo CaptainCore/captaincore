@@ -121,7 +121,7 @@ migrate_website() {
 			wp db import $database_file
 			wp cache flush --skip-plugins --skip-themes
 			wp rewrite flush --skip-plugins --skip-themes
-			wp_home_imported=`wp option get home`
+			wp_home_imported=$(wp option get home)
 			if [[ "$skip_url_override" != "true" ]]; then
 				wp search-replace $wp_home_imported $wp_home --skip-plugins --skip-themes --all-tables
 			fi
