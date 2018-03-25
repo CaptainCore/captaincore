@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.7] - 2018-03-25
+### Added
+- Deployable scripts `verify-google-analytics-takeover --verifycode=<verifycode> --uacode=<uacode> --email=<email>`, `launch --install=<install> --domain=<domain>` and `update`
+- Argument `[--skip-url-override]` to deployable script `migrate <backup-url>`
+- File support to `captaincore utils store-snapshot <url|file>`
+- Configurable variables rclone_archive, rclone_backup and rclone_snapshot to config file to manage Rclone remote locations.
+
+### Changed
+- Fixed various typos in comments
+- Argument support to deployable ssh scripts
+- Renamed command store_snapshot to store-snapshot
+- Improvements to `captaincore ssh --script` to allow for passing arguments. For example `captaincore ssh <site> --script=<script> --<arg1>=arg1 --<arg2>=<arg2>`
+- Improvements to migrate script. Wget progress now displays properly. Fix for db import with buggy plugins/themes.
+- Exclude zip files from Quicksaves
+
 ## [0.1.6] - 2018-03-18
 ### Added
 - Subcommand `captaincore site search <search>` to find sites by domain
@@ -62,7 +77,7 @@
 ### Changed
 - `captaincore deploy keys <install>` now deploys to Kinsta staging sites
 - Major performance increases to `captaincore deploy production_to_staging_kinsta`. Switch over to zip/extract wp-content folder instead of sftp sync.
-- Standardized site address PHP varible. All $ipAddress are now $address.
+- Standardized site address PHP variable. All $ipAddress are now $address.
 
 ## [0.1.3] - 2018-02-18
 ### Added
