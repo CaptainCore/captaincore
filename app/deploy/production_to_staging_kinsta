@@ -81,7 +81,7 @@ if [ $# -gt 0 ]; then
       captaincore ssh $website-staging --command="wp search-replace //$domain //staging-$website.kinsta.com --all-tables --skip-plugins --skip-themes; wp search-replace //www.$domain //staging-$website.kinsta.com --all-tables --skip-plugins --skip-themes"
 
       # Enable search privacy and disable email on staging site
-      captaincore ssh $website-staging --command="wp option update blog_public 0 --skip-plugins --skip-themes; wp plugin install log-emails disable-emails --skip-plugins --skip-themes && wp plugin activate log-emails disable-emails --skip-plugins --skip-themes"
+      captaincore ssh $website-staging --command="wp option update blog_public 0 --skip-plugins --skip-themes; wp plugin install log-emails disable-emails --activate --skip-plugins --skip-themes; wp plugin deactivate sendgrid-email-delivery-simplified mailgun --skip-plugins --skip-themes"
 
 			## Post completion to CaptainCore API
 			if [[ $captaincore_dev == true ]]; then
