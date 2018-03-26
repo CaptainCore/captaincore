@@ -4,7 +4,7 @@
 ##      Deploy Kinsta's production to staging
 ##
 ##      Pass arguments from command line like this
-##      captaincore deploy production_to_staging_kinsta anchorhost --email=1234
+##      captaincore deploy production_to_staging_kinsta <site> --email=1234 [--skip-uploads]
 ##
 
 # Load configuration
@@ -12,8 +12,7 @@ root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_
 source $root_path/config
 
 # Loop through arguments and separate regular arguments from flags (--flag)
-for var in "$@"
-do
+for var in "$@";do
 	# If starts with "--" then assign it to a flag array
     if [[ $var == --* ]]
     then
@@ -66,7 +65,11 @@ if [ $# -gt 0 ]; then
 			timestamp=$(date +%s)
 
 			# Make production snapshot with unique timestamp
-			captaincore ssh $website --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/"
+			if [[ "$skip_uploads" == "true" ]]; then
+				captaincore ssh $website --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/ --exclude=uploads/\*"
+			else
+				captaincore ssh $website --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/"
+			fi
 
 			# Download production snapshot to staging site and import database
 			captaincore ssh $website-staging --command="wget http://$address/wp-content_$timestamp.zip; mv wp-content_$timestamp.zip wp-content.zip; rm -rf wp-content/; unzip wp-content.zip; rm wp-content.zip; wp db import wp-content/mysql.sql --skip-plugins --skip-themes"
