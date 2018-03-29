@@ -12,33 +12,35 @@
 
 # Loop through arguments and separate regular arguments from flags (--flag)
 for var in "$@"; do
-	# If starts with "--" then assign it to a flag array
-    if [[ $var == --* ]]; then
-    	count=1+${#flags[*]}
-    	flags[$count]=$var
+
+  # If starts with "--" then assign it to a flag array
+  if [[ $var == --* ]]; then
+    count=1+${#flags[*]}
+    flags[$count]=$var
     # Else assign to an arguments array
-    else
-    	count=1+${#arguments[*]}
-    	arguments[$count]=$var
-    fi
+  else
+    count=1+${#arguments[*]}
+    arguments[$count]=$var
+  fi
+	
 done
 
 # Loop through flags and assign to variable. A flag "--email=austin@anchor.host" becomes $email
 for i in "${!flags[@]}"; do
 
-	# replace "-" with "_" and remove leading "--"
-	flag_name=`echo ${flags[$i]} | cut -c 3-`
+  # replace "-" with "_" and remove leading "--"
+  flag_name=`echo ${flags[$i]} | cut -c 3-`
 
-	# detected flag contains data
-	if [[ $flag_name == *"="* ]]; then
-	  flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
-	  flag_name=`echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1'` # extract name
-		flag_name=${flag_name/-/_}
-	  declare "$flag_name"="$flag_value" # assigns to $flag_flagname
-	else
-	  # assigns to $flag_flagname boolen
-	  declare "$flag_name"=true
-	fi
+  # detected flag contains data
+  if [[ $flag_name == *"="* ]]; then
+    flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
+    flag_name=`echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1'` # extract name
+    flag_name=${flag_name/-/_}
+    declare "$flag_name"="$flag_value" # assigns to $flag_flagname
+  else
+    # assigns to $flag_flagname boolen
+    declare "$flag_name"=true
+  fi
 
 done
 
@@ -50,87 +52,87 @@ homedir=$(pwd)
 
 migrate_website() {
 
-	# Find private folder
-	if [ -d "_wpeprivate" ]; then
-		private=${homedir}/_wpeprivate
-	elif [ -d "../private" ]; then
-		cd ../private
-		private=$(pwd)
-		cd $homedir
-	else
-		echo "Can't find private folder '/_wpeprivate' or '../private'. Migration cancelled.";
-		return 1
-	fi
+  # Find private folder
+  if [ -d "_wpeprivate" ]; then
+    private=${homedir}/_wpeprivate
+  elif [ -d "../private" ]; then
+    cd ../private
+    private=$(pwd)
+    cd $homedir
+  else
+    echo "Can't find private folder '/_wpeprivate' or '../private'. Migration cancelled.";
+    return 1
+  fi
 
-	# Verifies WordPress
-	wp_home=$(wp option get home --skip-themes --skip-plugins)
-	if [[ "$wp_home" != "http"* ]]; then
-		echo "WordPress not found. Migration cancelled.";
-		return 1
-	fi
+  # Verifies WordPress
+  wp_home=$(wp option get home --skip-themes --skip-plugins)
+  if [[ "$wp_home" != "http"* ]]; then
+    echo "WordPress not found. Migration cancelled.";
+    return 1
+  fi
 
-	cd $private
+  cd $private
 
-	if [[ "$backup_url" == *"admin-ajax.php?action=pb_backupbuddy_backupbuddy&function=download_archive&backupbuddy_backup"* ]]; then
-		echo "Backup Buddy URL found";
-		backup_url=${backup_url/wp-admin\/admin-ajax.php?action=pb_backupbuddy_backupbuddy&function=download_archive&backupbuddy_backup=/wp-content\/uploads\/backupbuddy_backups/}
-	fi
+  if [[ "$backup_url" == *"admin-ajax.php?action=pb_backupbuddy_backupbuddy&function=download_archive&backupbuddy_backup"* ]]; then
+    echo "Backup Buddy URL found";
+    backup_url=${backup_url/wp-admin\/admin-ajax.php?action=pb_backupbuddy_backupbuddy&function=download_archive&backupbuddy_backup=/wp-content\/uploads\/backupbuddy_backups/}
+  fi
 
-	wget --progress=bar:force:noscroll $backup_url
-	if [[ "$backupformat" == "zip" ]]; then
-	  unzip -o *.zip
-	fi
-	if [[ "$backupformat" == "gz" ]]; then
-	  tar xvzf *.gz
-	fi
-	if [[ "$backupformat" == "tar" ]]; then
-	  tar xvzf *.tar
-	fi
-	wordpresspath=`find * -type d -name 'wp-content' -print -quit`
-	# Migrate uploads if found
-	if [ -d $wordpresspath/uploads ]; then
-		rm -rf $homedir/wp-content/uploads
-		mv $wordpresspath/uploads $homedir/wp-content/
-	fi
-	# Migrate themes if found
-	for d in $wordpresspath/themes/*/; do
-	  mv $d $homedir/wp-content/themes/
-	done
-	# Migrate plugins if found
-	for d in $wordpresspath/plugins/*/; do
-	  mv $d $homedir/wp-content/plugins/
-	done
-	cd $homedir
-	wp plugin delete wp-super-cache adminer wordfence w3-total-cache wp-file-cache broken-link-checker yet-another-related-posts-plugin comet-cache-1 woothemes-updater ewww-image-optimizer https-redirection really-simple-ssl hello wordpress-php-info force-strong-passwords --skip-plugins --skip-themes
-	cat $private/$wordpresspath/../wp-config.php | grep "$table_prefix"
-	rm -f $homedir/wp-content/advanced-cache.php
-	rm -f $homedir/wp-content/object-cache.php
-	cd $homedir
-	find . -type d -exec chmod 755 {} \;
-	find . -type f -exec chmod 644 {} \;
-	chmod 600 $homedir/wp-content/mysql.sql
+  wget --progress=bar:force:noscroll $backup_url
+  if [[ "$backupformat" == "zip" ]]; then
+    unzip -o *.zip
+  fi
+  if [[ "$backupformat" == "gz" ]]; then
+    tar xvzf *.gz
+  fi
+  if [[ "$backupformat" == "tar" ]]; then
+    tar xvzf *.tar
+  fi
+  wordpresspath=`find * -type d -name 'wp-content' -print -quit`
+  # Migrate uploads if found
+  if [ -d $wordpresspath/uploads ]; then
+    rm -rf $homedir/wp-content/uploads
+    mv $wordpresspath/uploads $homedir/wp-content/
+  fi
+  # Migrate themes if found
+  for d in $wordpresspath/themes/*/; do
+    mv $d $homedir/wp-content/themes/
+  done
+  # Migrate plugins if found
+  for d in $wordpresspath/plugins/*/; do
+    mv $d $homedir/wp-content/plugins/
+  done
+  cd $homedir
+  wp plugin delete wp-super-cache adminer wordfence w3-total-cache wp-file-cache broken-link-checker yet-another-related-posts-plugin comet-cache-1 woothemes-updater ewww-image-optimizer https-redirection really-simple-ssl hello wordpress-php-info force-strong-passwords --skip-plugins --skip-themes
+  cat $private/$wordpresspath/../wp-config.php | grep "$table_prefix"
+  rm -f $homedir/wp-content/advanced-cache.php
+  rm -f $homedir/wp-content/object-cache.php
+  cd $homedir
+  find . -type d -exec chmod 755 {} \;
+  find . -type f -exec chmod 644 {} \;
+  chmod 600 $homedir/wp-content/mysql.sql
 
-	echo "Found the following database:"
-	find $homedir/wp-content/uploads $private -type f -name '*.sql'
-	databases=$(find $private -type f -name '*.sql')
-	database_count=$(echo -n $databases | grep -c '^')
-	if [[ "database_count" -gt "0" ]]; then
-		database_file=$(echo $databases | head -1)
-		if [ -f $database_file ]; then
-			wp db reset --yes
-			wp db import $database_file
-			wp cache flush --skip-plugins --skip-themes
-			wp rewrite flush --skip-plugins --skip-themes
-			wp_home_imported=$(wp option get home)
-			if [[ "$skip_url_override" != "true" ]]; then
-				wp search-replace $wp_home_imported $wp_home --skip-plugins --skip-themes --all-tables
-			fi
-			# convert MyISAM tables to InnoDB
-			wp db query "SELECT CONCAT('ALTER TABLE ', TABLE_SCHEMA,'.', TABLE_NAME, ' ENGINE=InnoDB;') FROM information_schema.TABLES WHERE ENGINE = 'MyISAM'" --skip-column-names > db_optimize.sql
-			wp db query < db_optimize.sql
-			rm db_optimize.sql
-		fi
-	fi
+  echo "Found the following database:"
+  find $homedir/wp-content/uploads $private -type f -name '*.sql'
+  databases=$(find $private -type f -name '*.sql')
+  database_count=$(echo -n $databases | grep -c '^')
+  if [[ "database_count" -gt "0" ]]; then
+    database_file=$(echo $databases | head -1)
+    if [ -f $database_file ]; then
+      wp db reset --yes
+      wp db import $database_file
+      wp cache flush --skip-plugins --skip-themes
+      wp rewrite flush --skip-plugins --skip-themes
+      wp_home_imported=$(wp option get home)
+      if [[ "$skip_url_override" != "true" ]]; then
+        wp search-replace $wp_home_imported $wp_home --skip-plugins --skip-themes --all-tables
+      fi
+      # convert MyISAM tables to InnoDB
+      wp db query "SELECT CONCAT('ALTER TABLE ', TABLE_SCHEMA,'.', TABLE_NAME, ' ENGINE=InnoDB;') FROM information_schema.TABLES WHERE ENGINE = 'MyISAM'" --skip-column-names > db_optimize.sql
+      wp db query < db_optimize.sql
+      rm db_optimize.sql
+    fi
+  fi
 
 }
 migrate_website
