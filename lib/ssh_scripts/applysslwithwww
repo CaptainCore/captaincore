@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ##
-##		Apply SSL using www url
+##		Apply SSL using domain with www
 ##
 
 domain=$(wp option get home)
