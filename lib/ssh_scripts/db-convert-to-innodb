@@ -3,7 +3,19 @@
 ##
 ##		Convert MyISAM datbase tables to InnoDB
 ##
+##		captaincore ssh <site> --script=db-convert-to-innodb
+##
 
-wp db query "SELECT CONCAT('ALTER TABLE ', TABLE_SCHEMA,'.', TABLE_NAME, ' ENGINE=InnoDB;') FROM information_schema.TABLES WHERE ENGINE = 'MyISAM'" --skip-column-names > db_optimize.sql
-wp db query < db_optimize.sql
-rm db_optimize.sql
+current_folder=${PWD##*/}
+output=`wp db query "SELECT COUNT(*) FROM information_schema.TABLES WHERE ENGINE = 'MyISAM'" --skip-column-names`
+if [[ "$output" -gt "0" ]]; then
+	if [[ "$current_folder" == "public" ]]; then
+	 	# Most likely Kinsta so extract site name from higher up in path
+		current_folder=${PWD#/www/*}
+		current_folder=${current_folder%/public}
+	fi
+	echo "$current_folder Found $output MyISAM tables"
+	#wp db query "SELECT CONCAT('ALTER TABLE ', TABLE_SCHEMA,'.', TABLE_NAME, ' ENGINE=InnoDB;') FROM information_schema.TABLES WHERE ENGINE = 'MyISAM'" --skip-column-names > db_optimize.sql
+	#wp db query < db_optimize.sql
+	#rm db_optimize.sql
+fi
