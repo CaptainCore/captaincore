@@ -15,7 +15,7 @@ if [[ "$output" -gt "0" ]]; then
 		current_folder=${current_folder%/public}
 	fi
 	echo "$current_folder Found $output MyISAM tables"
-	#wp db query "SELECT CONCAT('ALTER TABLE ', TABLE_SCHEMA,'.', TABLE_NAME, ' ENGINE=InnoDB;') FROM information_schema.TABLES WHERE ENGINE = 'MyISAM'" --skip-column-names > db_optimize.sql
-	#wp db query < db_optimize.sql
-	#rm db_optimize.sql
+	wp db query "SELECT CONCAT('ALTER TABLE ', TABLE_SCHEMA,'.', TABLE_NAME, ' ENGINE=InnoDB;') FROM information_schema.TABLES WHERE ENGINE = 'MyISAM'" --skip-column-names > db_optimize.sql
+	wp db query < db_optimize.sql
+	rm db_optimize.sql
 fi
