@@ -23,135 +23,135 @@ source $root_path/config
 # Loop through arguments and separate regular arguments from flags (--flag)
 all_arguments=($@)
 for var in "$@"; do
-	# If starts with "--" then assign it to a flag array
-    if [[ $var == --* ]]; then
-    	count=1+${#flags[*]}
-    	flags[$count]=$var
-			if [[ "$var" == "--script="* ]]; then
-				script_position=$(expr 1 + ${#flags[*]})
-			fi
-    # Else assign to an arguments array
-    else
-    	count=1+${#arguments[*]}
-    	arguments[$count]=$var
+  # If starts with "--" then assign it to a flag array
+  if [[ $var == --* ]]; then
+    count=1+${#flags[*]}
+    flags[$count]=$var
+    if [[ "$var" == "--script="* ]]; then
+      script_position=$(expr 1 + ${#flags[*]})
     fi
+    # Else assign to an arguments array
+  else
+    count=1+${#arguments[*]}
+    arguments[$count]=$var
+  fi
 done
 
 # Loop through flags and assign to variable. A flag "--email=austin@anchor.host" becomes $email
 for i in "${!flags[@]}"; do
 
-	# replace "-" with "_" and remove leading "--"
-	flag_name=`echo ${flags[$i]} | cut -c 3-`
+  # replace "-" with "_" and remove leading "--"
+  flag_name=`echo ${flags[$i]} | cut -c 3-`
 
-	# detected flag contains data
-	if [[ $flag_name == *"="* ]]; then
-	  flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
-	  flag_name=`echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1'` # extract name
-		flag_name=${flag_name/-/_}
-	  declare "$flag_name"="$flag_value" # assigns to $flag_flagname
-	else
-	  # assigns to $flag_flagname boolen
-	  declare "$flag_name"=true
-	fi
+  # detected flag contains data
+  if [[ $flag_name == *"="* ]]; then
+    flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
+    flag_name=`echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1'` # extract name
+    flag_name=${flag_name/-/_}
+    declare "$flag_name"="$flag_value" # assigns to $flag_flagname
+  else
+    # assigns to $flag_flagname boolen
+    declare "$flag_name"=true
+  fi
 
 done
 
 ssh_wrapper () {
-if [ $# -gt 0 ]; then
+  if [ $# -gt 0 ]; then
 
-	#if [ -n "$script" ]; then
-	#	echo "Running SSH command on $# installs"
-	#fi
-	#if [ -n "$command" ]; then
-	#	echo "Running SSH command on $# installs"
-	#fi
+    #if [ -n "$script" ]; then
+    #	echo "Running SSH command on $# installs"
+    #fi
+    #if [ -n "$command" ]; then
+    #	echo "Running SSH command on $# installs"
+    #fi
 
-	for website in "$@"; do
+    for website in "$@"; do
 
-		if [[ "$website" == *"-staging" ]]; then
-			website=${website//-staging/}
-			use_staging=true
-		fi
+      if [[ "$website" == *"-staging" ]]; then
+        website=${website//-staging/}
+        use_staging=true
+      fi
 
-		### Load FTP credentials
-		eval $(captaincore site get $website --bash)
+      ### Load FTP credentials
+      eval $(captaincore site get $website --bash)
 
-		if [[ "$address" == "" && "$captaincore_master" != "" ]]; then
-			echo "Site $website not found. Attempting sync with master ($captaincore_master)."
-			captaincore utils sync-with-master
-			eval $(captaincore site get $website --bash)
-		fi
+      if [[ "$address" == "" && "$captaincore_master" != "" ]]; then
+        echo "Site $website not found. Attempting sync with master ($captaincore_master)."
+        captaincore utils sync-with-master
+        eval $(captaincore site get $website --bash)
+      fi
 
-		if [[ "$protocol" == "sftp" ]]; then
+      if [[ "$protocol" == "sftp" ]]; then
 
-			## If website on Kinsta then connect SSH using their format
-			if [[ "$address" == *".kinsta.com" ]]; then
+        ## If website on Kinsta then connect SSH using their format
+        if [[ "$address" == *".kinsta.com" ]]; then
 
-				# Kinsta's command prep
-				commandprep="cd public/ &&"
+          # Kinsta's command prep
+          commandprep="cd public/ &&"
 
-				# Kinsta ssh address format
-				if [[ "$use_staging" != "true" ]]; then
-				  remoteserver="-oStrictHostKeyChecking=no $username@$address -p $port"
-				else
-				  remoteserver="-oStrictHostKeyChecking=no $username_staging@$address_staging -p $port_staging"
-				fi
+          # Kinsta ssh address format
+          if [[ "$use_staging" != "true" ]]; then
+            remoteserver="-oStrictHostKeyChecking=no $username@$address -p $port"
+          else
+            remoteserver="-oStrictHostKeyChecking=no $username_staging@$address_staging -p $port_staging"
+          fi
 
-			## If not Kinsta then try connecting using WP Engine's format
-			elif [[ "$address" == *".wpengine.com" ]]; then
+          ## If not Kinsta then try connecting using WP Engine's format
+        elif [[ "$address" == *".wpengine.com" ]]; then
 
-				# WP Engine command prep
-				commandprep="rm ~/.wp-cli/config.yml; cd sites/* &&"
+          # WP Engine command prep
+          commandprep="rm ~/.wp-cli/config.yml; cd sites/* &&"
 
-				# WP Engine ssh address format
-		    remoteserver="-oStrictHostKeyChecking=no $wpe_ssh_user+$website@$website.ssh.wpengine.net"
-			else
-				echo "$domain website host provider not recognized"
-		  fi
+          # WP Engine ssh address format
+          remoteserver="-oStrictHostKeyChecking=no $wpe_ssh_user+$website@$website.ssh.wpengine.net"
+        else
+          echo "$domain website host provider not recognized"
+        fi
 
-			# Runs ssh
-			if [[ "$commandprep" != "" ]]; then
-			if [ -n "$script" ]; then
-				# Check for file
-				if [ ! -f "$script" ]; then
-					# Not found so attempt to run a local script
-					script=${root_path}lib/ssh_scripts/$script
-				fi
-				# Pass all arguments found after --script=<script> argument into remote script
-				ssh $remoteserver "$commandprep bash -s --" < $script ${all_arguments[*]:$script_position}
-			elif [ -n "$command" ]; then
-				ssh $remoteserver "$commandprep $command"
-			else
-				ssh $remoteserver
-			fi
-			fi
+        # Runs ssh
+        if [[ "$commandprep" != "" ]]; then
+          if [ -n "$script" ]; then
+            # Check for file
+            if [ ! -f "$script" ]; then
+              # Not found so attempt to run a local script
+              script=${root_path}lib/ssh_scripts/$script
+            fi
+            # Pass all arguments found after --script=<script> argument into remote script
+            ssh $remoteserver "$commandprep bash -s --" < $script ${all_arguments[*]:$script_position}
+          elif [ -n "$command" ]; then
+            ssh $remoteserver "$commandprep $command"
+          else
+            ssh $remoteserver
+          fi
+        fi
 
-		fi
-		### Clear out variables
-		domain=''
-		username=''
-		password=''
-		address=''
-		protocol=''
-		port=''
-		homedir=''
-		remoteserver=''
-		s3bucket=''
-		s3path=''
-		subsite=''
-		unset use_staging
+      fi
+      ### Clear out variables
+      domain=''
+      username=''
+      password=''
+      address=''
+      protocol=''
+      port=''
+      homedir=''
+      remoteserver=''
+      s3bucket=''
+      s3path=''
+      subsite=''
+      unset use_staging
 
-		let INDEX=${INDEX}+1
-	done
+      let INDEX=${INDEX}+1
+    done
 
-fi
+  fi
 }
 
 ### See if any specific sites are selected
 if [ ${#arguments[*]} -gt 0 ]; then
-	# Backup selected installs
-	ssh_wrapper ${arguments[*]}
+  # Backup selected installs
+  ssh_wrapper ${arguments[*]}
 else
-	# Backup all installs
-	ssh_wrapper ${websites[@]}
+  # Backup all installs
+  ssh_wrapper ${websites[@]}
 fi
