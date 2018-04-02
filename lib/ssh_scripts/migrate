@@ -22,7 +22,7 @@ for var in "$@"; do
     count=1+${#arguments[*]}
     arguments[$count]=$var
   fi
-	
+
 done
 
 # Loop through flags and assign to variable. A flag "--email=austin@anchor.host" becomes $email
@@ -105,8 +105,8 @@ migrate_website() {
   cd $homedir
   wp plugin delete wp-super-cache adminer wordfence w3-total-cache wp-file-cache broken-link-checker yet-another-related-posts-plugin comet-cache-1 woothemes-updater ewww-image-optimizer https-redirection really-simple-ssl hello wordpress-php-info force-strong-passwords --skip-plugins --skip-themes
   cat $private/$wordpresspath/../wp-config.php | grep "$table_prefix"
-  rm -f $homedir/wp-content/advanced-cache.php
-  rm -f $homedir/wp-content/object-cache.php
+  #rm -f $homedir/wp-content/advanced-cache.php
+  #rm -f $homedir/wp-content/object-cache.php
   cd $homedir
   find . -type d -exec chmod 755 {} \;
   find . -type f -exec chmod 644 {} \;
