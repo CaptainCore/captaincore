@@ -21,37 +21,38 @@ eval $(captaincore site get $website --bash)
 # fi
 
 # Loop through arguments and separate regular arguments from flags (--flag)
-for var in "$@"
-do
-	# If starts with "--" then assign it to a flag array
-    if [[ $var == --* ]]
-    then
-    	count=1+${#flags[*]}
-    	flags[$count]=$var
-    # Else assign to an arguments array
-    else
-    	count=1+${#arguments[*]}
-    	arguments[$count]=$var
+for var in "$@"; do
+  # If starts with "--" then assign it to a flag array
+  if [[ $var == --* ]]; then
+    count=1+${#flags[*]}
+    flags[$count]=$var
+    if [[ "$var" == "--script="* ]]; then
+      script_position=$(expr 1 + ${#flags[*]})
     fi
+    # Else assign to an arguments array
+  else
+    count=1+${#arguments[*]}
+    arguments[$count]=$var
+  fi
 done
 
 # Loop through flags and assign to variable. A flag "--email=austin@anchor.host" becomes $email
-for i in "${!flags[@]}"
-do
+for i in "${!flags[@]}"; do
 
-	# replace "-" with "_" and remove leading "--"
-	flag_name=`echo ${flags[$i]} | tr - _`
-	flag_name=`echo $flag_name | cut -c 3-`
+  # replace "-" with "_" and remove leading "--"
+  flag_name=`echo ${flags[$i]} | cut -c 3-`
 
-	# detected flag contains data
-	if [[ $flag_name == *"="* ]]; then
-	  flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
-	  flag_name=`echo $flag_name | perl -n -e '/(.+)?=.+/&& print $1'` # extract name
-	  declare "$flag_name"="$flag_value" # assigns to $flag_flagname
-	else
-	  # assigns to $flag_flagname boolen
-	  declare "$flag_name"=true
-	fi
+  # detected flag contains data
+  if [[ $flag_name == *"="* ]]; then
+    flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
+    flag_name=`echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1'` # extract name
+    flag_name=${flag_name/-/_}
+    declare "$flag_name"="$flag_value" # assigns to $flag_flagname
+  else
+    # assigns to $flag_flagname boolen
+		flag_name=${flag_name//-/_}
+    declare "$flag_name"=true
+  fi
 
 done
 
