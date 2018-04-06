@@ -39,6 +39,7 @@ for i in "${!flags[@]}"; do
     declare "$flag_name"="$flag_value" # assigns to $flag_flagname
   else
     # assigns to $flag_flagname boolen
+    flag_name=${flag_name//-/_}
     declare "$flag_name"=true
   fi
 
