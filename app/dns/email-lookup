@@ -1,0 +1,20 @@
+#!/bin/bash
+
+##
+##      Bulk email lookup
+##
+##      Pass arguments from command line like this
+##      captaincore dns email-lookup website1.com website2.com website3.com
+##
+##			Expected output
+##			website1.com	Registrar: Tucows Reseller: Hover.com
+##			website2.com	Registrar: Tucows Reseller: Hover.com
+##
+lightblue='\033[0;34m'
+nocolor='\033[0m' # No Color
+
+for var in "$@"; do
+	dnslookup=`dig $var MX +short`
+	dnslookup_sorted=(`echo $dnslookup | sort -n`)
+	echo -e "${lightblue}${var}${nocolor} - ${dnslookup_sorted[@]}"
+done
