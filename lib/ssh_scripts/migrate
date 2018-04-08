@@ -3,7 +3,7 @@
 #
 #		Migrate site from backup snapshot
 #
-#		migrate <backup-url> [--skip-url-override]
+#		migrate --url=<backup-url> [--skip-url-override]
 #
 #		OPTIONS
 #		[--skip-url-override]
@@ -45,7 +45,7 @@ for i in "${!flags[@]}"; do
 
 done
 
-backup_url=$1
+backup_url=$url
 backupformat=`echo $backup_url | perl -n -e '/.+\.(.+)/&& print $1'`
 
 # Store current path
