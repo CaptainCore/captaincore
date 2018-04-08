@@ -1,13 +1,13 @@
 #!/bin/bash
 
 #
-#		Migrate site from backup snapshot
+#   Migrate site from backup snapshot
 #
-#		migrate --url=<backup-url> [--skip-url-override]
+#   migrate --url=<backup-url> [--skip-url-override]
 #
-#		OPTIONS
-#		[--skip-url-override]
-#		: Keep source urls. Default will update to match destination WordPress site.
+#   OPTIONS
+#   [--skip-url-override]
+#   : Keep source urls. Default will update to match destination WordPress site.
 #
 
 # Loop through arguments and separate regular arguments from flags (--flag)
@@ -79,6 +79,7 @@ migrate_website() {
     backup_url=${backup_url/wp-admin\/admin-ajax.php?action=pb_backupbuddy_backupbuddy&function=download_archive&backupbuddy_backup=/wp-content\/uploads\/backupbuddy_backups/}
   fi
 
+  # Downloads backup file
   wget --progress=bar:force:noscroll $backup_url
   if [[ "$backupformat" == "zip" ]]; then
     unzip -o *.zip
@@ -89,26 +90,36 @@ migrate_website() {
   if [[ "$backupformat" == "tar" ]]; then
     tar xvzf *.tar
   fi
+
+  # Finds WordPress path
   wordpresspath=`find * -type d -name 'wp-content' -print -quit`
+
   # Migrate uploads if found
   if [ -d $wordpresspath/uploads ]; then
     rm -rf $homedir/wp-content/uploads
     mv $wordpresspath/uploads $homedir/wp-content/
   fi
+
   # Migrate themes if found
   for d in $wordpresspath/themes/*/; do
     mv $d $homedir/wp-content/themes/
   done
+
   # Migrate plugins if found
   for d in $wordpresspath/plugins/*/; do
     mv $d $homedir/wp-content/plugins/
   done
+
   cd $homedir
+
+  # Remove select plugins if found
   wp plugin delete wp-super-cache adminer wordfence w3-total-cache wp-file-cache broken-link-checker yet-another-related-posts-plugin comet-cache-1 woothemes-updater ewww-image-optimizer https-redirection really-simple-ssl hello wordpress-php-info force-strong-passwords --skip-plugins --skip-themes
-  cat $private/$wordpresspath/../wp-config.php | grep "$table_prefix"
-  #rm -f $homedir/wp-content/advanced-cache.php
-  #rm -f $homedir/wp-content/object-cache.php
+
+  # Outputs table prefix
+  cat $private/$wordpresspath/../wp-config.php | grep table_prefix
   cd $homedir
+
+  # Reset folder and file permissions
   find . -type d -exec chmod 755 {} \;
   find . -type f -exec chmod 644 {} \;
   chmod 600 $homedir/wp-content/mysql.sql
