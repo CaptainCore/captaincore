@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.8] - 2018-04-08]
+### Added
+- Argument `[--skip-uploads]` to `captaincore deploy production_to_staging_kinsta`
+- Command `captaincore dns ips-from-site-names <site> [<site>] [<site>] [--skip-follow]`
+- Command `captaincore dns email-lookup <site> [<site>] [<site>]...`
+
+### Changed
+- Updated `config.sample`. Remove trailing slash as it will cause issues with backups.
+- Improvements to `captaincore ssh [<site>] --script=db-convert-to-innodb`. Will count MyISAM tables and convert to InnoDB if needed.
+- Renamed underscores to dashes with `captaincore dns bulk-domain` and `captaincore dns bulk-nameserver`
+- Fix for plugin deploys and plugin rollbacks
+- Standardized arguments for migration script `captaincore ssh <site> --script=migrate --url=<backup-url> [--skip-url-override]`
+- Clean up and added comments to migrate script
+
 ## [0.1.7] - 2018-03-25
 ### Added
 - Deployable scripts `verify-google-analytics-takeover --verifycode=<verifycode> --uacode=<uacode> --email=<email>`, `launch --install=<install> --domain=<domain>` and `update`
