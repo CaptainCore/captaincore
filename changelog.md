@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.8] - 2018-04-08]
+## [0.1.8] - 2018-04-08
 ### Added
 - Argument `[--skip-uploads]` to `captaincore deploy production_to_staging_kinsta`
 - Command `captaincore dns ips-from-site-names <site> [<site>] [<site>] [--skip-follow]`
