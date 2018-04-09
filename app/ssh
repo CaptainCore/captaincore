@@ -101,7 +101,7 @@ ssh_wrapper () {
           ## If not Kinsta then try connecting using WP Engine's format
         elif [[ "$address" == *".wpengine.com" ]]; then
 
-          # WP Engine command prep
+          # WP Engine's command prep
           commandprep="rm ~/.wp-cli/config.yml; cd sites/* &&"
 
           # WP Engine ssh address format
