@@ -1,10 +1,10 @@
 #!/bin/bash
 
 ##
-##      Deploy Kinsta's staging to production
+##      Deploy staging to production (Kinsta only)
 ##
 ##      Pass arguments from command line like this
-##      captaincore deploy staging_to_production_kinsta anchorhost --email=1234
+##      captaincore deploy staging-to-production <site> --email=<email>
 ##
 
 # Load configuration
