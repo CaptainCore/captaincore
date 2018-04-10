@@ -13,112 +13,112 @@ source $root_path/config
 
 # Loop through arguments and separate regular arguments from flags (--flag)
 for var in "$@";do
-	# If starts with "--" then assign it to a flag array
-    if [[ $var == --* ]]
-    then
-    	count=1+${#flags[*]}
-    	flags[$count]=$var
+  # If starts with "--" then assign it to a flag array
+  if [[ $var == --* ]]
+  then
+    count=1+${#flags[*]}
+    flags[$count]=$var
     # Else assign to an arguments array
-    else
-    	count=1+${#arguments[*]}
-    	arguments[$count]=$var
-    fi
+  else
+    count=1+${#arguments[*]}
+    arguments[$count]=$var
+  fi
 done
 
 # Loop through flags and assign to variable. A flag "--email=austin@anchor.host" becomes $email
 for i in "${!flags[@]}"; do
 
-	# replace "-" with "_" and remove leading "--"
-	flag_name=`echo ${flags[$i]} | tr - _`
-	flag_name=`echo $flag_name | cut -c 3-`
+  # replace "-" with "_" and remove leading "--"
+  flag_name=`echo ${flags[$i]} | tr - _`
+  flag_name=`echo $flag_name | cut -c 3-`
 
-	# detected flag contains data
-	if [[ $flag_name == *"="* ]]; then
-	  flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
-	  flag_name=`echo $flag_name | perl -n -e '/(.+)?=.+/&& print $1'` # extract name
-	  declare "$flag_name"="$flag_value" # assigns to $flag_flagname
-	else
-	  # assigns to $flag_flagname boolen
-	  declare "$flag_name"=true
-	fi
+  # detected flag contains data
+  if [[ $flag_name == *"="* ]]; then
+    flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
+    flag_name=`echo $flag_name | perl -n -e '/(.+)?=.+/&& print $1'` # extract name
+    declare "$flag_name"="$flag_value" # assigns to $flag_flagname
+  else
+    # assigns to $flag_flagname boolen
+    declare "$flag_name"=true
+  fi
 
 done
 
 deploy_staging () {
-if [ $# -gt 0 ]; then
+  if [ $# -gt 0 ]; then
 
-	echo "Deploying $# staging sites"
-	INDEX=1
-	for website in "$@"; do
+    echo "Deploying $# staging sites"
+    INDEX=1
+    for website in "$@"; do
 
-		### Load FTP credentials
-		eval $(captaincore site get $website --bash)
+      ### Load FTP credentials
+      eval $(captaincore site get $website --bash)
 
-		### Credentials found, start the backup
-		if ! [ -z "$domain" ]; then
+      ### Credentials found, start the backup
+      if ! [ -z "$domain" ]; then
 
-			if [ "$homedir" == "" ]; then
-			   	homedir="/"
-			fi
+        if [ "$homedir" == "" ]; then
+          homedir="/"
+        fi
 
-			# Unique timestamp
-			timestamp=$(date +%s)
+        # Unique timestamp
+        timestamp=$(date +%s)
 
-			# Make production snapshot with unique timestamp
-			if [[ "$skip_uploads" == "true" ]]; then
-				captaincore ssh $website --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/ --exclude=wp-content/uploads/\* --exclude=wp-content/updraft/\*"
-			else
-				captaincore ssh $website --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/"
-			fi
+        # Make production snapshot with unique timestamp
+        if [[ "$skip_uploads" == "true" ]]; then
+          captaincore ssh $website --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/ --exclude=wp-content/uploads/\* --exclude=wp-content/updraft/\*"
+        else
+          captaincore ssh $website --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/"
+        fi
 
-			# Download production snapshot to staging site and import database
-			captaincore ssh $website-staging --command="wget http://$address/wp-content_$timestamp.zip; mv wp-content_$timestamp.zip wp-content.zip; rm -rf wp-content/; unzip wp-content.zip; rm wp-content.zip; wp db import wp-content/mysql.sql --skip-plugins --skip-themes"
+        # Download production snapshot to staging site and import database
+        captaincore ssh $website-staging --command="wget http://$address/wp-content_$timestamp.zip; mv wp-content_$timestamp.zip wp-content.zip; rm -rf wp-content/; unzip wp-content.zip; rm wp-content.zip; wp db import wp-content/mysql.sql --skip-plugins --skip-themes"
 
-			# Remove from production_to_staging_kinsta
-			captaincore ssh $website --command="rm -f wp-content_$timestamp.zip"
+        # Remove from production_to_staging_kinsta
+        captaincore ssh $website --command="rm -f wp-content_$timestamp.zip"
 
-      # Find and replace urls
-      captaincore ssh $website-staging --command="wp search-replace //$domain //staging-$website.kinsta.com --all-tables --skip-plugins --skip-themes; wp search-replace //www.$domain //staging-$website.kinsta.com --all-tables --skip-plugins --skip-themes"
+        # Find and replace urls
+        captaincore ssh $website-staging --command="wp search-replace //$domain //staging-$website.kinsta.com --all-tables --skip-plugins --skip-themes; wp search-replace //www.$domain //staging-$website.kinsta.com --all-tables --skip-plugins --skip-themes"
 
-      # Enable search privacy and disable email on staging site
-      captaincore ssh $website-staging --command="wp option update blog_public 0 --skip-plugins --skip-themes; wp plugin install log-emails disable-emails --activate --skip-plugins --skip-themes; wp plugin deactivate sendgrid-email-delivery-simplified mailgun --skip-plugins --skip-themes"
+        # Enable search privacy and disable email on staging site
+        captaincore ssh $website-staging --command="wp option update blog_public 0 --skip-plugins --skip-themes; wp plugin install log-emails disable-emails --activate --skip-plugins --skip-themes; wp plugin deactivate sendgrid-email-delivery-simplified mailgun --skip-plugins --skip-themes"
 
-			## Post completion to CaptainCore API
-			if [[ $captaincore_dev == true ]]; then
-				curl -k --data-urlencode "command=production_to_staging_kinsta" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
-			else
-				curl --data-urlencode "command=production_to_staging_kinsta" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
-			fi
+        ## Post completion to CaptainCore API
+        if [[ $captaincore_dev == true ]]; then
+          curl -k --data-urlencode "command=production_to_staging_kinsta" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+        else
+          curl --data-urlencode "command=production_to_staging_kinsta" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+        fi
 
-		fi
+      fi
 
-		### Clear out variables
-		domain=''
-		username=''
-		password=''
-		address=''
-		protocol=''
-		port=''
-    username_staging=''
-    password_staging=''
-    address_staging=''
-    protocol_staging=''
-    port_staging=''
-    preloadusers=''
-		homedir=''
-		remoteserver=''
-    s3bucket=''
-    s3path=''
-    subsite=''
+      ### Clear out variables
+      domain=''
+      username=''
+      password=''
+      address=''
+      protocol=''
+      port=''
+      username_staging=''
+      password_staging=''
+      address_staging=''
+      protocol_staging=''
+      port_staging=''
+      preloadusers=''
+      homedir=''
+      remoteserver=''
+      s3bucket=''
+      s3path=''
+      subsite=''
 
-		let INDEX=${INDEX}+1
-	done
+      let INDEX=${INDEX}+1
+    done
 
-fi
+  fi
 }
 
 ### See if any specific sites are selected
 if [ ${#arguments[*]} -gt 0 ]; then
-	# Backup selected installs
-	deploy_staging ${arguments[*]}
+  # Backup selected installs
+  deploy_staging ${arguments[*]}
 fi
