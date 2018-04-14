@@ -4,7 +4,7 @@
 ##		Generates zip files for paid plugins for deployment purposes
 ##
 ## 		Pass arguments from command line like this
-##		captaincore generate plugins_zipped
+##		captaincore generate plugins-zipped
 ##
 
 # TODO - Move static list to CaptainCore Plugin
