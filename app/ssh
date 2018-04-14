@@ -116,7 +116,7 @@ ssh_wrapper () {
             # Check for file
             if [ ! -f "$script" ]; then
               # Not found so attempt to run a local script
-              script=${root_path}lib/ssh_scripts/$script
+              script=${root_path}lib/ssh/$script
             fi
             # Pass all arguments found after --script=<script> argument into remote script
             ssh $remoteserver "$commandprep bash -s --" < $script ${all_arguments[*]:$script_position}
