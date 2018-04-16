@@ -4,7 +4,7 @@
 ##		Grabs the Quicksave git commit status log
 ##
 ## 		Pass arguments from command line like this
-##		captaincore get quicksave_status <install> <git_hash>
+##		captaincore get quicksave_status <site> <git_hash>
 ##
 
 # Load configuration

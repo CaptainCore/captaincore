@@ -4,7 +4,7 @@
 ##		Remove install configurations into config and logins via command line
 ##
 ## 		Pass arguments from command line like this
-##		captaincore site delete <install>
+##		captaincore site delete <site>
 ##
 
 # Load configuration

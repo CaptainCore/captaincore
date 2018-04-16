@@ -4,7 +4,7 @@
 ##      Preloading SSH Keys (Kinsta Only)
 ##
 ##      Pass arguments from command line like this
-##      captaincore deploy keys <install>
+##      captaincore deploy keys <site>
 ##
 
 site=$1

@@ -1,1 +1,1 @@
-<install> <commit> [--plugin=<plugin>] [--theme=<theme>] [--all-plugins] [--all-themes] [--all]
+<site> <commit> [--plugin=<plugin>] [--theme=<theme>] [--all-plugins] [--all-themes] [--all]

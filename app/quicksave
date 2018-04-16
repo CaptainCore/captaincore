@@ -4,7 +4,7 @@
 ##		Creates Quicksave (plugins/themes) of website
 ##
 ## 		Pass arguments from command line like this
-##		captaincore generate quicksave anchorhost [--force] [--debug]
+##		captaincore generate quicksave <site> [--force] [--debug]
 ##
 
 # Load configuration

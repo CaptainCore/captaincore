@@ -3,7 +3,7 @@
 ##		Loads new install configurations into logins via command line
 ##
 ## 		Pass arguments from command line like this
-##		captaincore site update <install> --id=<id> --domain=<domain> --username=<username> --password=<password> --address=<address> --protocol=<protocol> --port=<port> --staging_username=<staging_username> --staging_password=<staging_password> --staging_address=<staging_address> --staging_protocol=<staging_protocol> --staging_port=<staging_port> [--preloadusers=<preloadusers>] [--homedir=<homedir>] [--s3accesskey=<s3accesskey>] [--s3secretkey=<s3secretkey>] [--s3bucket=<s3bucket>] [--s3path=<s3path>]
+##		captaincore site update <site> --id=<id> --domain=<domain> --username=<username> --password=<password> --address=<address> --protocol=<protocol> --port=<port> --staging_username=<staging_username> --staging_password=<staging_password> --staging_address=<staging_address> --staging_protocol=<staging_protocol> --staging_port=<staging_port> [--preloadusers=<preloadusers>] [--homedir=<homedir>] [--s3accesskey=<s3accesskey>] [--s3secretkey=<s3secretkey>] [--s3bucket=<s3bucket>] [--s3path=<s3path>]
 ##
 ##		Example
 ##		captaincore site add anchorhosting --id=1234 --domain=anchor.host --username=anchorhost --password=random --address=anchorhost.wpengine.com --protocol=sftp --port=2222 --staging_username=anchorhost-staging --staging_password=randompassword --staging_address=anchorhost.wpengine.com --staging_protocol=sftp --staging_port=2222 --preloadusers=1737

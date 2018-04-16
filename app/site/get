@@ -4,7 +4,7 @@
 ##		Output array of installs from the logins
 ##
 ## 		Pass arguments from command line like this
-##		captaincore site get <install> --field=domain [--bash]
+##		captaincore site get <site> --field=domain [--bash]
 ##
 ##		Expected results
 ##		anchor.host

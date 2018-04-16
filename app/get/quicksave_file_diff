@@ -4,7 +4,7 @@
 ##		Grabs the Quicksave git commit status log
 ##
 ## 		Pass arguments from command line like this
-##		captaincore get quicksave_file_diff <install> <git_hash_current> <git_hash_previous> <file>
+##		captaincore get quicksave_file_diff <site> <git_hash_current> <git_hash_previous> <file>
 ##
 ##		Example
 ##		captaincore get quicksave_file_diff anchorhost 4c43c16ae40f384e93573133282bb86a46d040fd a5ee8924e334debaba06de6f365a40caffa8586c versions/plugins.json

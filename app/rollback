@@ -4,7 +4,7 @@
 ##		Rollback (theme/plugin) from a quicksave
 ##
 ## 		Pass arguments from command line like this
-##		captaincore rollback <install> <commit> [--plugin=<plugin>] [--theme=<theme>] [--all-plugins] [--all-themes] [--all]
+##		captaincore rollback <site> <commit> [--plugin=<plugin>] [--theme=<theme>] [--all-plugins] [--all-themes] [--all]
 ##
 website=$1
 commit=$2
