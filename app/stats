@@ -1,69 +1,67 @@
 #! /usr/bin/env php
 <?php
 
-//  Pass arguments from command line like this
-//  captaincore stats anchor.host
-
-parse_str(implode('&', array_slice($argv, 1)), $_GET);
+// Pass arguments from command line like this
+// captaincore stats <domain>
+parse_str( implode( '&', array_slice( $argv, 1 ) ), $_GET );
 
 $domain = $argv[1];
 
 // Loads CLI configs
-$file = $_SERVER["HOME"] . "/.captaincore-cli/config";
-if (file_exists($file)) {
+$file = $_SERVER['HOME'] . '/.captaincore-cli/config';
+if ( file_exists( $file ) ) {
 
-	$file = file_get_contents($file);
+	$file = file_get_contents( $file );
 	// Matches config keys and values
 	$pattern = '/(.+)=\"(.+)\"/';
-	preg_match_all($pattern, $file, $matches);
+	preg_match_all( $pattern, $file, $matches );
 
 }
 
 // Connects to WordPress.com and pulls blog ids
-$access_key_id = array_search("access_key", $matches[1]);
-$access_key = $matches[2][$access_key_id];
+$access_key_id = array_search( 'access_key', $matches[1] );
+$access_key    = $matches[2][ $access_key_id ];
 
-if ($domain) {
+if ( $domain ) {
 
 	// Define vars
-	$count = 0;
-	$total = 0;
-	$months = "";
+	$count  = 0;
+	$total  = 0;
+	$months = '';
 
 	// Pull stats from WordPress API
-	$curl = curl_init( 'https://public-api.wordpress.com/rest/v1/sites/'.$domain.'/stats/visits?unit=month&quantity=12' );
+	$curl = curl_init( 'https://public-api.wordpress.com/rest/v1/sites/' . $domain . '/stats/visits?unit=month&quantity=12' );
 	curl_setopt( $curl, CURLOPT_HTTPHEADER, array( 'Authorization: Bearer ' . $access_key ) );
-	curl_setopt( $curl, CURLOPT_RETURNTRANSFER, 1);
+	curl_setopt( $curl, CURLOPT_RETURNTRANSFER, 1 );
 	$response = curl_exec( $curl );
-	$stats = json_decode($response, true);
+	$stats    = json_decode( $response, true );
 
-	if (isset($stats["error"]) and $stats["error"] == "unknown_blog") {
+	if ( isset( $stats['error'] ) and $stats['error'] == 'unknown_blog' ) {
 		// Attempt to load www version
-
 		// Pull stats from WordPress API
-		$curl = curl_init( 'https://public-api.wordpress.com/rest/v1/sites/www.'.$domain.'/stats/visits?unit=month&quantity=12' );
+		$curl = curl_init( 'https://public-api.wordpress.com/rest/v1/sites/www.' . $domain . '/stats/visits?unit=month&quantity=12' );
 		curl_setopt( $curl, CURLOPT_HTTPHEADER, array( 'Authorization: Bearer ' . $access_key ) );
-		curl_setopt( $curl, CURLOPT_RETURNTRANSFER, 1);
+		curl_setopt( $curl, CURLOPT_RETURNTRANSFER, 1 );
 		$response = curl_exec( $curl );
-		$stats = json_decode($response, true);
+		$stats    = json_decode( $response, true );
 
 	}
 
-	if (isset($stats["data"])) {
+	if ( isset( $stats['data'] ) ) {
 
 		// Preps views for last 12 months for html output while calculating usage.
-		foreach ($stats["data"] as $stat) {
-			if ($stat[0]) {
-				$total = $total + 1;
-				$months .= $stat[0] . " - " . $stat[1] . "<br />";
+		foreach ( $stats['data'] as $stat ) {
+			if ( $stat[0] ) {
+				$total   = $total + 1;
+				$months .= $stat[0] . ' - ' . $stat[1] . '<br />';
 			}
 			$count = $count + $stat[1];
 		}
 
-		if ($total == 0) {
+		if ( $total == 0 ) {
 			$monthly_average = 0;
 		} else {
-			$monthly_average = round($count / $total);
+			$monthly_average = round( $count / $total );
 		}
 
 		$yearly_estimate = $monthly_average * 12;
@@ -71,7 +69,6 @@ if ($domain) {
 
 	} else {
 		// Error so return 0. For debug info see print_r($stats);
-		echo "0";
+		echo '0';
 	}
-
 }
