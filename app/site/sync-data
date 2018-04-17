@@ -4,9 +4,9 @@
 ##      Sync website data
 ##
 ##      Pass arguments from command line like this
-##      captaincore sync-data [<site>]
+##      captaincore site sync-data [<site>]
 ##
-##      Or backup everything like this
+##      Or sync all sites like this
 ##      captaincore site sync-data
 ##
 ##

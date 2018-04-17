@@ -4,10 +4,7 @@
 ##		Output array of installs from the logins
 ##
 ## 		Pass arguments from command line like this
-##		captaincore site get <site> --field=domain [--bash]
-##
-##		Expected results
-##		anchor.host
+##		captaincore site get <site> [--field=domain] [--bash]
 ##
 
 # Load configuration
