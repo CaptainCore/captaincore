@@ -4,10 +4,10 @@
 ##      Generates usage stats (Storage and Views) for CaptainCore Plugin
 ##
 ##      Pass arguments from command line like this
-##      captaincore generate usage install1 install2
+##      captaincore usage-update <site> <site>
 ##
 ##      Or backup everything like this
-##      captaincore generate usage
+##      captaincore usage-update
 ##
 
 # Load configuration
