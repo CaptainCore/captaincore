@@ -171,7 +171,7 @@ backup_install () {
           tail $logs_path/site-$website.txt >> $logs_path/backup-local.txt
 
           # Generate quicksave archives for themes/plugins
-          captaincore generate quicksave $website
+          captaincore quicksave $website
 
           ## Backup S3 uploads if needed
           if [ -n "$s3bucket" ]; then
