@@ -106,7 +106,7 @@ backup_install () {
         if [[ $rclone_remote_lookup == false ]]; then
           echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $website" >> $logs_path/backup-log.txt
           echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $website"
-          captaincore generate rclone $website
+          captaincore site rclone-configs $website
         fi
 
         # captures FTP errors in $ftp_output and file listing to log file
