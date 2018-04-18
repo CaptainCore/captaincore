@@ -5,10 +5,12 @@
 ##
 
 domain=$(wp option get home)
-domain=${domain/http:\/\/www./}
-domain=${domain/https:\/\/www./}
-domain=${domain/http:\/\//}
-domain=${domain/https:\/\//}
+domain=${domain/http:\/\/www./}             # removes http://www.
+domain=${domain/https:\/\/www./}            # removes https://www.
+domain=${domain/http:\/\//}                 # removes https://
+domain=${domain/https:\/\//}                # removes http://
+domain=$( echo $domain | awk '{$1=$1};1' )  # Trims whitespace
+
 wp search-replace http://$domain https://www.$domain --all-tables --skip-plugins --skip-themes
 wp search-replace http://www.$domain https://www.$domain --all-tables --skip-plugins --skip-themes
 wp cache flush
