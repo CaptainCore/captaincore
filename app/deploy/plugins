@@ -34,7 +34,7 @@ then
 			website_token=$(captaincore get token $domain)
 
 			### Load dynamic list of plugins for install
-			plugins=`captaincore generate plugins --token=$website_token --customers=$preloadusers`
+			plugins=`captaincore plugins-get --token=$website_token --customers=$preloadusers`
 
 			### Build plugin urls
 			plugin_urls=()
