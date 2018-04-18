@@ -15,9 +15,27 @@ $customers = explode( ',', $_GET['--customers'] );
 
 $preloaded_users = array();
 
+// Loads CLI configs
+$file = $_SERVER['HOME'] . '/.captaincore-cli/config';
+if ( file_exists( $file ) ) {
+
+	$file = file_get_contents( $file );
+	// Matches config keys and values
+	$pattern = '/(.+)=\"(.+)\"/';
+	preg_match_all( $pattern, $file, $matches );
+
+}
+
+// Fetches from CLI configs
+$captaincore_wordpress_site_key = array_search( 'captaincore_wordpress_site', $matches[1] );
+$captaincore_wordpress_site    = $matches[2][ $captaincore_wordpress_site_key ];
+
+// Loads WordPress
+include $_SERVER['HOME'] . '/data/wp-settings.php';
+
 foreach ( $customers as $customer ) {
 
-	$curl = curl_init( "https://anchor.host/wp-json/wp/v2/captcore_customer/$customer/?token=$token" );
+	$curl = curl_init( $captaincore_wordpress_site . "/wp-json/wp/v2/captcore_customer/$customer/?token=$token" );
 	curl_setopt( $curl, CURLOPT_RETURNTRANSFER, 1 );
 	$response             = curl_exec( $curl );
 	$json_results_website = json_decode( $response, true );
