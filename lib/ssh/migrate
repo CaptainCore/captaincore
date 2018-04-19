@@ -102,11 +102,13 @@ migrate_website() {
 
   # Migrate themes if found
   for d in $wordpresspath/themes/*/; do
+		rm -rf $homedir/wp-content/themes/$( basename $d )
     mv $d $homedir/wp-content/themes/
   done
 
   # Migrate plugins if found
   for d in $wordpresspath/plugins/*/; do
+		rm -rf $homedir/wp-content/plugins/$( basename $d )
     mv $d $homedir/wp-content/plugins/
   done
 
