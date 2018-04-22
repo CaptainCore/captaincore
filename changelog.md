@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.2.0] - 2018-04-22
+### Added
+- Command `captaincore cli update`
+- Support for flags with special characters with `captaincore ssh`
+
+### Changed
+- Renamed deployment commands to `captaincore deploy production-to-staging` `captaincore deploy staging-to-production`
+- Renamed lib ssh_scripts folder to ssh
+- Renamed email command from `dns email-lookup` to `dns email`
+- Renamed commands `dns bulk-domain` and `dns bulk-nameserver` to `dns domain` and `dns nameserver`
+- Renamed `captaincore generate plugins_zipped` to `captaincore generate plugins-zipped`
+- Renamed <install> to <site> throughout usage documentation
+- Renamed command `captaincore generate usage` to `captaincore usage-update`
+- Moved and renamed command `captaincore get backup_status` to `captaincore backup-status`
+- Moved and renamed command `captaincore generate plugins` to `captaincore plugins-get`
+- Moved and renamed command `captaincore generate plugins-zipped` to `captaincore plugins-zip`
+- Moved and renamed command `captaincore generate rclone` to `captaincore site rclone-configs`
+- Moved command `captaincore generate localwp` to `captaincore utils localwp`
+- Moved command `captaincore generate quicksave` to `captaincore quicksave`
+- Deactivate 'login-recaptcha' plugin on staging deployment
+- Cleaned up whitespace and added comments to SSL scripts
+- Improvements to `migrate` script. Update table prefix if changed. Expand database search.
+
 ## [0.1.8] - 2018-04-08
 ### Added
 - Argument `[--skip-uploads]` to `captaincore deploy production_to_staging_kinsta`
