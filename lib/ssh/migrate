@@ -115,11 +115,16 @@ migrate_website() {
   cd $homedir
 
   # Remove select plugins if found
-  wp plugin delete wp-super-cache adminer wordfence w3-total-cache wp-file-cache broken-link-checker yet-another-related-posts-plugin comet-cache-1 woothemes-updater ewww-image-optimizer https-redirection really-simple-ssl hello wordpress-php-info force-strong-passwords --skip-plugins --skip-themes
+  wp plugin delete backupbuddy wp-super-cache adminer wordfence w3-total-cache wp-file-cache broken-link-checker yet-another-related-posts-plugin comet-cache-1 woothemes-updater ewww-image-optimizer https-redirection really-simple-ssl hello wordpress-php-info force-strong-passwords --skip-plugins --skip-themes
 
-  # Outputs table prefix
+  # Outputs table prefix and updates if different
   cat $private/$wordpresspath/../wp-config.php | grep table_prefix
+	table_prefix=$(cat $private/$wordpresspath/../wp-config.php | grep table_prefix | perl -n -e '/\047(.+)\047/&& print $1')
   cd $homedir
+	current_table_prefix=$(wp config get table_prefix)
+	if [[ "$table_prefix" != "$current_table_prefix" ]]; then
+		wp config set table_prefix $table_prefix
+	fi
 
   # Reset folder and file permissions
   find . -type d -exec chmod 755 {} \;
@@ -130,9 +135,14 @@ migrate_website() {
   find $homedir/wp-content/uploads $private -type f -name '*.sql'
   databases=$(find $private -type f -name '*.sql')
   database_count=$(echo -n $databases | grep -c '^')
-  if [[ "database_count" -gt "0" ]]; then
-    database_file=$(echo $databases | head -1)
-    if [ -f $database_file ]; then
+	if [[ "$database_count" == "0" ]]; then
+		# Expand db search
+		 databases=$(find $homedir -type f -name '*.sql')
+		 database_count=$(echo -n $databases | grep -c '^')
+	fi
+  if [[ "$database_count" -gt "0" ]]; then
+    database_file=$(echo "$databases" | head -1)
+    if [ -f "$database_file" ]; then
       wp db reset --yes
       wp db import $database_file
       wp cache flush --skip-plugins --skip-themes
