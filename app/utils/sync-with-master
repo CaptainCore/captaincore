@@ -30,7 +30,7 @@ else
 
 	echo "Syncing site ids: ${site_ids_to_sync[@]}"
 	cd ~/.captaincore-cli/data
-	ssh $captaincore_master -p $captaincore_master_port "bash -s" < $root_path/lib/ssh/master-db-query ${site_ids_to_sync[@]} > sync.sql
+	ssh $captaincore_master -p $captaincore_master_port "bash -s" < ${root_path}lib/ssh/master-db-query ${site_ids_to_sync[@]} > sync.sql
 	wp db import sync.sql
 
 fi
@@ -41,7 +41,7 @@ if [[ "$#" -gt "0" ]]; then
 	cd ~/.captaincore-cli/data
 	wp db query "delete from wp_posts where ID in ($@);"
 	wp db query "delete from wp_postmeta where post_id in ($@);"
-	ssh $captaincore_master -p $captaincore_master_port "bash -s" < $root_path/lib/ssh_scripts/master-db-query $@ > sync.sql
+	ssh $captaincore_master -p $captaincore_master_port "bash -s" < ${root_path}lib/ssh/master-db-query $@ > sync.sql
 	wp db import sync.sql
 
 fi
