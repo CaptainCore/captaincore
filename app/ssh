@@ -21,7 +21,7 @@ root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_
 source $root_path/config
 
 # Loop through arguments and separate regular arguments from flags (--flag)
-all_arguments=($@)
+all_arguments=( $@ )
 for var in "$@"; do
   # If starts with "--" then assign it to a flag array
   if [[ $var == --* ]]; then
@@ -48,6 +48,9 @@ for i in "${!flags[@]}"; do
     flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
     flag_name=`echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1'` # extract name
     flag_name=${flag_name/-/_}
+		if [[ $flag_name == "url" ]]; then
+			flags[$i]="--url='$flag_value'"
+		fi
     declare "$flag_name"="$flag_value" # assigns to $flag_flagname
   else
     # assigns to $flag_flagname boolen
@@ -119,7 +122,7 @@ ssh_wrapper () {
               script=${root_path}lib/ssh/$script
             fi
             # Pass all arguments found after --script=<script> argument into remote script
-            ssh $remoteserver "$commandprep bash -s --" < $script ${all_arguments[*]:$script_position}
+            ssh $remoteserver "$commandprep bash -s --" < $script ${flags[@]}
           elif [ -n "$command" ]; then
             ssh $remoteserver "$commandprep $command"
           else
