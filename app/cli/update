@@ -9,7 +9,7 @@ wp core update
 wp plugin update --all
 
 # TO DO: Git update from server
-cd ${root_path
+cd ${root_path}
 
 # Grant execute permissions
 find ~/.captaincore-cli/app/ -type f -exec chmod +x {} \;
