@@ -99,7 +99,7 @@ if ( $found_site ) {
 }
 
 // Rclone Import
-$output = shell_exec( "captaincore generate rclone $install" );
+$output = shell_exec( "captaincore site rclone-configs $install" );
 
 // run initial backup, setups up token, install plugins
 // and load custom configs into wp-config.php and .htaccess
