@@ -68,6 +68,8 @@ quicksave_site() {
 	### Begin logging
 	echo "$(date +'%Y-%m-%d %H:%M') Begin generating quicksaves" > $logs_path/quicksave.log
 
+	INDEX=1
+
 	for website in "$@"; do
 
 		### Load site details
@@ -93,6 +95,9 @@ quicksave_site() {
 		if [ "$homedir" != "" ]; then
 			homedir="${homedir}/"
 		fi
+
+		echo "$(date +'%Y-%m-%d %H:%M') Begin quicksave for $website (${INDEX}/$#)" >> $logs_path/quicksave.log
+		echo "$(date +'%Y-%m-%d %H:%M') Begin quicksave for $website (${INDEX}/$#)"
 
 		# Updates themes/plugins before Quicksave (Selective backup site locally)
 		rclone sync sftp-$website:${homedir}wp-content/themes/ $path/$domain/${homedir}wp-content/themes/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$website.txt"
@@ -186,6 +191,8 @@ quicksave_site() {
 		wp post meta update $site_id themes "${response_parsed[1]}"
 		wp post meta update $site_id core ${response_parsed[2]}
 		wp post meta update $site_id home_url ${response_parsed[3]}
+
+		let INDEX=${INDEX}+1
 
 	done
 
