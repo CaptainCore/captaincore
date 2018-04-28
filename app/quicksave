@@ -68,9 +68,11 @@ quicksave_site() {
 	### Begin logging
 	echo "$(date +'%Y-%m-%d %H:%M') Begin generating quicksaves" > $logs_path/quicksave.log
 
-	INDEX=1
+	INDEX=0
 
 	for website in "$@"; do
+
+		let INDEX=${INDEX}+1
 
 		### Load site details
 		eval $(captaincore site get $website --bash)
@@ -191,8 +193,6 @@ quicksave_site() {
 		wp post meta update $site_id themes "${response_parsed[1]}"
 		wp post meta update $site_id core ${response_parsed[2]}
 		wp post meta update $site_id home_url ${response_parsed[3]}
-
-		let INDEX=${INDEX}+1
 
 	done
 
