@@ -189,6 +189,9 @@ quicksave_site() {
 
 	done
 
+	### End logging
+	echo "$(date +'%Y-%m-%d %H:%M') Finished generating quicksaves" >> $logs_path/quicksave.log
+
 	fi
 }
 
