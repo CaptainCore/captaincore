@@ -56,8 +56,6 @@ for i in "${!flags[@]}"; do
 
 done
 
-echo $homedir
-
 if [[ "$plugin" != "" ]]; then
 
 	echo "Rolling back plugin $plugin"

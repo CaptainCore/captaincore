@@ -11,20 +11,19 @@
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source $root_path/config
 
-website=$1
-
 # Loop through arguments and separate regular arguments from flags (--flag)
 for var in "$@"; do
-	# If starts with "--" then assign it to a flag array
-    if [[ $var == --* ]]
-    then
-    	count=1+${#flags[*]}
-    	flags[$count]=$var
+
+  # If starts with "--" then assign it to a flag array
+  if [[ $var == --* ]]; then
+    count=1+${#flags[*]}
+    flags[$count]=$var
+  else
     # Else assign to an arguments array
-    else
-    	count=1+${#arguments[*]}
-    	arguments[$count]=$var
-    fi
+    count=1+${#arguments[*]}
+    arguments[$count]=$var
+  fi
+
 done
 
 # Loop through flags and assign to variable. A flag "--email=austin@anchor.host" becomes $email
@@ -46,102 +45,158 @@ for i in "${!flags[@]}"; do
 
 done
 
-if [ $# -gt 0 ]; then
+quicksave_site() {
 
-	snapshot_website() {
-	domain=`captaincore site get $website --field=domain`
+	if [ $# -gt 0 ]; then
 
-	## Return error if domain not found
-	if [[ "$domain" == "" ]]; then
-		echo "Can't locate website for install $website"
-		return 1
+	echo "Generating quicksaves for $# sites"
+
+	### Generate random auth
+	auth=''; for count in {0..6}; do auth+=$(printf "%x" $(($RANDOM%16)) ); done;
+
+	### Begin time tracking
+	overalltimebegin=$(date +"%s")
+	backup_date=$(date +'%Y-%m-%d')
+	backup_time=$(date +'%H-%M')
+
+	### Define log file format
+	logs_path=$logs/$backup_date/$backup_time-$auth
+
+	### Generate log folder
+	mkdir -p $logs_path
+
+	### Begin logging
+	echo "$(date +'%Y-%m-%d %H:%M') Begin generating quicksaves" > $logs_path/quicksave.log
+
+	for website in "$@"; do
+
+		### Load site details
+		eval $(captaincore site get $website --bash)
+
+		## Return error if domain not found
+		if [[ "$domain" == "" ]]; then
+			echo "Can't locate website for $website"
+			return 1
+		fi
+
+		# captures FTP errors in $ftp_output and file listing to log file
+		ftp_output=$( { rclone lsd sftp-$website:$homedir ; } 2>&1 )
+		ftp_search_for_wordpress=`echo "$ftp_output" | perl -wnE'say for /wp-admin/g'`
+
+		# Handle FTP errors
+		if [[ $ftp_search_for_wordpress != "wp-admin" ]]; then
+			echo "Can't locate WordPress for $website"
+			return 1
+		fi
+
+		# Append trailing slash if homedir exist
+		if [ "$homedir" != "" ]; then
+			homedir="${homedir}/"
+		fi
+
+		# Updates themes/plugins before Quicksave (Selective backup site locally)
+		rclone sync sftp-$website:${homedir}wp-content/themes/ $path/$domain/${homedir}wp-content/themes/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$website.txt"
+		rclone sync sftp-$website:${homedir}wp-content/mu-plugins/ $path/$domain/${homedir}wp-content/mu-plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$website.txt"
+		rclone sync sftp-$website:${homedir}wp-content/plugins/ $path/$domain/${homedir}wp-content/plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$website.txt"
+		echo "" >> $logs_path/site-$website.txt
+
+		## Current timestamp
+		timedate=$(date +%Y-%m-%d_%H-%M-%S)
+
+		## Sync to git repo
+		mkdir -p ~/Quicksaves/$domain/mu-plugins
+		mkdir -p ~/Quicksaves/$domain/plugins
+		mkdir -p ~/Quicksaves/$domain/themes
+		mkdir -p ~/Quicksaves/$domain/versions
+
+		cd ~/Quicksaves/$domain/
+
+		## Create new git repo if needed
+		if [ ! -d ".git" ]; then
+		  git init
+		fi
+
+		rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ ~/Backup/$domain/wp-content/mu-plugins/ ~/Quicksaves/$domain/mu-plugins
+		rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ ~/Backup/$domain/wp-content/plugins/ ~/Quicksaves/$domain/plugins
+		rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ ~/Backup/$domain/wp-content/themes/ ~/Quicksaves/$domain/themes
+
+		## Store plugin/theme in json
+		# captaincore ssh $website --command="wp plugin list --format=json --skip-themes --skip-plugins --skip-packages" > ~/Quicksaves/$domain/versions/plugins.json
+		# captaincore ssh $website --command="wp theme list --format=json --skip-themes --skip-plugins --skip-packages" > ~/Quicksaves/$domain/versions/themes.json
+		# captaincore ssh $website --command="wp core version --skip-themes --skip-plugins --skip-packages" > ~/Quicksaves/$domain/versions/core.json
+
+		## Nasty bash hack in order to grab all of the details from one single SSH tunnel (WP Engine connection is slow)
+		response=$(captaincore ssh $website --command='wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp theme list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp core version --skip-themes --skip-plugins --skip-packages; echo ""; wp option get home --skip-themes --skip-plugins --skip-packages')
+		IFS=$'\n' read -rd '' -a response_parsed <<<"$response"
+		echo ${response_parsed[0]} > ~/Quicksaves/$domain/versions/plugins.json
+		echo ${response_parsed[1]} > ~/Quicksaves/$domain/versions/themes.json
+		echo ${response_parsed[2]} > ~/Quicksaves/$domain/versions/core.json
+
+		plugin_data=`cat ~/Quicksaves/$domain/versions/plugins.json`
+		theme_data=`cat ~/Quicksaves/$domain/versions/themes.json`
+		core_version=`cat ~/Quicksaves/$domain/versions/core.json`
+		home_url=${response_parsed[3]}
+		# plugin_data=$(git show $git_hash:versions/plugins.json --format=)
+		# theme_data=$(git show $git_hash:versions/themes.json --format=)
+		# core_version=$(git show $git_hash:versions/core.json --format=)
+
+		# Add all files to git repo
+		git add -A
+
+		# Current git status
+		git_status=`git status -s`
+
+		if [[ "$git_status" == "" && "$force" != "true" ]]; then
+			# Skip quicksave as nothing changed
+			echo "Quicksave skipped as nothing changed"
+			return 1
+		fi
+
+		# New commit
+		git_commit=`git commit -m "quicksave on $timedate"`
+
+		# Save git hash
+		git_hash=`git log -n 1 --pretty=format:"%H"`  #To get only hash value of commit
+		git_status=`git show $git_hash --shortstat --format=`
+		git_status=`echo -e "$git_status" | sed -e 's/^[[:space:]]*//' | base64 -w 0`
+		plugin_data=`echo -e $plugin_data | base64 -w 0`
+		theme_data=`echo -e $theme_data | base64 -w 0`
+		echo "Git hash $git_hash"
+
+		if [[ "$debug" == "true" ]]; then
+			echo "$captaincore_api/$domain/?git_commit=$git_hash&git_status=$git_status&core=$core_version&plugins=$plugin_data&themes=$theme_data&token=$token"
+			return 1
+		fi
+
+		### Adds quicksave to CaptainCore Plugin
+		if [[ "$captaincore_dev" == true ]]; then
+			curl -k --data-urlencode "home_url=$home_url" --data-urlencode "git_commit=$git_hash" --data-urlencode "git_status=$git_status" --data-urlencode "core=$core_version" --data-urlencode "plugins=$plugin_data" --data-urlencode "themes=$theme_data" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+		else
+			curl --data-urlencode "home_url=$home_url" --data-urlencode "git_commit=$git_hash" --data-urlencode "git_status=$git_status" --data-urlencode "core=$core_version" --data-urlencode "plugins=$plugin_data" --data-urlencode "themes=$theme_data" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+		fi
+
+		## Generates snapshot archive
+		#cd ~/Backup/
+		#zip -r ~/Quicksaves/$domain-$timedate.zip $domain/ --include=$domain/wp-content/plugins/\* --include=$domain/wp-content/themes/\*
+
+		## Store updated info in WordPress datastore
+		site_id=$(captaincore site get $website --field=ID)
+		cd $root_path/data
+		wp post meta update $site_id plugins "${response_parsed[0]}"
+		wp post meta update $site_id themes "${response_parsed[1]}"
+		wp post meta update $site_id core ${response_parsed[2]}
+		wp post meta update $site_id home_url ${response_parsed[3]}
+
+	done
+
 	fi
+}
 
-	timedate=$(date +%Y-%m-%d_%H-%M-%S)
-
-	## Sync to git repo
-	mkdir -p ~/Quicksaves/$domain/mu-plugins
-	mkdir -p ~/Quicksaves/$domain/plugins
-	mkdir -p ~/Quicksaves/$domain/themes
-	mkdir -p ~/Quicksaves/$domain/versions
-
-	cd ~/Quicksaves/$domain/
-	if [ ! -d ".git" ]; then
-	  git init
-	fi
-
-	rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ ~/Backup/$domain/wp-content/mu-plugins/ ~/Quicksaves/$domain/mu-plugins
-	rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ ~/Backup/$domain/wp-content/plugins/ ~/Quicksaves/$domain/plugins
-	rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ ~/Backup/$domain/wp-content/themes/ ~/Quicksaves/$domain/themes
-
-	## Store plugin/theme in json
-	# captaincore ssh $website --command="wp plugin list --format=json --skip-themes --skip-plugins --skip-packages" > ~/Quicksaves/$domain/versions/plugins.json
-	# captaincore ssh $website --command="wp theme list --format=json --skip-themes --skip-plugins --skip-packages" > ~/Quicksaves/$domain/versions/themes.json
-	# captaincore ssh $website --command="wp core version --skip-themes --skip-plugins --skip-packages" > ~/Quicksaves/$domain/versions/core.json
-
-	## Nasty bash hack in order to grab all of the details from one single SSH tunnel (WP Engine connection is slow)
-	response=$(captaincore ssh $website --command='wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp theme list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp core version --skip-themes --skip-plugins --skip-packages; echo ""; wp option get home --skip-themes --skip-plugins --skip-packages')
-	IFS=$'\n' read -rd '' -a response_parsed <<<"$response"
-	echo ${response_parsed[0]} > ~/Quicksaves/$domain/versions/plugins.json
-	echo ${response_parsed[1]} > ~/Quicksaves/$domain/versions/themes.json
-	echo ${response_parsed[2]} > ~/Quicksaves/$domain/versions/core.json
-
-	plugin_data=`cat ~/Quicksaves/$domain/versions/plugins.json`
-	theme_data=`cat ~/Quicksaves/$domain/versions/themes.json`
-	core_version=`cat ~/Quicksaves/$domain/versions/core.json`
-	home_url=${response_parsed[3]}
-	# plugin_data=$(git show $git_hash:versions/plugins.json --format=)
-	# theme_data=$(git show $git_hash:versions/themes.json --format=)
-	# core_version=$(git show $git_hash:versions/core.json --format=)
-
-	# Add all files to git repo
-	git add -A
-
-	# Current git status
-	git_status=`git status -s`
-
-	if [[ "$git_status" == "" && "$force" != "true" ]]; then
-		# Skip quicksave as nothing changed
-		echo "Quicksave skipped as nothing changed"
-		return 1
-	fi
-
-	# New commit
-	git_commit=`git commit -m "quicksave on $timedate"`
-
-	# Save git hash
-	git_hash=`git log -n 1 --pretty=format:"%H"`  #To get only hash value of commit
-	git_status=`git show $git_hash --shortstat --format=`
-	git_status=`echo -e "$git_status" | sed -e 's/^[[:space:]]*//' | base64 -w 0`
-	plugin_data=`echo -e $plugin_data | base64 -w 0`
-	theme_data=`echo -e $theme_data | base64 -w 0`
-	echo "Git hash $git_hash"
-
-	if [[ "$debug" == "true" ]]; then
-		echo "$captaincore_api/$domain/?git_commit=$git_hash&git_status=$git_status&core=$core_version&plugins=$plugin_data&themes=$theme_data&token=$token"
-		return 1
-	fi
-
-	### Adds quicksave to CaptainCore Plugin
-	if [[ "$captaincore_dev" == true ]]; then
-		curl -k --data-urlencode "home_url=$home_url" --data-urlencode "git_commit=$git_hash" --data-urlencode "git_status=$git_status" --data-urlencode "core=$core_version" --data-urlencode "plugins=$plugin_data" --data-urlencode "themes=$theme_data" --data-urlencode "token=$token" "$captaincore_api/$domain/"
-	else
-		curl --data-urlencode "home_url=$home_url" --data-urlencode "git_commit=$git_hash" --data-urlencode "git_status=$git_status" --data-urlencode "core=$core_version" --data-urlencode "plugins=$plugin_data" --data-urlencode "themes=$theme_data" --data-urlencode "token=$token" "$captaincore_api/$domain/"
-	fi
-
-	## Generates snapshot archive
-	#cd ~/Backup/
-	#zip -r ~/Quicksaves/$domain-$timedate.zip $domain/ --include=$domain/wp-content/plugins/\* --include=$domain/wp-content/themes/\*
-
-	## Store updated info in WordPress datastore
-	site_id=$(captaincore site get $website --field=ID)
-	cd $root_path/data
-	wp post meta update $site_id plugins "${response_parsed[0]}"
-	wp post meta update $site_id themes "${response_parsed[1]}"
-	wp post meta update $site_id core ${response_parsed[2]}
-	wp post meta update $site_id home_url ${response_parsed[3]}
-
-	}
-	snapshot_website
-
+### See if any specific sites are selected
+if [ ${#arguments[*]} -gt 0 ]; then
+  # Quicksave selected sites
+  quicksave_site ${arguments[*]}
+else
+  # Quicksave all sites
+  quicksave_site ${websites[@]}
 fi
