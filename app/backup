@@ -170,9 +170,6 @@ backup_install () {
           echo "" >> $logs_path/site-$website.txt
           tail $logs_path/site-$website.txt >> $logs_path/backup-local.txt
 
-          # Generate quicksave archives for themes/plugins
-          captaincore quicksave $website
-
           ## Backup S3 uploads if needed
           if [ -n "$s3bucket" ]; then
             echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website (S3) to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
