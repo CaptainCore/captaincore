@@ -78,7 +78,7 @@ quicksave_site() {
 		## Return error if domain not found
 		if [[ "$domain" == "" ]]; then
 			echo "Can't locate website for $website"
-			return 1
+			continue
 		fi
 
 		# captures FTP errors in $ftp_output and file listing to log file
@@ -88,7 +88,7 @@ quicksave_site() {
 		# Handle FTP errors
 		if [[ $ftp_search_for_wordpress != "wp-admin" ]]; then
 			echo "Can't locate WordPress for $website"
-			return 1
+			continue
 		fi
 
 		# Append trailing slash if homedir exist
@@ -154,7 +154,7 @@ quicksave_site() {
 		if [[ "$git_status" == "" && "$force" != "true" ]]; then
 			# Skip quicksave as nothing changed
 			echo "Quicksave skipped as nothing changed"
-			return 1
+			continue
 		fi
 
 		# New commit
@@ -170,7 +170,7 @@ quicksave_site() {
 
 		if [[ "$debug" == "true" ]]; then
 			echo "$captaincore_api/$domain/?git_commit=$git_hash&git_status=$git_status&core=$core_version&plugins=$plugin_data&themes=$theme_data&token=$token"
-			return 1
+			continue
 		fi
 
 		### Adds quicksave to CaptainCore Plugin
