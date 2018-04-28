@@ -14,8 +14,7 @@ source $root_path/config
 website=$1
 
 # Loop through arguments and separate regular arguments from flags (--flag)
-for var in "$@"
-do
+for var in "$@"; do
 	# If starts with "--" then assign it to a flag array
     if [[ $var == --* ]]
     then
@@ -29,8 +28,7 @@ do
 done
 
 # Loop through flags and assign to variable. A flag "--email=austin@anchor.host" becomes $email
-for i in "${!flags[@]}"
-do
+for i in "${!flags[@]}"; do
 
 	# replace "-" with "_" and remove leading "--"
 	flag_name=`echo ${flags[$i]} | tr - _`
@@ -48,8 +46,7 @@ do
 
 done
 
-if [ $# -gt 0 ]
-then
+if [ $# -gt 0 ]; then
 
 	snapshot_website() {
 	domain=`captaincore site get $website --field=domain`
@@ -67,6 +64,7 @@ then
 	mkdir -p ~/Quicksaves/$domain/plugins
 	mkdir -p ~/Quicksaves/$domain/themes
 	mkdir -p ~/Quicksaves/$domain/versions
+
 	cd ~/Quicksaves/$domain/
 	if [ ! -d ".git" ]; then
 	  git init
