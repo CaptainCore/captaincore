@@ -102,9 +102,9 @@ quicksave_site() {
 		echo "$(date +'%Y-%m-%d %H:%M') Begin quicksave for $website (${INDEX}/$#)"
 
 		# Updates themes/plugins before Quicksave (Selective backup site locally)
-		rclone sync sftp-$website:${homedir}wp-content/themes/ $path/$domain/${homedir}wp-content/themes/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$website.txt"
-		rclone sync sftp-$website:${homedir}wp-content/mu-plugins/ $path/$domain/${homedir}wp-content/mu-plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$website.txt"
-		rclone sync sftp-$website:${homedir}wp-content/plugins/ $path/$domain/${homedir}wp-content/plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$website.txt"
+		rclone sync sftp-$website:${homedir}wp-content/themes/ $path/$domain/wp-content/themes/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$website.txt"
+		rclone sync sftp-$website:${homedir}wp-content/mu-plugins/ $path/$domain/wp-content/mu-plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$website.txt"
+		rclone sync sftp-$website:${homedir}wp-content/plugins/ $path/$domain/wp-content/plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$website.txt"
 		echo "" >> $logs_path/site-$website.txt
 
 		## Current timestamp
