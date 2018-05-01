@@ -1,22 +1,22 @@
 # Configurations
 
 ## Keys
-access_key="#####################"      # WordPress API Key
-token="#####################"						# WordPress Token Key for captaincore CLI
-auth="#####################"						# WordPress Auth Key for captaincore CLI
-local_wp_db_pw="#####################"	# Local MariaDB password
+access_key="###############"  # WordPress API Key
+token="####################"  # WordPress Token Key for captaincore CLI
+auth="#####################"  # WordPress Auth Key for captaincore CLI
+local_wp_db_pw="###########"  # Local MariaDB password
 
 ## Paths
-path="/Users/username/Backup"                  # Backup Folder
-logs="/Users/username/Logs"                    # Log Folder
-path_dropbox="/Users/username/Tmp/Snapshots"   # Dropbox
-path_tmp="/Users/username/Tmp"                 # Tmp Folder
-path_scripts="/Users/username/Scripts"         # Scripts Folder
-rclone_archive="Dropbox:Backup/Archive/"       # Rclone remote for archive
-rclone_backup="B2:Backup/Sites"                # Rclone remote for backups
-rclone_snapshot="B2:Backup/Snapshots"          # Rclone remote for snapshots
+path="/Users/name/Backup"                  # Backup Folder
+logs="/Users/name/Logs"                    # Log Folder
+path_dropbox="/Users/name/Tmp/Snapshots"   # Dropbox
+path_tmp="/Users/name/Tmp"                 # Tmp Folder
+path_scripts="/Users/name/Scripts"         # Scripts Folder
+rclone_archive="Dropbox:Backup/Archive/"   # Rclone remote for archive
+rclone_backup="B2:Backup/Sites"            # Rclone remote for backups
+rclone_snapshot="B2:Backup/Snapshots"      # Rclone remote for snapshots
 
 ## Vars
-websites=`captaincore site list`	# Install names
-wpe_ssh_user=email@captaincore.io	# WP SSH username
-# captaincore_dev=true						# Enable DEV Mode
+websites=$(captaincore site list)  # Site names
+wpe_ssh_user=email@captaincore.io  # WP Engine SSH username
+# captaincore_dev=true             # Enable development mode
