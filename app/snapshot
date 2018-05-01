@@ -87,7 +87,7 @@ snapshot_website() {
 			if [[ $skip_remote != true ]]; then
 
 				## Moves snapshot to Backblaze archive folder
-				rclone move $path_tmp/$domain-$timedate.zip $rclone_snapshot/$domain/
+				rclone move $domain-$timedate.zip $rclone_snapshot/$domain/
 
 				## Post snapshot to ACF field
 			  if [[ $captaincore_dev == true ]]; then
