@@ -1,17 +1,17 @@
 #!/bin/bash
 
 ##
-##      Batch backup of WordPress sites
+##      Backup WordPress sites
 ##
-##      Pass arguments from command line like this
-##      captaincore backup new install1 install2
+##      Backup selective sites
+##      captaincore backup [<site>] [<site>] [<site>]...
 ##
-##      Or backup everything like this
-##      captaincore backup new
+##      Or backup all sites
+##      captaincore backup
 ##
-##      The following flags are also available
+##      Available arguments
 ##      --use-direct     (Pull and Push) Directly from sftp to B2
-##      --skip-remote    (Pull Only) Skips push to B2
+##      --skip-remote    (Pull Only) Skips push to Rclone backup (define $rclone_backup in config)
 ##      --skip-db        Skips database backup
 ##      --with-staging   Also backup staging site
 ##
