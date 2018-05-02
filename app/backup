@@ -6,7 +6,7 @@
 ##      Backup selective sites
 ##      captaincore backup [<site>] [<site>] [<site>]...
 ##
-##      Or backup all sites
+##      Backup all sites
 ##      captaincore backup
 ##
 ##      Available arguments
