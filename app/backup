@@ -47,7 +47,7 @@ for i in "${!flags[@]}"; do
 
 done
 
-backup_install () {
+backup_site () {
   if [ $# -gt 0 ]; then
 
     ### Generate random auth
@@ -67,7 +67,7 @@ backup_install () {
     ### Begin logging
     echo "$(date +'%Y-%m-%d %H:%M') Begin server backup" > $logs_path/backup-log.txt
 
-    echo "Backing up $# installs"
+    echo "Backing up $# sites"
     INDEX=1
     for website in "$@"; do
 
@@ -139,7 +139,7 @@ backup_install () {
             echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $website to remote (${INDEX}/$#)"
             ts rclone sync $path/$domain $rclone_backup/$domain -v --exclude .DS_Store --fast-list --transfers=32 --log-file="$logs_path/site-$website-remote.txt"
 
-            ### Add install to Remote log file
+            ### Add site to Remote log file
             ### Grabs last 6 lines of output from remote transfer to log file
             ts sh -c "echo \"Finished remote backup $website (${INDEX}/$#)\" >> $logs_path/backup-remote.txt && tail -6 $logs_path/site-$website-remote.txt >> $logs_path/backup-remote.txt"
 
@@ -193,7 +193,7 @@ backup_install () {
             echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $website to remote (${INDEX}/$#)"
             ts rclone sync $path/$domain $rclone_backup/$domain -v --exclude .DS_Store --fast-list --transfers=32 --log-file="$logs_path/site-$website-remote.txt"
 
-            ### Add install to Remote log file
+            ### Add site to Remote log file
             ### Grabs last 6 lines of output from remote transfer to log file
             ts sh -c "echo \"Finished remote backup $website (${INDEX}/$#)\" >> $logs_path/backup-remote.txt && tail -6 $logs_path/site-$website-remote.txt >> $logs_path/backup-remote.txt"
 
@@ -248,7 +248,7 @@ backup_install () {
 
     ### Generate overall emails
     ( echo "$(captaincore get transferred_stats file=$logs_path/backup-remote.txt)" && printf "<br><a href='$shareurl'>View Logs</a><br><br>" && grep -r "FTP response" $logs_path/backup-log.txt; ) \
-      | mutt -e 'set content_type=text/html' -s "Backup completed: $# installs | $backup_date" -a $logs_path/backup-log.txt -- support@anchor.host
+      | mutt -e 'set content_type=text/html' -s "Backup completed: $# sites | $backup_date" -a $logs_path/backup-log.txt -- support@anchor.host
 
     cd ~
 
@@ -257,9 +257,9 @@ backup_install () {
 
 ### See if any specific sites are selected
 if [ ${#arguments[*]} -gt 0 ]; then
-  # Backup selected installs
-  backup_install ${arguments[*]}
+  # Backup selected sites
+  backup_site ${arguments[*]}
 else
-  # Backup all installs
-  backup_install ${websites[@]}
+  # Backup all sites
+  backup_site ${websites[@]}
 fi
