@@ -4,7 +4,7 @@
 ##		Generates a self destructing WordPress mu-plugin which will preload WordPress users
 ##
 ## 		Pass arguments from command line like this
-##		captaincore generate users --install=anchorhosting
+##		captaincore generate users --site=<site>
 ##
 ##		assign command line arguments to variables
 ## 		userlist=~/Documents/Scripts/userlist.json becomes $_GET['userlist']
@@ -14,12 +14,12 @@ if (isset($argv)) {
 	parse_str(implode('&', array_slice($argv, 1)), $_GET);
 }
 
-$install = $_GET['--install'];
+$site = $_GET['--site'];
 $token = $_GET['--token'];
 $customers = explode(",", $_GET['--customers'] );
-$userlist = $_SERVER['HOME'] . "/Tmp/userlist-$install.json";
+$userlist = $_SERVER['HOME'] . "/Tmp/userlist-$site.json";
 $json = json_decode(file_get_contents($userlist), true);
-$generated_plugin = $_SERVER['HOME'] ."/Tmp/anchor_load_$install.php";
+$generated_plugin = $_SERVER['HOME'] ."/Tmp/anchor_load_$site.php";
 
 ## mu-plugin generate: beginning of file
 $content = <<<EOT
@@ -44,7 +44,7 @@ function add_admin_acct(){
     ### Check for default WP Engine site name and description
     if (get_option( "blogname" ) == "Austin Ginder Blog") {
         ## Update default site title
-        update_option( "blogname", "$install.wpengine.com" );
+        update_option( "blogname", "$site.wpengine.com" );
     }
 
     if (get_option( "blogdescription" ) == "Your SUPER-powered WP Engine Blog") {
@@ -81,7 +81,7 @@ function add_admin_acct(){
         wp_new_user_notification( \$user_id, null, 'user' );
 
         ### Check for default WP Engine account
-        \$user = get_user_by( 'login', '$install' );
+        \$user = get_user_by( 'login', '$site' );
 
         ### If found remove and reassign pages/post to new admin
         if(\$user) {
@@ -122,12 +122,12 @@ EOT;
 $i = 1;
 
 ## mu-plugin generate: loops through user accounts
-foreach ($json as $name => $install) {
+foreach ($json as $name => $site) {
    	$user_login = $name;
-   	$user_email = $install["email"];
-   	$user_firstname = $install["firstname"];
-   	$user_lastname = $install["lastname"];
-   	$user_role = $install["role"];
+   	$user_email = $site["email"];
+   	$user_firstname = $site["firstname"];
+   	$user_lastname = $site["lastname"];
+   	$user_role = $site["role"];
    	$user_display = trim($user_firstname . " " . $user_lastname);
     $content .= <<<EOT
 

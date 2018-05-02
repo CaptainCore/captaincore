@@ -93,11 +93,10 @@ fi
 }
 
 ### See if any specific sites are selected
-if [ ${#arguments[*]} -gt 0 ]
-then
-	# Backup selected installs
+if [ ${#arguments[*]} -gt 0 ]; then
+	# Runs on specific site(s)
 	assign_server ${arguments[*]}
 else
-	# Backup all installs
+	# Runs on all sites
 	assign_server ${websites[@]}
 fi

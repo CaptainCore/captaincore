@@ -119,6 +119,6 @@ deploy_staging () {
 
 ### See if any specific sites are selected
 if [ ${#arguments[*]} -gt 0 ]; then
-  # Backup selected installs
+  # Deploy sites to staging
   deploy_staging ${arguments[*]}
 fi

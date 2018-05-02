@@ -32,10 +32,10 @@ do
 
 done
 
-backup_install () {
+backup_site () {
 if [ $# -gt 0 ]; then
 
-	echo "Backing up $# installs"
+	echo "Backing up $# sites"
 	INDEX=1
 	for website in "$@"
 	do
@@ -108,9 +108,9 @@ fi
 ### See if any specific sites are selected
 if [ ${#arguments[*]} -gt 0 ]
 then
-	# Backup selected installs
-	backup_install ${arguments[*]}
+	# Backup selected sites
+	backup_site ${arguments[*]}
 else
-	# Backup all installs
-	backup_install ${websites[@]}
+	# Backup all sites
+	backup_site ${websites[@]}
 fi

@@ -1,10 +1,10 @@
 #!/bin/bash
 
 ##
-##      WP Engine SSH download
+##      Download file from site
 ##
-##      Downloads file from WP Engine/Kinsta install over ssh
-##      captaincore download anchorhost1 logo.png
+##      Downloads file from Kinsta/WP Engine sites over ssh
+##      captaincore download <site>
 ##
 
 # Load configuration
@@ -16,9 +16,8 @@ website=$1
 ### Load FTP credentials
 eval $(captaincore site get $website --bash)
 
-### Credentials found, start the backup
-if ! [ -z "$domain" ]
-then
+### Credentials found
+if ! [ -z "$domain" ]; then
 
   ## If website on Kinsta then connect SSH using their format
   if [[ "$address" == *".kinsta.com" ]]; then

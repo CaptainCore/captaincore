@@ -1,19 +1,19 @@
 #!/bin/bash
 
 ##
-##      SSH wrapper for Kinsta and WP Engine
+##      SSH wrapper (Supports Kinsta and WP Engine)
 ##
-##      Connects to individual install over SSH
-##      captaincore ssh anchorhost1
+##      Connects to individual site over SSH
+##      captaincore ssh <site>
 ##
 ##      Runs command over SSH
-##      captaincore ssh anchorhost1 --command="wp plugin list"
+##      captaincore ssh <site> --command=<commands>
 ##
 ##      Runs script over SSH
-##      captaincore ssh anchorhost1 --script=~/Scripts/update_plugins
+##      captaincore ssh <site> --script=<name|script> [--<script-argument-name>=<script-argument-value>]
 ##
-##      Runs command over SSH to mutiple installs
-##      captaincore ssh anchorhost1 anchorhost2 anchorhost3 --command="wp plugin list"
+##      Runs command over SSH to mutiple sites
+##      captaincore ssh <site> <site> <site> --command=<commands>
 ##
 
 # Load configuration
@@ -62,13 +62,6 @@ done
 
 ssh_wrapper () {
   if [ $# -gt 0 ]; then
-
-    #if [ -n "$script" ]; then
-    #	echo "Running SSH command on $# installs"
-    #fi
-    #if [ -n "$command" ]; then
-    #	echo "Running SSH command on $# installs"
-    #fi
 
     for website in "$@"; do
 
@@ -153,9 +146,9 @@ ssh_wrapper () {
 
 ### See if any specific sites are selected
 if [ ${#arguments[*]} -gt 0 ]; then
-  # Backup selected installs
+  # Run on selected site(s)
   ssh_wrapper ${arguments[*]}
 else
-  # Backup all installs
+  # Run on all sites
   ssh_wrapper ${websites[@]}
 fi

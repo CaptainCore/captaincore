@@ -63,7 +63,7 @@ then
 
 		## Return error if domain not found
 		if [[ "$domain" == "" ]]; then
-			echo "Can't locate website for install $website"
+			echo "Can't locate website for site $website"
 			return 1
 		fi
 

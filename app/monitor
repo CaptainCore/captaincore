@@ -84,11 +84,13 @@ fi
 ### See if any specific sites are selected
 if [ ${#arguments[*]} -gt 0 ]; then
 
-	# Backup selected installs
+	# Runs on selective site(s)
 	echo "Running monitor check ${#arguments[*]} sites"
 	monitor_check ${arguments[*]}
+
 else
 
+	# Runs on all sites
 	all_sites=(${websites[@]})
 
 	if [[ "$parallel" -gt "0" ]]; then
@@ -118,7 +120,7 @@ else
 		done
 	else
 		echo "Running monitor check ${#all_sites[*]} sites"
-		# Backup all installs
+		# Runs on all sites
 		monitor_check ${websites[@]}
 	fi
 

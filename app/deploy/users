@@ -1,10 +1,10 @@
 #!/bin/bash
 
 ##
-##      Deploys custom preloading users mu-plugin to batch of installs
+##      Deploys custom preloading users mu-plugin to batch of sites
 ##
 ##      Pass arguments from command line like this
-##      captaincore deploy users install1 install2
+##      captaincore deploy users <site> [<site>] [<site>]
 ##
 ##      The users argument determines which json file to load user data from
 ##
@@ -15,13 +15,12 @@ root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_
 source $root_path/config
 
 generate_admin () {
-for (( i = 1; i <= $#; i++ ))
-do
+for (( i = 1; i <= $#; i++ )); do
+
     var="$i"
     website=${!var}
 
-    if [[ $website == *"="* ]]
-    then
+    if [[ $website == *"="* ]]; then
       ## assume its a command and strip out the argument as the user group
       group=${website##*=}
     else
@@ -29,8 +28,7 @@ do
 			eval $(captaincore site get $website --bash)
 
       ### Credentials found, start the backup
-      if ! [ -z "$domain" ]
-      then
+      if ! [ -z "$domain" ]; then
 
         ### Loads token
         website_token=$(captaincore get token $domain)
@@ -68,8 +66,7 @@ done
 }
 
 ### See if any specific sites are selected
-if [ $# -gt 0 ]
-then
-    ## Run selected installs
+if [ $# -gt 0 ]; then
+    ## Run selected site(s)
     generate_admin $*
 fi

@@ -104,9 +104,9 @@ fi
 
 ### See if any specific sites are selected
 if [ ${#arguments[*]} -gt 0 ]; then
-	# Backup selected installs
+	# Runs on specific site(s)
 	generate_usage ${arguments[*]}
 else
-	# Backup all installs
+	# Runs on all sites
 	generate_usage ${websites[@]}
 fi

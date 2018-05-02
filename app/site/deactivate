@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ##
-##      Deploys custom deactivate mu-plugin to batch of installs
+##      Deploys custom deactivate mu-plugin to batch of sites
 ##
 ##      Pass arguments from command line like this
 ##      captaincore site deactivate <site> [<site>] [<site>]...
@@ -48,6 +48,6 @@ done
 
 ### See if any specific sites are selected
 if [ $# -gt 0 ]; then
-    ## Run selected installs
+    ## Run on selected site(s)
     deactivate $*
 fi

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ##
-##		Remove install configurations into config and logins via command line
+##		Remove site configurations into config and logins via command line
 ##
 ## 		Pass arguments from command line like this
 ##		captaincore site delete <site>
@@ -46,4 +46,4 @@ done
 id=$(captaincore site get $1 --field=ID)
 
 cd $root_path/data
-wp eval-file ../lib/php/site-delete.php install=$1 id=$id
+wp eval-file ../lib/php/site-delete.php site=$1 id=$id

@@ -3,7 +3,7 @@
 ##
 ##		Launches site - updates url from dev to live, enable search engine and clears cache
 ##
-##		launch --install=<install> --domain=<domain>
+##		launch --site=<site> --domain=<domain>
 ##
 
 # Loop through arguments and separate regular arguments from flags (--flag)
@@ -38,7 +38,7 @@ for i in "${!flags[@]}"; do
 
 done
 
-wp search-replace "${install}.wpengine.com" "$domain" --all-tables
-wp search-replace "${install}.kinsta.com" "$domain" --all-tables
+wp search-replace "${site}.wpengine.com" "$domain" --all-tables
+wp search-replace "${site}.kinsta.com" "$domain" --all-tables
 wp option update blog_public 1
 wp cache flush

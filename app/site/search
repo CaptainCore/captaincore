@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ##
-##		Search for site install name by domain name
+##		Search for site name by domain name
 ##
 ## 		Pass arguments from command line like this
 ##		<search>

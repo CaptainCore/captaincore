@@ -96,9 +96,9 @@ fi
 
 ### See if any specific sites are selected
 if [ ${#arguments[*]} -gt 0 ]; then
-	# Backup selected installs
+	# Runs on specific site(s)
 	sync_data ${arguments[*]}
 else
-	# Backup all installs
+	# Runs on all sites
 	sync_data ${websites[@]}
 fi

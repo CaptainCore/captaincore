@@ -1,18 +1,17 @@
 #!/bin/bash
 
 ##
-##      Preloading plugins to install
+##      Preloading plugins to site
 ##
 ##      Pass arguments from command line like this
-##      captaincore deploy plugins install1 install2
+##      captaincore deploy plugins <site>
 ##
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source $root_path/config
 
-if [ $# -gt 0 ]
-then
+if [ $# -gt 0 ]; then
 	echo "Loading specific sites"
 	for (( i = 1; i <= $#; i++ ))
 	do
@@ -33,7 +32,7 @@ then
 			### Loads token
 			website_token=$(captaincore get token $domain)
 
-			### Load dynamic list of plugins for install
+			### Load dynamic list of plugins for site
 			plugins=`captaincore plugins-get --token=$website_token --customers=$preloadusers`
 
 			### Build plugin urls

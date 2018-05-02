@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ##
-##		Pres new install configurations into logins via command line
+##		Pres new site configurations into logins via command line
 ##
 ## 		Pass arguments from command line like this
 ##		captaincore site prep <site>

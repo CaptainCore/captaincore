@@ -1,10 +1,10 @@
 #!/bin/bash
 
 ##
-##      WP Engine SSH uploader
+##      SSH uploader
 ##
-##      Uploads file to WP Engine install over ssh
-##      captaincore upload anchorhost1 "~/Download/migration.zip" [--public]
+##      Uploads file to site over ssh
+##      captaincore upload <site> <file> [--public]
 ##
 
 # Load configuration
@@ -21,8 +21,7 @@ fi
 eval $(captaincore site get $website --bash)
 
 # Loop through arguments and separate regular arguments from flags (--flag)
-for var in "$@"
-do
+for var in "$@"; do
 	# If starts with "--" then assign it to a flag array
     if [[ $var == --* ]]
     then
@@ -36,8 +35,7 @@ do
 done
 
 # Loop through flags and assign to variable. A flag "--email=austin@anchor.host" becomes $email
-for i in "${!flags[@]}"
-do
+for i in "${!flags[@]}"; do
 
 	# replace "-" with "_" and remove leading "--"
 	flag_name=`echo ${flags[$i]} | tr - _`
@@ -56,8 +54,7 @@ do
 done
 
 ### Credentials found, start the backup
-if ! [ -z "$domain" ]
-then
+if ! [ -z "$domain" ]; then
 
   ## If website on Kinsta then connect SSH using their format
   if [[ "$address" == *".kinsta.com" ]]; then

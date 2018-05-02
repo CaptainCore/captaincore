@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ##
-##		Output array of installs from the logins
+##		Output array of sites from the logins
 ##
 ## 		Pass arguments from command line like this
 ##		[--all] [--staging] [--filter=<theme|plugin|core>] [--filter-name=<name>] [--filter-version=<version>] [--filter-status=<active|inactive|dropin|must-use>] [--field=<field>]

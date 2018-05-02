@@ -106,6 +106,6 @@ fi
 
 ### See if any specific sites are selected
 if [ ${#arguments[*]} -gt 0 ]; then
-	# Backup selected installs
+	# Import production site database locally
 	import_prod_db_locally ${arguments[*]}
 fi
