@@ -62,7 +62,7 @@ if ( $found_site ) {
 		'post_status' => 'publish',
 		'post_author' => '1',
 		'meta_input'  => array(
-			'install'                   => $install,
+			'install'                   => $site,
 			'address'                   => $address,
 			'username'                  => $username,
 			'password'                  => $password,
@@ -100,9 +100,9 @@ if ( $found_site ) {
 }
 
 // Rclone Import
-$output = shell_exec( "captaincore site rclone-configs $install" );
+$output = shell_exec( "captaincore site rclone-configs $site" );
 
 // run initial backup, setups up token, install plugins
 // and load custom configs into wp-config.php and .htaccess
 // in a background process. Sent email when completed.
-$output = shell_exec( 'captaincore site prep ' . $install . ' > /dev/null 2>/dev/null &' );
+$output = shell_exec( 'captaincore site prep ' . $site . ' > /dev/null 2>/dev/null &' );

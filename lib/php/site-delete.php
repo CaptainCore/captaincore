@@ -28,7 +28,7 @@ if ( $found_site ) {
 		'ID'          => $id,
 		'post_status' => 'publish',
 		'meta_input'  => array(
-			'status' => 'closed',
+		'status' => 'closed',
 
 		),
 	);
@@ -43,4 +43,4 @@ if ( $found_site ) {
 }
 
 // Make final snapshot then remove local files
-$output = shell_exec( 'captaincore snapshot ' . $install . ' --delete-after-snapshot --email=support@anchor.host > /dev/null 2>/dev/null &' );
+$output = shell_exec( 'captaincore snapshot ' . $site . ' --delete-after-snapshot --email=support@anchor.host > /dev/null 2>/dev/null &' );
