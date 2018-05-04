@@ -4,7 +4,7 @@
 ##      Deploy production to staging (Kinsta only)
 ##
 ##      Pass arguments from command line like this
-##      captaincore deploy production-to-staging-kinsta <site> --email=<email> [--skip-uploads]
+##      captaincore deploy production-to-staging <site> --email=<email> [--skip-uploads]
 ##
 
 # Load configuration
@@ -85,9 +85,9 @@ deploy_staging () {
 
         ## Post completion to CaptainCore API
         if [[ $captaincore_dev == true ]]; then
-          curl -k --data-urlencode "command=production_to_staging_kinsta" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+          curl -k --data-urlencode "command=production-to-staging" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
         else
-          curl --data-urlencode "command=production_to_staging_kinsta" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+          curl --data-urlencode "command=production-to-staging" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
         fi
 
       fi

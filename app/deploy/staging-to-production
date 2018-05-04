@@ -79,7 +79,7 @@ deploy_staging () {
         # Download staging snapshot to production site and import database
         captaincore ssh $website --command="wget https://staging-${website}.kinsta.com/wp-content_$timestamp.zip; mv wp-content_$timestamp.zip wp-content.zip; rm -rf wp-content/; unzip wp-content.zip; rm wp-content.zip; wp db import wp-content/mysql.sql --skip-plugins --skip-themes"
 
-        # Remove from production_to_staging_kinsta
+        # Remove from production_to_staging
         captaincore ssh $website-staging --command="rm -f wp-content_$timestamp.zip"
 
         # Find and replace urls
@@ -90,9 +90,9 @@ deploy_staging () {
 
         ## Post completion to CaptainCore API
         if [[ $captaincore_dev == true ]]; then
-          curl -k --data-urlencode "command=staging_to_production_kinsta" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+          curl -k --data-urlencode "command=staging-to-production" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
         else
-          curl --data-urlencode "command=staging_to_production_kinsta" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+          curl --data-urlencode "command=staging-to-production" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
         fi
 
       fi
