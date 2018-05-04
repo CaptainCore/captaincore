@@ -20,7 +20,7 @@ if ( $found_site ) {
 		'post_status' => 'publish',
 		'post_author' => '1',
 		'meta_input'  => array(
-			'install'                   => $install,
+			'install'                   => $site,
 			'address'                   => $address,
 			'username'                  => $username,
 			'password'                  => $password,
