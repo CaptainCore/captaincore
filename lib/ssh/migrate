@@ -3,11 +3,11 @@
 #
 #   Migrate site from backup snapshot
 #
-#   migrate --url=<backup-url> [--skip-url-override]
+#   migrate --url=<backup-url> [--update-urls]
 #
 #   OPTIONS
-#   [--skip-url-override]
-#   : Keep source urls. Default will update to match destination WordPress site.
+#   [--update-urls]
+#   : Update urls to destination WordPress site. Default will keep source urls.
 #
 
 # Loop through arguments and separate regular arguments from flags (--flag)
@@ -148,7 +148,7 @@ migrate_website() {
       wp cache flush --skip-plugins --skip-themes
       wp rewrite flush --skip-plugins --skip-themes
       wp_home_imported=$(wp option get home)
-      if [[ "$skip_url_override" != "true" ]]; then
+      if [[ "$update_urls" == "true" ]]; then
         wp search-replace $wp_home_imported $wp_home --skip-plugins --skip-themes --all-tables
       fi
       # convert MyISAM tables to InnoDB
