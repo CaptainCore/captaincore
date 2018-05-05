@@ -82,7 +82,7 @@ migrate_website() {
   # Downloads backup file
   wget --progress=bar:force:noscroll $backup_url
   if [[ "$backupformat" == "zip" ]]; then
-    unzip -o *.zip
+    unzip -o *.zip -x "__MACOSX/*" -x "cgi-bin/*"
   fi
   if [[ "$backupformat" == "gz" ]]; then
     tar xvzf *.gz
