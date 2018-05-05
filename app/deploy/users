@@ -37,7 +37,7 @@ for (( i = 1; i <= $#; i++ )); do
         captaincore generate users-json --token=$website_token --customers=$preloadusers --website=$website
 
         ### Generate mu-plugin file based on a predefined user group
-        captaincore generate users --install=$website --token=$website_token --customers=$preloadusers
+        captaincore generate users --site=$website --token=$website_token --customers=$preloadusers
 
         ### upload password plugin to mu-plugins
         rclone copy ~/Tmp/anchor_load_$website.php sftp-$website:$homedir/wp-content/mu-plugins/
