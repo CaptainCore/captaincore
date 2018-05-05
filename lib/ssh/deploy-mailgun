@@ -1,0 +1,10 @@
+#!/bin/bash
+
+##
+##		Deploys Mailgun
+##
+##		deploy-mailgun --key=<key> --domain=<domain>
+##
+
+wp plugin install mailgun --force --activate
+wp option set mailgun '{"useAPI":"1","domain":"mg.'${domain}'","apiKey":"'$key'","username":"","password":"","secure":"1","track-clicks":"no","track-opens":"1","campaign-id":""}' --format=json
