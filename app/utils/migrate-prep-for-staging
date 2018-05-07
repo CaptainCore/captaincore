@@ -24,8 +24,8 @@ run_command () {
       ### Credentials found
       if ! [ -z "$domain" ]; then
 
-				mv ~/Backup/$domain/ ~/CaptainCore/Backup/$install/
-				mv ~/Quicksaves/$domain/ ~/CaptainCore/Quicksaves/$install/
+				mv ~/Backup/$domain/ ~/CaptainCore/Backup/$site/
+				mv ~/Quicksaves/$domain/ ~/CaptainCore/Quicksaves/$site/
 
       fi
 

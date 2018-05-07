@@ -101,17 +101,17 @@ run_command () {
           # WordPress not found, so performing regular backup
 
           # Backup site locally
-          rclone sync sftp-$website:$homedir $path/$domain/ --exclude .DS_Store --exclude *timthumb.txt --exclude /wp-content/uploads_from_s3/ --verbose=1 --log-file="$logs_path/site-$website.txt"
+          rclone sync sftp-$website:$homedir $path/Backup/$site/ --exclude .DS_Store --exclude *timthumb.txt --exclude /wp-content/uploads_from_s3/ --verbose=1 --log-file="$logs_path/site-$website.txt"
           echo "" >> $logs_path/site-$website.txt
           tail $logs_path/site-$website.txt >> $logs_path/backup-local.txt
 
           if [[ "$OSTYPE" == "linux-gnu" ]]; then
             ### Begin folder size in bytes without apparent-size flag
-            folder_size=`du -s --block-size=1 $path/$domain/`
+            folder_size=`du -s --block-size=1 $path/Backup/$site/`
             folder_size=`echo $folder_size | cut -d' ' -f 1`
           elif [[ "$OSTYPE" == "darwin"* ]]; then
             ### Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
-            folder_size=`find $path/$domain/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
+            folder_size=`find $path/Backup/$site/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
           fi
 
           if [[ $skip_remote != true ]]; then
@@ -119,7 +119,7 @@ run_command () {
             ### Incremental backup upload to Remote
             echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $website to remote (${INDEX}/$#)" >> $logs_path/backup-log.txt
             echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $website to remote (${INDEX}/$#)"
-            ts rclone sync $path/$domain $rclone_backup/$domain -v --exclude .DS_Store --fast-list --transfers=32 --log-file="$logs_path/site-$website-remote.txt"
+            ts rclone sync $path/Backup/$site $rclone_backup/$site -v --exclude .DS_Store --fast-list --transfers=32 --log-file="$logs_path/site-$website-remote.txt"
 
             ### Add site to Remote log file
             ### Grabs last 6 lines of output from remote transfer to log file
@@ -148,7 +148,7 @@ run_command () {
           fi
 
           # Backup site locally
-          rclone sync sftp-$website:$homedir $path/$domain/ --exclude .DS_Store --exclude *timthumb.txt --exclude /wp-content/uploads_from_s3/ --verbose=1 --log-file="$logs_path/site-$website.txt"
+          rclone sync sftp-$website:$homedir $path/Backup/$site/ --exclude .DS_Store --exclude *timthumb.txt --exclude /wp-content/uploads_from_s3/ --verbose=1 --log-file="$logs_path/site-$website.txt"
           echo "" >> $logs_path/site-$website.txt
           tail $logs_path/site-$website.txt >> $logs_path/backup-local.txt
 
@@ -156,16 +156,16 @@ run_command () {
           if [ -n "$s3bucket" ]; then
             echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website (S3) to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
             echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website (S3) to local (${INDEX}/$#)"
-            rclone sync s3-$website:$s3bucket/$s3path $path/$domain/wp-content/uploads_from_s3/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$website-s3.txt"
+            rclone sync s3-$website:$s3bucket/$s3path $path/Backup/$site/wp-content/uploads_from_s3/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$website-s3.txt"
           fi
 
           if [[ "$OSTYPE" == "linux-gnu" ]]; then
             ### Begin folder size in bytes without apparent-size flag
-            folder_size=`du -s --block-size=1 $path/$domain/`
+            folder_size=`du -s --block-size=1 $path/Backup/$site/`
             folder_size=`echo $folder_size | cut -d' ' -f 1`
           elif [[ "$OSTYPE" == "darwin"* ]]; then
             ### Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
-            folder_size=`find $path/$domain/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
+            folder_size=`find $path/Backup/$site/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
           fi
 
           if [[ $skip_remote != true ]]; then
@@ -173,7 +173,7 @@ run_command () {
             ### Incremental backup upload to Remote
             echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $website to remote (${INDEX}/$#)" >> $logs_path/backup-log.txt
             echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $website to remote (${INDEX}/$#)"
-            ts rclone sync $path/$domain $rclone_backup/$domain -v --exclude .DS_Store --fast-list --transfers=32 --log-file="$logs_path/site-$website-remote.txt"
+            ts rclone sync $path/Backup/$site $rclone_backup/$site -v --exclude .DS_Store --fast-list --transfers=32 --log-file="$logs_path/site-$website-remote.txt"
 
             ### Add site to Remote log file
             ### Grabs last 6 lines of output from remote transfer to log file
@@ -232,7 +232,7 @@ run_command () {
     ( echo "$(captaincore get transferred_stats file=$logs_path/backup-remote.txt)" && printf "<br><a href='$shareurl'>View Logs</a><br><br>" && grep -r "FTP response" $logs_path/backup-log.txt; ) \
       | mutt -e 'set content_type=text/html' -s "Backup completed: $# sites | $backup_date" -a $logs_path/backup-log.txt -- support@anchor.host
 
-    cd ~
+    cd $path
 
   fi
 }

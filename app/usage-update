@@ -68,7 +68,7 @@ if [ $# -gt 0 ]; then
 
         if [[ "$OSTYPE" == "linux-gnu" ]]; then
             ### Begin folder size in bytes without apparent-size flag
-            folder_size=`du -s --block-size=1 $path/$domain/`
+            folder_size=`du -s --block-size=1 $path/$site/`
             folder_size=`echo $folder_size | cut -d' ' -f 1`
         elif [[ "$OSTYPE" == "darwin"* ]]; then
             ### Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line

@@ -62,7 +62,7 @@ then
 			return 1
 		fi
 
-		cd ~/Quicksaves/$domain/
+		cd $path/Quicksaves/$domain/
 		git_show=`git show $git_hash --name-status --format=`
 		echo "$git_show"
 

@@ -55,11 +55,11 @@ fi
 
 if [[ "$field" == "" ]]; then
 	declare -a rows
-	wp post list --post_type=captcore_website --posts_per_page=1 --meta_key=install --meta_value="$1" --meta_compare="=" --fields="ID,install,address,username,password,protocol,port,install_staging,address_staging,username_staging,password_staging,protocol_staging,port_staging" --format=json | json
+	wp post list --post_type=captcore_website --posts_per_page=1 --meta_key=site --meta_value="$1" --meta_compare="=" --fields="ID,site,address,username,password,protocol,port,site_staging,address_staging,username_staging,password_staging,protocol_staging,port_staging" --format=json | json
 elif [[ "$field" == "domain" ]]; then
-	wp post list --post_type=captcore_website --posts_per_page=1 --meta_key=install --meta_value="$1" --meta_compare="=" --fields=post_title --format=json | json -a post_title
+	wp post list --post_type=captcore_website --posts_per_page=1 --meta_key=site --meta_value="$1" --meta_compare="=" --fields=post_title --format=json | json -a post_title
 else
-	wp post list --post_type=captcore_website --posts_per_page=1 --meta_key=install --meta_value="$1" --meta_compare="=" --fields=$field --format=json | json -a $field
+	wp post list --post_type=captcore_website --posts_per_page=1 --meta_key=site --meta_value="$1" --meta_compare="=" --fields=$field --format=json | json -a $field
 fi
 }
 process_get $1

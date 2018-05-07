@@ -12,36 +12,10 @@
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
-source $root_path/config
+source ${root_path}config
+source ${root_path}lib/arguments
 
-# Loop through arguments and separate regular arguments from flags (--flag)
-for var in "$@"; do
-
-  # If starts with "--" then assign it to a flag array
-  if [[ $var == --* ]]; then
-    count=1+${#flags[*]}
-    flags[$count]=$var
-  else
-    # Else assign to an arguments array
-    count=1+${#arguments[*]}
-    arguments[$count]=$var
-  fi
-
-done
-
-# Loop through flags and assign to variable. A flag "--skip-dropbox" becomes $flag_skip_dropbox
-for i in "${!flags[@]}"; do
-
-  # replace "-" with "_" and remove leading "--"
-  flag_name=`echo ${flags[$i]} | tr - _`
-  flag_name=`echo $flag_name | cut -c 3-`
-
-  # assigns to $flag_flagname
-  declare "flag_$flag_name"=true
-
-done
-
-update () {
+run_command () {
   if [ $# -gt 0 ]; then
 
     ### Begin time tracking
@@ -54,36 +28,36 @@ update () {
 
     echo "Updating $# sites"
     INDEX=1
-    for website in "$@"; do
+    for site in "$@"; do
 
       ### Load FTP credentials
-      eval $(captaincore site get $website --bash)
+      eval $(captaincore site get $site --bash)
 
       ### Credentials found, start the backup
       if ! [ -z "$domain" ]; then
 
         # captures FTP errors in $ftp_output and file listing to log file
-        ftp_output=$( { rclone lsd sftp-$website:$homedir ; } 2>&1 )
+        ftp_output=$( { rclone lsd sftp-$site:$homedir ; } 2>&1 )
         ftp_search_for_wordpress=`echo "$ftp_output" | perl -wnE'say for /wp-admin/g'`
 
         # Handle FTP errors
         if [[ $ftp_search_for_wordpress != "wp-admin" ]]; then
 
           # WordPress not found, so performing regular backup
-          echo "WordPress not found: $website ($ftp_output)"
+          echo "WordPress not found: $site ($ftp_output)"
         else
           ## No errors found, run updates
 
           ### run updates
-          echo "$(date +'%Y-%m-%d %H:%M') Begin updates on $website (${INDEX}/$#)"
+          echo "$(date +'%Y-%m-%d %H:%M') Begin updates on $site (${INDEX}/$#)"
 
 					### Define log file format
-					logs_path=$path_updates/$website/
+					logs_path=$path/Updates/$site/
 
 					### Generate log folder
 					mkdir -p $logs_path
 
-					json_output=$(captaincore ssh $website --script=update --all --format=json --dry-run)
+					json_output=$(captaincore ssh $site --script=update --all --format=json --dry-run)
 					# If json output detected then parse updates
 					if [[ "$json_output" = *"[{"* ]]; then
 
@@ -137,8 +111,8 @@ update () {
 ### See if any specific sites are selected
 if [ ${#arguments[*]} -gt 0 ]; then
   # Backup selected sites
-  update ${arguments[*]}
+  run_command ${arguments[*]}
 else
   # Backup all sites
-  update ${websites[@]}
+  run_command ${websites[@]}
 fi

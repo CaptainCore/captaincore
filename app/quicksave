@@ -102,21 +102,21 @@ quicksave_site() {
 		echo "$(date +'%Y-%m-%d %H:%M') Begin quicksave for $website (${INDEX}/$#)"
 
 		# Updates themes/plugins before Quicksave (Selective backup site locally)
-		rclone sync sftp-$website:${homedir}wp-content/themes/ $path/$domain/wp-content/themes/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$website.txt"
-		rclone sync sftp-$website:${homedir}wp-content/mu-plugins/ $path/$domain/wp-content/mu-plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$website.txt"
-		rclone sync sftp-$website:${homedir}wp-content/plugins/ $path/$domain/wp-content/plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$website.txt"
+		rclone sync sftp-$website:${homedir}wp-content/themes/ $path/Backup/$site/wp-content/themes/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site.txt"
+		rclone sync sftp-$website:${homedir}wp-content/mu-plugins/ $path/Backup/$site/wp-content/mu-plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site.txt"
+		rclone sync sftp-$website:${homedir}wp-content/plugins/ $path/Backup/$site/wp-content/plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site.txt"
 		echo "" >> $logs_path/site-$website.txt
 
 		## Current timestamp
 		timedate=$(date +%Y-%m-%d_%H-%M-%S)
 
 		## Sync to git repo
-		mkdir -p ~/Quicksaves/$domain/mu-plugins
-		mkdir -p ~/Quicksaves/$domain/plugins
-		mkdir -p ~/Quicksaves/$domain/themes
-		mkdir -p ~/Quicksaves/$domain/versions
+		mkdir -p $path/Quicksaves/$site/mu-plugins
+		mkdir -p $path/Quicksaves/$site/plugins
+		mkdir -p $path/Quicksaves/$site/themes
+		mkdir -p $path/Quicksaves/$site/versions
 
-		cd ~/Quicksaves/$domain/
+		cd $path/Quicksaves/$site/
 
 		## Create new git repo if needed
 		if [ ! -d ".git" ]; then
@@ -135,13 +135,13 @@ quicksave_site() {
 		## Nasty bash hack in order to grab all of the details from one single SSH tunnel (WP Engine connection is slow)
 		response=$(captaincore ssh $website --command='wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp theme list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp core version --skip-themes --skip-plugins --skip-packages; echo ""; wp option get home --skip-themes --skip-plugins --skip-packages')
 		IFS=$'\n' read -rd '' -a response_parsed <<<"$response"
-		echo ${response_parsed[0]} > ~/Quicksaves/$domain/versions/plugins.json
-		echo ${response_parsed[1]} > ~/Quicksaves/$domain/versions/themes.json
-		echo ${response_parsed[2]} > ~/Quicksaves/$domain/versions/core.json
+		echo ${response_parsed[0]} > $path/Quicksaves/$site/versions/plugins.json
+		echo ${response_parsed[1]} > $path/Quicksaves/$site/versions/themes.json
+		echo ${response_parsed[2]} > $path/Quicksaves/$site/versions/core.json
 
-		plugin_data=`cat ~/Quicksaves/$domain/versions/plugins.json`
-		theme_data=`cat ~/Quicksaves/$domain/versions/themes.json`
-		core_version=`cat ~/Quicksaves/$domain/versions/core.json`
+		plugin_data=`cat $path/Quicksaves/$site/versions/plugins.json`
+		theme_data=`cat $path/Quicksaves/$site/versions/themes.json`
+		core_version=`cat $path~/Quicksaves/$site/versions/core.json`
 		home_url=${response_parsed[3]}
 		# plugin_data=$(git show $git_hash:versions/plugins.json --format=)
 		# theme_data=$(git show $git_hash:versions/themes.json --format=)
