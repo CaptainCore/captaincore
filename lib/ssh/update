@@ -16,4 +16,5 @@
 arguments=${@/--script=update}
 
 wp theme update $arguments
+echo " "
 wp plugin update $arguments
