@@ -23,34 +23,8 @@
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
-source $root_path/config
-
-# Loop through arguments and separate regular arguments from flags (--flag)
-for var in "$@"; do
-
-  # If starts with "--" then assign it to a flag array
-  if [[ $var == --* ]]; then
-    count=1+${#flags[*]}
-    flags[$count]=$var
-  else
-    # Else assign to an arguments array
-    count=1+${#arguments[*]}
-    arguments[$count]=$var
-  fi
-
-done
-
-# Loop through flags and assign to variable. A flag "--skip-dropbox" becomes $flag_skip_dropbox
-for i in "${!flags[@]}"; do
-
-  # replace "-" with "_" and remove leading "--"
-  flag_name=`echo ${flags[$i]} | tr - _`
-  flag_name=`echo $flag_name | cut -c 3-`
-
-  # assigns to $flag_flagname
-  declare "flag_$flag_name"=true
-
-done
+source ${root_path}config
+source ${root_path}/lib/arguments
 
 run_command () {
   if [ $# -gt 0 ]; then

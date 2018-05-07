@@ -1,0 +1,47 @@
+#!/bin/bash
+
+COLOR_BLACK="\033[30m"
+COLOR_RED="\033[31m"
+COLOR_GREEN="\033[32m"
+COLOR_YELLOW="\033[33m"
+COLOR_BLUE="\033[34m"
+COLOR_MAGENTA="\033[35m"
+COLOR_CYAN="\033[36m"
+COLOR_LIGHT_GRAY="\033[37m"
+COLOR_DARK_GRAY="\033[38m"
+COLOR_NORMAL="\033[39m"
+
+# Loop through arguments and separate regular arguments from flags (--flag)
+for var in "$@"; do
+
+  # If starts with "--" then assign it to a flag array
+  if [[ $var == --* ]]; then
+    count=1+${#flags[*]}
+    flags[$count]=$var
+    # Else assign to an arguments array
+  else
+    count=1+${#arguments[*]}
+    arguments[$count]=$var
+  fi
+
+done
+
+# Loop through flags and assign to variable. A flag "--email=austin@anchor.host" becomes $email
+for i in "${!flags[@]}"; do
+
+  # replace "-" with "_" and remove leading "--"
+  flag_name=`echo ${flags[$i]} | cut -c 3-`
+
+  # detected flag contains data
+  if [[ $flag_name == *"="* ]]; then
+    flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
+    flag_name=`echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1'` # extract name
+    flag_name=${flag_name/-/_}
+    declare "$flag_name"="$flag_value" # assigns to $flag_flagname
+  else
+    # assigns to $flag_flagname boolen
+    flag_name=${flag_name//-/_}
+    declare "$flag_name"=true
+  fi
+
+done
