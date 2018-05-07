@@ -4,17 +4,18 @@
 ##      Download file from site
 ##
 ##      Downloads file from Kinsta/WP Engine sites over ssh
-##      captaincore download <site>
+##      captaincore download <site> <file>
 ##
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
-source $root_path/config
+source ${root_path}config
+source ${root_path}/lib/arguments
 
-website=$1
+site=$1
 
 ### Load FTP credentials
-eval $(captaincore site get $website --bash)
+eval $(captaincore site get $site --bash)
 
 ### Credentials found
 if ! [ -z "$domain" ]; then

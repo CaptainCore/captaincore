@@ -12,23 +12,22 @@ root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_
 source ${root_path}config
 source ${root_path}/lib/arguments
 
-website=$1
+site=$1
 git_hash=$2
 
-if [ $# -gt 0 ]
-then
+if [ $# -gt 0 ]; then
 
 	quicksave_status() {
 
-		domain=`captaincore site get $website --field=domain`
+		domain=`captaincore site get $site --field=domain`
 
 		## Return error if domain not found
 		if [[ "$domain" == "" ]]; then
-			echo "Can't locate website for site $website"
+			echo "Can't locate website for site $site"
 			return 1
 		fi
 
-		cd $path/Quicksaves/$domain/
+		cd $path/Quicksaves/$site/
 		git_status=`git show $git_hash --shortstat --format=`
 		echo "$git_status"
 
