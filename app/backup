@@ -114,7 +114,7 @@ run_command () {
             folder_size=`find $path/$domain/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
           fi
 
-          if [[ $flag_skip_remote != true ]]; then
+          if [[ $skip_remote != true ]]; then
 
             ### Incremental backup upload to Remote
             echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $website to remote (${INDEX}/$#)" >> $logs_path/backup-log.txt
@@ -140,7 +140,7 @@ run_command () {
           echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
           echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to local (${INDEX}/$#)"
 
-          if [[ $flag_skip_db != true ]]; then
+          if [[ $skip_db != true ]]; then
             ## Database backup (if remote server available)
             if [[ "$address" == *".kinsta.com" ]] || [[ "$address" == *".wpengine.com" ]]; then
               captaincore ssh $website --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql"
@@ -168,7 +168,7 @@ run_command () {
             folder_size=`find $path/$domain/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
           fi
 
-          if [[ $flag_skip_remote != true ]]; then
+          if [[ $skip_remote != true ]]; then
 
             ### Incremental backup upload to Remote
             echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $website to remote (${INDEX}/$#)" >> $logs_path/backup-log.txt
