@@ -1,20 +1,25 @@
 #!/bin/bash
 
-##
-##      Backup WordPress sites
-##
-##      Backup selective sites
-##      captaincore backup [<site>] [<site>] [<site>]...
-##
-##      Backup all sites
-##      captaincore backup
-##
-##      Available arguments
-##      --use-direct     (Pull and Push) Directly from sftp to B2
-##      --skip-remote    (Pull Only) Skips push to Rclone backup (define $rclone_backup in config)
-##      --skip-db        Skips database backup
-##      --with-staging   Also backup staging site
-##
+#
+#   Backups one or more websites.
+#
+#   captaincore backup [<site>]...
+#
+#   [--all]
+#   Backup all websites
+#
+#   [--use-direct]
+#   (Pull and Push) Directly from sftp to Rclone remote
+#
+#   [--skip-remote]
+#   (Pull Only) Skips push to Rclone remote (define $rclone_backup in config)
+#
+#   [--skip-db]
+#   Skips database backup
+#
+#   [--with-staging]
+#   Backups staging site
+#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
