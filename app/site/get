@@ -19,9 +19,10 @@ source ${root_path}/lib/arguments
 
 run_command() {
 
-	site=$1
-	cd ${root_path}data
+  site=$1
+  cd ${root_path}data
 
+  # Requires <site>
   if [[ "$site" == "" ]]; then
     echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one a site."
     return 1
