@@ -1,1 +1,1 @@
-<site> [--force] [--debug]
+[<site>...] [--all] [--force] [--debug]
