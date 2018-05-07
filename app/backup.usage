@@ -1,1 +1,1 @@
-[<site>] [<site>] [<site>]... [--skip-remote] [--skip-db]
+[<sites>...] [--all] [--use-direct] [--skip-remote] [--skip-db] [--with-staging]

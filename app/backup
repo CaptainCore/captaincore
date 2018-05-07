@@ -47,7 +47,7 @@ for i in "${!flags[@]}"; do
 
 done
 
-backup_site () {
+run_command () {
   if [ $# -gt 0 ]; then
 
     ### Generate random auth
@@ -255,11 +255,16 @@ backup_site () {
   fi
 }
 
-### See if any specific sites are selected
+# See if any sites are specifed
 if [ ${#arguments[*]} -gt 0 ]; then
-  # Backup selected sites
-  backup_site ${arguments[*]}
-else
-  # Backup all sites
-  backup_site ${websites[@]}
+  # Runs on specifed sites
+  run_command ${arguments[*]}
+fi
+
+if [[ $all == "true" ]]; then
+  # Runs on all sites
+  echo "Backup all sites"
+	run_command ${websites[@]}
+fi
+
 fi
