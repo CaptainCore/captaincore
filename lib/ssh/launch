@@ -1,10 +1,10 @@
 #!/bin/bash
 
-##
-##		Launches site - updates url from dev to live, enable search engine and clears cache
-##
-##		launch --site=<site> --domain=<domain>
-##
+#
+#   Launches site - updates url from dev to live, enable search engine and clears cache
+#
+#   `launch --site=<site> --domain=<domain>`
+#
 
 # Loop through arguments and separate regular arguments from flags (--flag)
 for var in "$@"; do

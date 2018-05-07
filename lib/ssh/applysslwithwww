@@ -1,8 +1,8 @@
 #!/bin/bash
 
-##
-##		Apply SSL using domain with www
-##
+#
+#   Apply SSL using domain with www
+#
 
 domain=$(wp option get home)
 domain=${domain/http:\/\/www./}             # removes http://www.

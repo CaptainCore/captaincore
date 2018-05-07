@@ -1,10 +1,10 @@
 #!/bin/bash
 
-##
-##		Convert MyISAM datbase tables to InnoDB
-##
-##		captaincore ssh <site> --script=db-convert-to-innodb
-##
+#
+#   Convert MyISAM datbase tables to InnoDB
+#
+#   `captaincore ssh <site> --script=db-convert-to-innodb`
+#
 
 current_folder=${PWD##*/}
 output=`wp db query "SELECT COUNT(*) FROM information_schema.TABLES WHERE ENGINE = 'MyISAM'" --skip-column-names`

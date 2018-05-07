@@ -3,11 +3,10 @@
 #
 #   Migrate site from backup snapshot
 #
-#   migrate --url=<backup-url> [--update-urls]
+#   `migrate --url=<backup-url>`
 #
-#   OPTIONS
 #   [--update-urls]
-#   : Update urls to destination WordPress site. Default will keep source urls.
+#   Update urls to destination WordPress site. Default will keep source urls.
 #
 
 # Loop through arguments and separate regular arguments from flags (--flag)

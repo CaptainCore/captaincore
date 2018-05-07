@@ -1,10 +1,10 @@
 #!/bin/bash
 
-##
-##		Deploys Mailgun
-##
-##		deploy-mailgun --key=<key> --domain=<domain>
-##
+#
+#   Deploys Mailgun
+#
+#   `deploy-mailgun --key=<key> --domain=<domain>`
+#
 
 # Loop through arguments and separate regular arguments from flags (--flag)
 for var in "$@"; do

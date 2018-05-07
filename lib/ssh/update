@@ -3,13 +3,10 @@
 #
 #   Update themes and plugins
 #
-#   update [--<field>=<value>]
+#   `update`
 #
-#   OPTIONS
 #   [--<field>=<value>]
-#   : Extra arguments to pass to `wp theme update` and `wp plugin update`.
-#   https://developer.wordpress.org/cli/commands/theme/update/
-#   https://developer.wordpress.org/cli/commands/plugin/update/
+#   Extra arguments to pass to `[wp theme update](https://developer.wordpress.org/cli/commands/theme/update/)` and `[wp plugin update]( https://developer.wordpress.org/cli/commands/plugin/update/)`.
 #
 
 # Pass through all arguments except script selector
