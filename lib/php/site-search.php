@@ -16,7 +16,7 @@ $arguments = array(
 			'compare' => '=',
 		),
 		array(
-			'key'     => 'install', // name of custom field
+			'key'     => 'site', // name of custom field
 			'value'   => '',
 			'compare' => '!=',
 		),
@@ -29,7 +29,7 @@ $results = array();
 
 foreach ( $websites as $website_id ) {
 
-	$site = get_post_meta( $website_id, 'install', true );
+	$site = get_post_meta( $website_id, 'site', true );
 	$results[] = $site;
 
 }
