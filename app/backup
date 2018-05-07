@@ -1,12 +1,15 @@
 #!/bin/bash
 
 #
-#   Backups one or more websites.
+#   Backups one or more sites.
 #
-#   captaincore backup [<site>]...
+#   `captaincore backup`
+#
+#   [<site>...]
+#   One or more sites to update.
 #
 #   [--all]
-#   Backup all websites
+#   Backup all sites.
 #
 #   [--use-direct]
 #   (Pull and Push) Directly from sftp to Rclone remote
