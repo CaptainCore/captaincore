@@ -246,4 +246,7 @@ if [[ $all == "true" ]]; then
 	run_command ${websites[@]}
 fi
 
+# Error if no sites specifed
+if [[ $all != "true" ]] && [ ${#arguments[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
 fi
