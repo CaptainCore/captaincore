@@ -22,56 +22,56 @@ file=$4
 # Loop through arguments and separate regular arguments from flags (--flag)
 for var in "$@"
 do
-	# If starts with "--" then assign it to a flag array
-    if [[ $var == --* ]]
-    then
-    	count=1+${#flags[*]}
-    	flags[$count]=$var
+  # If starts with "--" then assign it to a flag array
+  if [[ $var == --* ]]
+  then
+    count=1+${#flags[*]}
+    flags[$count]=$var
     # Else assign to an arguments array
-    else
-    	count=1+${#arguments[*]}
-    	arguments[$count]=$var
-    fi
+  else
+    count=1+${#arguments[*]}
+    arguments[$count]=$var
+  fi
 done
 
 # Loop through flags and assign to variable. A flag "--email=austin@anchor.host" becomes $email
 for i in "${!flags[@]}"
 do
 
-	# replace "-" with "_" and remove leading "--"
-	flag_name=`echo ${flags[$i]} | tr - _`
-	flag_name=`echo $flag_name | cut -c 3-`
+  # replace "-" with "_" and remove leading "--"
+  flag_name=`echo ${flags[$i]} | tr - _`
+  flag_name=`echo $flag_name | cut -c 3-`
 
-	# detected flag contains data
-	if [[ $flag_name == *"="* ]]; then
-	  flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
-	  flag_name=`echo $flag_name | perl -n -e '/(.+)?=.+/&& print $1'` # extract name
-	  declare "$flag_name"="$flag_value" # assigns to $flag_flagname
-	else
-	  # assigns to $flag_flagname boolen
-	  declare "$flag_name"=true
-	fi
+  # detected flag contains data
+  if [[ $flag_name == *"="* ]]; then
+    flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
+    flag_name=`echo $flag_name | perl -n -e '/(.+)?=.+/&& print $1'` # extract name
+    declare "$flag_name"="$flag_value" # assigns to $flag_flagname
+  else
+    # assigns to $flag_flagname boolen
+    declare "$flag_name"=true
+  fi
 
 done
 
 if [ $# -gt 0 ]
 then
 
-	quicksave_file_diff() {
+  quicksave_file_diff() {
 
-		domain=`captaincore site get $website --field=domain`
+    domain=`captaincore site get $website --field=domain`
 
-		## Return error if domain not found
-		if [[ "$domain" == "" ]]; then
-			echo "Can't locate website for site $website"
-			return 1
-		fi
+    ## Return error if domain not found
+    if [[ "$domain" == "" ]]; then
+      echo "Can't locate website for site $website"
+      return 1
+    fi
 
-		cd $path/Quicksaves/$domain/
-		git_diff=`git diff $git_hash $git_hash_compare -- $file`
-		echo "$git_diff"
+    cd $path/Quicksaves/$domain/
+    git_diff=`git diff $git_hash $git_hash_compare -- $file`
+    echo "$git_diff"
 
-	}
-	quicksave_file_diff
+  }
+  quicksave_file_diff
 
 fi
