@@ -99,12 +99,14 @@ snapshot_website() {
 			fi
 
 			if [[ $delete_after_snapshot == true ]]; then
-				echo "Removed files after snapshot"
+				echo "Removing files after snapshot"
 				## Removed from rclone
 				rclone config delete sftp-$website
 				rclone config delete sftp-$website-staging
 				## Removes directory from backup server
 				rm -rf ~/Backup/$domain
+				## Remove from remote storage
+				rclone purge --fast-list $rclone_backup/$domain
 			fi
 
 			let INDEX=${INDEX}+1
