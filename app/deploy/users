@@ -34,10 +34,10 @@ generate_admin () {
         website_token=$(captaincore get token $domain)
 
         ### Generate JSON file based on preloaded list
-        captaincore generate users-json --token=$website_token --customers=$preloadusers --website=$website
+        captaincore users-json --token=$website_token --customers=$preloadusers --website=$website
 
         ### Generate mu-plugin file based on a predefined user group
-        captaincore generate users --site=$website --token=$website_token --customers=$preloadusers
+        captaincore users --site=$website --token=$website_token --customers=$preloadusers
 
         ### upload password plugin to mu-plugins
         rclone copy ~/Tmp/anchor_load_$website.php sftp-$website:${homedir}wp-content/mu-plugins/

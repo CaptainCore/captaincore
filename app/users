@@ -4,7 +4,7 @@
 ##		Generates a self destructing WordPress mu-plugin which will preload WordPress users
 ##
 ## 		Pass arguments from command line like this
-##		captaincore generate users --site=<site>
+##		captaincore users --site=<site>
 ##
 ##		assign command line arguments to variables
 ## 		userlist=~/Documents/Scripts/userlist.json becomes $_GET['userlist']
