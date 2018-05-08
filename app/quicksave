@@ -53,21 +53,21 @@ run_command() {
 		let INDEX=${INDEX}+1
 
 		### Load site details
-		eval $(captaincore site get $website --bash)
+		eval $(captaincore site get $site --bash)
 
 		## Return error if domain not found
 		if [[ "$domain" == "" ]]; then
-			echo "Can't locate website for $website"
+			echo "Can't locate website for $site"
 			continue
 		fi
 
 		# captures FTP errors in $ftp_output and file listing to log file
-		ftp_output=$( { rclone lsd sftp-$website:$homedir ; } 2>&1 )
+		ftp_output=$( { rclone lsd sftp-$site:$homedir ; } 2>&1 )
 		ftp_search_for_wordpress=`echo "$ftp_output" | perl -wnE'say for /wp-admin/g'`
 
 		# Handle FTP errors
 		if [[ $ftp_search_for_wordpress != "wp-admin" ]]; then
-			echo "Can't locate WordPress for $website"
+			echo "Can't locate WordPress for $site"
 			continue
 		fi
 
@@ -76,14 +76,14 @@ run_command() {
 			homedir="${homedir}/"
 		fi
 
-		echo "$(date +'%Y-%m-%d %H:%M') Begin quicksave for $website (${INDEX}/$#)" >> $logs_path/quicksave.log
-		echo "$(date +'%Y-%m-%d %H:%M') Begin quicksave for $website (${INDEX}/$#)"
+		echo "$(date +'%Y-%m-%d %H:%M') Begin quicksave for $site (${INDEX}/$#)" >> $logs_path/quicksave.log
+		echo "$(date +'%Y-%m-%d %H:%M') Begin quicksave for $site (${INDEX}/$#)"
 
 		# Updates themes/plugins before Quicksave (Selective backup site locally)
-		rclone sync sftp-$website:${homedir}wp-content/themes/ $path/$site/backup/wp-content/themes/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site.txt"
-		rclone sync sftp-$website:${homedir}wp-content/mu-plugins/ $path/$site/backup/wp-content/mu-plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site.txt"
-		rclone sync sftp-$website:${homedir}wp-content/plugins/ $path/$site/backup/wp-content/plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site.txt"
-		echo "" >> $logs_path/site-$website.txt
+		rclone sync sftp-$site:${homedir}wp-content/themes/ $path/$site/backup/wp-content/themes/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site.txt"
+		rclone sync sftp-$site:${homedir}wp-content/mu-plugins/ $path/$site/backup/wp-content/mu-plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site.txt"
+		rclone sync sftp-$site:${homedir}wp-content/plugins/ $path/$site/backup/wp-content/plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site.txt"
+		echo "" >> $logs_path/site-$site.txt
 
 		## Current timestamp
 		timedate=$(date +%Y-%m-%d_%H-%M-%S)
@@ -106,12 +106,12 @@ run_command() {
 		rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ $path/$site/backup/wp-content/themes/ $path/$site/quicksave/themes
 
 		## Store plugin/theme in json
-		# captaincore ssh $website --command="wp plugin list --format=json --skip-themes --skip-plugins --skip-packages" > ~/Quicksaves/$domain/versions/plugins.json
-		# captaincore ssh $website --command="wp theme list --format=json --skip-themes --skip-plugins --skip-packages" > ~/Quicksaves/$domain/versions/themes.json
-		# captaincore ssh $website --command="wp core version --skip-themes --skip-plugins --skip-packages" > ~/Quicksaves/$domain/versions/core.json
+		# captaincore ssh $site --command="wp plugin list --format=json --skip-themes --skip-plugins --skip-packages" > ~/Quicksaves/$domain/versions/plugins.json
+		# captaincore ssh $site --command="wp theme list --format=json --skip-themes --skip-plugins --skip-packages" > ~/Quicksaves/$domain/versions/themes.json
+		# captaincore ssh $site --command="wp core version --skip-themes --skip-plugins --skip-packages" > ~/Quicksaves/$domain/versions/core.json
 
 		## Nasty bash hack in order to grab all of the details from one single SSH tunnel (WP Engine connection is slow)
-		response=$(captaincore ssh $website --command='wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp theme list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp core version --skip-themes --skip-plugins --skip-packages; echo ""; wp option get home --skip-themes --skip-plugins --skip-packages')
+		response=$(captaincore ssh $site --command='wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp theme list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp core version --skip-themes --skip-plugins --skip-packages; echo ""; wp option get home --skip-themes --skip-plugins --skip-packages')
 		IFS=$'\n' read -rd '' -a response_parsed <<<"$response"
 		echo ${response_parsed[0]} > $path/$site/quicksave/versions/plugins.json
 		echo ${response_parsed[1]} > $path/$site/quicksave/versions/themes.json
@@ -165,7 +165,7 @@ run_command() {
 		#zip -r ~/Quicksaves/$domain-$timedate.zip $domain/ --include=$domain/wp-content/plugins/\* --include=$domain/wp-content/themes/\*
 
 		## Store updated info in WordPress datastore
-		site_id=$(captaincore site get $website --field=ID)
+		site_id=$(captaincore site get $site --field=ID)
 		cd ${root_path}data
 		wp post meta update $site_id plugins "${response_parsed[0]}"
 		wp post meta update $site_id themes "${response_parsed[1]}"
