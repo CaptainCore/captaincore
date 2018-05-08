@@ -32,7 +32,7 @@ if [ $# -gt 0 ]; then
       return 1
     fi
 
-    cd $path/Quicksaves/$site/
+    cd $path/$site/quicksave/
     git_diff=`git diff $git_hash $git_hash_compare -- $file`
     echo "$git_diff"
 

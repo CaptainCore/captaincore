@@ -63,7 +63,7 @@ run_command () {
         views=`captaincore stats $domain`
 
         ### Updates stats with no storage since it's a subsite
-        curl --data-urlencode "storage=0" --data-urlencode "views=$views" --data-urlencode "token=$token" "$captaincore_api/$site/"
+        curl --data-urlencode "storage=0" --data-urlencode "views=$views" --data-urlencode "token=$token" "$captaincore_api/$domain/"
 
       fi
 
