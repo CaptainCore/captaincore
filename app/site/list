@@ -6,14 +6,14 @@
 ## 		Pass arguments from command line like this
 ##		[--all] [--staging] [--filter=<theme|plugin|core>] [--filter-name=<name>] [--filter-version=<version>] [--filter-status=<active|inactive|dropin|must-use>] [--field=<field>]
 ##
-##		Usage would look something like this to check for websites with WooCommerce and return only the website install names in bash array
-## 		websites=( $(wp post list --post_type=captcore_website --meta_key=plugins --meta_value='"name":"woocommerce"' --meta_compare="LIKE" --fields=install --format=json | json -a install) )
+##		Usage would look something like this to check for websites with WooCommerce and return only the website site names in bash array
+## 		websites=( $(wp post list --post_type=captcore_website --meta_key=plugins --meta_value='"name":"woocommerce"' --meta_compare="LIKE" --fields=site --format=json | json -a site) )
 ##
 ##		Create
-##		wp post create --meta_input='{"install":"anchorhost1","address":"anchorhost1.wpengine.com"}' --post_title='anchorhost1.wpengine.com' --post_status=publish --post_type=captcore_website
+##		wp post create --meta_input='{"site":"anchorhost1","address":"anchorhost1.wpengine.com"}' --post_title='anchorhost1.wpengine.com' --post_status=publish --post_type=captcore_website
 ##
 ##		List all
-##		echo $(wp post list --post_type=captcore_website --fields=install | json -a install)
+##		echo $(wp post list --post_type=captcore_website --fields=site | json -a site)
 ##
 
 
