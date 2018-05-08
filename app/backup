@@ -51,10 +51,10 @@ run_command () {
 
     echo "Backing up $# sites"
     INDEX=1
-    for website in "$@"; do
+    for site in "$@"; do
 
       ### Load FTP credentials
-      eval $(captaincore site get $website --bash)
+      eval $(captaincore site get $site --bash)
 
       ### If subsite update stats and skip backup
       if [[ $subsite == "true" ]]; then
@@ -63,7 +63,7 @@ run_command () {
         views=`captaincore stats $domain`
 
         ### Updates stats with no storage since it's a subsite
-        curl --data-urlencode "storage=0" --data-urlencode "views=$views" --data-urlencode "token=$token" "$captaincore_api/$website/"
+        curl --data-urlencode "storage=0" --data-urlencode "views=$views" --data-urlencode "token=$token" "$captaincore_api/$site/"
 
       fi
 
@@ -80,19 +80,19 @@ run_command () {
         ### Check for rclone remote
         rclone_remote_lookup=false
         for item in ${remotes[@]}; do
-          if [[ sftp-$website: == "$item" ]]; then
+          if [[ sftp-$site: == "$item" ]]; then
             rclone_remote_lookup=true
           fi
         done
 
         if [[ $rclone_remote_lookup == false ]]; then
-          echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $website" >> $logs_path/backup-log.txt
-          echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $website"
-          captaincore site rclone-configs $website
+          echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $site" >> $logs_path/backup-log.txt
+          echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $site"
+          captaincore site rclone-configs $site
         fi
 
         # captures FTP errors in $ftp_output and file listing to log file
-        ftp_output=$( { rclone lsd sftp-$website:$homedir ; } 2>&1 )
+        ftp_output=$( { rclone lsd sftp-$site:$homedir ; } 2>&1 )
         ftp_search_for_wordpress=`echo "$ftp_output" | perl -wnE'say for /wp-admin/g'`
 
         # Handle FTP errors
@@ -101,83 +101,83 @@ run_command () {
           # WordPress not found, so performing regular backup
 
           # Backup site locally
-          rclone sync sftp-$website:$homedir $path/Backup/$site/ --exclude .DS_Store --exclude *timthumb.txt --exclude /wp-content/uploads_from_s3/ --verbose=1 --log-file="$logs_path/site-$website.txt"
-          echo "" >> $logs_path/site-$website.txt
-          tail $logs_path/site-$website.txt >> $logs_path/backup-local.txt
+          rclone sync sftp-$site:$homedir $path/$site/backup/ --exclude .DS_Store --exclude *timthumb.txt --exclude /wp-content/uploads_from_s3/ --verbose=1 --log-file="$logs_path/site-$site.txt"
+          echo "" >> $logs_path/site-$site.txt
+          tail $logs_path/site-$site.txt >> $logs_path/backup-local.txt
 
           if [[ "$OSTYPE" == "linux-gnu" ]]; then
             ### Begin folder size in bytes without apparent-size flag
-            folder_size=`du -s --block-size=1 $path/Backup/$site/`
+            folder_size=`du -s --block-size=1 $path/$site/backup/`
             folder_size=`echo $folder_size | cut -d' ' -f 1`
           elif [[ "$OSTYPE" == "darwin"* ]]; then
             ### Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
-            folder_size=`find $path/Backup/$site/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
+            folder_size=`find $path/$site/backup/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
           fi
 
           if [[ $skip_remote != true ]]; then
 
             ### Incremental backup upload to Remote
-            echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $website to remote (${INDEX}/$#)" >> $logs_path/backup-log.txt
-            echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $website to remote (${INDEX}/$#)"
-            ts rclone sync $path/Backup/$site $rclone_backup/$site -v --exclude .DS_Store --fast-list --transfers=32 --log-file="$logs_path/site-$website-remote.txt"
+            echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $site to remote (${INDEX}/$#)" >> $logs_path/backup-log.txt
+            echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $site to remote (${INDEX}/$#)"
+            ts rclone sync $path/$site/backup $rclone_backup/$site -v --exclude .DS_Store --fast-list --transfers=32 --log-file="$logs_path/site-$site-remote.txt"
 
             ### Add site to Remote log file
             ### Grabs last 6 lines of output from remote transfer to log file
-            ts sh -c "echo \"Finished remote backup $website (${INDEX}/$#)\" >> $logs_path/backup-remote.txt && tail -6 $logs_path/site-$website-remote.txt >> $logs_path/backup-remote.txt"
+            ts sh -c "echo \"Finished remote backup $site (${INDEX}/$#)\" >> $logs_path/backup-remote.txt && tail -6 $logs_path/site-$site-remote.txt >> $logs_path/backup-remote.txt"
 
             # Post folder size bytes and yearly views to ACF field
             curl --data-urlencode "storage=$folder_size" --data-urlencode "token=$token" "$captaincore_api/$domain/"
           fi
 
           ## Add FTP error to log file
-          # echo "WordPress not found, performing regular backup: $website ($ftp_output)<br>" >> $logs_path/backup-log.txt
-          echo "WordPress not found, performing regular backup: $website ($ftp_output)"
+          # echo "WordPress not found, performing regular backup: $site ($ftp_output)<br>" >> $logs_path/backup-log.txt
+          echo "WordPress not found, performing regular backup: $site ($ftp_output)"
         else
           ## No errors found, run the backup
 
           ### Incremental backup locally with rclone
 
-          echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
-          echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website to local (${INDEX}/$#)"
+          echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $site to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
+          echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $site to local (${INDEX}/$#)"
 
           if [[ $skip_db != true ]]; then
             ## Database backup (if remote server available)
             if [[ "$address" == *".kinsta.com" ]] || [[ "$address" == *".wpengine.com" ]]; then
-              captaincore ssh $website --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql"
+              captaincore ssh $site --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql"
             fi
           fi
 
           # Backup site locally
-          rclone sync sftp-$website:$homedir $path/Backup/$site/ --exclude .DS_Store --exclude *timthumb.txt --exclude /wp-content/uploads_from_s3/ --verbose=1 --log-file="$logs_path/site-$website.txt"
-          echo "" >> $logs_path/site-$website.txt
-          tail $logs_path/site-$website.txt >> $logs_path/backup-local.txt
+          rclone sync sftp-$site:$homedir $path/$site/backup/ --exclude .DS_Store --exclude *timthumb.txt --exclude /wp-content/uploads_from_s3/ --verbose=1 --log-file="$logs_path/site-$site.txt"
+          echo "" >> $logs_path/site-$site.txt
+          tail $logs_path/site-$site.txt >> $logs_path/backup-local.txt
 
           ## Backup S3 uploads if needed
           if [ -n "$s3bucket" ]; then
-            echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website (S3) to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
-            echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $website (S3) to local (${INDEX}/$#)"
-            rclone sync s3-$website:$s3bucket/$s3path $path/Backup/$site/wp-content/uploads_from_s3/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$website-s3.txt"
+            echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $site (S3) to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
+            echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $site (S3) to local (${INDEX}/$#)"
+            rclone sync s3-$site:$s3bucket/$s3path $path/$site/backup/wp-content/uploads_from_s3/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site-s3.txt"
           fi
 
           if [[ "$OSTYPE" == "linux-gnu" ]]; then
             ### Begin folder size in bytes without apparent-size flag
-            folder_size=`du -s --block-size=1 $path/Backup/$site/`
+            folder_size=`du -s --block-size=1 $path/$site/backup/`
             folder_size=`echo $folder_size | cut -d' ' -f 1`
           elif [[ "$OSTYPE" == "darwin"* ]]; then
             ### Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
-            folder_size=`find $path/Backup/$site/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
+            folder_size=`find $path/$site/backup/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
           fi
 
           if [[ $skip_remote != true ]]; then
 
             ### Incremental backup upload to Remote
-            echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $website to remote (${INDEX}/$#)" >> $logs_path/backup-log.txt
-            echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $website to remote (${INDEX}/$#)"
-            ts rclone sync $path/Backup/$site $rclone_backup/$site -v --exclude .DS_Store --fast-list --transfers=32 --log-file="$logs_path/site-$website-remote.txt"
+            echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $site to remote (${INDEX}/$#)" >> $logs_path/backup-log.txt
+            echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $site to remote (${INDEX}/$#)"
+            ts rclone sync $path/$site/backup/ $rclone_backup/$site -v --exclude .DS_Store --fast-list --transfers=32 --log-file="$logs_path/site-$site-remote.txt"
 
             ### Add site to Remote log file
             ### Grabs last 6 lines of output from remote transfer to log file
-            ts sh -c "echo \"Finished remote backup $website (${INDEX}/$#)\" >> $logs_path/backup-remote.txt && tail -6 $logs_path/site-$website-remote.txt >> $logs_path/backup-remote.txt"
+            ts sh -c "echo \"Finished remote backup $site (${INDEX}/$#)\" >> $logs_path/backup-remote.txt && tail -6 $logs_path/site-$site-remote.txt >> $logs_path/backup-remote.txt"
 
             ### Views for yearly stats
             views=`captaincore stats $domain`
