@@ -245,7 +245,6 @@ fi
 
 if [[ $all == "true" ]]; then
   # Runs on all sites
-  echo "Backup all sites"
 	run_command ${websites[@]}
 fi
 
