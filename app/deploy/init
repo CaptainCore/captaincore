@@ -2,115 +2,80 @@
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
-source $root_path/config
+source ${root_path}config
+source ${root_path}/lib/arguments
 
-# Loop through arguments and separate regular arguments from flags (--flag)
-for var in "$@"
-do
-	# If starts with "--" then assign it to a flag array
-    if [[ $var == --* ]]
-    then
-    	count=1+${#flags[*]}
-    	flags[$count]=$var
-    # Else assign to an arguments array
-    else
-    	count=1+${#arguments[*]}
-    	arguments[$count]=$var
-    fi
-done
+run_command() {
 
-# Loop through flags and assign to variable. A flag "--skip-dropbox" becomes $flag_skip_dropbox
-for i in "${!flags[@]}"
-do
+  if [ $# -gt 0 ]; then
 
-	# replace "-" with "_" and remove leading "--"
-	flag_name=`echo ${flags[$i]} | tr - _`
-	flag_name=`echo $flag_name | cut -c 3-`
+    echo "Run init on $# sites"
+    INDEX=1
+    for site in "$@"
+    do
 
-	# assigns to $flag_flagname
-	declare "flag_$flag_name"=true
+      ### Load FTP credentials
+      eval $(captaincore site get $site --bash)
 
-done
+      ### Credentials found, start the backup
+      if ! [ -z "$domain" ]
+      then
 
-backup_site () {
-if [ $# -gt 0 ]; then
+        # captures FTP errors in $ftp_output and file listing within file called ftp_ls
+        ftp_output=$( { rclone lsd sftp-$site:$homedir ; } 2>&1 )
+        ftp_search_for_wordpress=`echo "$ftp_output" | perl -wnE'say for /wp-admin/g'`
 
-	echo "Backing up $# sites"
-	INDEX=1
-	for website in "$@"
-	do
+        # Handle FTP errors
+        if [ $ftp_search_for_wordpress != "wp-admin" ]; then
+          ## Add FTP error to log file
+          echo "FTP response: $site ($ftp_output)"
+        else
 
-		### Load FTP credentials
-		eval $(captaincore site get $website --bash)
+          ### Pull down wp-config.php and .htaccess
+          rclone copy sftp-$site:${homedir}wp-config.php $path/$site/backup/
+          rclone copy sftp-$site:${homedir}.htaccess $path/$site/backup/
 
-		### Credentials found, start the backup
-		if ! [ -z "$domain" ]
-		then
+          ## load custom configs into wp-config.php and .htaccess
+          captaincore get configs --wpconfig=$path/$site/backup/wp-config.php --htaccess=$path/$site/backup/.htaccess
+          sleep 1s
 
-			if [ "$homedir" == "" ]
-			then
-			   	homedir="/"
-			fi
+          ### Push up modified wp-config.php and .htaccess
+          rclone copy $path/$site/backup/wp-config.php sftp-$site:${homedir}
+          rclone copy $path/$site/backup/.htaccess sftp-$site:${homedir}
 
-			# captures FTP errors in $ftp_output and file listing within file called ftp_ls
-      ftp_output=$( { rclone lsd sftp-$website:$homedir ; } 2>&1 )
-      ftp_search_for_wordpress=`echo "$ftp_output" | perl -wnE'say for /wp-admin/g'`
+          ### Generate token
+          token_key=$(captaincore get token $domain)
 
-			# Handle FTP errors
-			if [ $ftp_search_for_wordpress != "wp-admin" ]; then
-				## Add FTP error to log file
-				echo "FTP response: $website ($ftp_output)"
-			else
+          ### Assign token and backup link
+          curl --data-urlencode "git_commit=$git_hash" --data-urlencode "token=$token" --data-urlencode "token_key=$token_key" "$captaincore_api/$domain/"
+          sleep 1s
 
-				### Pull down wp-config.php and .htaccess
-        rclone copy sftp-$website:$homedir/wp-config.php $path/$domain/
-        rclone copy sftp-$website:$homedir/.htaccess $path/$domain/
+        fi
 
-				## load custom configs into wp-config.php and .htaccess
-				captaincore get configs --wpconfig=$path/$domain/wp-config.php --htaccess=$path/$domain/.htaccess
-				sleep 1s
+      fi
 
-				### Push up modified wp-config.php and .htaccess
-        rclone copy $path/$domain/wp-config.php sftp-$website:$homedir/
-        rclone copy $path/$domain/.htaccess sftp-$website:$homedir/
+      ### Clear out variables
+      domain=''
+      username=''
+      password=''
+      address=''
+      protocol=''
+      port=''
+      homedir=''
+      remoteserver=''
 
-				### Generate token
-				token_key=$(captaincore get token $domain)
+      let INDEX=${INDEX}+1
+    done
 
-				### Generate backup link
-				# shareurl=`$path_scripts/Run/dropbox_uploader.sh share Backup/Sites/$domain`
-				# shareurl=`echo $shareurl | grep -o 'https.*'`
-
-				### Assign token and backup link
-				curl --data-urlencode "git_commit=$git_hash" --data-urlencode "token=$token" --data-urlencode "token_key=$token_key" "$captaincore_api/$domain/"
-				sleep 1s
-
-			fi
-
-		fi
-
-		### Clear out variables
-		domain=''
-		username=''
-		password=''
-		address=''
-		protocol=''
-		port=''
-		homedir=''
-		remoteserver=''
-
-		let INDEX=${INDEX}+1
-	done
-
-fi
+  fi
 }
 
-### See if any specific sites are selected
+# See if any sites are specifed
 if [ ${#arguments[*]} -gt 0 ]
 then
-	# Backup selected sites
-	backup_site ${arguments[*]}
+  # Runs on specifed sites
+  run_command ${arguments[*]}
 else
-	# Backup all sites
-	backup_site ${websites[@]}
+  # Runs on all sites
+  run_command ${websites[@]}
 fi
