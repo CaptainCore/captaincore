@@ -9,7 +9,6 @@ local_wp_db_pw="###########"  # Local MariaDB password
 ## Paths
 path="/Users/name/Backup"                  # Backup Folder
 logs="/Users/name/Logs"                    # Log Folder
-path_dropbox="/Users/name/Tmp/Snapshots"   # Dropbox
 path_tmp="/Users/name/Tmp"                 # Tmp Folder
 path_scripts="/Users/name/Scripts"         # Scripts Folder
 rclone_archive="Dropbox:Backup/Archive/"   # Rclone remote for archive
