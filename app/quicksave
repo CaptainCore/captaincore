@@ -48,7 +48,7 @@ run_command() {
 
 	INDEX=0
 
-	for website in "$@"; do
+	for site in "$@"; do
 
 		let INDEX=${INDEX}+1
 
