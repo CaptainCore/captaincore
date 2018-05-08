@@ -24,6 +24,9 @@ run_command() {
       ### Credentials found
       if ! [ -z "$domain" ]; then
 
+				mkdir -p $path/$site/backup/
+				mkdir -p $path/$site/quicksave/
+
         mv ~/Backup/$domain/ $path/$site/backup/
         mv ~/Quicksaves/$domain/ $path/$site/quicksave/
 
