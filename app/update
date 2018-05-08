@@ -1,14 +1,16 @@
 #!/bin/bash
 
-##
-##      Updates themes/plugins on WordPress sites
-##
-##      Update selective sites
-##      captaincore update [<site>] [<site>] [<site>]...
-##
-##      Update all sites
-##      captaincore update
-##
+#
+#   Updates themes/plugins on WordPress sites
+#
+#   `captaincore update`
+#
+#   [<site>...]
+#   One or more sites to update.
+#
+#   [--all]
+#    Updates all sites.
+#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
@@ -78,6 +80,7 @@ run_command () {
 					  fi
 
 					fi
+
         fi
 
       fi
@@ -108,11 +111,18 @@ run_command () {
   fi
 }
 
-### See if any specific sites are selected
+# See if any sites are specifed
 if [ ${#arguments[*]} -gt 0 ]; then
-  # Backup selected sites
+  # Runs on specifed sites
   run_command ${arguments[*]}
-else
-  # Backup all sites
-  run_command ${websites[@]}
+fi
+
+if [[ $all == "true" ]]; then
+  # Runs on all sites
+	run_command ${websites[@]}
+fi
+
+# Error if no sites specifed
+if [[ $all != "true" ]] && [ ${#arguments[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
 fi

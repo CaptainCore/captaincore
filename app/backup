@@ -6,7 +6,7 @@
 #   `captaincore backup`
 #
 #   [<site>...]
-#   One or more sites to update.
+#   One or more sites to backup.
 #
 #   [--all]
 #   Backup all sites.
