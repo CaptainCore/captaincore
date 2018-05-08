@@ -1,94 +1,132 @@
 #!/bin/bash
 
-##
-##		Creates Snapshot of website
-##
-## 		Pass arguments from command line like this
-##		captaincore snapshot <site> --email=<email> --skip-remote
-##
+#
+#   Snapshots one or more sites.
+#
+#   `captaincore snapshot`
+#
+#   [<site>...]
+#   One or more sites to snapshot.
+#
+#   [--all]
+#   Snapshots all sites.
+#
+#   [--email=<email>]
+#   On completion, send email to
+#
+#   [--skip-backup]
+#   Skips backup and makes snapshot based on local backup
+#
+#   [--skip-remote]
+#   Skips sending to rclone remote
+#
+#   [--delete-after-snapshot]
+#   Deletes local and remote copies of site
+#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source ${root_path}config
 source ${root_path}/lib/arguments
 
-snapshot_website() {
+run_command() {
 
-	if [ $# -gt 0 ]; then
+  if [ $# -gt 0 ]; then
 
-		echo "Generating snapshots for $# sites"
-		INDEX=1
-		for website in "$@"; do
+    echo "Generating snapshots for $# sites"
+    INDEX=1
+    for site in "$@"; do
 
-			domain=`captaincore site get $website --field=domain`
+      domain=`captaincore site get $site --field=domain`
 
-			## Return error if domain not found
-			if [[ "$domain" == "" ]]; then
-				echo "Can't locate website for site $website"
-				return 1
-			fi
+      ## Return error if domain not found
+      if [[ "$domain" == "" ]]; then
+        echo "Can't locate website for site $site"
+        return 1
+      fi
 
-			if [[ "$website" == *"-staging" ]]; then
-				website=${website//-staging/}
-				use_staging=true
-			fi
+      if [[ "$site" == *"-staging" ]]; then
+        site=${site//-staging/}
+        use_staging=true
+      fi
 
-			# Generate fresh backup
-			captaincore backup $website
+      if [[ "$skip_backup" != "true" ]]; then
 
-			## Generates snapshot archive
-			timedate=$(date +%Y-%m-%d)
-			cd ~/Backup/
-			zip -r $domain-$timedate.zip $domain/ --exclude=$domain/_wpeprivate/\* --exclude=\*.git\* --exclude=$domain/wp-content/advanced-cache.php --exclude=$domain/wp-content/mu-plugins/mu-plugin.php --exclude=$domain/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$domain/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$domain/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$domain/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$domain/wp-content/mu-plugins/wpengine-common/\*
+        # Generate fresh backup
+        captaincore backup $site
 
-			## Grab snapshot size in bytes
-			if [[ "$OSTYPE" == "linux-gnu" ]]; then
-			    ### Begin folder size in bytes without apparent-size flag
-			    snapshot_size=`du -s --block-size=1 $path_tmp/$domain-$timedate.zip`
-			    snapshot_size=`echo $snapshot_size | cut -d' ' -f 1`
+      fi
 
-			elif [[ "$OSTYPE" == "darwin"* ]]; then
-			    ### Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
-			    snapshot_size=`find $path_tmp/$domain-$timedate.zip -type f -print0 | xargs -0 stat -f%z`
-			fi
+      ## Generates snapshot archive
+      timedate=$(date +'%Y-%m-%d-%H%M%S')
+      cd $path/$site/
+      ln -s backup/ $site-$timedate # create directory shortcut for naming purposes
+      zip -r $site-$timedate.zip $site-$timedate/ --exclude=$site-$timedate/_wpeprivate/\* --exclude=\*.git\* --exclude=$site-$timedate/wp-content/advanced-cache.php --exclude=$site-$timedate/wp-content/mu-plugins/mu-plugin.php --exclude=$site-$timedate/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$site-$timedate/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$site-$timedate/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$site-$timedate/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$site-$timedate/wp-content/mu-plugins/wpengine-common/\*
+      rm $site-$timedate # remove directory shortcut
+      mkdir snapshots
+			mv $site-$timedate.zip snapshots
+      cd snapshots
 
-			if [[ $skip_remote != true ]]; then
+      ## Grab snapshot size in bytes
+      if [[ "$OSTYPE" == "linux-gnu" ]]; then
+        ### Begin folder size in bytes without apparent-size flag
+        snapshot_size=`du -s --block-size=1 $site-$timedate.zip`
+        snapshot_size=`echo $snapshot_size | cut -d' ' -f 1`
 
-				## Moves snapshot to Backblaze archive folder
-				rclone move $domain-$timedate.zip $rclone_snapshot/$domain/
+      elif [[ "$OSTYPE" == "darwin"* ]]; then
+        ### Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
+        snapshot_size=`find $site-$timedate.zip -type f -print0 | xargs -0 stat -f%z`
+      fi
 
-				## Post snapshot to ACF field
-			  if [[ $captaincore_dev == true ]]; then
-					curl -k --data-urlencode "storage=$snapshot_size" --data-urlencode "archive=$domain-$timedate.zip" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
-			  else
-					curl --data-urlencode "storage=$snapshot_size" --data-urlencode "archive=$domain-$timedate.zip" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
-			  fi
+      if [[ $skip_remote != true ]]; then
 
-			fi
+        ## Moves snapshot to Backblaze archive folder
+        rclone move $site-$timedate.zip $rclone_snapshot/$site/
 
-			if [[ $delete_after_snapshot == true ]]; then
-				echo "Removing files after snapshot"
-				## Removed from rclone
-				rclone config delete sftp-$website
-				rclone config delete sftp-$website-staging
-				## Removes directory from backup server
-				rm -rf ~/Backup/$domain
-				## Remove from remote storage
-				rclone purge --fast-list $rclone_backup/$domain
-			fi
+        ## Post snapshot to ACF field
+        if [[ $captaincore_dev == true ]]; then
+          curl -k --data-urlencode "storage=$snapshot_size" --data-urlencode "archive=$site-$timedate.zip" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+        else
+          curl --data-urlencode "storage=$snapshot_size" --data-urlencode "archive=$site-$timedate.zip" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+        fi
 
-			let INDEX=${INDEX}+1
+      fi
 
-		done
+      if [[ $delete_after_snapshot == true ]]; then
 
-		fi
+        echo "Removing files after snapshot"
+
+        ## Removed from rclone
+        rclone config delete sftp-$site
+        rclone config delete sftp-$site-staging
+
+        ## Removes directory from backup server
+        rm -rf $path/$site/backup/
+
+        ## Remove from remote storage
+        rclone purge --fast-list $rclone_backup/$site
+
+      fi
+
+      let INDEX=${INDEX}+1
+
+    done
+
+  fi
 }
 
-### See if any specific sites are selected
-if [ $# -gt 0 ]; then
-	## Run snapshots for sites
-	snapshot_website $*
-else
-	# Run snapshots for all sites
-	snapshot_website ${websites[@]}
+# See if any sites are specifed
+if [ ${#arguments[*]} -gt 0 ]; then
+  # Runs on specifed sites
+  run_command ${arguments[*]}
+fi
+
+if [[ $all == "true" ]]; then
+  # Runs on all sites
+  run_command ${websites[@]}
+fi
+
+# Error if no sites specifed
+if [[ $all != "true" ]] && [ ${#arguments[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
 fi
