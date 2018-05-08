@@ -15,7 +15,7 @@ root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_
 source $root_path/config
 
 generate_admin () {
-for (( i = 1; i <= $#; i++ )); do
+  for (( i = 1; i <= $#; i++ )); do
 
     var="$i"
     website=${!var}
@@ -25,7 +25,7 @@ for (( i = 1; i <= $#; i++ )); do
       group=${website##*=}
     else
       ### Load FTP credentials
-			eval $(captaincore site get $website --bash)
+      eval $(captaincore site get $website --bash)
 
       ### Credentials found, start the backup
       if ! [ -z "$domain" ]; then
@@ -40,7 +40,7 @@ for (( i = 1; i <= $#; i++ )); do
         captaincore generate users --site=$website --token=$website_token --customers=$preloadusers
 
         ### upload password plugin to mu-plugins
-        rclone copy ~/Tmp/anchor_load_$website.php sftp-$website:$homedir/wp-content/mu-plugins/
+        rclone copy ~/Tmp/anchor_load_$website.php sftp-$website:${homedir}wp-content/mu-plugins/
 
         ### Trigger website to load password
         wget --no-cache --spider $address/wp-admin/
@@ -48,7 +48,7 @@ for (( i = 1; i <= $#; i++ )); do
         curl -Il $address/wp-login.php
 
         ## remove password plugin
-        rclone delete sftp-$website:$homedir/wp-content/mu-plugins/anchor_load_$website.php
+        rclone delete sftp-$website:${homedir}wp-content/mu-plugins/anchor_load_$website.php
 
       fi
 
@@ -61,12 +61,12 @@ for (( i = 1; i <= $#; i++ )); do
       port=''
     fi
 
-done
+  done
 
 }
 
 ### See if any specific sites are selected
 if [ $# -gt 0 ]; then
-    ## Run selected site(s)
-    generate_admin $*
+  ## Run selected site(s)
+  generate_admin $*
 fi
