@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.2.1] - 2018-05-08
+### Added
+- Command `captaincore update` for themes/plugin updates. Changes are logged in json files.
+- Commmand `captaincore update-fetch` to return update logs in json format
+- Command `db-restore` for pulling in a revision from Rclone remote.
+- Argument `[--all]` to `captaincore backup` for backing up all sites
+- Argument `[--all]` to `captaincore update` for updating all sites
+- Argument `[--all]` to `captaincore quicksave` for quicksaving all sites
+- Arguments `[--all]` and `[--skip-backup]` to `captaincore snapshot`
+- Require `<site>` for `captaincore site get`
+- Require `<site>` and `<commit>` for `captaincore rollback`
+- Output `site_id` to `captaincore site get`.
+- Script `lib/arguments` to handle bash arguments removing duplication
+- Automatic removal of files from remote storage when removing sites.
+- File permission reset to `captaincore cli update`
+
+### Changed
+- *Breaking changes* - Switched folder structure from domains to site names. Consolidated folders under sites rather then separate top level organization for backups and quicksaves. New format: "<path>/<site>/backup", "<path>/<site>/quicksave" and "<path>/<site>/updates"
+- Moved functionality of `captaincore generate snapshots` into `captaincore snapshot`
+- Moved `users` and `users-json` commands to root level
+- Quicksave will no longer happen as part of the backup process
+- Improved Quicksave functionality to run standalone without a full backup requirement.
+- Fix for uploading snapshots to remote storage
+- Fixed staging/production deployment emails
+- Improved docs for `captaincore backup`, `captaincore rollback`, `captaincore update` and `captaincore site get`
+- Improved sample config file
+- Replaced `install(s)` to `site(s)` throughout docs and code
+- Replaced `[--skip-url-override with]` with `[--update-urls]` in migrate script. Default behavior now keeps sources urls when migrating sites.
+- Excluded certain files when unzipping during migrations
+- Generalized ssh script `update`. Will now pass through any arguments to `wp plugin update` and `wp theme update`.
+- Revised definable `$path`. It's now used by `backup`, `quicksave` and `update` commands.
+- Renamed `lib/ssh/` to `lib/remote-scripts`
+
+### Removed
+- Bundled bash cli command `captaincore cli uninstall`
+- Command `captaincore get stats`
+- Command `captaincore generate snapshots`
+
 ## [0.2.0] - 2018-04-22
 ### Added
 - Command `captaincore cli update`
