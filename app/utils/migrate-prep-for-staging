@@ -1,31 +1,31 @@
 #!/bin/bash
 
-##
-##      One time script to migrate from using domains to site name for folders
-##
-##      captaincore utils migrate-prep-for-staging
-##
+#
+#   One time script to migrate from using domains to site name for folders
+#
+#   `captaincore utils migrate-prep-for-staging`
+#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source ${root_path}config
 source ${root_path}lib/arguments
 
-run_command () {
+run_command() {
   if [ $# -gt 0 ]; then
 
     echo "Processing $# sites"
     INDEX=1
-    for website in "$@"; do
+    for site in "$@"; do
 
       ### Load FTP credentials
-      eval $(captaincore site get $website --bash)
+      eval $(captaincore site get $site --bash)
 
       ### Credentials found
       if ! [ -z "$domain" ]; then
 
-				mv ~/Backup/$domain/ ~/CaptainCore/Backup/$site/
-				mv ~/Quicksaves/$domain/ ~/CaptainCore/Quicksaves/$site/
+        mv ~/Backup/$domain/ $path/$site/backup/
+        mv ~/Quicksaves/$domain/ $path/$site/quicksave/
 
       fi
 
