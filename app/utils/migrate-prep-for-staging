@@ -29,9 +29,11 @@ run_command() {
         mkdir -p $path/$site/
 
         mv ~/Backup/$domain/ $path/$site/
-        mv $path/$site/$domain/ backup
+				cd $path/$site/
+        mv $domain/ backup
         mv ~/Quicksaves/$domain/ $path/$site/
-        mv $path/$site/ quicksave
+				cd $path/$site/
+        mv $domain/ quicksave
 
       fi
 
