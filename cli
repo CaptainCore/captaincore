@@ -77,8 +77,7 @@ for arg in "${CMD_ARGS[@]}"; do
 			### End time tracking
 			overalltimeend=$(date +%s)
 			runtime=$(($overalltimeend-$overalltimebegin))
-
-
+			echo ""
 			echo "{\"response\":\"Command finshed\",\"timestamp\":\"$(date +'%Y-%m-%d-%H%M%S')\",\"runtime\":\"$runtime\"}"
     fi
     arg_i=$((arg_i+1))
