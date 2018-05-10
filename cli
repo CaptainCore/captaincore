@@ -78,7 +78,7 @@ for arg in "${CMD_ARGS[@]}"; do
 			overalltimeend=$(date +%s)
 			runtime=$(($overalltimeend-$overalltimebegin))
 			echo ""
-			echo "{\"response\":\"Command finshed\",\"timestamp\":\"$(date +'%Y-%m-%d-%H%M%S')\",\"runtime\":\"$runtime\"}"
+			echo "{\"response\":\"Command finished\",\"timestamp\":\"$(date +'%Y-%m-%d-%H%M%S')\",\"runtime\":\"$runtime\"}"
     fi
     arg_i=$((arg_i+1))
 done
