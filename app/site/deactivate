@@ -13,7 +13,7 @@ root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_
 source $root_path/config
 
 # Paths
-local_path="$path/anchor.host/backup/deploy"
+local_path="$path/anchorhost/backup/deploy"
 plugin="anchorhost_deactivated"
 
 deactivate () {
