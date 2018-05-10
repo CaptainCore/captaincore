@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# Begin time tracking
+overalltimebegin=$(date +%s)
+
 ROOT_DIR=`dirname "$(perl -e 'use Cwd "abs_path"; print abs_path(shift)' $0)"`
 CLI_ENTRYPOINT=`basename $0`
 
@@ -67,6 +70,19 @@ done
 # Run the command and capture its exit code for introspection
 "$CMD_FILE" "${CMD_ARGS[@]}"
 EXIT_CODE=$?
+
+arg_i=0 # We need the index to be able to strip list indices
+for arg in "${CMD_ARGS[@]}"; do
+		if [[ "${arg}" == "--mark-when-completed" ]]; then
+			### End time tracking
+			overalltimeend=$(date +%s)
+			runtime=$(($overalltimeend-$overalltimebegin))
+
+
+			echo "{\"response\":\"Command finshed\",\"timestamp\":\"$(date +'%Y-%m-%d-%H%M%S')\",\"runtime\":\"$runtime\"}"
+    fi
+    arg_i=$((arg_i+1))
+done
 
 # If the command exited with an exit code of 3 (our "show help" code)
 # then show the help documentation for the command.
