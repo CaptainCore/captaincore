@@ -63,20 +63,20 @@ done
 ssh_wrapper () {
   if [ $# -gt 0 ]; then
 
-    for website in "$@"; do
+    for site in "$@"; do
 
-      if [[ "$website" == *"-staging" ]]; then
-        website=${website//-staging/}
+      if [[ "$site" == *"-staging" ]]; then
+        site=${site//-staging/}
         use_staging=true
       fi
 
       ### Load FTP credentials
-      eval $(captaincore site get $website --bash)
+      eval $(captaincore site get $site --bash)
 
       if [[ "$address" == "" && "$captaincore_master" != "" ]]; then
-        echo "Site $website not found. Attempting sync with master ($captaincore_master)."
+        echo "Site $site not found. Attempting sync with master ($captaincore_master)."
         captaincore utils sync-with-master
-        eval $(captaincore site get $website --bash)
+        eval $(captaincore site get $site --bash)
       fi
 
       if [[ "$protocol" == "sftp" ]]; then
@@ -101,7 +101,7 @@ ssh_wrapper () {
           commandprep="rm ~/.wp-cli/config.yml; cd sites/* &&"
 
           # WP Engine ssh address format
-          remoteserver="-oStrictHostKeyChecking=no $wpe_ssh_user+$website@$website.ssh.wpengine.net"
+          remoteserver="-oStrictHostKeyChecking=no $wpe_ssh_user+$site@$site.ssh.wpengine.net"
         else
           echo "$domain website host provider not recognized"
         fi
@@ -115,7 +115,7 @@ ssh_wrapper () {
               script=${root_path}lib/remote-scripts/$script
             fi
             # Pass all arguments found after --script=<script> argument into remote script
-            ssh $remoteserver "$commandprep bash -s --" < $script ${flags[@]}
+            ssh $remoteserver "$commandprep bash -s --" < $script --site=$site ${flags[@]}
           elif [ -n "$command" ]; then
             ssh $remoteserver "$commandprep $command"
           else
