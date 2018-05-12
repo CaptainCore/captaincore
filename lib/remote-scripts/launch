@@ -6,6 +6,9 @@
 #   `launch --domain=<domain>`
 #
 
+COLOR_RED="\033[31m"
+COLOR_NORMAL="\033[39m"
+
 # Loop through arguments and separate regular arguments from flags (--flag)
 for var in "$@"; do
   # If starts with "--" then assign it to a flag array
@@ -38,7 +41,23 @@ for i in "${!flags[@]}"; do
 
 done
 
-wp search-replace "${site}.wpengine.com" "$domain" --all-tables
-wp search-replace "${site}.kinsta.com" "$domain" --all-tables
-wp option update blog_public 1
-wp cache flush
+run_command() {
+
+	if [[ $site == "" ]]; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify --site=<site>."
+    exit 1
+  fi
+
+  if [[ $domain == "" ]]; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify --domain=<domain>."
+    exit 1
+  fi
+
+  wp search-replace "${site}.wpengine.com" "$domain" --all-tables --skip-plugins --skip-themes --report-changed-only
+  wp search-replace "${site}.kinsta.com" "$domain" --all-tables --skip-plugins --skip-themes --report-changed-only
+  wp option update blog_public 1
+  wp cache flush
+
+}
+
+run_command
