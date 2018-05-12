@@ -1,0 +1,89 @@
+#!/bin/bash
+
+#
+#   Copy a site (destination will be overriden)
+#
+#  `captaincore copy <site-source> <site-destination>`
+#
+#   [--email=<email>]
+#   Email on completion
+#
+#   [--skip-uploads]
+#   Skip uploads
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}config
+source ${root_path}/lib/arguments
+
+run_command() {
+
+  site_source=$1
+  site_destination=$2
+	site_source_data=$(captaincore site get $site_source)
+	site_destination_data=$(captaincore site get $site_source)
+  verify_source=$(echo $site_source_data | json length)
+  verify_destination=$(echo $site_destination_data | json length)
+	site_source_id=$( echo $site_source_data | json -a ID)
+	site_destination_id=$( echo $site_source_data | json -a ID)
+
+  if [[ $verify_source != "1" ]] || [[ $verify_destination != "1" ]]; then
+    if [[ $verify_source != "1" ]]; then
+      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Site $site_source not found."
+    fi
+    if [[ $verify_destination != "1" ]]; then
+      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Site $site_destination not found."
+    fi
+    exit 1
+  fi
+
+	echo "Copying $site_source ($( echo $site_source_data | json -a address)) to $site_destination ($( echo $site_destination_data | json -a address))"
+
+	site_source_url=$(captaincore ssh $site_source --command="wp option get home --skip-themes --skip-plugins")
+	site_destination_url=$(captaincore ssh $site_destination --command="wp option get home --skip-themes --skip-plugins")
+
+  # Unique timestamp
+  timestamp=$(date +%s)
+
+  # Snapshot with unique timestamp
+  if [[ "$skip_uploads" == "true" ]]; then
+    captaincore ssh $site_source --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/ --exclude=wp-content/uploads/\* --exclude=wp-content/updraft/\*"
+  else
+    captaincore ssh $site_source --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/"
+  fi
+
+  # Download production snapshot to staging site and import database
+  captaincore ssh $site_destination --command="wget --progress=bar:force:noscroll $site_source_url/wp-content_$timestamp.zip; mv wp-content_$timestamp.zip wp-content.zip; rm -rf wp-content/; unzip -o wp-content.zip; rm wp-content.zip; wp db import wp-content/mysql.sql --skip-plugins --skip-themes"
+
+  # Remove from production_to_staging_kinsta
+  captaincore ssh $site_source --command="rm -f wp-content_$timestamp.zip"
+
+  # Find and replace urls
+  echo "Update urls from $site_source_url to $site_destination_url"
+  captaincore ssh $site_destination --command="wp search-replace $site_source_url $site_destination_url --all-tables --skip-plugins --skip-themes --report-changed-only"
+
+	# Load vars
+	eval $(captaincore site get $site_destination --bash)
+
+	domain=$(echo $site_destination_data | json -a address)
+
+  # Post completion to CaptainCore API
+  if [[ $captaincore_dev == true ]]; then
+    curl -k --data-urlencode "command=copy" --data-urlencode "site_source_id=$site_source_id" --data-urlencode "site_destination_id=$site_destination_id" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+  else
+    curl --data-urlencode "command=copy" --data-urlencode "site_source_id=$site_source_id" --data-urlencode "site_destination_id=$site_destination_id" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+  fi
+
+}
+
+# Requires 2 arguments
+if [ ${#arguments[*]} -gt 1 ]; then
+  # Runs command
+  run_command ${arguments[*]}
+fi
+
+if [[ ${#arguments[*]} != 2 ]]; then
+  # Runs command
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Requires 2 sites <site-source> <site-destination>"
+fi
