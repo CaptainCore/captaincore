@@ -11,6 +11,8 @@ domain=${domain/http:\/\//}                 # removes https://
 domain=${domain/https:\/\//}                # removes http://
 domain=$( echo $domain | awk '{$1=$1};1' )  # Trims whitespace
 
-wp search-replace http://$domain https://www.$domain --all-tables --skip-plugins --skip-themes
-wp search-replace http://www.$domain https://www.$domain --all-tables --skip-plugins --skip-themes
+echo "Search and replace http://$domain to https://www.$domain"
+wp search-replace http://$domain https://www.$domain --all-tables --skip-plugins --skip-themes --report-changed-only
+echo "Search and replace http://www.$domain to https://www.$domain"
+wp search-replace http://www.$domain https://www.$domain --all-tables --skip-plugins --skip-themes --report-changed-only
 wp cache flush
