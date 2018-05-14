@@ -43,8 +43,8 @@ run_command() {
     cd $path/$site/quicksave/
     mkdir -p ~/Tmp/restore/$commit/
     git archive --format=zip $commit:plugins/$plugin/ > ~/Tmp/restore/$commit/$plugin.zip
-    captaincore upload $website ~/Tmp/restore/$commit/$plugin.zip --public
-    captaincore ssh $website --command="wp plugin install $plugin.zip --force --skip-plugins --skip-themes --skip-packages; rm $plugin.zip"
+    captaincore upload $site ~/Tmp/restore/$commit/$plugin.zip --public
+    captaincore ssh $site --command="wp plugin install $plugin.zip --force --skip-plugins --skip-themes --skip-packages; rm $plugin.zip"
     rm -rf ~/Tmp/restore/$commit/
 
   fi
@@ -55,8 +55,8 @@ run_command() {
     cd $path/$site/quicksave/
     mkdir -p ~/Tmp/restore/$commit/
     git archive --format=zip $commit:themes/$theme/ > ~/Tmp/restore/$commit/$theme.zip
-    captaincore upload $website ~/Tmp/restore/$commit/$theme.zip --public
-    captaincore ssh $website --command="wp theme install $theme.zip --force --skip-plugins --skip-themes --skip-packages; rm $theme.zip"
+    captaincore upload $site ~/Tmp/restore/$commit/$theme.zip --public
+    captaincore ssh $site --command="wp theme install $theme.zip --force --skip-plugins --skip-themes --skip-packages; rm $theme.zip"
     rm -rf ~/Tmp/restore/$commit/
 
   fi
@@ -67,8 +67,8 @@ run_command() {
     cd $path/$site/quicksave/
     mkdir -p ~/Tmp/restore/$commit/
     git archive --format=zip $commit: > ~/Tmp/restore/$commit/quicksave_${commit}_all.zip
-    captaincore upload $website ~/Tmp/restore/$commit/quicksave_${commit}_all.zip --public
-    echo '<?php $upgrading = time(); ?>' | captaincore ssh $website --command="cat > .maintenance; rm -rf wp-content/themes/; unzip -o quicksave_${commit}_all.zip 'themes/*' -d wp-content/; rm -rf wp-content/plugins/; unzip -o quicksave_${commit}_all.zip 'plugins/*' -d wp-content/; rm -rf wp-content/mu-plugins/; unzip -o quicksave_${commit}_all.zip 'mu-plugins/*' -d wp-content/; rm .maintenance"
+    captaincore upload $site ~/Tmp/restore/$commit/quicksave_${commit}_all.zip --public
+    echo '<?php $upgrading = time(); ?>' | captaincore ssh $site --command="cat > .maintenance; rm -rf wp-content/themes/; unzip -o quicksave_${commit}_all.zip 'themes/*' -d wp-content/; rm -rf wp-content/plugins/; unzip -o quicksave_${commit}_all.zip 'plugins/*' -d wp-content/; rm -rf wp-content/mu-plugins/; unzip -o quicksave_${commit}_all.zip 'mu-plugins/*' -d wp-content/; rm .maintenance"
     rm -rf ~/Tmp/restore/$commit/
 
   fi
