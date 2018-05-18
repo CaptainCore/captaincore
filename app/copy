@@ -48,13 +48,13 @@ run_command() {
 
   # Snapshot with unique timestamp
   if [[ "$skip_uploads" == "true" ]]; then
-    captaincore ssh $site_source --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/ --exclude=wp-content/uploads/\* --exclude=wp-content/updraft/\*"
+    captaincore ssh $site_source --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/ --exclude=wp-content/mu-plugins/\* --exclude=wp-content/uploads/\* --exclude=wp-content/updraft/\*"
   else
-    captaincore ssh $site_source --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/"
+    captaincore ssh $site_source --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/ --exclude=wp-content/mu-plugins/\*"
   fi
 
   # Download production snapshot to staging site and import database
-  captaincore ssh $site_destination --command="wget --progress=bar:force:noscroll $site_source_url/wp-content_$timestamp.zip; mv wp-content_$timestamp.zip wp-content.zip; rm -rf wp-content/; unzip -o wp-content.zip; rm wp-content.zip; wp db import wp-content/mysql.sql --skip-plugins --skip-themes"
+  captaincore ssh $site_destination --command="wget --progress=bar:force:noscroll $site_source_url/wp-content_$timestamp.zip; zip -ru wp-content_$timestamp.zip wp-content/mu-plugins/; mv wp-content_$timestamp.zip wp-content.zip; rm -rf wp-content/; unzip -o wp-content.zip; rm wp-content.zip; wp db import wp-content/mysql.sql --skip-plugins --skip-themes"
 
   # Remove from production_to_staging_kinsta
   captaincore ssh $site_source --command="rm -f wp-content_$timestamp.zip"
