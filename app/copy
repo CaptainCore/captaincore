@@ -26,7 +26,7 @@ run_command() {
   verify_source=$(echo $site_source_data | json length)
   verify_destination=$(echo $site_destination_data | json length)
 	site_source_id=$( echo $site_source_data | json -a ID)
-	site_destination_id=$( echo $site_source_data | json -a ID)
+	site_destination_id=$( echo $site_destination_data | json -a ID)
 
   if [[ $verify_source != "1" ]] || [[ $verify_destination != "1" ]]; then
     if [[ $verify_source != "1" ]]; then
