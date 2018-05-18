@@ -22,7 +22,7 @@ run_command() {
   site_source=$1
   site_destination=$2
 	site_source_data=$(captaincore site get $site_source)
-	site_destination_data=$(captaincore site get $site_source)
+	site_destination_data=$(captaincore site get $site_destination)
   verify_source=$(echo $site_source_data | json length)
   verify_destination=$(echo $site_destination_data | json length)
 	site_source_id=$( echo $site_source_data | json -a ID)
@@ -66,7 +66,7 @@ run_command() {
 	# Load vars
 	eval $(captaincore site get $site_destination --bash)
 
-	domain=$(echo $site_destination_data | json -a address)
+	domain=$(echo $site_source_data | json -a address)
 
   # Post completion to CaptainCore API
   if [[ $captaincore_dev == true ]]; then
