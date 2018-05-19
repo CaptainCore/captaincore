@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.2.2] - 2018-05-20
+### Added
+- Global argument `--mark-when-completed` which adds json output after command finishes. Example: `{"response":"Command finshed","timestamp":"2018-05-09-213121","runtime":"5"}`. Used to track background jobs initiated from CaptainCore GUI.
+- Command `captaincore copy <site-source> <site-destination> [--email=<email>]`
+- Arguments `--name` and `--link` to `captaincore site deactivate` for custom links on deactivated sites.
+
+### Changed
+- Improvements to `captaincore ssh`. When using a `--script` automatically pass the current site via `--site` reducing the need to manually pass that info along.
+- Improved display of deactivated sites.
+- Better output with remote script `launch`
+- Require arguments `--site` and `--domain` on remote script `launch`
+- Improved output of remote scripts `applyssl`, `applysslwithwww` and `launch` by only reporting changes.
+
+### Removed
+- Argument `--site` from remote script `launch`. This is now handled automatically.
+
 ## [0.2.1] - 2018-05-08
 ### Added
 - Command `captaincore update` for themes/plugin updates. Changes are logged in json files.
