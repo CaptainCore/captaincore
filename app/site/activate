@@ -1,32 +1,33 @@
 #!/bin/bash
 
-##
-##      Removes custom deactivate mu-plugin to batch of sites
-##
-##      Pass arguments from command line like this
-##      captaincore site activate <site> [<site>] [<site>]...
-##
+#
+#   Removes custom deactivate mu-plugin to batch of sites
+#
+#   Pass arguments from command line like this
+#   captaincore site activate <site> [<site>] [<site>]...s
+#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
-source $root_path/config
+source ${root_path}config
 
-# Paths
-plugin="anchorhost_deactivated"
-
-activate () {
+run_command() {
 for (( i = 1; i <= $#; i++ )); do
     var="$i"
-    website=${!var}
+    site=${!var}
 
     ### Load FTP credentials
-		eval $(captaincore site get $website --bash)
+		eval $(captaincore site get $site --bash)
 
     ### Credentials found, start the backup
     if ! [ -z "$domain" ]; then
 
+			if [[ "$homedir" != "" ]]; then
+				homedir="${homedir}/"
+			fi
+
       ### remove deactivation plugin
-      rclone delete sftp-$website:$homedir/wp-content/mu-plugins/$plugin.php
+      rclone delete sftp-$site:${homedir}wp-content/mu-plugins/captaincore_deactivated.php
       echo "activated $domain"
 
     fi
@@ -46,5 +47,5 @@ done
 ### See if any specific sites are selected
 if [ $# -gt 0 ]; then
     ## Run selected site(s)
-    activate $*
+    run_command $*
 fi
