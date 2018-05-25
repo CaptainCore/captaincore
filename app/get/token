@@ -37,7 +37,6 @@ if (isset($_GET['--file'])) {
 } else {
 
 	$file = $captaincore_path . "/" . $argv[1] . "/backup/wp-config.php";
-	echo $file;
 
 	if (file_exists($file)) {
 		$wp_config = file_get_contents($file);
