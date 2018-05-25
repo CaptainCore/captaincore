@@ -44,7 +44,7 @@ run_command() {
           rclone copy $path/$site/backup/.htaccess sftp-$site:${homedir}
 
           ### Generate token
-          token_key=$(captaincore get token $domain)
+          token_key=$(captaincore get token $site)
 
           ### Assign token and backup link
           curl --data-urlencode "git_commit=$git_hash" --data-urlencode "token=$token" --data-urlencode "token_key=$token_key" "$captaincore_api/$domain/"

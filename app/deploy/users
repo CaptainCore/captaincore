@@ -18,29 +18,29 @@ generate_admin () {
   for (( i = 1; i <= $#; i++ )); do
 
     var="$i"
-    website=${!var}
+    site=${!var}
 
-    if [[ $website == *"="* ]]; then
+    if [[ $site == *"="* ]]; then
       ## assume its a command and strip out the argument as the user group
-      group=${website##*=}
+      group=${site##*=}
     else
       ### Load FTP credentials
-      eval $(captaincore site get $website --bash)
+      eval $(captaincore site get $site --bash)
 
       ### Credentials found, start the backup
       if ! [ -z "$domain" ]; then
 
         ### Loads token
-        website_token=$(captaincore get token $domain)
+        website_token=$(captaincore get token $site)
 
         ### Generate JSON file based on preloaded list
-        captaincore users-json --token=$website_token --customers=$preloadusers --website=$website
+        captaincore users-json --token=$website_token --customers=$preloadusers --website=$site
 
         ### Generate mu-plugin file based on a predefined user group
-        captaincore users --site=$website --token=$website_token --customers=$preloadusers
+        captaincore users --site=$site --token=$website_token --customers=$preloadusers
 
         ### upload password plugin to mu-plugins
-        rclone copy ~/Tmp/anchor_load_$website.php sftp-$website:${homedir}wp-content/mu-plugins/
+        rclone copy ~/Tmp/anchor_load_$site.php sftp-$site:${homedir}wp-content/mu-plugins/
 
         ### Trigger website to load password
         wget --no-cache --spider $address/wp-admin/
@@ -48,7 +48,7 @@ generate_admin () {
         curl -Il $address/wp-login.php
 
         ## remove password plugin
-        rclone delete sftp-$website:${homedir}wp-content/mu-plugins/anchor_load_$website.php
+        rclone delete sftp-$site:${homedir}wp-content/mu-plugins/anchor_load_$site.php
 
       fi
 

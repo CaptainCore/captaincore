@@ -3,12 +3,28 @@
 
 //  Pass arguments from command line like this
 //  captaincore get token anchor.host
-//  captaincore get token file=~/Sites/anchor.dev/wp-config.php
+//  captaincore get token --file=/Sites/anchor.dev/wp-config.php
 
 parse_str(implode('&', array_slice($argv, 1)), $_GET);
 
-if (isset($_GET['file'])) {
-	$file = $_GET['file'];
+
+// Loads CLI configs
+$file = $_SERVER['HOME'] . '/.captaincore-cli/config';
+if ( file_exists( $file ) ) {
+
+	$file = file_get_contents( $file );
+	// Matches config keys and values
+	$pattern = '/(.+)=\"(.+)\"/';
+	preg_match_all( $pattern, $file, $matches );
+
+}
+
+// Fetches from CLI configs
+$captaincore_path_key = array_search( 'path', $matches[1] );
+$captaincore_path    = $matches[2][ $captaincore_path_key ];
+
+if (isset($_GET['--file'])) {
+	$file = $_GET['--file'];
 
 	if (file_exists($file)) {
 		$wp_config = file_get_contents($file);
@@ -20,7 +36,8 @@ if (isset($_GET['file'])) {
 	}
 } else {
 
-	$file = $_SERVER['HOME'] . "/Backup/" . $argv[1] . "/wp-config.php";
+	$file = $captaincore_path . "/" . $argv[1] . "/backup/wp-config.php";
+	echo $file;
 
 	if (file_exists($file)) {
 		$wp_config = file_get_contents($file);

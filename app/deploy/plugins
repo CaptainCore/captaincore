@@ -17,20 +17,20 @@ if [ $# -gt 0 ]; then
 	do
 
 		var="$i"
-		website=${!var}
+		site=${!var}
 
 		### Load FTP credentials
-		eval $(captaincore site get $website --bash)
+		eval $(captaincore site get $site --bash)
 
 		### Credentials found, start the backup
 		if ! [ -z "$domain" ]
 		then
 
 			### Install standard set of plugins via WP-CLI
-			captaincore ssh $website --command="wp plugin install akismet worker jetpack google-analytics-for-wordpress https://anchor.host/wp-content/plugins/gravityforms.zip https://anchor.host/wp-content/plugins/captaincore-client.zip --force"
+			captaincore ssh $site --command="wp plugin install akismet worker jetpack google-analytics-for-wordpress https://anchor.host/wp-content/plugins/gravityforms.zip https://anchor.host/wp-content/plugins/captaincore-client.zip --force"
 
 			### Loads token
-			website_token=$(captaincore get token $domain)
+			website_token=$(captaincore get token $site)
 
 			### Load dynamic list of plugins for site
 			plugins=`captaincore plugins-get --token=$website_token --customers=$preloadusers`
@@ -46,7 +46,7 @@ if [ $# -gt 0 ]; then
 			### If plugin urls exist then install
 			if [[ $plugin_urls != "" ]]; then
 				echo "Installing $plugins";
-				captaincore ssh $website --command="wp plugin install $plugin_urls"
+				captaincore ssh $site --command="wp plugin install $plugin_urls"
 			fi
 
 		fi
