@@ -65,6 +65,8 @@ ssh_wrapper () {
 
     for site in "$@"; do
 
+			name=$site
+
       if [[ "$site" == *"-staging" ]]; then
         site=${site//-staging/}
         use_staging=true
@@ -74,7 +76,7 @@ ssh_wrapper () {
       eval $(captaincore site get $site --bash)
 
       if [[ "$address" == "" && "$captaincore_master" != "" ]]; then
-        echo "Site $site not found. Attempting sync with master ($captaincore_master)."
+        echo "Site $name not found. Attempting sync with master ($captaincore_master)."
         captaincore utils sync-with-master
         eval $(captaincore site get $site --bash)
       fi
