@@ -9,6 +9,8 @@
 #
 #   [--theme=<theme>]
 #
+#   [--file=<file>]
+#
 #   [--all]
 #
 
@@ -60,6 +62,22 @@ run_command() {
     rm -rf ~/Tmp/restore/$commit/
 
   fi
+
+	if [[ "$file" != "" ]]; then
+
+		file_name=${file##*/}
+		file_path=${file//$file_name/}
+		echo "Rolling back file '$file'"
+		cd $path/$site/quicksave/
+		mkdir -p ~/Tmp/restore/$commit/$file_path
+		git show $commit:$file > ~/Tmp/restore/$commit/$file
+		if [[ "$homedir" != "" ]]; then
+			homedir="${homedir}/"
+		fi
+		rclone copyto ~/Tmp/restore/$commit/$file sftp-$site:wp-content/${homdir}$file
+		rm -rf ~/Tmp/restore/$commit/
+
+	fi
 
   if [[ "$all" == "true" ]]; then
 
