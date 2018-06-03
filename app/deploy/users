@@ -1,13 +1,13 @@
 #!/bin/bash
 
-##
-##      Deploys custom preloading users mu-plugin to batch of sites
-##
-##      Pass arguments from command line like this
-##      captaincore deploy users <site> [<site>] [<site>]
-##
-##      The users argument determines which json file to load user data from
-##
+#
+#   Deploys custom preloading users mu-plugin to batch of sites
+#
+#   Pass arguments from command line like this
+#   captaincore deploy users <site> [<site>] [<site>]
+#
+#   The users argument determines which json file to load user data from
+#
 
 
 # Load configuration
@@ -27,10 +27,10 @@ generate_admin () {
       ### Load FTP credentials
       eval $(captaincore site get $site --bash)
 
-			# Append trailing slash if homedir exist
-			if [ "$homedir" != "" ]; then
-				homedir="${homedir}/"
-			fi
+      # Append trailing slash if homedir exist
+      if [ "$homedir" != "" ]; then
+        homedir="${homedir}/"
+      fi
 
       ### Credentials found, start the backup
       if ! [ -z "$domain" ]; then
