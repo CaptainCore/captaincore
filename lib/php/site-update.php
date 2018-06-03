@@ -7,6 +7,14 @@ parse_str( implode( '&', $args ) );
 $password         = base64_decode( urldecode( $password ) );
 $staging_password = base64_decode( urldecode( $staging_password ) );
 
+// Detect if provider passed into <site>
+if ( strpos( $site, '@' ) !== false ) {
+	$split    = explode( '@', $site, 2 );
+	$site     = $split[0];
+	$provider = $split[1];
+}
+
+
 // Check if site
 $found_site = get_post( $id );
 
@@ -20,8 +28,9 @@ if ( $found_site ) {
 		'post_status' => 'publish',
 		'post_author' => '1',
 		'meta_input'  => array(
-			'site'                   => $site,
+			'site'                      => $site,
 			'address'                   => $address,
+			'provider'                  => $provider,
 			'username'                  => $username,
 			'password'                  => $password,
 			'protocol'                  => $protocol,
@@ -29,7 +38,7 @@ if ( $found_site ) {
 			'homedir'                   => $homedir,
 			'database_username'         => $database_username,
 			'database_password'         => $database_password,
-			'site_staging'           => $staging_site,
+			'site_staging'              => $staging_site,
 			'address_staging'           => $staging_address,
 			'username_staging'          => $staging_username,
 			'password_staging'          => $staging_password,
@@ -62,7 +71,8 @@ if ( $found_site ) {
 		'post_status' => 'publish',
 		'post_author' => '1',
 		'meta_input'  => array(
-			'site'                   => $site,
+			'site'                      => $site,
+			'provider'                  => $provider,
 			'address'                   => $address,
 			'username'                  => $username,
 			'password'                  => $password,
@@ -71,7 +81,7 @@ if ( $found_site ) {
 			'homedir'                   => $homedir,
 			'database_username'         => $database_username,
 			'database_password'         => $database_password,
-			'site_staging'           => $staging_site,
+			'site_staging'              => $staging_site,
 			'address_staging'           => $staging_address,
 			'username_staging'          => $staging_username,
 			'password_staging'          => $staging_password,

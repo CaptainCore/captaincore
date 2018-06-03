@@ -7,6 +7,13 @@ parse_str( implode( '&', $args ) );
 $password         = base64_decode( urldecode( $password ) );
 $password_staging = base64_decode( urldecode( $password_staging ) );
 
+// Detect if provider passed into <site>
+if ( strpos( $site, '@' ) !== false ) {
+	$split    = explode( '@', $site, 2 );
+	$site     = $split[0];
+	$provider = $split[1];
+}
+
 // Check if site
 $found_site = get_post( $id );
 
@@ -21,6 +28,7 @@ if ( $found_site ) {
 		'post_author' => '1',
 		'meta_input'  => array(
 			'site'                      => $site,
+			'provider'                  => $provider,
 			'address'                   => $address,
 			'username'                  => $username,
 			'password'                  => $password,
@@ -44,7 +52,6 @@ if ( $found_site ) {
 			's3bucket'                  => $s3bucket,
 			's3path '                   => $s3path,
 			'status'                    => 'active',
-
 		),
 	);
 
@@ -63,6 +70,7 @@ if ( $found_site ) {
 		'post_author' => '1',
 		'meta_input'  => array(
 			'site'                      => $site,
+			'provider'                  => $provider,
 			'address'                   => $address,
 			'username'                  => $username,
 			'password'                  => $password,
@@ -86,7 +94,6 @@ if ( $found_site ) {
 			's3bucket'                  => $s3bucket,
 			's3path '                   => $s3path,
 			'status'                    => 'active',
-
 		),
 	);
 
