@@ -34,7 +34,7 @@ generate_admin () {
         website_token=$(captaincore get token $site)
 
         ### Generate JSON file based on preloaded list
-        captaincore users-json --token=$website_token --customers=$preloadusers --website=$site
+        captaincore users-json --token=$website_token --customers=$preloadusers --site=$site
 
         ### Generate mu-plugin file based on a predefined user group
         captaincore users --site=$site --token=$website_token --customers=$preloadusers
