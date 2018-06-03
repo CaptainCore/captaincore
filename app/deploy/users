@@ -27,6 +27,11 @@ generate_admin () {
       ### Load FTP credentials
       eval $(captaincore site get $site --bash)
 
+			# Append trailing slash if homedir exist
+			if [ "$homedir" != "" ]; then
+				homedir="${homedir}/"
+			fi
+
       ### Credentials found, start the backup
       if ! [ -z "$domain" ]; then
 
