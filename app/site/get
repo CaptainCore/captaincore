@@ -35,8 +35,13 @@ run_command() {
   fi
 
   if [[ "$bash" == "true" ]]; then
+		# Output bash format
     wp eval-file ${root_path}lib/php/site-get.php site=$site provider=$provider format=bash field=$field
-  else
+  elif [[ "$field" != "" ]]; then
+		# Output raw format
+		wp eval-file ${root_path}lib/php/site-get.php site=$site provider=$provider format=json field=$field
+	else
+		# Output json format
     wp eval-file ${root_path}lib/php/site-get.php site=$site provider=$provider format=json field=$field | json
   fi
 
