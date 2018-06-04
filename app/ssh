@@ -1,20 +1,20 @@
 #!/bin/bash
 
-##
-##      SSH wrapper (Supports Kinsta and WP Engine)
-##
-##      Connects to individual site over SSH
-##      captaincore ssh <site>
-##
-##      Runs command over SSH
-##      captaincore ssh <site> --command=<commands>
-##
-##      Runs script over SSH
-##      captaincore ssh <site> --script=<name|script> [--<script-argument-name>=<script-argument-value>]
-##
-##      Runs command over SSH to mutiple sites
-##      captaincore ssh <site> <site> <site> --command=<commands>
-##
+#
+#   SSH wrapper (Supports Kinsta and WP Engine)
+#
+#   Connects to individual site over SSH
+#   captaincore ssh <site>
+#
+#   Runs command over SSH
+#   captaincore ssh <site> --command=<commands>
+#
+#   Runs script over SSH
+#   captaincore ssh <site> --script=<name|script> [--<script-argument-name>=<script-argument-value>]
+#
+#   Runs command over SSH to mutiple sites
+#   captaincore ssh <site> <site> <site> --command=<commands>
+#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
