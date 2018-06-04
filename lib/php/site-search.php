@@ -20,23 +20,33 @@ $arguments = array(
 			'value'   => '',
 			'compare' => '!=',
 		),
-		array(
-      'relation' => 'OR',
-			array(
-				'key'     => 'address', // name of custom field
-				'value'   => $search,
-				'compare' => 'like',
-			),
-			array(
-				'key'     => 'site', // name of custom field
-				'value'   => $search,
-				'compare' => 'like',
-			),
-		),
 	),
 );
 
-
+if( $search_field ) {
+	$arguments['meta_query'][] = 	array(
+		'relation' => 'OR',
+			array(
+				'key'     => $search_field, // name of custom field
+				'value'   => $search,
+				'compare' => 'like',
+			),
+		);
+} else {
+	$arguments['meta_query'][] = array(
+		'relation' => 'OR',
+		array(
+			'key'     => 'address', // name of custom field
+			'value'   => $search,
+			'compare' => 'like',
+		),
+		array(
+			'key'     => 'site', // name of custom field
+			'value'   => $search,
+			'compare' => 'like',
+		),
+	);
+}
 
 $websites = get_posts( $arguments );
 
