@@ -33,11 +33,16 @@ run_command () {
         if [ "$homedir" != "" ]; then
           homedir="${homedir}/"
         fi
-
-				size=$(rclone size sftp-$site:$homedir --json)
-				echo "{\"name\":\"$site\","${size:1:${#size}}
-				size=$(rclone size sftp-$site-staging:$homedir --json)
-				echo "{\"name\":\"$site-staging\","${size:1:${#size}}
+				json="["
+				size_production=$(rclone size sftp-$site:$homedir --json)
+				size_staging=$(rclone size sftp-$site-staging:$homedir --json)
+				json+="{\"name\":\"$site\","${size_production:1:${#size_production}}
+				if [[ "$size_staging" != "" ]]; then
+					json+=","
+				fi
+				json+="{\"name\":\"$site-staging\","${size_staging:1:${#size_staging}}
+				json+="]"
+				echo $json
       fi
 
       ### Clear out variables
