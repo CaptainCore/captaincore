@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.3] - 2018-06-03
+### Added
+- Command `captaincore size`. Calculates size of one or more sites.
+- Argument `--file=<file>` to `captaincore rollback`. Handles rollback of individual Quicksave file.
+- Arguments `[--field=<field>]`and `[--search-field=<field>]` to `captaincore site search`
+
+### Changed
+- Updated `<site>` format to support a host provider `<site>@<provider>`. The classic `<site>` will continue to work however won't be very particular if multiple site names exist. This should make dealing with multiple host providers enjoyable. Here's an example coping a site between providers `captaincore copy anchorhost@wpengine anchorhost@kinsta`.
+- Support for new provider field when running `captaincore site add` or `captaincore site update`
+- Improvements for `captaincore site get`. Moved complex logic into PHP needed for supporting new `<site>` with providers.
+- Improvements to Readme
+- Improvements to `captaincore site search`. Will now return partial domain and address matches.
+- Fixed name output in debug message.
+- MacOS compatibility fix for `captaincore quicksave`
+
+### Removed
+- Housecleaning commands.
+
 ## [0.2.2] - 2018-05-20
 ### Added
 - Global argument `--mark-when-completed` which adds json output after command finishes. Example: `{"response":"Command finshed","timestamp":"2018-05-09-213121","runtime":"5"}`. Used to track background jobs initiated from CaptainCore GUI.
