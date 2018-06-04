@@ -1,45 +1,20 @@
 #!/bin/bash
 
-##
-##		Search for site name by domain name
-##
-## 		Pass arguments from command line like this
-##		<search>
-##
-##		Example
-##		captaincore site search anchor.host
-##
+#
+#		Search for site name by domain name
+#
+#		<search>
+#
+#		Example
+#		captaincore site search anchor.host
+#
 
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}config
+source ${root_path}/lib/arguments
 
-# Loop through arguments and separate regular arguments from flags (--flag)
-for var in "$@"; do
-	# If starts with "--" then assign it to a flag array
-    if [[ $var == --* ]]
-    then
-    	count=1+${#flags[*]}
-    	flags[$count]=$var
-    # Else assign to an arguments array
-    else
-    	count=1+${#arguments[*]}
-    	arguments[$count]=$var
-    fi
-done
+cd $root_path/data
 
-# Loop through flags and assign to variable. A flag "--email=austin@anchor.host" becomes $email
-for i in "${!flags[@]}"; do
-
-	# removes leading "--" to safely pass onto `wp eval-file` https://github.com/wp-cli/wp-cli/issues/1030
-	flags[$i]=`echo ${flags[$i]} | cut -c 3-`
-
-done
-
-if [[ "$captaincore_dev" == "true" ]]; then
-	cd ~/Sites/dev
-else
-	cd $root_path/data
-fi
-
-wp eval-file ${root_path}lib/php/site-search.php search=$1
+wp eval-file ${root_path}lib/php/site-search.php search=$1 field=$field

@@ -7,7 +7,7 @@ $arguments = array(
 	'post_type'      => 'captcore_website',
 	'posts_per_page' => '-1',
 	'fields'         => 'ids',
-	's'              => $search,
+	'meta_or_title'  => $search,
 	'meta_query'     => array(
 		'relation' => 'and',
 		array(
@@ -20,8 +20,23 @@ $arguments = array(
 			'value'   => '',
 			'compare' => '!=',
 		),
+		array(
+      'relation' => 'OR',
+			array(
+				'key'     => 'address', // name of custom field
+				'value'   => $search,
+				'compare' => 'like',
+			),
+			array(
+				'key'     => 'site', // name of custom field
+				'value'   => $search,
+				'compare' => 'like',
+			),
+		),
 	),
 );
+
+
 
 $websites = get_posts( $arguments );
 
@@ -29,7 +44,13 @@ $results = array();
 
 foreach ( $websites as $website_id ) {
 
-	$site = get_post_meta( $website_id, 'site', true );
+	if ($field && $field == "domain") {
+		$site = get_the_title( $website_id );
+	} elseif ($field) {
+		$site = get_post_meta( $website_id, $field, true );
+	} else {
+		$site = get_post_meta( $website_id, 'site', true );
+	}
 	$results[] = $site;
 
 }

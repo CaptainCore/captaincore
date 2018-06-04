@@ -42,6 +42,34 @@ wp option update blog_public 0
 wp scaffold _s captaincore-cli --theme_name="CaptainCore CLI" --author="CaptainCore" --author_uri=https://captaincore.io --activate
 wp scaffold post-type captcore_website --label=Website --textdomain=captaincore --theme=captaincore-cli
 echo "require get_template_directory() . '/post-types/captcore_website.php';" >> wp-content/themes/captaincore-cli/functions.php
+
+# Append custom search filter
+cat << "EOF" >> wp-content/themes/captaincore-cli/functions.php
+
+add_action( 'pre_get_posts', function( $q ) {
+	if ( $title = $q->get( 'meta_or_title' ) ) {
+		add_filter(	'get_meta_sql', function( $sql ) use ( $title ) {
+			global $wpdb;
+
+			// Only run once:
+			static $nr = 0;
+			if ( 0 != $nr++ ) {
+				return $sql;
+			}
+
+			// Modified WHERE
+			$sql['where'] = sprintf(
+				' AND ( %s OR %s ) ',
+				$wpdb->prepare( "{$wpdb->posts}.post_title like '%%%s%%'", $title ),
+				mb_substr( $sql['where'], 5, mb_strlen( $sql['where'] ) )
+			);
+
+			return $sql;
+		});
+	}
+});
+
+EOF
 wp plugin install wp-force-login --activate
 
 ## DB import
