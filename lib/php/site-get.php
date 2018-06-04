@@ -62,7 +62,15 @@ foreach ( $site_ids as $site_id ) {
 
 }
 if ( $field ) {
-	$json = '"' . json_decode( $json )[0]->$field . '"';
+	if ( $field == 'ID' ) {
+		$value = get_post_meta( $site_id, $f, true );
+		$json = $site_id;
+	} elseif ( $field == 'domain' ) {
+		$json = $title;
+	} else {
+		$value = get_post_meta( $site_id, $field, true );
+		$json = $value;
+	}
 }
 
 if ( $format == 'bash' ) {
