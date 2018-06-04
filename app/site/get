@@ -28,19 +28,16 @@ run_command() {
     return 1
   fi
 
-  if [[ "$bash" == "true" ]]; then
-    website_id=$(captaincore site get $site --field=ID)
-    wp eval-file ${root_path}lib/php/site-get.php $website_id
-    return 1
+  # Detect if provider passed into <site>
+  if [[ "$site" == *"@"* ]]; then
+    provider=$(echo $site | awk -F@ '{print $2}')
+    site=$(echo $site | awk -F@ '{print $1}')
   fi
 
-  if [[ "$field" == "" ]]; then
-    declare -a rows
-    wp post list --post_type=captcore_website --posts_per_page=1 --meta_key=site --meta_value="$site" --meta_compare="=" --fields="ID,site,address,username,password,protocol,port,site_staging,address_staging,username_staging,password_staging,protocol_staging,port_staging" --format=json | json
-  elif [[ "$field" == "domain" ]]; then
-    wp post list --post_type=captcore_website --posts_per_page=1 --meta_key=site --meta_value="$site" --meta_compare="=" --fields=post_title --format=json | json -a post_title
+  if [[ "$bash" == "true" ]]; then
+    wp eval-file ${root_path}lib/php/site-get.php site=$site provider=$provider format=bash field=$field
   else
-    wp post list --post_type=captcore_website --posts_per_page=1 --meta_key=site --meta_value="$site" --meta_compare="=" --fields=$field --format=json | json -a $field
+    wp eval-file ${root_path}lib/php/site-get.php site=$site provider=$provider format=json field=$field | json
   fi
 
 }
