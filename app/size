@@ -1,0 +1,76 @@
+#!/bin/bash
+
+#
+#   Calculates size of one or more sites.
+#
+#   `captaincore size`
+#
+#   [<site>...]
+#   One or more sites to size.
+#
+#   [--all]
+#   Size all sites.
+#
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}config
+source ${root_path}/lib/arguments
+
+run_command () {
+  if [ $# -gt 0 ]; then
+
+    INDEX=1
+    for site in "$@"; do
+
+      ### Load FTP credentials
+      eval $(captaincore site get $site --bash)
+
+      ### Credentials found, start the backup
+      if ! [ -z "$domain" ]; then
+
+        if [ "$homedir" != "" ]; then
+          homedir="${homedir}/"
+        fi
+
+				size=$(rclone size sftp-$site:$homedir --json)
+				echo "{\"name\":\"$site\","${size:1:${#size}}
+				size=$(rclone size sftp-$site-staging:$homedir --json)
+				echo "{\"name\":\"$site-staging\","${size:1:${#size}}
+      fi
+
+      ### Clear out variables
+      domain=''
+      username=''
+      password=''
+      address=''
+      protocol=''
+      port=''
+      homedir=''
+      remoteserver=''
+      s3bucket=''
+      s3path=''
+      subsite=''
+
+      let INDEX=${INDEX}+1
+    done
+
+  fi
+}
+
+# See if any sites are specifed
+if [ ${#arguments[*]} -gt 0 ]; then
+  # Runs on specifed sites
+  run_command ${arguments[*]}
+fi
+
+if [[ $all == "true" ]]; then
+  # Runs on all sites
+	run_command ${websites[@]}
+fi
+
+# Error if no sites specifed
+if [[ $all != "true" ]] && [ ${#arguments[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
+fi
