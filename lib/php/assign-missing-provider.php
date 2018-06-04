@@ -9,19 +9,19 @@ $websites = get_posts( $arguments );
 
 foreach ( $websites as $website ) {
 
-	$provider = get_field( 'provider', $website->ID );
-	$address  = get_field( 'address', $website->ID );
+	$provider = get_post_meta( $website->ID, 'provider', true );
+	$address  = get_post_meta( $website->ID, 'address', true );
 
 	if ( $provider == '' ) {
 
 		if ( strpos( $address, '.kinsta.com' ) !== false ) {
 			echo 'Assigning kinsta to provider for ' . get_the_title( $website->ID ) . "\n";
-			update_field( 'provider', 'kinsta', $website->ID );
+			update_post_meta( $website->ID, 'provider', 'kinsta' );
 		}
 
 		if ( strpos( $address, '.wpengine.com' ) !== false ) {
 			echo 'Assigning wpengine to provider for ' . get_the_title( $website->ID ) . "\n";
-			update_field( 'provider', 'wpengine', $website->ID );
+			update_post_meta( $website->ID, 'provider', 'wpengine' );
 		}
 	}
 }
