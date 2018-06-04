@@ -143,9 +143,18 @@ run_command() {
 		# Save git hash
 		git_hash=`git log -n 1 --pretty=format:"%H"`  #To get only hash value of commit
 		git_status=`git show $git_hash --shortstat --format=`
-		git_status=`echo -e "$git_status" | sed -e 's/^[[:space:]]*//' | base64 -w 0`
-		plugin_data=`echo -e $plugin_data | base64 -w 0`
-		theme_data=`echo -e $theme_data | base64 -w 0`
+		if [[ "$OSTYPE" == "linux-gnu" ]]; then
+			# Linux - Base64 disable line wrapping
+			git_status=`echo -e "$git_status" | sed -e 's/^[[:space:]]*//' | base64 -w 0`
+			plugin_data=`echo -e $plugin_data | base64 -w 0`
+			theme_data=`echo -e $theme_data | base64 -w 0`
+		elif [[ "$OSTYPE" == "darwin"* ]]; then
+			# MacOS - Base64
+			git_status=`echo -e "$git_status" | sed -e 's/^[[:space:]]*//' | base64`
+			plugin_data=`echo -e $plugin_data | base64`
+			theme_data=`echo -e $theme_data | base64`
+		fi
+
 		echo "Git hash $git_hash"
 
 		if [[ "$debug" == "true" ]]; then
