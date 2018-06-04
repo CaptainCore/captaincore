@@ -46,6 +46,7 @@ echo "require get_template_directory() . '/post-types/captcore_website.php';" >>
 # Append custom search filter
 cat << "EOF" >> wp-content/themes/captaincore-cli/functions.php
 
+// Append custom search filter when using `meta_or_title` in query. Credit to https://wordpress.stackexchange.com/questions/78649/using-meta-query-meta-query-with-a-search-query-s
 add_action( 'pre_get_posts', function( $q ) {
 	if ( $title = $q->get( 'meta_or_title' ) ) {
 		add_filter(	'get_meta_sql', function( $sql ) use ( $title ) {
