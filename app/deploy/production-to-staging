@@ -13,8 +13,6 @@ source ${root_path}/lib/arguments
 
 run_command() {
 
-  if [ $# -gt 0 ]; then
-
     echo "Deploying $# staging sites"
     INDEX=1
     for site in "$@"; do
@@ -82,7 +80,6 @@ run_command() {
       let INDEX=${INDEX}+1
     done
 
-  fi
 }
 
 ### See if any specific sites are selected
