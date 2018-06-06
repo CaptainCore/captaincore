@@ -38,4 +38,4 @@ for i in "${!flags[@]}"; do
 
 done
 
-echo  "${verifycode}.  Please add ${email} to GA account ${uacode} with \"Manage Users and Edit\" permissions - $(date +%Y-%m-%d)." > analytics.txt
+echo  "${verifycode}.  Please add ${email} to GA account ${uacode} with \"Manage Users and Edit\" permissions - date $(date +%Y-%m-%d)." > analytics.txt
