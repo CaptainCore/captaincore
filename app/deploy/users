@@ -9,7 +9,6 @@
 #   The users argument determines which json file to load user data from
 #
 
-
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source $root_path/config

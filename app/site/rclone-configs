@@ -1,41 +1,39 @@
 #!/bin/bash
 
-##
-##		Generates rclone configs based on site credentials
-##
-## 		Pass arguments from command line like this
-##		captaincore site rclone-configs <site>
-##
+#
+#   Generates rclone configs based on site credentials
+#
+#   `captaincore site rclone-configs <site>`
+#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source $root_path/config
 
-website=$1
+site=$1
 
-### Load FTP credentials
-eval $(captaincore site get $website --bash)
+# Load site vars
+eval $(captaincore site get $site --bash)
 
-### Credentials found, start the backup
-if ! [ -z "$domain" ]
-then
+# Credentials found, proceed
+if ! [ -z "$domain" ]; then
 
 	# Remove if already found
-	rclone config delete sftp-$website
-	rclone config delete sftp-$website-staging
+	rclone config delete sftp-$site
+	rclone config delete sftp-$site-staging
 
-	echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $website"
+	echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $site"
 
-	password=$(captaincore site get $website --field=password)
-	password_staging=$(captaincore site get $website --field=password_staging)
+	password=$(captaincore site get $site --field=password)
+	password_staging=$(captaincore site get $site --field=password_staging)
 
 	# Add new WordPress site to Rclone
 	rclone_pass=$(rclone obscure $password)
-	rclone config create sftp-$website $protocol host $address user $username port $port pass $rclone_pass
+	rclone config create sftp-$site $protocol host $address user $username port $port pass $rclone_pass
 
 	if [[ "$password_staging" != "" ]]; then
 		rclone_pass_staging=$(rclone obscure $password_staging)
-		rclone config create sftp-$website-staging $protocol_staging host $address_staging user $username_staging port $port_staging pass $rclone_pass_staging
+		rclone config create sftp-$site-staging $protocol_staging host $address_staging user $username_staging port $port_staging pass $rclone_pass_staging
 	fi
 
 fi

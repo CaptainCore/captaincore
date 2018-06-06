@@ -1,14 +1,13 @@
 #! /usr/bin/env php
 <?php
-##
-##		Loads custom configurations into wp-config.php and .htaccess
-##
-## 		Pass arguments from command line like this
-##		captaincore get configs --wpconfig=~/Documents/Scripts/wp-config.php --htaccess=~/Documents/Scripts/.htaccess --domain=<domain>
-##
-##		assign command line arguments to variables
-## 		wpconfig=~/Documents/Scripts/wp-config.php becomes $_GET['wpconfig']
-##
+#
+#   Loads custom configurations into wp-config.php and .htaccess
+#
+#   captaincore get configs --wpconfig=~/Documents/Scripts/wp-config.php --htaccess=~/Documents/Scripts/.htaccess --domain=<domain>
+#
+#   assign command line arguments to variables
+#   wpconfig=~/Documents/Scripts/wp-config.php becomes $_GET['wpconfig']
+#
 
 if (isset($argv)) {
 	parse_str(implode('&', array_slice($argv, 1)), $_GET);

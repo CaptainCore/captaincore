@@ -3,15 +3,22 @@
 #
 #   Deploys custom deactivate mu-plugin to batch of sites
 #
-#   Pass arguments from command line like this
-#   captaincore site deactivate <site> [<site>] [<site>]... --name=<business-name> --link=<business-link>
+#   `captaincore site deactivate`
 #
-
+#    [<site>...]
+#    One or more sites to deactivate.
+#
+#    [--name=<business-name>]
+#    Custom name to display on deactivate page.
+#
+#    [--link=<business-link>]
+#    Custom link to display on deactivate page.
+#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source ${root_path}config
-source ${root_path}/lib/arguments
+source ${root_path}lib/arguments
 
 # Unique timestamp
 timestamp=$(date +%s)

@@ -97,7 +97,6 @@ if ( $found_site ) {
 		),
 	);
 
-
 	wp_insert_post( $my_post, true );
 	echo "Site added\n";
 	if ( is_wp_error( $result ) ) {
