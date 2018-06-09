@@ -14,5 +14,10 @@ root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_
 source ${root_path}config
 source ${root_path}lib/arguments
 
+# Remove leading "--" from flags
+for i in "${!flags[@]}"; do
+	flags[$i]=`echo ${flags[$i]} | cut -c 3-`
+done
+
 cd ${root_path}data
 wp eval-file ../lib/php/site-add.php site=$1 ${flags[@]}
