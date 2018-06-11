@@ -31,6 +31,11 @@ run_command() {
           echo "FTP response: $site ($ftp_output)"
         else
 
+          # Append trailing slash if homedir exist
+          if [ "$homedir" != "" ]; then
+            homedir="${homedir}/"
+          fi
+
           ### Pull down wp-config.php and .htaccess
           rclone copy sftp-$site:${homedir}wp-config.php $path/$site/backup/
           rclone copy sftp-$site:${homedir}.htaccess $path/$site/backup/

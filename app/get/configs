@@ -13,7 +13,7 @@ if (isset($argv)) {
 	parse_str(implode('&', array_slice($argv, 1)), $_GET);
 }
 
-$domain = $_GET['--domain']
+$domain = $_GET['--domain'];
 $wpconfig = $_GET['--wpconfig'];
 if(isset($_GET['--htaccess'])) {
 	$htaccess = $_GET['--htaccess'];
