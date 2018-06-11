@@ -21,7 +21,7 @@
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source ${root_path}config
-source ${root_path}/lib/arguments
+source ${root_path}lib/arguments
 
 run_command() {
 
@@ -48,15 +48,15 @@ run_command() {
 
 	INDEX=0
 
-	for site in "$@"; do
+	for website in "$@"; do
 
 		let INDEX=${INDEX}+1
 
 		### Load site details
-		eval $(captaincore site get $site --bash)
+		eval $(captaincore site get $website --bash)
 
 		## Return error if domain not found
-		if [[ "$domain" == "" ]]; then
+		if [[ "$domain" == "" ]] || [[ "$site" == "" ]]; then
 			echo "Can't locate website for $site"
 			continue
 		fi
