@@ -181,6 +181,12 @@ run_command() {
 		wp post meta update $site_id core ${response_parsed[2]}
 		wp post meta update $site_id home_url ${response_parsed[3]}
 
+		# Clear out variables
+		site=''
+		domain=''
+		homedir=''
+		subsite=''
+
 	done
 
 	### End logging
