@@ -186,6 +186,8 @@ run_command() {
 		domain=''
 		homedir=''
 		subsite=''
+		response=''
+		response_parsed=''
 
 	done
 
