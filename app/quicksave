@@ -141,7 +141,8 @@ run_command() {
 		git_commit=`git commit -m "quicksave on $timedate"`
 
 		# Save git hash
-		git_hash=`git log -n 1 --pretty=format:"%H"`  #To get only hash value of commit
+		git_hash=`git log -n 1 --pretty=format:"%H"`  # Get hash of last commit (commit hash)
+		git_date=`git log -n 1 --pretty=format:"%ct"` # Get date of last commit (UNIX timestamp)
 		git_status=`git show $git_hash --shortstat --format=`
 		if [[ "$OSTYPE" == "linux-gnu" ]]; then
 			# Linux - Base64 disable line wrapping
@@ -164,9 +165,9 @@ run_command() {
 
 		### Adds quicksave to CaptainCore Plugin
 		if [[ "$captaincore_dev" == true ]]; then
-			curl -k --data-urlencode "home_url=$home_url" --data-urlencode "git_commit=$git_hash" --data-urlencode "git_status=$git_status" --data-urlencode "core=$core_version" --data-urlencode "plugins=$plugin_data" --data-urlencode "themes=$theme_data" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+			curl -k --data-urlencode "home_url=$home_url" --data-urlencode "date=$git_date" --data-urlencode "git_commit=$git_hash" --data-urlencode "git_status=$git_status" --data-urlencode "core=$core_version" --data-urlencode "plugins=$plugin_data" --data-urlencode "themes=$theme_data" --data-urlencode "token=$token" "$captaincore_api/$domain/"
 		else
-			curl --data-urlencode "home_url=$home_url" --data-urlencode "git_commit=$git_hash" --data-urlencode "git_status=$git_status" --data-urlencode "core=$core_version" --data-urlencode "plugins=$plugin_data" --data-urlencode "themes=$theme_data" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+			curl --data-urlencode "home_url=$home_url" --data-urlencode "date=$git_date" --data-urlencode "git_commit=$git_hash" --data-urlencode "git_status=$git_status" --data-urlencode "core=$core_version" --data-urlencode "plugins=$plugin_data" --data-urlencode "themes=$theme_data" --data-urlencode "token=$token" "$captaincore_api/$domain/"
 		fi
 
 		## Generates snapshot archive
