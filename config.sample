@@ -13,6 +13,7 @@ path_tmp="/Users/name/Tmp"                 # Tmp Folder
 path_scripts="/Users/name/Scripts"         # Scripts Folder
 rclone_archive="Dropbox:Backup/Archive/"   # Rclone remote for archive
 rclone_backup="B2:Backup/Sites"            # Rclone remote for backups
+rclone_logs="Dropbox:Backup/Logs"          # Rclone remote for backup logs
 rclone_snapshot="B2:Backup/Snapshots"      # Rclone remote for snapshots
 
 ## Vars
@@ -21,5 +22,6 @@ rclone_snapshot="B2:Backup/Snapshots"      # Rclone remote for snapshots
 # captaincore_master_port="12345"                  # LOCAL USE - Defines master port
 captaincore_api="https://mysite.com/captcore-api"  # Defines CaptainCore API
 captaincore_wordpress_site="https://mysite.com"    # Defines CaptainCore Site
+captaincore_admin_email="notify@mysite.com"        # Defines CaptainCore admin email notify
 websites=$(captaincore site list)                  # Site names
 wpe_ssh_user=email@captaincore.io                  # WP Engine SSH username
