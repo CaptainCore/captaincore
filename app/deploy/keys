@@ -1,11 +1,10 @@
 #!/bin/bash
 
-##
-##      Preloading SSH Keys (Kinsta Only)
-##
-##      Pass arguments from command line like this
-##      captaincore deploy keys <site>
-##
+#
+#   Preloading SSH Keys (Kinsta Only)
+#
+#   `captaincore deploy keys <site>`
+#
 
 site=$1
 site_address=`captaincore site get $site --field="address"`
