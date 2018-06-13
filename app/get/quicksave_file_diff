@@ -1,14 +1,12 @@
 #!/bin/bash
 
-##
-##		Grabs the Quicksave git commit status log
-##
-## 		Pass arguments from command line like this
-##		captaincore get quicksave_file_diff <site> <git_hash_current> <git_hash_previous> <file>
-##
-##		Example
-##		captaincore get quicksave_file_diff anchorhost 4c43c16ae40f384e93573133282bb86a46d040fd a5ee8924e334debaba06de6f365a40caffa8586c versions/plugins.json
-##
+#
+#   Grabs the Quicksave git commit status log
+#
+#   `captaincore get quicksave_file_diff <site> <git_hash_current> <git_hash_previous> <file>`
+#
+#		Example: captaincore get quicksave_file_diff sitename 4c43c16ae40f384e93573133282bb86a46d040fd a5ee8924e334debaba06de6f365a40caffa8586c versions/plugins.json
+#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
@@ -26,7 +24,7 @@ if [ $# -gt 0 ]; then
 
 		eval $(captaincore site get $site --bash)
 
-    ## Return error if domain not found
+    # Return error if domain not found
     if [[ "$domain" == "" ]]; then
       echo "Can't locate website for site $site"
       return 1

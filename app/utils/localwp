@@ -12,6 +12,6 @@ valet secure
 wp core download
 wp config create --dbname=$1 --dbuser=root --dbpass=$local_wp_db_pw
 wp db create
-wp core install --url=https://$1.anchor --admin_user=anchorhost --admin_email=support@anchor.host --title=$1
+wp core install --url=https://$1.test --admin_user=$captaincore_admin_user --admin_email=$captaincore_admin_email --title=$1
 wp option update timezone_string America/New_York
 open $(wp option get home)/wp-login.php

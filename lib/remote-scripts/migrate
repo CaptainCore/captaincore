@@ -24,7 +24,7 @@ for var in "$@"; do
 
 done
 
-# Loop through flags and assign to variable. A flag "--email=austin@anchor.host" becomes $email
+# Loop through flags and assign to variable. A flag "--email=my-email@my-site.com" becomes $email
 for i in "${!flags[@]}"; do
 
   # replace "-" with "_" and remove leading "--"

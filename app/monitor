@@ -46,7 +46,7 @@ if [ $# -gt 0 ]; then
 
 		#	#send email
 		# output "Response code $response for $address" per each item in array
-		#	#echo "$output" | mutt -e 'set content_type=text/html' -s "Monitor: 3 errors" -- support@anchor.host
+		#	#echo "$output" | mutt -e 'set content_type=text/html' -s "Monitor: 3 errors" -- $captaincore_admin_email
 
 	done
 

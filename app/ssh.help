@@ -1,7 +1,7 @@
 Kinsta and WP Engine SSH wrapper
 
 Connects to individual site over SSH
-captaincore ssh anchorhost1
+captaincore ssh sitename
 
 Runs command over SSH
-captaincore ssh anchorhost1 "wp plugins list"
+captaincore ssh sitename "wp plugins list"
