@@ -18,12 +18,12 @@ run_command() {
     INDEX=1
     for website in "$@"; do
 
-      ### Load FTP credentials
+      # Load site configs
       eval $(captaincore site get $website --bash)
 
       echo "Processing $site (${INDEX}/$#)"
 
-      ### Credentials found
+      # Site found
       if ! [ -z "$domain" ]; then
 
         # Only move if destination does not exists

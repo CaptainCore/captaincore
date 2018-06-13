@@ -32,10 +32,10 @@ run_command () {
     INDEX=1
     for site in "$@"; do
 
-      ### Load FTP credentials
+      # Load site configs
       eval $(captaincore site get $site --bash)
 
-      ### Credentials found, start the backup
+      # Site found, start the backup
       if ! [ -z "$domain" ]; then
 
         # captures FTP errors in $ftp_output and file listing to log file

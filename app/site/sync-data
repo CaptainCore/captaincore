@@ -11,7 +11,7 @@
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
-source $root_path/config
+source ${root_path}config
 
 # Loop through arguments and separate regular arguments from flags (--flag)
 for var in "$@"
@@ -48,10 +48,10 @@ if [ $# -gt 0 ]; then
 	INDEX=1
 	for website in "$@"; do
 
-		### Load FTP credentials
+		# Load site configs
 		eval $(captaincore site get $website --bash)
 
-		### Credentials found, start the backup
+		# Site found, start the backup
 		if ! [ -z "$domain" ]; then
 
 			echo "${INDEX}/$# - $domain"
@@ -64,7 +64,7 @@ if [ $# -gt 0 ]; then
 
 				## Store updated info in WordPress datastore
 				site_id=$(captaincore site get $website --field=ID)
-				cd $root_path/data
+				cd ${root_path}data
 				wp post meta update $site_id plugins "${response_parsed[0]}"
 				wp post meta update $site_id themes "${response_parsed[1]}"
 				wp post meta update $site_id core ${response_parsed[2]}

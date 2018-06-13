@@ -8,7 +8,7 @@
 ##
 
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
-source $root_path/config
+source ${root_path}config
 
 remote_site_ids=( $(ssh $captaincore_master -p $captaincore_master_port "captaincore site list --field=ids") )
 local_site_ids=( $(captaincore site list --field=ids) )

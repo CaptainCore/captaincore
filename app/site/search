@@ -16,8 +16,8 @@
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source ${root_path}config
-source ${root_path}/lib/arguments
+source ${root_path}lib/arguments
 
-cd $root_path/data
+cd ${root_path}data
 
 wp eval-file ${root_path}lib/php/site-search.php search=$1 field=$field search-field=$search_field

@@ -9,7 +9,7 @@
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
-source $root_path/config
+source ${root_path}config
 
 if [ $# -gt 0 ]; then
 	echo "Loading specific sites"
@@ -19,10 +19,10 @@ if [ $# -gt 0 ]; then
 		var="$i"
 		site=${!var}
 
-		### Load FTP credentials
+		# Load site configs
 		eval $(captaincore site get $site --bash)
 
-		### Credentials found, start the backup
+		# Site found, start the backup
 		if ! [ -z "$domain" ]
 		then
 

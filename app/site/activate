@@ -16,10 +16,10 @@ for (( i = 1; i <= $#; i++ )); do
     var="$i"
     site=${!var}
 
-    ### Load FTP credentials
+    # Load site configs
 		eval $(captaincore site get $site --bash)
 
-    ### Credentials found, start the backup
+    # Site found, start the backup
     if ! [ -z "$domain" ]; then
 
 			if [[ "$homedir" != "" ]]; then

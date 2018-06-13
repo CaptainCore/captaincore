@@ -18,7 +18,7 @@
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
-source $root_path/config
+source ${root_path}config
 
 # Loop through arguments and separate regular arguments from flags (--flag)
 all_arguments=( $@ )
@@ -72,7 +72,7 @@ ssh_wrapper () {
         use_staging=true
       fi
 
-      ### Load FTP credentials
+      # Load site configs
       eval $(captaincore site get $site --bash)
 
       if [[ "$address" == "" && "$captaincore_master" != "" ]]; then

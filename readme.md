@@ -17,7 +17,6 @@
 - Install MariaDB `sudo apt-get install mariadb-server mariadb-client && sudo systemctl enable mysql.service && sudo systemctl start mysql.service && sudo mysql_secure_installation`
 - Copy MariaDB root password to `~/.captaincore-cli/config` as `local_wp_db_pw="<db-password>"`
 
-
 ## Usage
 
 ### How site names work

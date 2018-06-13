@@ -12,7 +12,7 @@
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source ${root_path}config
-source ${root_path}/lib/arguments
+source ${root_path}lib/arguments
 
 website=$1
 if [[ "$website" == *"-staging" ]]; then
@@ -20,10 +20,10 @@ if [[ "$website" == *"-staging" ]]; then
   use_staging=true
 fi
 
-### Load FTP credentials
+# Load site configs
 eval $(captaincore site get $website --bash)
 
-### Credentials found, start the backup
+# Site found, start the backup
 if ! [ -z "$domain" ]; then
 
   ## If website on Kinsta then connect SSH using their format
