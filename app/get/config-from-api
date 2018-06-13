@@ -1,0 +1,20 @@
+#!/bin/bash
+
+#
+#   Gets config from CaptainCore's Wordpress Site (captaincore_wordpress_site)
+#
+#   captaincore config-from-api --field=<field>
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}config
+source ${root_path}lib/arguments
+
+# Remove leading "--" from flags
+for i in "${!flags[@]}"; do
+	flags[$i]=`echo ${flags[$i]} | cut -c 3-`
+done
+
+cd ${root_path}data
+wp eval-file ../lib/php/api-fetch.php ${flags[@]} captaincore_wordpress_site=$captaincore_wordpress_site
