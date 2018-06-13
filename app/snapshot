@@ -35,9 +35,9 @@ run_command() {
 
     echo "Generating snapshots for $# sites"
     INDEX=1
-    for site in "$@"; do
+    for website in "$@"; do
 
-      domain=`captaincore site get $site --field=domain`
+      eval $(captaincore site get $website --bash)
 
       ## Return error if domain not found
       if [[ "$domain" == "" ]]; then
