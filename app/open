@@ -1,0 +1,65 @@
+#!/bin/bash
+
+#
+#   Opens in web browser
+#
+#   `captaincore open`
+#
+#   [<site>...]
+#   One or more sites to open in browser.
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}config
+source ${root_path}/lib/arguments
+
+run_command() {
+
+	if [ $# -gt 0 ]; then
+
+	echo "Opening $# sites"
+
+	INDEX=0
+
+	for site in "$@"; do
+
+		let INDEX=${INDEX}+1
+
+		### Load site details
+		eval $(captaincore site get $site --bash)
+
+		## Return error if domain not found
+		if [[ "$domain" == "" ]]; then
+			echo "Can't locate website for $site"
+			continue
+		fi
+
+		## Return error if home_url not found
+		if [[ "$home_url" != "" ]]; then
+			open $home_url
+		else
+			open "http://${address}"
+		fi
+
+	done
+
+	fi
+}
+
+# See if any sites are specifed
+if [ ${#arguments[*]} -gt 0 ]; then
+  # Runs on specific sites
+  run_command ${arguments[*]}
+fi
+
+if [[ $all == "true" ]]; then
+  # Runs on all sites
+  echo "Opens all sites"
+	run_command ${websites[@]}
+fi
+
+# Error if no sites specifed
+if [[ $all != "true" ]] && [ ${#arguments[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
+fi
