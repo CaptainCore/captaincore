@@ -12,8 +12,7 @@ source ${root_path}config
 
 if [ $# -gt 0 ]; then
 	echo "Loading specific sites"
-	for (( i = 1; i <= $#; i++ ))
-	do
+	for (( i = 1; i <= $#; i++ )); do
 
 		var="$i"
 		site=${!var}
@@ -22,27 +21,29 @@ if [ $# -gt 0 ]; then
 		eval $(captaincore site get $site --bash)
 
 		# Site found, start the backup
-		if ! [ -z "$domain" ]
-		then
+		if ! [ -z "$domain" ]; then
 
-			### Install standard set of plugins via WP-CLI
-			captaincore ssh $site --command="wp plugin install akismet worker jetpack google-analytics-for-wordpress https://anchor.host/wp-content/plugins/gravityforms.zip https://anchor.host/wp-content/plugins/captaincore-client.zip --force"
+			# Pulls standard set of plugins from https://<captaincore_wordpress_site>/wp-json/captaincore/v1/client
+			plugins=$(captaincore get config-from-api --field=preinstall_plugins)
 
-			### Loads token
+			# Install standard set of plugins via WP-CLI
+			captaincore ssh $site --command="wp plugin install $plugins --force"
+
+			# Loads token
 			website_token=$(captaincore get token $site)
 
-			### Load dynamic list of plugins for site
+			# Load dynamic list of plugins for site
 			plugins=`captaincore plugins-get --token=$website_token --customers=$preloadusers`
 
-			### Build plugin urls
+			# Build plugin urls
 			plugin_urls=()
 
-			### Loop through dynamic list of plugins
+			# Loop through dynamic list of plugins
 			for plugin in $plugins; do
 				plugin_urls+=("https://anchor.host/wp-content/plugins/${plugin}.zip")
 			done
 
-			### If plugin urls exist then install
+			# If plugin urls exist then install
 			if [[ $plugin_urls != "" ]]; then
 				echo "Installing $plugins";
 				captaincore ssh $site --command="wp plugin install $plugin_urls"
