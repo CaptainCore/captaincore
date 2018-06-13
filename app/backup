@@ -222,7 +222,7 @@ run_command () {
     tar -cvzf logs.tar.gz *
 
     ### Upload logs to Dropbox
-    rclone sync $logs/$backup_date/$backup_time-$auth Anchor-Dropbox:Backup/Logs/$backup_date/$backup_time-$auth --exclude .DS_Store
+    rclone sync $logs/$backup_date/$backup_time-$auth $rclone_logs/$backup_date/$backup_time-$auth --exclude .DS_Store
 
     ### Generate dropbox link to logs
     shareurl=`captaincore utils dropbox_uploader share Backup/Logs/$backup_date/$backup_time-$auth`
@@ -230,7 +230,7 @@ run_command () {
 
     ### Generate overall emails
     ( echo "$(captaincore get transferred_stats file=$logs_path/backup-remote.txt)" && printf "<br><a href='$shareurl'>View Logs</a><br><br>" && grep -r "FTP response" $logs_path/backup-log.txt; ) \
-      | mutt -e 'set content_type=text/html' -s "Backup completed: $# sites | $backup_date" -a $logs_path/backup-log.txt -- support@anchor.host
+      | mutt -e 'set content_type=text/html' -s "Backup completed: $# sites | $backup_date" -a $logs_path/backup-log.txt -- $captaincore_admin_email
 
     cd $path
 
