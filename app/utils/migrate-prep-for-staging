@@ -33,7 +33,7 @@ run_command() {
 
         # Only move if destination does not exists
         if [ ! -d "$path/${site}-staging_${site_id}/" ]; then
-          echo mv $path/${site}-staging/ $path/${site}-staging_${site_id}/
+          mv $path/${site}-staging/ $path/${site}-staging_${site_id}/
         fi
 
       fi
