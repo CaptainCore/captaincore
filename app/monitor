@@ -1,20 +1,28 @@
 #!/bin/bash
 
-##
-##		Site Monitor Check
-##
-## 		Usage
-##		captaincore monitor <site> [--parallel=<number-of-checks>]
-##
+#
+#   Monitor check
+#
+#   `captaincore monitor`
+#
+#   [<site>...]
+#   One or more sites to check.
+#
+#   [--all]
+#   Checks all sites.
+#
+#   [--parallel=<number-of-checks>]
+#   Number of moniter checks to run at same time
+#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source ${root_path}config
-source ${root_path}/lib/arguments
+source ${root_path}lib/arguments
 
 user_agent="captaincore/1.0 (CaptainCore Health Check by CaptaionCore.io)"
 
-monitor_check () {
+run_command () {
 if [ $# -gt 0 ]; then
 
 	output=()
@@ -47,47 +55,47 @@ if [ $# -gt 0 ]; then
 fi
 }
 
-### See if any specific sites are selected
+# See if any sites are specifed
 if [ ${#arguments[*]} -gt 0 ]; then
+  # Runs on specific sites
+  run_command ${arguments[*]}
+fi
 
-	# Runs on selective site(s)
-	echo "Running monitor check ${#arguments[*]} sites"
-	monitor_check ${arguments[*]}
-
-else
-
-	# Runs on all sites
+if [[ $all == "true" ]] && [[ "$parallel" -gt "0" ]]; then
+  # Runs on all sites
 	all_sites=(${websites[@]})
+	site_count=${#all_sites[*]}
+  echo "Running monitor check ${#all_sites[*]} sites"
+	parallel_sets=$(($site_count / $parallel))
+	for parallel_set in `seq 1 $parallel_sets`; do
 
-	if [[ "$parallel" -gt "0" ]]; then
+		set_needed=$(( $parallel_set *  $parallel ))
 
-		site_count=${#all_sites[*]}
-		echo "Running monitor check ${#all_sites[*]} sites"
-		parallel_sets=$(($site_count / $parallel))
-		for parallel_set in `seq 1 $parallel_sets`; do
+		if [[ "$set_needed" -lt "$site_count" ]]; then
 
-			set_needed=$(( $parallel_set *  $parallel ))
+			current_parallel=$(($parallel_set * $parallel))
+			last_parallel=$(($current_parallel + $parallel - 1))
 
-			if [[ "$set_needed" -lt "$site_count" ]]; then
+			for i in `seq $current_parallel $last_parallel`; do
+					if [[ "$i" -lt "$site_count" ]]; then
+						run_command ${all_sites[$i]} &
+					fi
+			done
 
-				current_parallel=$(($parallel_set * $parallel))
-				last_parallel=$(($current_parallel + $parallel - 1))
+			wait
 
-				for i in `seq $current_parallel $last_parallel`; do
-						if [[ "$i" -lt "$site_count" ]]; then
-							monitor_check ${all_sites[$i]} &
-						fi
-				done
+		fi
 
-				wait
+	done
+elif [[ $all == "true" ]]; then
+	all_sites=(${websites[@]})
+	site_count=${#all_sites[*]}
+	echo "Running monitor check $site_count sites"
+	# Runs on all sites
+	run_command ${websites[@]}
+fi
 
-			fi
-
-		done
-	else
-		echo "Running monitor check ${#all_sites[*]} sites"
-		# Runs on all sites
-		monitor_check ${websites[@]}
-	fi
-
+# Error if no sites specifed
+if [[ $all != "true" ]] && [ ${#arguments[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
 fi
