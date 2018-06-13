@@ -59,7 +59,7 @@ run_command() {
 
       ## Generates snapshot archive
       timedate=$(date +'%Y-%m-%d-%H%M%S')
-      cd $path/$site/
+      cd $path/${site}_${site_id}/
       ln -s backup/ $site-$timedate # create directory shortcut for naming purposes
       zip -r $site-$timedate.zip $site-$timedate/ --exclude=$site-$timedate/_wpeprivate/\* --exclude=\*.git\* --exclude=$site-$timedate/wp-content/advanced-cache.php --exclude=$site-$timedate/wp-content/mu-plugins/mu-plugin.php --exclude=$site-$timedate/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$site-$timedate/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$site-$timedate/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$site-$timedate/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$site-$timedate/wp-content/mu-plugins/wpengine-common/\*
       rm $site-$timedate # remove directory shortcut
@@ -101,10 +101,10 @@ run_command() {
         rclone config delete sftp-$site-staging
 
         ## Removes directory from backup server
-        rm -rf $path/$site/backup/
+        rm -rf $path/${site}_${site_id}/backup/
 
         ## Remove from remote storage
-        rclone purge --fast-list $rclone_backup/$site
+        rclone purge --fast-list $rclone_backup/${site}_${site_id}
 
       fi
 

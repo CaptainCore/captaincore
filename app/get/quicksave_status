@@ -27,7 +27,7 @@ if [ $# -gt 0 ]; then
 			return 1
 		fi
 
-		cd $path/$site/quicksave/
+		cd $path/${site}_${site_id}/quicksave/
 		git_status=`git show $git_hash --shortstat --format=`
 		echo "$git_status"
 

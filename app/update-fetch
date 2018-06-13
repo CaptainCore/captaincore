@@ -15,7 +15,7 @@ site=$1
 
 if [[ "$site" != "" ]]; then
 
-	cd $path/$site/updates
+	cd $path/${site}_${site_id}/updates
 
 	# Outputs json from all update files
 	echo -n "["

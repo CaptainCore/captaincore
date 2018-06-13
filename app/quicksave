@@ -80,30 +80,30 @@ run_command() {
 		echo "$(date +'%Y-%m-%d %H:%M') Begin quicksave for $site (${INDEX}/$#)"
 
 		# Updates themes/plugins before Quicksave (Selective backup site locally)
-		rclone sync sftp-$site:${homedir}wp-content/themes/ $path/$site/backup/wp-content/themes/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site.txt"
-		rclone sync sftp-$site:${homedir}wp-content/mu-plugins/ $path/$site/backup/wp-content/mu-plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site.txt"
-		rclone sync sftp-$site:${homedir}wp-content/plugins/ $path/$site/backup/wp-content/plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site.txt"
+		rclone sync sftp-$site:${homedir}wp-content/themes/ $path/${site}_${site_id}/backup/wp-content/themes/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site.txt"
+		rclone sync sftp-$site:${homedir}wp-content/mu-plugins/ $path/${site}_${site_id}/backup/wp-content/mu-plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site.txt"
+		rclone sync sftp-$site:${homedir}wp-content/plugins/ $path/${site}_${site_id}/backup/wp-content/plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site.txt"
 		echo "" >> $logs_path/site-$site.txt
 
 		## Current timestamp
 		timedate=$(date +%Y-%m-%d_%H-%M-%S)
 
 		## Sync to git repo
-		mkdir -p $path/$site/quicksave/mu-plugins
-		mkdir -p $path/$site/quicksave/plugins
-		mkdir -p $path/$site/quicksave/themes
-		mkdir -p $path/$site/quicksave/versions
+		mkdir -p $path/${site}_${site_id}/quicksave/mu-plugins
+		mkdir -p $path/${site}_${site_id}/quicksave/plugins
+		mkdir -p $path/${site}_${site_id}/quicksave/themes
+		mkdir -p $path/${site}_${site_id}/quicksave/versions
 
-		cd $path/$site/quicksave/
+		cd $path/${site}_${site_id}/quicksave/
 
 		## Create new git repo if needed
 		if [ ! -d ".git" ]; then
 		  git init
 		fi
 
-		rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ $path/$site/backup/wp-content/mu-plugins/ $path/$site/quicksave/mu-plugins
-		rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ $path/$site/backup/wp-content/plugins/ $path/$site/quicksave/plugins
-		rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ $path/$site/backup/wp-content/themes/ $path/$site/quicksave/themes
+		rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ $path/${site}_${site_id}/backup/wp-content/mu-plugins/ $path/${site}_${site_id}/quicksave/mu-plugins
+		rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ $path/${site}_${site_id}/backup/wp-content/plugins/ $path/${site}_${site_id}/quicksave/plugins
+		rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ $path/${site}_${site_id}/backup/wp-content/themes/ $path/${site}_${site_id}/quicksave/themes
 
 		## Store plugin/theme in json
 		# captaincore ssh $site --command="wp plugin list --format=json --skip-themes --skip-plugins --skip-packages" > ~/Quicksaves/$domain/versions/plugins.json
@@ -113,13 +113,13 @@ run_command() {
 		## Nasty bash hack in order to grab all of the details from one single SSH tunnel (WP Engine connection is slow)
 		response=$(captaincore ssh $site --command='wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp theme list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp core version --skip-themes --skip-plugins --skip-packages; echo ""; wp option get home --skip-themes --skip-plugins --skip-packages')
 		IFS=$'\n' read -rd '' -a response_parsed <<<"$response"
-		echo ${response_parsed[0]} > $path/$site/quicksave/versions/plugins.json
-		echo ${response_parsed[1]} > $path/$site/quicksave/versions/themes.json
-		echo ${response_parsed[2]} > $path/$site/quicksave/versions/core.json
+		echo ${response_parsed[0]} > $path/${site}_${site_id}/quicksave/versions/plugins.json
+		echo ${response_parsed[1]} > $path/${site}_${site_id}/quicksave/versions/themes.json
+		echo ${response_parsed[2]} > $path/${site}_${site_id}/quicksave/versions/core.json
 
-		plugin_data=`cat $path/$site/quicksave/versions/plugins.json`
-		theme_data=`cat $path/$site/quicksave/versions/themes.json`
-		core_version=`cat $path/$site/quicksave/versions/core.json`
+		plugin_data=`cat $path/${site}_${site_id}/quicksave/versions/plugins.json`
+		theme_data=`cat $path/${site}_${site_id}/quicksave/versions/themes.json`
+		core_version=`cat $path/${site}_${site_id}/quicksave/versions/core.json`
 		home_url=${response_parsed[3]}
 		# plugin_data=$(git show $git_hash:versions/plugins.json --format=)
 		# theme_data=$(git show $git_hash:versions/themes.json --format=)

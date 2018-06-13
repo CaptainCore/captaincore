@@ -42,7 +42,7 @@ run_command() {
   if [[ "$plugin" != "" ]]; then
 
     echo "Rolling back plugin $plugin"
-    cd $path/$site/quicksave/
+    cd $path/${site}_${site_id}/quicksave/
     mkdir -p ~/Tmp/restore/$commit/
     git archive --format=zip $commit:plugins/$plugin/ > ~/Tmp/restore/$commit/$plugin.zip
     captaincore upload $site ~/Tmp/restore/$commit/$plugin.zip --public
@@ -54,7 +54,7 @@ run_command() {
   if [[ "$theme" != "" ]]; then
 
     echo "Rolling back theme $theme"
-    cd $path/$site/quicksave/
+    cd $path/${site}_${site_id}/quicksave/
     mkdir -p ~/Tmp/restore/$commit/
     git archive --format=zip $commit:themes/$theme/ > ~/Tmp/restore/$commit/$theme.zip
     captaincore upload $site ~/Tmp/restore/$commit/$theme.zip --public
@@ -68,7 +68,7 @@ run_command() {
 		file_name=${file##*/}
 		file_path=${file//$file_name/}
 		echo "Rolling back file '$file'"
-		cd $path/$site/quicksave/
+		cd $path/${site}_${site_id}/quicksave/
 		mkdir -p ~/Tmp/restore/$commit/$file_path
 		git show $commit:$file > ~/Tmp/restore/$commit/$file
 		if [[ "$homedir" != "" ]]; then
@@ -82,7 +82,7 @@ run_command() {
   if [[ "$all" == "true" ]]; then
 
     echo "Rolling back entire quicksave"
-    cd $path/$site/quicksave/
+    cd $path/${site}_${site_id}/quicksave/
     mkdir -p ~/Tmp/restore/$commit/
     git archive --format=zip $commit: > ~/Tmp/restore/$commit/quicksave_${commit}_all.zip
     captaincore upload $site ~/Tmp/restore/$commit/quicksave_${commit}_all.zip --public

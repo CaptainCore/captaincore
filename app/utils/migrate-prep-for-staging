@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-#   One time script to migrate from using domains to site name for folders
+#   One time script to migrate from using $path/$site to $path/${site}_${site_id} for folders
 #
 #   `captaincore utils migrate-prep-for-staging`
 #
@@ -16,29 +16,31 @@ run_command() {
 
     echo "Processing $# sites"
     INDEX=1
-    for site in "$@"; do
+    for website in "$@"; do
 
       ### Load FTP credentials
-      eval $(captaincore site get $site --bash)
+      eval $(captaincore site get $website --bash)
 
       echo "Processing $site (${INDEX}/$#)"
 
       ### Credentials found
       if ! [ -z "$domain" ]; then
 
-        mkdir -p $path/$site/
+        # Only move if destination does not exists
+        if [ ! -d "$path/${site}_${site_id}/" ]; then
+          mv $path/$site/ $path/${site}_${site_id}/
+        fi
 
-        mv ~/Backup/$domain/ $path/$site/
-				cd $path/$site/
-        mv $domain/ backup
-        mv ~/Quicksaves/$domain/ $path/$site/
-				cd $path/$site/
-        mv $domain/ quicksave
+        # Only move if destination does not exists
+        if [ ! -d "$path/${site}-staging_${site_id}/" ]; then
+          echo mv $path/${site}-staging/ $path/${site}-staging_${site_id}/
+        fi
 
       fi
 
       ### Clear out variables
       domain=''
+      site=''
       username=''
       password=''
       address=''

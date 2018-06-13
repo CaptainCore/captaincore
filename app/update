@@ -54,7 +54,7 @@ run_command () {
           echo "$(date +'%Y-%m-%d %H:%M') Begin updates on $site (${INDEX}/$#)"
 
           ### Define log file format
-					logs_path=$path/$site/updates/
+					logs_path=$path/${site}_${site_id}/updates/
 
 					### Generate log folder
 					mkdir -p $logs_path
