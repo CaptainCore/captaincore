@@ -1,11 +1,10 @@
 #!/bin/bash
 
-##
-##      Download file from site
-##
-##      Downloads file from Kinsta/WP Engine sites over ssh
-##      captaincore download <site> <file>
-##
+#
+#   Downloads file from site
+#
+#   `captaincore download <site> <file>`
+#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}

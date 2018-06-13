@@ -57,7 +57,7 @@ run_command() {
 
       fi
 
-      ## Generates snapshot archive
+      # Generates snapshot archive
       timedate=$(date +'%Y-%m-%d-%H%M%S')
       cd $path/${site}_${site_id}/
       ln -s backup/ $site-$timedate # create directory shortcut for naming purposes
@@ -67,23 +67,23 @@ run_command() {
 			mv $site-$timedate.zip snapshots
       cd snapshots
 
-      ## Grab snapshot size in bytes
+      # Grab snapshot size in bytes
       if [[ "$OSTYPE" == "linux-gnu" ]]; then
-        ### Begin folder size in bytes without apparent-size flag
+        # Begin folder size in bytes without apparent-size flag
         snapshot_size=`du -s --block-size=1 $site-$timedate.zip`
         snapshot_size=`echo $snapshot_size | cut -d' ' -f 1`
 
       elif [[ "$OSTYPE" == "darwin"* ]]; then
-        ### Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
+        # Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
         snapshot_size=`find $site-$timedate.zip -type f -print0 | xargs -0 stat -f%z`
       fi
 
       if [[ $skip_remote != true ]]; then
 
-        ## Moves snapshot to Backblaze archive folder
+        # Moves snapshot to Backblaze archive folder
         rclone move $site-$timedate.zip $rclone_snapshot/${site}_${site_id}/
 
-        ## Post snapshot to ACF field
+        # Post snapshot to ACF field
         if [[ $captaincore_dev == true ]]; then
           curl -k --data-urlencode "storage=$snapshot_size" --data-urlencode "archive=$site-$timedate.zip" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
         else

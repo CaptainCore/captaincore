@@ -1,51 +1,23 @@
 #!/bin/bash
 
-##
-##		Output array of sites from the logins
-##
-## 		Pass arguments from command line like this
-##		[--all] [--staging] [--filter=<theme|plugin|core>] [--filter-name=<name>] [--filter-version=<version>] [--filter-status=<active|inactive|dropin|must-use>] [--field=<field>]
-##
-##		Usage would look something like this to check for websites with WooCommerce and return only the website site names in bash array
-## 		websites=( $(wp post list --post_type=captcore_website --meta_key=plugins --meta_value='"name":"woocommerce"' --meta_compare="LIKE" --fields=site --format=json | json -a site) )
-##
-##		Create
-##		wp post create --meta_input='{"site":"anchorhost1","address":"anchorhost1.wpengine.com"}' --post_title='anchorhost1.wpengine.com' --post_status=publish --post_type=captcore_website
-##
-##		List all
-##		echo $(wp post list --post_type=captcore_website --fields=site | json -a site)
-##
+#
+#   Lists sites
+#
+#   `captaincore site list`
+#
+#   [--all] [--staging] [--filter=<theme|plugin|core>] [--filter-name=<name>] [--filter-version=<version>] [--filter-status=<active|inactive|dropin|must-use>] [--field=<field>]
+#
 
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}lib/arguments
 
-# Loop through arguments and separate regular arguments from flags (--flag)
-for var in "$@"; do
-	# If starts with "--" then assign it to a flag array
-    if [[ $var == --* ]]
-    then
-    	count=1+${#flags[*]}
-    	flags[$count]=$var
-    # Else assign to an arguments array
-    else
-    	count=1+${#arguments[*]}
-    	arguments[$count]=$var
-    fi
-done
-
-# Loop through flags and assign to variable. A flag "--email=austin@anchor.host" becomes $email
+# Remove leading "--" from flags
 for i in "${!flags[@]}"; do
-
-	# removes leading "--" to safely pass onto `wp eval-file` https://github.com/wp-cli/wp-cli/issues/1030
 	flags[$i]=`echo ${flags[$i]} | cut -c 3-`
-
 done
 
-if [[ "$captaincore_dev" == "true" ]]; then
-	cd ~/Sites/dev
-else
-	cd $root_path/data
-fi
+cd ${root_path}data
 
 wp eval-file ${root_path}lib/php/site-list.php ${flags[@]}

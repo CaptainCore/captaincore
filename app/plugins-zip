@@ -1,11 +1,10 @@
 #!/bin/bash
 
-##
-##		Generates zip files for paid plugins for deployment purposes
-##
-## 		Pass arguments from command line like this
-##		captaincore plugins-zip
-##
+#
+#   Generates zip files for paid plugins for deployment purposes
+#
+#   `captaincore plugins-zip`
+#
 
 # TODO - Move static list to CaptainCore Plugin
 

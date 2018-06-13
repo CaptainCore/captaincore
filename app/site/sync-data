@@ -1,15 +1,13 @@
 #!/bin/bash
 
-##
-##      Sync website data
-##
-##      Pass arguments from command line like this
-##      captaincore site sync-data [<site>]
-##
-##      Or sync all sites like this
-##      captaincore site sync-data
-##
-##
+#
+#   Sync website data
+#
+#   `captaincore site sync-data`
+#
+#   [<site>]
+#   Syncs website data for specific site. Defaults for all sites.
+#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}

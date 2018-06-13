@@ -1,11 +1,13 @@
 #!/bin/bash
 
-##
-##      SSH uploader
-##
-##      Uploads file to site over ssh
-##      captaincore upload <site> <file> [--public]
-##
+#
+#   Uploads file to site over ssh
+#
+#   `captaincore upload <site> <file>`
+#
+#   [--public]
+#   Uploads to public. Defaults to private folder.
+#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
