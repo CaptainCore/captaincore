@@ -24,7 +24,7 @@ if [ $# -gt 0 ]; then
 
   quicksave_file_diff() {
 
-    domain=`captaincore site get $site --field=domain`
+		eval $(captaincore site get $site --bash)
 
     ## Return error if domain not found
     if [[ "$domain" == "" ]]; then
