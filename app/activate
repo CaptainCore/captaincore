@@ -3,8 +3,7 @@
 #
 #   Removes custom deactivate mu-plugin to batch of sites
 #
-#   Pass arguments from command line like this
-#   captaincore site activate <site> [<site>] [<site>]...s
+#   `captaincore activate [<site>...]`
 #
 
 # Load configuration

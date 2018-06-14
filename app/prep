@@ -3,7 +3,7 @@
 #
 #   Preps new site configurations into logins via command line
 #
-#   `captaincore site prep <site>`
+#   `captaincore prep <site>`
 #
 #   [--skip-deployment]
 #   Skip users and plugin deployment

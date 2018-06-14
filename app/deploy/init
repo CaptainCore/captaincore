@@ -1,5 +1,11 @@
 #!/bin/bash
 
+#
+#   Initializes site
+#
+#   `captaincore deploy init <site>`
+#
+
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source ${root_path}config
@@ -11,11 +17,10 @@ run_command() {
 
     echo "Run init on $# sites"
     INDEX=1
-    for site in "$@"
-    do
+    for website in "$@"; do
 
       # Load site configs
-      eval $(captaincore site get $site --bash)
+      eval $(captaincore site get $website --bash)
 
       # Site found, start the backup
       if ! [ -z "$domain" ]

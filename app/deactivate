@@ -3,7 +3,7 @@
 #
 #   Deploys custom deactivate mu-plugin to batch of sites
 #
-#   `captaincore site deactivate`
+#   `captaincore deactivate`
 #
 #    [<site>...]
 #    One or more sites to deactivate.

@@ -106,9 +106,9 @@ if ( $found_site ) {
 }
 
 // Rclone Import
-$output = shell_exec( "captaincore site rclone-configs $site" );
+$output = shell_exec( "captaincore rclone-configs $site" );
 
 // run initial backup, setups up token, install plugins
 // and load custom configs into wp-config.php and .htaccess
 // in a background process. Sent email when completed.
-$output = shell_exec( 'captaincore site prep ' . $site . ' > /dev/null 2>/dev/null &' );
+$output = shell_exec( 'captaincore prep ' . $site . ' > /dev/null 2>/dev/null &' );

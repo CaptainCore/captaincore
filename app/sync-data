@@ -3,7 +3,7 @@
 #
 #   Sync website data
 #
-#   `captaincore site sync-data`
+#   `captaincore sync-data`
 #
 #   [<site>]
 #   Syncs website data for specific site. Defaults for all sites.

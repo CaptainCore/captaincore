@@ -1,15 +1,14 @@
 #!/bin/bash
 
-##
-##      IPs from site names
-##
-##      Pass arguments from command line like this
-##      captaincore dns ips-from-site-names <site> [<site>] [<site>] [--skip-follow]
-##
-##			Expected output
-##			website1.com	10.124.124.124
-##			website2.com	10.124.124.124
-##
+#
+#   IPs from site names
+#
+#   `captaincore dns ips-from-site-names [<site>...] [--skip-follow]`
+#
+#   Expected output:
+#   website1.com	10.124.124.124
+#   website2.com	10.124.124.124
+#
 
 #  Loop through arguments and separate regular arguments from flags (--flag)
 for var in "$@"; do
