@@ -1,7 +1,0 @@
-Crawl dns records with DNSRecon
-
-MacOS users will need to install the following python modules.
-
-sudo easy_install pip
-sudo pip install netaddr
-sudo pip install dnspython
