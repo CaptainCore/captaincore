@@ -5,63 +5,34 @@
 #
 #   `captaincore dns ips-from-site-names [<site>...] [--skip-follow]`
 #
-#   Expected output:
+#   Example output:
 #   website1.com	10.124.124.124
 #   website2.com	10.124.124.124
 #
 
-#  Loop through arguments and separate regular arguments from flags (--flag)
-for var in "$@"; do
-
-  # If starts with "--" then assign it to a flag array
-  if [[ $var == --* ]]; then
-    count=1+${#flags[*]}
-    flags[$count]=$var
-  else
-    # Else assign to an arguments array
-    count=1+${#arguments[*]}
-    arguments[$count]=$var
-  fi
-
-done
-
-# Loop through flags and assign to variable. A flag "--email=my-email@my-site.com" becomes $email
-for i in "${!flags[@]}"; do
-
-  # replace "-" with "_" and remove leading "--"
-  flag_name=`echo ${flags[$i]} | cut -c 3-`
-
-  # detected flag contains data
-  if [[ $flag_name == *"="* ]]; then
-    flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
-    flag_name=`echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1'` # extract name
-    flag_name=${flag_name/-/_}
-    declare "$flag_name"="$flag_value" # assigns to $flag_flagname
-  else
-    # assigns to $flag_flagname boolen
-    flag_name=${flag_name/-/_}
-    declare "$flag_name"=true
-  fi
-
-done
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}config
+source ${root_path}lib/arguments
 
 echo "Running checks on ${#arguments[*]} sites"
 
 if [[ "$skip_follow" == "true" ]]; then
 
-  for site in "${arguments[@]}"; do
-    domain="$site.wpengine.com"
-    ip=`dig $domain a +short | tail -n 1`
+  for website in "${arguments[@]}"; do
+		eval $(captaincore site get $website --bash)
+    ip=`dig $address a +short | tail -n 1`
     echo "$site	$domain	$ip"
   done
 
 else
 
-  for site in "${arguments[@]}"; do
-    curl_result=`curl -sLI http://$site.wpengine.com`
-    domain=`echo -e "$curl_result" | perl -wnE'say for /Location: (?:http:\/\/|https:\/\/)?([A-Z|a-z|.|-]+)/g' | tail -n 1`
-    ip=`dig $domain a +short | tail -n 1`
-    echo "$site	$domain	$ip"
+  for website in "${arguments[@]}"; do
+		eval $(captaincore site get $website --bash)
+    curl_result=`curl -sLI http://$address`
+    followed_domain=`echo -e "$curl_result" | perl -wnE'say for /Location: (?:http:\/\/|https:\/\/)?([A-Z|a-z|.|-]+)/g' | tail -n 1`
+    ip=`dig $followed_domain a +short | tail -n 1`
+    echo "$site	$followed_domain	$ip"
   done
 
 fi

@@ -1,11 +1,10 @@
 #!/bin/bash
 
-##
-##		Grabs the Quicksave git commit status log
-##
-## 		Pass arguments from command line like this
-##		captaincore get quicksave_changes <site> <git_hash>
-##
+#
+#   Grabs Quicksave git commit status log
+#
+#   `captaincore quicksave-view-changes <site> <git_hash>`
+#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
@@ -17,7 +16,7 @@ git_hash=$2
 
 if [ $# -gt 0 ];then
 
-	quicksave_commit_status() {
+	run_command() {
 
 		eval $(captaincore site get $site --bash)
 
@@ -32,6 +31,6 @@ if [ $# -gt 0 ];then
 		echo "$git_show"
 
 	}
-	quicksave_commit_status
+	run_command
 
 fi
