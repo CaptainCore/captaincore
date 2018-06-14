@@ -11,54 +11,54 @@ root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_
 source ${root_path}config
 
 if [ $# -gt 0 ]; then
-	echo "Loading specific sites"
-	for (( i = 1; i <= $#; i++ )); do
+  echo "Loading specific sites"
+  for (( i = 1; i <= $#; i++ )); do
 
-		var="$i"
-		site=${!var}
+    var="$i"
+    site=${!var}
 
-		# Load site configs
-		eval $(captaincore site get $site --bash)
+    # Load site configs
+    eval $(captaincore site get $site --bash)
 
-		# Site found, start the backup
-		if ! [ -z "$domain" ]; then
+    # Site found, start the backup
+    if ! [ -z "$domain" ]; then
 
-			# Pulls standard set of plugins from https://<captaincore_wordpress_site>/wp-json/captaincore/v1/client
-			plugins=$(captaincore get config-from-api --field=preinstall_plugins)
+      # Pulls standard set of plugins from https://<captaincore_wordpress_site>/wp-json/captaincore/v1/client
+      plugins=$(captaincore get config-from-api --field=preinstall_plugins)
 
-			# Install standard set of plugins via WP-CLI
-			captaincore ssh $site --command="wp plugin install $plugins --force"
+      # Install standard set of plugins via WP-CLI
+      captaincore ssh $site --command="wp plugin install $plugins --force"
 
-			# Loads token
-			website_token=$(captaincore get token $site)
+      # Loads token
+      website_token=$(captaincore get token $site)
 
-			# Load dynamic list of plugins for site
-			plugins=`captaincore plugins-get --token=$website_token --customers=$preloadusers`
+      # Load dynamic list of plugins for site
+      plugins=`captaincore plugins-get --token=$website_token --customers=$preloadusers`
 
-			# Build plugin urls
-			plugin_urls=()
+      # Build plugin urls
+      plugin_urls=()
 
-			# Loop through dynamic list of plugins
-			for plugin in $plugins; do
-				plugin_urls+=("$captaincore_wordpress_site/wp-content/plugins/${plugin}.zip")
-			done
+      # Loop through dynamic list of plugins
+      for plugin in $plugins; do
+        plugin_urls+=("$captaincore_wordpress_site/wp-content/plugins/${plugin}.zip")
+      done
 
-			# If plugin urls exist then install
-			if [[ $plugin_urls != "" ]]; then
-				echo "Installing $plugins";
-				captaincore ssh $site --command="wp plugin install $plugin_urls"
-			fi
+      # If plugin urls exist then install
+      if [[ $plugin_urls != "" ]]; then
+        echo "Installing $plugins";
+        captaincore ssh $site --command="wp plugin install $plugin_urls"
+      fi
 
-		fi
+    fi
 
-		### Clear out variables
-		domain=''
-		username=''
-		password=''
-		address=''
-		protocol=''
-		port=''
+    ### Clear out variables
+    domain=''
+    username=''
+    password=''
+    address=''
+    protocol=''
+    port=''
 
-	done
+  done
 
 fi

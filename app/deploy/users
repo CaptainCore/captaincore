@@ -13,7 +13,7 @@
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source ${root_path}config
 
-generate_admin () {
+run_command () {
   for (( i = 1; i <= $#; i++ )); do
 
     var="$i"
@@ -72,5 +72,5 @@ generate_admin () {
 ### See if any specific sites are selected
 if [ $# -gt 0 ]; then
   ## Run selected site(s)
-  generate_admin $*
+  run_command $*
 fi
