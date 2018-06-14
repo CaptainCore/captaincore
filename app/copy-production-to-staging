@@ -1,9 +1,9 @@
 #!/bin/bash
 
 #
-#   Deploy production to staging (Kinsta only)
+#   Copy production to staging (Kinsta only)
 #
-#   captaincore deploy production-to-staging <site> --email=<email> [--skip-uploads]
+#   captaincore copy-production-to-staging <site> --email=<email> [--skip-uploads]
 #
 
 # Load configuration
