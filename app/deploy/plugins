@@ -40,7 +40,7 @@ if [ $# -gt 0 ]; then
 
 			# Loop through dynamic list of plugins
 			for plugin in $plugins; do
-				plugin_urls+=("https://anchor.host/wp-content/plugins/${plugin}.zip")
+				plugin_urls+=("$captaincore_wordpress_site/wp-content/plugins/${plugin}.zip")
 			done
 
 			# If plugin urls exist then install
