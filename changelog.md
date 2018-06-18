@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.2.4] - 2018-06-07
+### Added
+- Command `captaincore open`. Opens one or more sites in browser.
+- Command `captaincore get config-from-api --field=<field>` for fetching dynamic info from GUI.
+- Configs `captaincore_admin_email` and `rclone_logs` to `config` file
+- Arguments `[--exclude-themes=<theme-names>]` and `[--exclude-plugins=<plugin-names>]` to `captaincore update`
+
+### Changed
+- *Breaking changes* - Updated folder structure to include site IDs. New format: `<path>/<site>_<site-id>/`. Updated remote path to match local subfolder format `/backup`. Using a unique site ID allows sites to share the same name from different host providers.
+- Moved all action commands, not relating to site configs, from `captaincore site` to top level `captaincore`. Those include `activate`, `deactivate`, `prep`, `rclone-configs` and `sync-data`.
+- `captaincore deploy plugins` now pulls standard set of plugins via WordPress API
+- `captaincore quicksave` now sends git commit timestamp to GUI
+- Improved docs and added `--all` to `captaincore monitor`
+- Moved command `get quicksave_file_diff` to `quicksave-file-diff`
+- Moved command `get quicksave_changes` to `quicksave-view-changes`
+- Moved command `deploy production-to-staging` to `copy-production-to-staging`
+- Moved command `deploy staging-to-production` to `copy-staging-to-production`
+- Moved command `get transferred_stats` to `get transferred-stats`
+- Moved command `utils store-snapshot` to `store-snapshot`
+
+### Removed
+- Duplicate command `quicksave_status`
+- Commands `get log_stat`, `get log_stats` and `get server`
+- Command/library dnsrecon
+
 ## [0.2.3] - 2018-06-03
 ### Added
 - Command `captaincore size`. Calculates size of one or more sites.
