@@ -1,0 +1,32 @@
+#!/bin/bash
+
+#
+#   Retrieves results from background job
+#
+#   `captaincore job-fetch <job-id>`
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}config
+source ${root_path}lib/arguments
+
+job_id=$1
+
+run_command() {
+
+	if [[ "$job_id" == "" ]]; then
+		echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a job id."
+		exit 1
+	fi
+
+	# Check for directory
+	if [ ! -f "$path_tmp/job_${job_id}.txt" ]; then
+		echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Job #$job_id not found."
+		exit 1
+	fi
+
+	cat $path_tmp/job_${job_id}.txt
+
+}
+run_command
