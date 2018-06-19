@@ -64,11 +64,18 @@ for arg in "${CMD_ARGS[@]}"; do
         "$ROOT_DIR/help" $0 ${@:1:$((CMD_ARG_START - 1))} ${CMD_ARGS[@]}
         exit 3
     fi
+		if [[ "${arg}" == "--job-id="* ]]; then
+			job_id=${arg/--job-id=/}
+		fi
     arg_i=$((arg_i+1))
 done
 
 # Run the command and capture its exit code for introspection
+if [[ $job_id != "" ]]; then
+"$CMD_FILE" "${CMD_ARGS[@]}" > ~/Tmp/job_$job_id.txt
+else
 "$CMD_FILE" "${CMD_ARGS[@]}"
+fi
 EXIT_CODE=$?
 
 arg_i=0 # We need the index to be able to strip list indices
@@ -77,8 +84,13 @@ for arg in "${CMD_ARGS[@]}"; do
 			### End time tracking
 			overalltimeend=$(date +%s)
 			runtime=$(($overalltimeend-$overalltimebegin))
-			echo ""
-			echo "{\"response\":\"Command finished\",\"timestamp\":\"$(date +'%Y-%m-%d-%H%M%S')\",\"runtime\":\"$runtime\"}"
+			if [[ $job_id != "" ]]; then
+				echo "" >> ~/Tmp/job_$job_id.txt
+				echo "{\"response\":\"Command finished\",\"timestamp\":\"$(date +'%Y-%m-%d-%H%M%S')\",\"runtime\":\"$runtime\"}" >> ~/Tmp/job_$job_id.txt
+			else
+				echo ""
+				echo "{\"response\":\"Command finished\",\"timestamp\":\"$(date +'%Y-%m-%d-%H%M%S')\",\"runtime\":\"$runtime\"}"
+			fi
     fi
     arg_i=$((arg_i+1))
 done
