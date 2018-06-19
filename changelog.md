@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.2.4] - 2018-06-07
+## [0.2.4] - 2018-06-17
 ### Added
 - Command `captaincore open`. Opens one or more sites in browser.
 - Command `captaincore get config-from-api --field=<field>` for fetching dynamic info from GUI.

@@ -11,16 +11,26 @@ root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_
 source ${root_path}config
 source ${root_path}lib/arguments
 
-site=$1
+website=$1
 
-if [[ "$site" != "" ]]; then
+if [[ "$website" != "" ]]; then
+
+	eval $(captaincore site get $website --bash)
 
 	cd $path/${site}_${site_id}/updates
 
 	# Outputs json from all update files
 	echo -n "["
 	for file in *.json; do
-		echo "{\"${file/.json}\":$(cat $file)},";
+
+		if [[ "$file" == *"-plugins.json" ]]; then
+			type="plugins"
+		fi
+		if [[ "$file" == *"-themes.json" ]]; then
+			type="themes"
+		fi
+		date=${file:0:17}
+		echo "{\"date\":\"$date\",\"type\":\"$type\",\"updates\":$(cat $file)},";
 	done
 	echo -n "]"
 
