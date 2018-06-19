@@ -13,11 +13,31 @@ source ${root_path}lib/arguments
 
 website=$1
 
-if [[ "$website" != "" ]]; then
+run_command() {
 
+	if [[ "$website" == "" ]]; then
+		echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a site."
+		exit 1
+	fi
+
+	# Load site info
 	eval $(captaincore site get $website --bash)
 
+	# Check for directory
+	if [ ! -d "$path/${site}_${site_id}/updates" ]; then
+		echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Did not find any update logs."
+		exit 1
+	fi
+
 	cd $path/${site}_${site_id}/updates
+
+	count=$(find . -type f -name '*.json' | wc -l | tr -d '[:space:]')
+
+	# Check for directory
+	if [[ "$count" == "0" ]]; then
+		echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Did not find any update logs."
+		exit 1
+	fi
 
 	# Outputs json from all update files
 	json="["
@@ -37,8 +57,5 @@ if [[ "$website" != "" ]]; then
 
 	echo "$json"
 
-else
-
-	echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a site."
-
-fi
+}
+run_command
