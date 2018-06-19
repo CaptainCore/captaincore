@@ -44,10 +44,10 @@ run_command() {
 	for file in *.json; do
 
 		if [[ "$file" == *"-plugins.json" ]]; then
-			type="plugins"
+			type="plugin"
 		fi
 		if [[ "$file" == *"-themes.json" ]]; then
-			type="themes"
+			type="theme"
 		fi
 		date=${file:0:17}
 		json+="{\"date\":\"$date\",\"type\":\"$type\",\"updates\":$(cat $file)},";
