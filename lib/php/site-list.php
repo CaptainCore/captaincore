@@ -3,9 +3,14 @@
 // Replaces dashes in keys with underscores
 foreach($args as $index => $arg) {
 	$split = strpos($arg, "=");
-	$key = str_replace('-', '_', substr( $arg , 0, $split ) );
-	$value = substr( $arg , $split, strlen( $arg ) );
-	$args[$index] = $key.$value;
+	if ( $split ) {
+		$key = str_replace('-', '_', substr( $arg , 0, $split ) );
+		$value = substr( $arg , $split, strlen( $arg ) );
+		$args[$index] = $key.$value;
+	} else {
+		$args[$index] = str_replace('-', '_', $arg);
+	}
+
 }
 
 // Converts arguments --staging --all into $staging $all
@@ -97,6 +102,16 @@ if ( $filter ) {
 			'compare' => 'like',
 		);
 	}
+
+}
+
+if ( isset($updates_enabled) ) {
+
+	$arguments['meta_query'][] = array(
+		'key'     => "updates_enabled", // name of custom field
+		'value'   => '1',
+		'compare' => '=',
+	);
 
 }
 
