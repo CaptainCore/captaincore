@@ -1,0 +1,18 @@
+#!/bin/bash
+
+#
+#   Fetches site data
+#
+#   Returns: line 1: plugin data, line 2: theme data,
+#   line 3: core version, line 4: home url, line 5: user data
+#
+
+wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version
+echo ""
+wp theme list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version
+echo ""
+wp core version --skip-themes --skip-plugins --skip-packages
+echo ""
+wp option get home --skip-themes --skip-plugins --skip-packages
+echo ""
+wp user list --format=json
