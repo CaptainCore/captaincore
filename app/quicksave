@@ -32,18 +32,18 @@ run_command() {
 	# Generate random auth
 	auth=''; for count in {0..6}; do auth+=$(printf "%x" $(($RANDOM%16)) ); done;
 
-	### Begin time tracking
+	# Begin time tracking
 	overalltimebegin=$(date +"%s")
 	backup_date=$(date +'%Y-%m-%d')
 	backup_time=$(date +'%H-%M')
 
-	### Define log file format
+	# Define log file format
 	logs_path=$logs/$backup_date/$backup_time-$auth
 
-	### Generate log folder
+	# Generate log folder
 	mkdir -p $logs_path
 
-	### Begin logging
+	# Begin logging
 	echo "$(date +'%Y-%m-%d %H:%M') Begin generating quicksaves" > $logs_path/quicksave.log
 
 	INDEX=0
@@ -111,7 +111,7 @@ run_command() {
 		# captaincore ssh $site --command="wp core version --skip-themes --skip-plugins --skip-packages" > ~/Quicksaves/$domain/versions/core.json
 
 		## Nasty bash hack in order to grab all of the details from one single SSH tunnel (WP Engine connection is slow)
-		response=$(captaincore ssh $site --command='wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp theme list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp core version --skip-themes --skip-plugins --skip-packages; echo ""; wp option get home --skip-themes --skip-plugins --skip-packages')
+		response=$(captaincore ssh $site --script=fetch-site-data)
 		IFS=$'\n' read -rd '' -a response_parsed <<<"$response"
 		echo ${response_parsed[0]} > $path/${site}_${site_id}/quicksave/versions/plugins.json
 		echo ${response_parsed[1]} > $path/${site}_${site_id}/quicksave/versions/themes.json
@@ -121,6 +121,7 @@ run_command() {
 		theme_data=`cat $path/${site}_${site_id}/quicksave/versions/themes.json`
 		core_version=`cat $path/${site}_${site_id}/quicksave/versions/core.json`
 		home_url=${response_parsed[3]}
+		user_data=${response_parsed[4]}
 		# plugin_data=$(git show $git_hash:versions/plugins.json --format=)
 		# theme_data=$(git show $git_hash:versions/themes.json --format=)
 		# core_version=$(git show $git_hash:versions/core.json --format=)
@@ -149,25 +150,27 @@ run_command() {
 			git_status=`echo -e "$git_status" | sed -e 's/^[[:space:]]*//' | base64 -w 0`
 			plugin_data=`echo -e $plugin_data | base64 -w 0`
 			theme_data=`echo -e $theme_data | base64 -w 0`
+			user_data=`echo -e $user_data | base64 -w 0`
 		elif [[ "$OSTYPE" == "darwin"* ]]; then
 			# MacOS - Base64
 			git_status=`echo -e "$git_status" | sed -e 's/^[[:space:]]*//' | base64`
 			plugin_data=`echo -e $plugin_data | base64`
 			theme_data=`echo -e $theme_data | base64`
+			user_data=`echo -e $user_data | base64`
 		fi
 
 		echo "Git hash $git_hash"
 
 		if [[ "$debug" == "true" ]]; then
-			echo "$captaincore_api/$domain/?git_commit=$git_hash&git_status=$git_status&core=$core_version&plugins=$plugin_data&themes=$theme_data&token=$token"
+			echo "$captaincore_api/$domain/?git_commit=$git_hash&git_status=$git_status&core=$core_version&plugins=$plugin_data&themes=$theme_data&users=$user_data&token=$token"
 			continue
 		fi
 
-		### Adds quicksave to CaptainCore Plugin
+		# Adds quicksave to CaptainCore Plugin
 		if [[ "$captaincore_dev" == true ]]; then
-			curl -k --data-urlencode "home_url=$home_url" --data-urlencode "date=$git_date" --data-urlencode "git_commit=$git_hash" --data-urlencode "git_status=$git_status" --data-urlencode "core=$core_version" --data-urlencode "plugins=$plugin_data" --data-urlencode "themes=$theme_data" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+			curl -k --data-urlencode "home_url=$home_url" --data-urlencode "date=$git_date" --data-urlencode "git_commit=$git_hash" --data-urlencode "git_status=$git_status" --data-urlencode "core=$core_version" --data-urlencode "plugins=$plugin_data" --data-urlencode "themes=$theme_data" --data-urlencode "users=$user_data" --data-urlencode "token=$token" "$captaincore_api/$domain/"
 		else
-			curl --data-urlencode "home_url=$home_url" --data-urlencode "date=$git_date" --data-urlencode "git_commit=$git_hash" --data-urlencode "git_status=$git_status" --data-urlencode "core=$core_version" --data-urlencode "plugins=$plugin_data" --data-urlencode "themes=$theme_data" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+			curl --data-urlencode "home_url=$home_url" --data-urlencode "date=$git_date" --data-urlencode "git_commit=$git_hash" --data-urlencode "git_status=$git_status" --data-urlencode "core=$core_version" --data-urlencode "plugins=$plugin_data" --data-urlencode "themes=$theme_data" --data-urlencode "users=$user_data" --data-urlencode "token=$token" "$captaincore_api/$domain/"
 		fi
 
 		## Generates snapshot archive
@@ -181,6 +184,7 @@ run_command() {
 		wp post meta update $site_id themes "${response_parsed[1]}"
 		wp post meta update $site_id core ${response_parsed[2]}
 		wp post meta update $site_id home_url ${response_parsed[3]}
+		wp post meta update $site_id users ${response_parsed[4]}
 
 		# Clear out variables
 		site=''
@@ -192,7 +196,7 @@ run_command() {
 
 	done
 
-	### End logging
+	# End logging
 	echo "$(date +'%Y-%m-%d %H:%M') Finished generating quicksaves" >> $logs_path/quicksave.log
 
 	fi
