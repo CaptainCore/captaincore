@@ -36,7 +36,7 @@ for i in "${!flags[@]}"; do
   if [[ $flag_name == *"="* ]]; then
     flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
     flag_name=`echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1'` # extract name
-    flag_name=${flag_name/-/_}
+    flag_name=${flag_name//-/_}
     declare "$flag_name"="$flag_value" # assigns to $flag_flagname
   else
     # assigns to $flag_flagname boolen
