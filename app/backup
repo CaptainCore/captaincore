@@ -70,8 +70,9 @@ run_command () {
       # Site found, start the backup
       if ! [ -z "$domain" ]; then
 
-        if [ "$homedir" == "" ]; then
-          homedir="/"
+        # Append trailing slash if homedir exist
+        if [ "$homedir" != "" ]; then
+          homedir="${homedir}/"
         fi
 
         # Lookup rclone
