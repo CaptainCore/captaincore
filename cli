@@ -72,11 +72,11 @@ done
 
 # Run the command and capture its exit code for introspection
 if [[ $run_in_background != "" ]]; then
-	"$CMD_FILE" "${CMD_ARGS[@]}" > ~/Tmp/job_$run_in_background.txt
+	"$CMD_FILE" "${CMD_ARGS[@]%--run-in-background=*}" > ~/Tmp/job_$run_in_background.txt
 	# End time tracking
 	overalltimeend=$(date +%s)
 	runtime=$(($overalltimeend-$overalltimebegin))
-	echo "" >> ~/Tmp/job_$run_in_background.txt
+	echo "" >> ~/Tmp/job_${run_in_background}.txt
 	echo "{\"response\":\"Command finished\",\"timestamp\":\"$(date +'%Y-%m-%d-%H%M%S')\",\"runtime\":\"$runtime\"}" >> ~/Tmp/job_$run_in_background.txt
 else
 	"$CMD_FILE" "${CMD_ARGS[@]}"
