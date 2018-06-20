@@ -26,7 +26,7 @@ run_command() {
 
 		let INDEX=${INDEX}+1
 
-		### Load site details
+		# Load site configs
 		eval $(captaincore site get $site --bash)
 
 		## Return error if domain not found
