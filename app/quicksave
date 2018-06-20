@@ -184,7 +184,7 @@ run_command() {
 		wp post meta update $site_id themes "${response_parsed[1]}"
 		wp post meta update $site_id core ${response_parsed[2]}
 		wp post meta update $site_id home_url ${response_parsed[3]}
-		wp post meta update $site_id users ${response_parsed[4]}
+		wp post meta update $site_id users "${response_parsed[4]}"
 
 		# Clear out variables
 		site=''
