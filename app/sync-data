@@ -68,12 +68,24 @@ if [ $# -gt 0 ]; then
 					continue
 				fi
 
-				# Adds sync data to CaptainCore GUI
+
 				if [[ "$captaincore_dev" == true ]]; then
-					curl -k --data-urlencode "command=sync-data" --data-urlencode "home_url=$home_url" --data-urlencode "core=$core_version" --data-urlencode "plugins=$plugin_data" --data-urlencode "themes=$theme_data" --data-urlencode "users=$user_data" --data-urlencode "token=$token" "$captaincore_api/$domain/"
-				else
-					curl --data-urlencode "command=sync-data" --data-urlencode "home_url=$home_url" --data-urlencode "core=$core_version" --data-urlencode "plugins=$plugin_data" --data-urlencode "themes=$theme_data" --data-urlencode "users=$user_data" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+					curl_argument="-k"
 				fi
+
+				# Adds sync data to CaptainCore GUI
+				curl ${curl_argument} --request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
+{
+	"command": "sync-data",
+	"token":"$token",
+	"home_url":"$home_url",
+	"core":"$core_version",
+	"plugins":"$plugin_data",
+	"themes":"$theme_data",
+	"users":"$user_data"
+}
+EOF
+
 			fi
 
 		fi

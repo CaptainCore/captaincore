@@ -64,7 +64,7 @@ run_command() {
       zip -r $site-$timedate.zip $site-$timedate/ --exclude=$site-$timedate/_wpeprivate/\* --exclude=\*.git\* --exclude=$site-$timedate/wp-content/advanced-cache.php --exclude=$site-$timedate/wp-content/mu-plugins/mu-plugin.php --exclude=$site-$timedate/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$site-$timedate/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$site-$timedate/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$site-$timedate/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$site-$timedate/wp-content/mu-plugins/wpengine-common/\*
       rm $site-$timedate # remove directory shortcut
       mkdir snapshots
-			mv $site-$timedate.zip snapshots
+      mv $site-$timedate.zip snapshots
       cd snapshots
 
       # Grab snapshot size in bytes
@@ -84,11 +84,19 @@ run_command() {
         rclone move $site-$timedate.zip $rclone_snapshot/${site}_${site_id}/
 
         # Post snapshot to ACF field
-        if [[ $captaincore_dev == true ]]; then
-          curl -k --data-urlencode "storage=$snapshot_size" --data-urlencode "archive=$site-$timedate.zip" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
-        else
-          curl --data-urlencode "storage=$snapshot_size" --data-urlencode "archive=$site-$timedate.zip" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+        if [[ "$captaincore_dev" == true ]]; then
+          curl_argument="-k"
         fi
+
+        # Adds sync data to CaptainCore GUI
+        curl ${curl_argument} --request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
+{
+"storage": "$snapshot_size",
+"archive":"${site}-${timedate}.zip",
+"email":"$email",
+"token":"$token"
+}
+EOF
 
       fi
 

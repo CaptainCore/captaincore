@@ -168,10 +168,23 @@ run_command() {
 
 		# Adds quicksave to CaptainCore GUI
 		if [[ "$captaincore_dev" == true ]]; then
-			curl -k --data-urlencode "home_url=$home_url" --data-urlencode "date=$git_date" --data-urlencode "git_commit=$git_hash" --data-urlencode "git_status=$git_status" --data-urlencode "core=$core_version" --data-urlencode "plugins=$plugin_data" --data-urlencode "themes=$theme_data" --data-urlencode "users=$user_data" --data-urlencode "token=$token" "$captaincore_api/$domain/"
-		else
-			curl --data-urlencode "home_url=$home_url" --data-urlencode "date=$git_date" --data-urlencode "git_commit=$git_hash" --data-urlencode "git_status=$git_status" --data-urlencode "core=$core_version" --data-urlencode "plugins=$plugin_data" --data-urlencode "themes=$theme_data" --data-urlencode "users=$user_data" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+			curl_argument="-k"
 		fi
+
+		# Adds sync data to CaptainCore GUI
+		curl ${curl_argument} --request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
+{
+"home_url": "$home_url",
+"date":"$git_date",
+"git_commit":"$git_hash",
+"git_status":"$git_status",
+"core":"$core_version",
+"plugins":"$plugin_data",
+"themes":"$theme_data",
+"users":"$user_data",
+"token":"$token"
+}
+EOF
 
 		## Generates snapshot archive
 		#cd ~/Backup/

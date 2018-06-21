@@ -35,18 +35,18 @@ run_command () {
     # Generate random auth
     auth=''; for count in {0..6}; do auth+=$(printf "%x" $(($RANDOM%16)) ); done;
 
-    ### Begin time tracking
+    # Begin time tracking
     overalltimebegin=$(date +"%s")
     backup_date=$(date +'%Y-%m-%d')
     backup_time=$(date +'%H-%M')
 
-    ### Define log file format
+    # Define log file format
     logs_path=$logs/$backup_date/$backup_time-$auth
 
-    ### Generate log folder
+    # Generate log folder
     mkdir -p $logs_path
 
-    ### Begin logging
+    # Begin logging
     echo "$(date +'%Y-%m-%d %H:%M') Begin server backup" > $logs_path/backup-log.txt
 
     echo "Backing up $# sites"
@@ -56,14 +56,20 @@ run_command () {
       # Load site configs
       eval $(captaincore site get $site --bash)
 
-      ### If subsite update stats and skip backup
+      # If subsite update stats and skip backup
       if [[ $subsite == "true" ]]; then
 
-        ### Views for yearly stats
+        # Views for yearly stats
         views=`captaincore stats $domain`
 
-        ### Updates stats with no storage since it's a subsite
-        curl --data-urlencode "storage=0" --data-urlencode "views=$views" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+        # Updates stats with no storage since it's a subsite
+        curl --request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
+{
+	"storage":"0",
+	"token":"$token",
+	"views":"$views",
+}
+EOF
 
       fi
 
@@ -127,7 +133,12 @@ run_command () {
             ts sh -c "echo \"Finished remote backup $site (${INDEX}/$#)\" >> $logs_path/backup-remote.txt && tail -6 $logs_path/site-$site-remote.txt >> $logs_path/backup-remote.txt"
 
             # Post folder size bytes and yearly views to ACF field
-            curl --data-urlencode "storage=$folder_size" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+            curl --request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
+{
+	"storage": "$folder_size",
+	"token":"$token",
+}
+EOF
           fi
 
           # Add FTP error to log file
@@ -183,8 +194,14 @@ run_command () {
             # Views for yearly stats
             views=`captaincore stats $domain`
 
-            # Post folder size bytes and yearly views to ACF field
-            curl --data-urlencode "storage=$folder_size" --data-urlencode "views=$views" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+            # Post folder size bytes and yearly views to ACF fields
+            curl --request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
+{
+	"storage":"$folder_size",
+	"views":"$views",
+	"token":"$token",
+}
+EOF
           fi
 
         fi

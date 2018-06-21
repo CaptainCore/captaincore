@@ -21,12 +21,12 @@ run_command() {
 
   site_source=$1
   site_destination=$2
-	site_source_data=$(captaincore site get $site_source)
-	site_destination_data=$(captaincore site get $site_destination)
+  site_source_data=$(captaincore site get $site_source)
+  site_destination_data=$(captaincore site get $site_destination)
   verify_source=$(echo $site_source_data | json length)
   verify_destination=$(echo $site_destination_data | json length)
-	site_source_id=$( echo $site_source_data | json -a ID)
-	site_destination_id=$( echo $site_destination_data | json -a ID)
+  site_source_id=$( echo $site_source_data | json -a ID)
+  site_destination_id=$( echo $site_destination_data | json -a ID)
 
   if [[ $verify_source != "1" ]] || [[ $verify_destination != "1" ]]; then
     if [[ $verify_source != "1" ]]; then
@@ -38,10 +38,10 @@ run_command() {
     exit 1
   fi
 
-	echo "Copying $site_source ($( echo $site_source_data | json -a address)) to $site_destination ($( echo $site_destination_data | json -a address))"
+  echo "Copying $site_source ($( echo $site_source_data | json -a address)) to $site_destination ($( echo $site_destination_data | json -a address))"
 
-	site_source_url=$(captaincore ssh $site_source --command="wp option get home --skip-themes --skip-plugins")
-	site_destination_url=$(captaincore ssh $site_destination --command="wp option get home --skip-themes --skip-plugins")
+  site_source_url=$(captaincore ssh $site_source --command="wp option get home --skip-themes --skip-plugins")
+  site_destination_url=$(captaincore ssh $site_destination --command="wp option get home --skip-themes --skip-plugins")
 
   # Unique timestamp
   timestamp=$(date +%s)
@@ -63,17 +63,27 @@ run_command() {
   echo "Update urls from $site_source_url to $site_destination_url"
   captaincore ssh $site_destination --command="wp search-replace $site_source_url $site_destination_url --all-tables --skip-plugins --skip-themes --report-changed-only"
 
-	# Load vars
-	eval $(captaincore site get $site_destination --bash)
+  # Load vars
+  eval $(captaincore site get $site_destination --bash)
 
-	domain=$(echo $site_source_data | json -a address)
+  domain=$(echo $site_source_data | json -a address)
 
   # Post completion to CaptainCore API
   if [[ $captaincore_dev == true ]]; then
-    curl -k --data-urlencode "command=copy" --data-urlencode "site_source_id=$site_source_id" --data-urlencode "site_destination_id=$site_destination_id" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
-  else
-    curl --data-urlencode "command=copy" --data-urlencode "site_source_id=$site_source_id" --data-urlencode "site_destination_id=$site_destination_id" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+    curl_argument="-k"
   fi
+
+  curl ${curl_argument} --request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
+{
+	"command":"copy",
+	"site_source_id":"$site_source_id",
+	"site_destination_id":"$site_destination_id",
+	"email":"$email",
+	"storage":"$folder_size",
+	"views":"$views",
+	"token":"$token",
+}
+EOF
 
 }
 

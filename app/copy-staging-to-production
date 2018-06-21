@@ -54,12 +54,18 @@ run_command () {
         # Disable search privacy and deactivate disable email on production site
         captaincore ssh $website --command="wp option update blog_public 1 --skip-plugins --skip-themes; wp plugin deactivate disable-emails --skip-plugins --skip-themes"
 
-        ## Post completion to CaptainCore API
+        # Post completion to CaptainCore API
         if [[ $captaincore_dev == true ]]; then
-          curl -k --data-urlencode "command=staging-to-production" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
-        else
-          curl --data-urlencode "command=staging-to-production" --data-urlencode "email=$email" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+          curl_argument="-k"
         fi
+
+        curl ${curl_argument} --request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
+{
+	"command":"staging-to-production",
+	"email":"$email",
+	"token":"$token",
+}
+EOF
 
       fi
 
