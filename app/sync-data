@@ -5,43 +5,19 @@
 #
 #   `captaincore sync-data`
 #
-#   [<site>]
-#   Syncs website data for specific site. Defaults for all sites.
+#   [<site>...]
+#   One or more sites.
+#
+#   [--all]
+#   Sync website data for all sites.
 #
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source ${root_path}config
+source ${root_path}lib/arguments
 
-# Loop through arguments and separate regular arguments from flags (--flag)
-for var in "$@"
-do
-	# If starts with "--" then assign it to a flag array
-    if [[ $var == --* ]]
-    then
-    	count=1+${#flags[*]}
-    	flags[$count]=$var
-    # Else assign to an arguments array
-    else
-    	count=1+${#arguments[*]}
-    	arguments[$count]=$var
-    fi
-done
-
-# Loop through flags and assign to variable. A flag "--skip-dropbox" becomes $flag_skip_dropbox
-for i in "${!flags[@]}"
-do
-
-	# replace "-" with "_" and remove leading "--"
-	flag_name=`echo ${flags[$i]} | tr - _`
-	flag_name=`echo $flag_name | cut -c 3-`
-
-	# assigns to $flag_flagname
-	declare "flag_$flag_name"=true
-
-done
-
-sync_data () {
+run_command () {
 if [ $# -gt 0 ]; then
 
 	echo "Sync data on $# sites"
@@ -52,28 +28,59 @@ if [ $# -gt 0 ]; then
 		eval $(captaincore site get $website --bash)
 
 		# Site found, start the backup
-		if ! [ -z "$domain" ]; then
+		if [[ $site_id != "" ]] && [[ $site != "" ]]; then
 
 			echo "${INDEX}/$# - $domain"
 
-			## Nasty bash hack in order to grab all of the details from one single SSH tunnel (WP Engine connection is slow)
-			response=$(captaincore ssh $website --command='wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp theme list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version; echo ""; wp core version --skip-themes --skip-plugins --skip-packages; echo ""; wp option get home --skip-themes --skip-plugins --skip-packages')
+			# Nasty bash hack in order to grab all of the details from one single SSH tunnel (WP Engine connection is slow)
+			response=$(captaincore ssh $site --script=fetch-site-data)
 			if [[ "$response" != "" ]]; then
 				IFS=$'\n' read -rd '' -a response_parsed <<<"$response"
-				home_url=${response_parsed[3]}
 
-				## Store updated info in WordPress datastore
-				site_id=$(captaincore site get $website --field=ID)
+				plugin_data=${response_parsed[0]}
+				theme_data=${response_parsed[1]}
+				core_version=${response_parsed[2]}
+				home_url=${response_parsed[3]}
+				user_data=${response_parsed[4]}
+
+				# Store updated info in WordPress datastore
 				cd ${root_path}data
-				wp post meta update $site_id plugins "${response_parsed[0]}"
-				wp post meta update $site_id themes "${response_parsed[1]}"
-				wp post meta update $site_id core ${response_parsed[2]}
-				wp post meta update $site_id home_url ${response_parsed[3]}
+				wp post meta update $site_id plugins "$plugin_data"
+				wp post meta update $site_id themes "$theme_data"
+				wp post meta update $site_id core $core_version
+				wp post meta update $site_id home_url $home_url
+				wp post meta update $site_id users "$user_data"
+
+				if [[ "$OSTYPE" == "linux-gnu" ]]; then
+					# Linux - Base64 disable line wrapping
+					plugin_data=`echo -e $plugin_data | base64 -w 0`
+					theme_data=`echo -e $theme_data | base64 -w 0`
+					user_data=`echo -e $user_data | base64 -w 0`
+				elif [[ "$OSTYPE" == "darwin"* ]]; then
+					# MacOS - Base64
+					plugin_data=`echo -e $plugin_data | base64`
+					theme_data=`echo -e $theme_data | base64`
+					user_data=`echo -e $user_data | base64`
+				fi
+
+				if [[ "$debug" == "true" ]]; then
+					echo "$captaincore_api/$domain/?core=$core_version&plugins=$plugin_data&themes=$theme_data&users=$user_data&token=$token"
+					continue
+				fi
+
+				# Adds sync data to CaptainCore GUI
+				if [[ "$captaincore_dev" == true ]]; then
+					curl -k --data-urlencode "command=sync-data" --data-urlencode "home_url=$home_url" --data-urlencode "core=$core_version" --data-urlencode "plugins=$plugin_data" --data-urlencode "themes=$theme_data" --data-urlencode "users=$user_data" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+				else
+					curl --data-urlencode "command=sync-data" --data-urlencode "home_url=$home_url" --data-urlencode "core=$core_version" --data-urlencode "plugins=$plugin_data" --data-urlencode "themes=$theme_data" --data-urlencode "users=$user_data" --data-urlencode "token=$token" "$captaincore_api/$domain/"
+				fi
 			fi
 
 		fi
 
-		### Clear out variables
+		# Clear out variables
+		site=''
+		site_id=''
 		domain=''
 		username=''
 		password=''
@@ -92,11 +99,19 @@ if [ $# -gt 0 ]; then
 fi
 }
 
-### See if any specific sites are selected
+# See if any sites are specifed
 if [ ${#arguments[*]} -gt 0 ]; then
-	# Runs on specific site(s)
-	sync_data ${arguments[*]}
-else
-	# Runs on all sites
-	sync_data ${websites[@]}
+  # Runs on specific sites
+  run_command ${arguments[*]}
+fi
+
+if [[ $all == "true" ]]; then
+  # Runs on all sites
+  echo "Sync website data on all sites"
+	run_command ${websites[@]}
+fi
+
+# Error if no sites specifed
+if [[ $all != "true" ]] && [ ${#arguments[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
 fi
