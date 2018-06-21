@@ -166,7 +166,7 @@ run_command() {
 			continue
 		fi
 
-		# Adds quicksave to CaptainCore Plugin
+		# Adds quicksave to CaptainCore GUI
 		if [[ "$captaincore_dev" == true ]]; then
 			curl -k --data-urlencode "home_url=$home_url" --data-urlencode "date=$git_date" --data-urlencode "git_commit=$git_hash" --data-urlencode "git_status=$git_status" --data-urlencode "core=$core_version" --data-urlencode "plugins=$plugin_data" --data-urlencode "themes=$theme_data" --data-urlencode "users=$user_data" --data-urlencode "token=$token" "$captaincore_api/$domain/"
 		else
