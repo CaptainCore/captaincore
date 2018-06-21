@@ -11,6 +11,9 @@
 #   [--all]
 #   Sync website data for all sites.
 #
+#   [--parallel=<number-of-checks>]
+#   Number of syncs at same time
+#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
@@ -20,7 +23,6 @@ source ${root_path}lib/arguments
 run_command () {
 if [ $# -gt 0 ]; then
 
-	echo "Sync data on $# sites"
 	INDEX=1
 	for website in "$@"; do
 
@@ -117,7 +119,33 @@ if [ ${#arguments[*]} -gt 0 ]; then
   run_command ${arguments[*]}
 fi
 
-if [[ $all == "true" ]]; then
+if [[ $all == "true" ]] && [[ "$parallel" -gt "0" ]]; then
+  # Runs on all sites
+	all_sites=(${websites[@]})
+	site_count=${#all_sites[*]}
+  echo "Running sync website data on ${#all_sites[*]} sites"
+	parallel_sets=$(($site_count / $parallel))
+	for parallel_set in `seq 1 $parallel_sets`; do
+
+		set_needed=$(( $parallel_set *  $parallel ))
+
+		if [[ "$set_needed" -lt "$site_count" ]]; then
+
+			current_parallel=$(($parallel_set * $parallel))
+			last_parallel=$(($current_parallel + $parallel - 1))
+
+			for i in `seq $current_parallel $last_parallel`; do
+					if [[ "$i" -lt "$site_count" ]]; then
+						run_command ${all_sites[$i]} &
+					fi
+			done
+
+			wait
+
+		fi
+
+	done
+elif [[ $all == "true" ]]; then
   # Runs on all sites
   echo "Sync website data on all sites"
 	run_command ${websites[@]}
