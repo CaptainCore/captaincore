@@ -26,8 +26,8 @@ if [ $# -gt 0 ]; then
       # Pulls standard set of plugins from https://<captaincore_wordpress_site>/wp-json/captaincore/v1/client
       plugins=$(captaincore get config-from-api --field=preinstall_plugins)
 
-      # Install standard set of plugins via WP-CLI
-      captaincore ssh $site --command="wp plugin install $plugins --force"
+      # Install standard set of plugins via WP-CLI (removing bundled hello plugin)
+      captaincore ssh $site --command="wp plugin delete hello; wp plugin install $plugins --force"
 
       # Loads token
       website_token=$(captaincore get token $site)
