@@ -61,7 +61,7 @@ run_command() {
 {
 	"git_commit":"$git_hash",
 	"token_key":"$token_key",
-	"token":"$token",
+	"token":"$token"
 }
 EOF
           sleep 1s

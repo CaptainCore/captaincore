@@ -81,7 +81,7 @@ run_command() {
 	"email":"$email",
 	"storage":"$folder_size",
 	"views":"$views",
-	"token":"$token",
+	"token":"$token"
 }
 EOF
 

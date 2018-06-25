@@ -36,7 +36,7 @@ run_command () {
 {
 	"storage": "0",
 	"token":"$token",
-	"views":"$views",
+	"views":"$views"
 }
 EOF
 
@@ -62,7 +62,7 @@ EOF
 {
 	"storage":"$folder_size",
 	"token":"$token",
-	"views":"$views",
+	"views":"$views"
 }
 EOF
         echo "Generated $domain"

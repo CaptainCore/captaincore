@@ -67,7 +67,7 @@ run_command () {
 {
 	"storage":"0",
 	"token":"$token",
-	"views":"$views",
+	"views":"$views"
 }
 EOF
 
@@ -136,7 +136,7 @@ EOF
             curl --request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
 {
 	"storage": "$folder_size",
-	"token":"$token",
+	"token":"$token"
 }
 EOF
           fi
@@ -199,7 +199,7 @@ EOF
 {
 	"storage":"$folder_size",
 	"views":"$views",
-	"token":"$token",
+	"token":"$token"
 }
 EOF
           fi

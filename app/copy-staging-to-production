@@ -63,7 +63,7 @@ run_command () {
 {
 	"command":"staging-to-production",
 	"email":"$email",
-	"token":"$token",
+	"token":"$token"
 }
 EOF
 
