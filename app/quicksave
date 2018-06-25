@@ -189,8 +189,8 @@ EOM
 		# Adds sync data to CaptainCore GUI
 		curl ${curl_argument} --request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
 {
-	"command": "quicksave",
-	"home_url": "$home_url",
+	"command":"quicksave",
+	"home_url":"$home_url",
 	"date":"$git_date",
 	"git_commit":"$git_hash",
 	"git_status":"$git_status",
@@ -198,7 +198,7 @@ EOM
 	"plugins":"$plugin_data",
 	"themes":"$theme_data",
 	"users":"$user_data",
-	"token":"$token",
+	"token":"$token"
 }
 EOF
 
