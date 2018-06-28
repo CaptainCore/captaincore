@@ -1,1 +1,1 @@
-<site> [--command=<commands>] [--script=<name|file>] [--<script-argument-name>=<script-argument-value>]
+<site>... [--command=<commands>] [--script=<name|file>] [--<script-argument-name>=<script-argument-value>]
