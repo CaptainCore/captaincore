@@ -41,7 +41,7 @@ run_command() {
 	# rclone copy ${root_path}lib/php/one-time-login.php sftp-$site:${homedir}wp-content/mu-plugins/
 
 	# Fetch login
-	magic_link=$(captaincore ssh $site --command="wp plugin install one-time-login --activate; wp user one-time-login $login")
+	magic_link=$(captaincore ssh $site --command="wp plugin install one-time-login --activate; wp user one-time-login '$login'")
 	magic_link=${magic_link##*$'\n'} # Returns last line if multiple are returned
 	magic_link=${magic_link//http:/https:} # Changes to https url
 
