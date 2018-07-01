@@ -45,7 +45,7 @@ run_command() {
 	if [[ "$open" == "true" ]]; then
 		open ${magic_link}
 	else
-		echo ${magic_link}
+		echo -n "${magic_link}"
 	fi
 
 }
