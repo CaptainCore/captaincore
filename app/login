@@ -37,9 +37,6 @@ run_command() {
 		homedir="${homedir}/"
 	fi
 
-	# Upload customized wp-cli-login-command mu-plugin
-	# rclone copy ${root_path}lib/php/one-time-login.php sftp-$site:${homedir}wp-content/mu-plugins/
-
 	# Fetch login
 	magic_link=$(captaincore ssh $site --command="wp plugin install one-time-login --activate; wp user one-time-login '$login'")
 	magic_link=${magic_link##*$'\n'} # Returns last line if multiple are returned
