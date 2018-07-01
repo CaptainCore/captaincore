@@ -26,7 +26,8 @@ run_command() {
 		exit 1
 	fi
 
-	cat $path_tmp/job_${job_id}.txt
+	# Cleans output. Won't add new lines to files.
+	echo -n "$(cat $path_tmp/job_${job_id}.txt)"
 
 }
 run_command
