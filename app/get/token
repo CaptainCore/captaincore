@@ -36,8 +36,19 @@ if (isset($_GET['--file'])) {
 	}
 } else {
 
-	$file = $captaincore_path . "/" . $argv[1] . "/backup/wp-config.php";
+	$site = $argv[1];
 
+	$json = shell_exec( "captaincore site get $site" );
+
+	$site_data = json_decode($json);
+	if ( is_array($site_data) ) {
+		$site_data = $site_data[0];
+	}
+	$site_id = $site_data->ID;
+	$site = $site_data->site;
+
+	$file = $captaincore_path . "/${site}_${site_id}/backup/wp-config.php";
+	
 	if (file_exists($file)) {
 		$wp_config = file_get_contents($file);
 
