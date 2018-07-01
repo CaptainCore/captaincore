@@ -76,7 +76,12 @@ if [[ $run_in_background != "" ]]; then
 	# End time tracking
 	overalltimeend=$(date +%s)
 	runtime=$(($overalltimeend-$overalltimebegin))
-	echo "" >> ~/Tmp/job_${run_in_background}.txt
+	last_line=$(tail -1 ~/Tmp/job_$run_in_background.txt)
+	# Checks last line
+	if [ ! -z "$last_line" ]; then
+		# Adds new line if needed
+		echo "" >> ~/Tmp/job_$run_in_background.txt
+	fi
 	echo "{\"response\":\"Command finished\",\"timestamp\":\"$(date +'%Y-%m-%d-%H%M%S')\",\"runtime\":\"$runtime\"}" >> ~/Tmp/job_$run_in_background.txt
 else
 	"$CMD_FILE" "${CMD_ARGS[@]}"
@@ -85,14 +90,14 @@ EXIT_CODE=$?
 
 arg_i=0 # We need the index to be able to strip list indices
 for arg in "${CMD_ARGS[@]}"; do
-		if [[ "${arg}" == "--mark-when-completed" ]]; then
-			# End time tracking
-			overalltimeend=$(date +%s)
-			runtime=$(($overalltimeend-$overalltimebegin))
-			echo ""
-			echo "{\"response\":\"Command finished\",\"timestamp\":\"$(date +'%Y-%m-%d-%H%M%S')\",\"runtime\":\"$runtime\"}"
-    fi
-    arg_i=$((arg_i+1))
+	if [[ "${arg}" == "--mark-when-completed" ]]; then
+		# End time tracking
+		overalltimeend=$(date +%s)
+		runtime=$(($overalltimeend-$overalltimebegin))
+		echo ""
+		echo "{\"response\":\"Command finished\",\"timestamp\":\"$(date +'%Y-%m-%d-%H%M%S')\",\"runtime\":\"$runtime\"}"
+	fi
+	arg_i=$((arg_i+1))
 done
 
 # If the command exited with an exit code of 3 (our "show help" code)
