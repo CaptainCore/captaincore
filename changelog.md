@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.5] - 2018-07-01
+### Added
+- Global argument `--run-in-background=<job-id>`
+- Command `captaincore job-fetch <job-id>`
+- Command `captaincore login <site> <login> [--open]`
+- Argument `--updates-enabled` to `captaincore site list`
+- Remote script `fetch-site-data`
+
+### Changed
+- Improved json output of `captaincore update-fetch`
+- Quicksaves now collects user data
+- Improvements to `captaincore sync-data`. Added `--all` argument.
+- Improvements to `--run-in-background` json output.
+- Bug Fix: Curl argument list too long. All curl requests to CaptanCore API now use JSON format via standard input.
+
 ## [0.2.4] - 2018-06-17
 ### Added
 - Command `captaincore open`. Opens one or more sites in browser.
