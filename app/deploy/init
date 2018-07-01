@@ -23,8 +23,7 @@ run_command() {
       eval $(captaincore site get $website --bash)
 
       # Site found, start the backup
-      if ! [ -z "$domain" ]
-      then
+      if ! [ -z "$domain" ]; then
 
         # captures FTP errors in $ftp_output and file listing within file called ftp_ls
         ftp_output=$( { rclone lsd sftp-$site:$homedir ; } 2>&1 )
@@ -57,9 +56,9 @@ run_command() {
           token_key=$(captaincore get token $site)
 
           # Assign token and backup link
-					curl --request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
+          curl --request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
 {
-	"git_commit":"$git_hash",
+	"command":"token",
 	"token_key":"$token_key",
 	"token":"$token"
 }
@@ -87,8 +86,7 @@ EOF
 }
 
 # See if any sites are specifed
-if [ ${#arguments[*]} -gt 0 ]
-then
+if [ ${#arguments[*]} -gt 0 ]; then
   # Runs on specifed sites
   run_command ${arguments[*]}
 else
