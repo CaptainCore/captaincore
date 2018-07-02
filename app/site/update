@@ -19,3 +19,12 @@ done
 
 cd ${root_path}data
 wp eval-file ../lib/php/site-update.php site=$1 ${flags[@]}
+
+# Load site configs
+eval $(captaincore site get $1 --bash)
+
+# Generate rclone keys
+captaincore rclone-configs $site
+
+# Prep site without deploying plugins or users (in background)
+captaincore prep $site --skip-deployment &

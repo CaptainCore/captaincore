@@ -113,11 +113,3 @@ if ( $found_site ) {
 		echo $error_string;
 	}
 }
-
-// Rclone Import
-$output = shell_exec( "captaincore rclone-configs $site" );
-
-// run initial backup, setups up token, install plugins
-// and load custom configs into wp-config.php and .htaccess
-// in a background process. Sent email when completed.
-$output = shell_exec( "nohup captaincore prep $site --skip-deployment > /dev/null 2>&1 &" );
