@@ -27,4 +27,4 @@ eval $(captaincore site get $1 --bash)
 captaincore rclone-configs $site
 
 # Prep site without deploying plugins or users (in background)
-captaincore prep $site --skip-deployment &
+nohup captaincore prep $site --skip-deployment 2>&1 &
