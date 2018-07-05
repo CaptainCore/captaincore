@@ -1,11 +1,10 @@
 #!/bin/bash
 
-##
-##      Sync CaptainCore local db with CaptainCore master db
-##
-##      Pass arguments from command line like this
-##      captaincore utils sync-with-master [<site-id>]
-##
+#
+#   Sync CaptainCore local db with CaptainCore master db
+#
+#   `captaincore utils sync-with-master [<site-id>]`
+#
 
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source ${root_path}config
