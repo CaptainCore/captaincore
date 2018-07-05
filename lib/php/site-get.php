@@ -33,7 +33,7 @@ $site_ids = get_posts( $arguments );
 // Bash output
 foreach ( $site_ids as $site_id ) {
 	$site   = get_post( $site_id );
-	$fields = array( 'ID', 'domain', 'site', 'provider', 'address', 'username', 'protocol', 'port', 'homedir', 'database_username', 'database_password', 'site_staging', 'address_staging', 'username_staging', 'protocol_staging', 'port_staging', 'homedir_staging', 'database_username_staging', 'database_password_staging', 's3accesskey', 's3secretkey', 's3bucket', 's3path', 'preloadusers', 'home_url' );
+	$fields = array( 'ID', 'domain', 'site', 'provider', 'address', 'username', 'protocol', 'port', 'homedir', 'database_username', 'database_password', 'site_staging', 'address_staging', 'username_staging', 'protocol_staging', 'port_staging', 'homedir_staging', 'database_username_staging', 'database_password_staging', 's3accesskey', 's3secretkey', 's3bucket', 's3path', 'preloadusers', 'home_url', 'updates_enabled', 'exclude_themes', 'exclude_plugins' );
 	if ( $field ) {
 		$fields = array( $field );
 	}
