@@ -78,8 +78,13 @@ migrate_website() {
     backup_url=${backup_url/wp-admin\/admin-ajax.php?action=pb_backupbuddy_backupbuddy&function=download_archive&backupbuddy_backup=/wp-content\/uploads\/backupbuddy_backups/}
   fi
 
-  # Downloads backup file
-  wget --progress=bar:force:noscroll $backup_url
+	if [ -f $url ]; then
+	   echo "File $url exists."
+	else
+		# Downloads backup file
+	  wget --progress=bar:force:noscroll $backup_url
+	fi
+
   if [[ "$backupformat" == "zip" ]]; then
     unzip -o *.zip -x "__MACOSX/*" -x "cgi-bin/*"
   fi
