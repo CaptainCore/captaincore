@@ -3,9 +3,9 @@
 #
 #   Grabs file diff between Quicksaves
 #
-#   `captaincore quicksave-file-diff <site> <git_hash_current> <git_hash_previous> <file>`
+#   `captaincore quicksave-file-diff <site> <git_hash_current> <file>`
 #
-#   Example: captaincore quicksave-file-diff sitename 4c43c16ae40f384e93573133282bb86a46d040fd a5ee8924e334debaba06de6f365a40caffa8586c versions/plugins.json
+#   Example: captaincore quicksave-file-diff sitename 4c43c16ae40f384e93573133282bb86a46d040fd versions/plugins.json
 #
 
 # Load configuration
@@ -31,7 +31,18 @@ if [ $# -gt 0 ]; then
     fi
 
     cd $path/${site}_${site_id}/quicksave/
-    git_diff=`git diff $git_hash $git_hash_compare -- $file`
+
+		# capture all git commit into array
+		git_commits=($(git log --pretty=format:"%H"))
+
+		for i in ${!git_commits[@]}; do
+			if [[ "${git_commits[$i]}" == "$git_hash" ]]; then
+				current_index=$i
+			fi
+		done
+
+		git_hash_previous=${git_commits[ $(( $current_index + 1 )) ]}
+    git_diff=`git diff $git_hash $git_hash_previous -- $file`
     echo "$git_diff"
 
   }
