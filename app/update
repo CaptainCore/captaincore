@@ -24,7 +24,6 @@ source ${root_path}config
 source ${root_path}lib/arguments
 
 run_command () {
-  if [ $# -gt 0 ]; then
 
     ### Begin time tracking
     overalltimebegin=$(date +"%s")
@@ -41,96 +40,92 @@ run_command () {
       # Load site configs
       eval $(captaincore site get $website --bash)
 
-      # Site found, start the backup
-      if ! [ -z "$domain" ]; then
+      # captures FTP errors in $ftp_output and file listing to log file
+      ftp_output=$( { rclone lsd sftp-$site:$homedir ; } 2>&1 )
+      ftp_search_for_wordpress=`echo "$ftp_output" | perl -wnE'say for /wp-admin/g'`
 
-        # captures FTP errors in $ftp_output and file listing to log file
-        ftp_output=$( { rclone lsd sftp-$site:$homedir ; } 2>&1 )
-        ftp_search_for_wordpress=`echo "$ftp_output" | perl -wnE'say for /wp-admin/g'`
+      # Handle FTP errors
+      if [[ $ftp_search_for_wordpress != "wp-admin" ]]; then
 
-        # Handle FTP errors
-        if [[ $ftp_search_for_wordpress != "wp-admin" ]]; then
-
-          # WordPress not found, so performing regular backup
-          echo "WordPress not found: $site ($ftp_output)"
-        else
-          ## No errors found, run updates
-
-          ### run updates
-          echo "$(date +'%Y-%m-%d %H:%M') Begin updates on $site (${INDEX}/$#)"
-
-          ### Define log file format
-					logs_path=$path/${site}_${site_id}/updates/
-
-					### Generate log folder
-					mkdir -p $logs_path
-
-					# Exclude themes or plugins if marked for exclusion
-					if [[ $exclude_themes != "" ]] && [[ $exclude_plugins != "" ]]; then
-						json_output=$(captaincore ssh $site --script=update --exclude_plugins=$exclude_plugins --exclude_themes=$exclude_themes --all --format=json)
-					elif [[ $exclude_themes != "" ]]; then
-						json_output=$(captaincore ssh $site --script=update --exclude_themes=$exclude_themes --all --format=json)
-					elif [[ $exclude_plugins != "" ]]; then
-						json_output=$(captaincore ssh $site --script=update --exclude_plugins=$exclude_plugins --all --format=json)
-					else
-						json_output=$(captaincore ssh $site --script=update --all --format=json)
-					fi
-
-					# If json output detected then parse updates
-					if [[ "$json_output" = *"[{"* ]]; then
-
-						IFS=$'\n' read -rd '' -a response_parsed <<<"$json_output"
-						echo "theme updates ${response_parsed[0]}"
-						echo "plugin updates ${response_parsed[1]}"
-
-						if [[ "$captaincore_dev" == true ]]; then
-							curl_argument="-k "
-						fi
-
-						# Generate theme json if themes updated
-						if [[ "${response_parsed[0]}" = *"[{"* ]]; then
-
-							echo "Writing theme updates to file"
-							date=$(date +'%Y-%m-%d-%H%M%S')
-							file="${logs_path}/${date}-themes.json"
-							echo ${response_parsed[0]} > $file
-							json="[{\"date\":\"$date\",\"type\":\"theme\",\"updates\":$(cat $file)}]";
-
-							# Adds sync data to CaptainCore GUI
-							curl ${curl_argument}--request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
-{
-	"command": "import-update-log",
-	"token":"$token",
-	"data":$json
-}
-EOF
-
-					  fi
-
-						# Generate plugin json if plugins updated
-						if [[ "${response_parsed[1]}" = *"[{"* ]]; then
-							echo "Writing plugin updates to file"
-							date=$(date +'%Y-%m-%d-%H%M%S')
-							file="${logs_path}/${date}-themes.json"
-							echo ${response_parsed[1]} > $file
-							json="[{\"date\":\"$date\",\"type\":\"plugin\",\"updates\":$(cat $file)}]";
-
-							# Adds sync data to CaptainCore GUI
-							curl ${curl_argument}--request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
-{
-	"command": "import-update-log",
-	"token":"$token",
-	"data":$json
-}
-EOF
-
-					  fi
-
-					fi
-
-        fi
+        # WordPress not found, so performing regular backup
+        echo "WordPress not found: $site ($ftp_output)"
+				continue
 
       fi
+
+      ## No errors found, run updates
+
+      ### run updates
+      echo "$(date +'%Y-%m-%d %H:%M') Begin updates on $site (${INDEX}/$#)"
+
+      ### Define log file format
+			logs_path=$path/${site}_${site_id}/updates/
+
+			### Generate log folder
+			mkdir -p $logs_path
+
+			# Exclude themes or plugins if marked for exclusion
+			if [[ $exclude_themes != "" ]] && [[ $exclude_plugins != "" ]]; then
+				json_output=$(captaincore ssh $site --script=update --exclude_plugins=$exclude_plugins --exclude_themes=$exclude_themes --all --format=json)
+			elif [[ $exclude_themes != "" ]]; then
+				json_output=$(captaincore ssh $site --script=update --exclude_themes=$exclude_themes --all --format=json)
+			elif [[ $exclude_plugins != "" ]]; then
+				json_output=$(captaincore ssh $site --script=update --exclude_plugins=$exclude_plugins --all --format=json)
+			else
+				json_output=$(captaincore ssh $site --script=update --all --format=json)
+			fi
+
+			# If json output detected then parse updates
+			if [[ "$json_output" = *"[{"* ]]; then
+
+				IFS=$'\n' read -rd '' -a response_parsed <<<"$json_output"
+				echo "theme updates ${response_parsed[0]}"
+				echo "plugin updates ${response_parsed[1]}"
+
+				if [[ "$captaincore_dev" == true ]]; then
+					curl_argument="-k "
+				fi
+
+				# Generate theme json if themes updated
+				if [[ "${response_parsed[0]}" = *"[{"* ]]; then
+
+					echo "Writing theme updates to file"
+					date=$(date +'%Y-%m-%d-%H%M%S')
+					file="${logs_path}/${date}-themes.json"
+					echo ${response_parsed[0]} > $file
+					json="[{\"date\":\"$date\",\"type\":\"theme\",\"updates\":$(cat $file)}]";
+
+					# Adds sync data to CaptainCore GUI
+					curl ${curl_argument}--request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
+{
+"command": "import-update-log",
+"token":"$token",
+"data":$json
+}
+EOF
+
+			  fi
+
+				# Generate plugin json if plugins updated
+				if [[ "${response_parsed[1]}" = *"[{"* ]]; then
+					echo "Writing plugin updates to file"
+					date=$(date +'%Y-%m-%d-%H%M%S')
+					file="${logs_path}/${date}-themes.json"
+					echo ${response_parsed[1]} > $file
+					json="[{\"date\":\"$date\",\"type\":\"plugin\",\"updates\":$(cat $file)}]";
+
+					# Adds sync data to CaptainCore GUI
+					curl ${curl_argument}--request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
+{
+"command": "import-update-log",
+"token":"$token",
+"data":$json
+}
+EOF
+
+      		fi
+
+      	fi
 
       ### Clear out variables
 			exclude_themes=''
@@ -158,7 +153,6 @@ EOF
     diff=$(($overalltimeend-$overalltimebegin))
     echo "$(date +'%Y-%m-%d %H:%M') $(($diff / 3600)) hours, $((($diff / 60) % 60)) minutes and $(($diff % 60)) seconds elapsed."
 
-  fi
 }
 
 # See if any sites are specifed
