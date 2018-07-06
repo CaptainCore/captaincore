@@ -101,7 +101,7 @@ run_command () {
 {
 	"command": "import-update-log",
 	"token":"$token",
-	"data":$response
+	"data":$json
 }
 EOF
 
@@ -120,7 +120,7 @@ EOF
 {
 	"command": "import-update-log",
 	"token":"$token",
-	"data":$response
+	"data":$json
 }
 EOF
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-#   Shows theme/plugin update logs
+#   Store theme/plugin update logs
 #
 #   `captaincore update-fetch <site>`
 #
