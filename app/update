@@ -83,16 +83,47 @@ run_command () {
 						echo "theme updates ${response_parsed[0]}"
 						echo "plugin updates ${response_parsed[1]}"
 
+						if [[ "$captaincore_dev" == true ]]; then
+							curl_argument="-k "
+						fi
+
 						# Generate theme json if themes updated
 						if [[ "${response_parsed[0]}" = *"[{"* ]]; then
+
 							echo "Writing theme updates to file"
-							echo ${response_parsed[0]} > $logs_path/$(date +'%Y-%m-%d-%H%M%S')-themes.json
+							date=$(date +'%Y-%m-%d-%H%M%S')
+							file="${logs_path}/${date}-themes.json"
+							echo ${response_parsed[0]} > $file
+							json="[{\"date\":\"$date\",\"type\":\"theme\",\"updates\":$(cat $file)}]";
+
+							# Adds sync data to CaptainCore GUI
+							curl ${curl_argument}--request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
+{
+	"command": "import-update-log",
+	"token":"$token",
+	"data":$response
+}
+EOF
+
 					  fi
 
 						# Generate plugin json if plugins updated
 						if [[ "${response_parsed[1]}" = *"[{"* ]]; then
 							echo "Writing plugin updates to file"
-							echo ${response_parsed[1]} > $logs_path/$(date +'%Y-%m-%d-%H%M%S')-plugins.json
+							date=$(date +'%Y-%m-%d-%H%M%S')
+							file="${logs_path}/${date}-themes.json"
+							echo ${response_parsed[1]} > $file
+							json="[{\"date\":\"$date\",\"type\":\"plugin\",\"updates\":$(cat $file)}]";
+
+							# Adds sync data to CaptainCore GUI
+							curl ${curl_argument}--request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
+{
+	"command": "import-update-log",
+	"token":"$token",
+	"data":$response
+}
+EOF
+
 					  fi
 
 					fi
