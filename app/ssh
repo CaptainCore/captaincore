@@ -3,17 +3,19 @@
 #
 #   SSH wrapper (Supports Kinsta and WP Engine)
 #
-#   Connects to individual site over SSH
-#   captaincore ssh <site>
+#   `captaincore ssh`
 #
+#   [<site>...]
+#   One or more sites.
+#
+#   [--all]
+#   All sites.
+#
+#   [--command=<commands>]
 #   Runs command over SSH
-#   captaincore ssh <site> --command=<commands>
 #
+#   [--script=<name|script>] [--<script-argument-name>=<script-argument-value>]
 #   Runs script over SSH
-#   captaincore ssh <site> --script=<name|script> [--<script-argument-name>=<script-argument-value>]
-#
-#   Runs command over SSH to mutiple sites
-#   captaincore ssh <site> <site> <site> --command=<commands>
 #
 
 # Load configuration
