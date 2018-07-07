@@ -1,0 +1,131 @@
+#!/bin/bash
+
+#
+#   Store Quicksave data to CaptainCore API
+#
+#   `captaincore quicksave-store`
+#
+#   [<site>...]
+#   One or more sites to update.
+#
+#   [--all]
+#   Stores quicksaves for all sites.
+#
+#   [--debug]
+#   Debug mode
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}config
+source ${root_path}lib/arguments
+
+run_command() {
+
+	echo "Stores quicksaves for $# sites"
+
+	INDEX=0
+
+	for website in "$@"; do
+
+		let INDEX=${INDEX}+1
+
+		# Load site configs
+		eval $(captaincore site get $website --bash)
+
+		## Return error if domain not found
+		if [[ "$domain" == "" ]] || [[ "$site" == "" ]]; then
+			echo "Can't locate website for $site"
+			continue
+		fi
+
+		cd $path/${site}_${site_id}/quicksave/
+
+		# capture all git commit into array
+		git_commits=($(git log --pretty=format:"%H"))
+
+		quicksaves="["
+
+		# loop through and build out info
+		for git_commit in ${git_commits[@]}; do
+
+			core=$(git show ${git_commit}:versions/core.json)
+			themes=$(git show ${git_commit}:versions/themes.json)
+			plugins=$(git show ${git_commit}:versions/plugins.json)
+			date=$(git show -s --pretty=format:"%ct" $git_commit) # Get date of last commit (UNIX timestamp)
+			git_status=$(git show $git_commit --shortstat --format=)
+
+			read -r -d '' quicksave << EOM
+			{
+				"git_commit":"$git_commit",
+				"git_status":"$git_status",
+				"date":"$date",
+				"core":"$core",
+				"themes": $themes,
+				"plugins": $plugins
+			},
+EOM
+			# filter out git commits missing version info
+			if [[ $core != "" ]] || [[ $themes != "" ]] || [[ $plugins != "" ]]; then
+				quicksaves+=$quicksave
+			fi
+
+		done
+
+		quicksaves=${quicksaves%?} # removes ending comma
+		quicksaves+="]" # finishes json
+
+		if [[ "$debug" == "true" ]]; then
+			read -r -d '' VAR << EOM
+			{
+				"command": "import-quicksaves",
+				"data": $VAR
+				"token":"$token",
+			}
+EOM
+			echo $VAR
+			continue
+		fi
+
+		# Adds quicksave to CaptainCore GUI
+		if [[ "$captaincore_dev" == true ]]; then
+			curl_argument="-k"
+		fi
+
+		# Adds sync data to CaptainCore GUI
+		curl ${curl_argument} --request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOM
+		{
+			"command": "import-quicksaves",
+			"data": $quicksaves,
+			"token":"$token"
+		}
+EOM
+
+		# Clear out variables
+		site=''
+		domain=''
+		homedir=''
+		subsite=''
+		response=''
+		response_parsed=''
+
+	done
+
+}
+
+# See if any sites are specifed
+if [ ${#arguments[*]} -gt 0 ]; then
+  # Runs on specific sites
+  run_command ${arguments[*]}
+fi
+
+if [[ $all == "true" ]]; then
+  # Runs on all sites
+  echo "Store quicksaves for all sites"
+	run_command ${websites[@]}
+fi
+
+# Error if no sites specifed
+if [[ $all != "true" ]] && [ ${#arguments[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
+fi
