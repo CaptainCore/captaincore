@@ -55,18 +55,18 @@ run_command() {
 			date=$(git show -s --pretty=format:"%ct" $git_commit) # Get date of last commit (UNIX timestamp)
 			git_status=$(git show $git_commit --shortstat --format=)
 
-			read -r -d '' quicksave << EOM
-			{
-				"git_commit":"$git_commit",
-				"git_status":"$git_status",
-				"date":"$date",
-				"core":"$core",
-				"themes": $themes,
-				"plugins": $plugins
-			},
-EOM
 			# filter out git commits missing version info
 			if [[ $core != "[{"* ]] && [[ $themes == "[{"* ]] && [[ $plugins == "[{"* ]]; then
+				read -r -d '' quicksave << EOM
+{
+	"git_commit":"$git_commit",
+	"git_status":"$git_status",
+	"date":"$date",
+	"core":"$core",
+	"themes": $themes,
+	"plugins": $plugins
+},
+EOM
 				quicksaves+=$quicksave
 			fi
 
@@ -77,11 +77,11 @@ EOM
 
 		if [[ "$debug" == "true" ]]; then
 			read -r -d '' VAR << EOM
-			{
-				"command": "import-quicksaves",
-				"data": $quicksaves,
-				"token":"$token"
-			}
+{
+	"command": "import-quicksaves",
+	"data": $quicksaves,
+	"token":"$token"
+}
 EOM
 			echo $VAR
 			continue
@@ -94,11 +94,11 @@ EOM
 
 		# Adds sync data to CaptainCore GUI
 		curl ${curl_argument} --request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOM
-		{
-			"command": "import-quicksaves",
-			"data": $quicksaves,
-			"token":"$token"
-		}
+{
+	"command": "import-quicksaves",
+	"data": $quicksaves,
+	"token":"$token"
+}
 EOM
 
 		# Clear out variables
