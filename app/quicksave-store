@@ -55,21 +55,6 @@ run_command() {
 			date=$(git show -s --pretty=format:"%ct" $git_commit) # Get date of last commit (UNIX timestamp)
 			git_status=$(git show $git_commit --shortstat --format=)
 
-			# Needs to be a version number, not json.
-			if [[ $core == "[{"* ]]; then
-				core=""
-			fi
-
-			# Needs to start with json otherwise don't add.
-			if [[ $themes != "[{"* ]]; then
-				themes=""
-			fi
-
-			# Needs to start with json otherwise don't add.
-			if [[ $plugins != "[{"* ]]; then
-				plugins=""
-			fi
-
 			read -r -d '' quicksave << EOM
 			{
 				"git_commit":"$git_commit",
@@ -81,7 +66,7 @@ run_command() {
 			},
 EOM
 			# filter out git commits missing version info
-			if [[ $core != "" ]] || [[ $themes != "" ]] || [[ $plugins != "" ]]; then
+			if [[ $core != "[{"* ]] && [[ $themes == "[{"* ]] && [[ $plugins == "[{"* ]]; then
 				quicksaves+=$quicksave
 			fi
 
