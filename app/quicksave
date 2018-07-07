@@ -131,6 +131,7 @@ run_command() {
 		git_commit=$(git commit -m "quicksave on $timedate")
 
 		# Save git hash
+		git_commit=$(git log -n 1 --pretty=format:"%H")  # Get hash of last commit (commit hash)
 		git_status=$(git show $git_commit --shortstat --format=)
 		core=$(git show ${git_commit}:versions/core.json)
 		themes=$(git show ${git_commit}:versions/themes.json)
