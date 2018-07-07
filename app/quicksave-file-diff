@@ -31,7 +31,7 @@ run_command() {
 		git_commits=($(git log --pretty=format:"%H"))
 
 		for i in ${!git_commits[@]}; do
-			if [[ "${git_commits[$i]}" == "$git_hash" ]]; then
+			if [[ "${git_commits[$i]}" == "$hash" ]]; then
 				current_index=$i
 			fi
 		done
