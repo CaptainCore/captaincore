@@ -3,7 +3,7 @@
 #
 #   Grabs Quicksave git commit status log
 #
-#   `captaincore quicksave-view-changes <site> <git_hash>`
+#   `captaincore quicksave-view-changes <site> --hash=<git_hash>`
 #
 
 # Load configuration
@@ -11,12 +11,9 @@ root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_
 source ${root_path}config
 source ${root_path}lib/arguments
 
-website=$1
-git_hash=$2
+run_command() {
 
-if [ $# -gt 0 ];then
-
-	run_command() {
+	for website in "$@"; do
 
 		eval $(captaincore site get $website --bash)
 
@@ -27,10 +24,20 @@ if [ $# -gt 0 ];then
 		fi
 
 		cd $path/${site}_${site_id}/quicksave/
-		git_show=`git show $git_hash --name-status --format=`
+		git_show=`git show $hash --name-status --format=`
 		echo "$git_show"
 
-	}
-	run_command
+	done
 
+}
+
+# See if any sites are specifed
+if [ ${#arguments[*]} -gt 0 ]; then
+  # Runs on specific sites
+  run_command ${arguments[*]}
+fi
+
+# Error if no sites specifed
+if [ ${#arguments[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
 fi
