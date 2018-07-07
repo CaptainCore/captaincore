@@ -94,7 +94,7 @@ EOM
 			curl_argument="-k"
 		fi
 
-		# Adds sync data to CaptainCore GUI
+		# Adds quicksave to CaptainCore GUI
 		curl ${curl_argument} --request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOM
 {
 	"command": "import-quicksaves",

@@ -105,11 +105,6 @@ run_command() {
 		rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ $path/${site}_${site_id}/backup/wp-content/plugins/ $path/${site}_${site_id}/quicksave/plugins
 		rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ $path/${site}_${site_id}/backup/wp-content/themes/ $path/${site}_${site_id}/quicksave/themes
 
-		## Store plugin/theme in json
-		# captaincore ssh $site --command="wp plugin list --format=json --skip-themes --skip-plugins --skip-packages" > ~/Quicksaves/$domain/versions/plugins.json
-		# captaincore ssh $site --command="wp theme list --format=json --skip-themes --skip-plugins --skip-packages" > ~/Quicksaves/$domain/versions/themes.json
-		# captaincore ssh $site --command="wp core version --skip-themes --skip-plugins --skip-packages" > ~/Quicksaves/$domain/versions/core.json
-
 		## Nasty bash hack in order to grab all of the details from one single SSH tunnel (WP Engine connection is slow)
 		response=$(captaincore ssh $site --script=fetch-site-data)
 		IFS=$'\n' read -rd '' -a response_parsed <<<"$response"
@@ -117,20 +112,14 @@ run_command() {
 		echo ${response_parsed[1]} > $path/${site}_${site_id}/quicksave/versions/themes.json
 		echo ${response_parsed[2]} > $path/${site}_${site_id}/quicksave/versions/core.json
 
-		plugin_data=`cat $path/${site}_${site_id}/quicksave/versions/plugins.json`
-		theme_data=`cat $path/${site}_${site_id}/quicksave/versions/themes.json`
-		core_version=`cat $path/${site}_${site_id}/quicksave/versions/core.json`
 		home_url=${response_parsed[3]}
-		user_data=${response_parsed[4]}
-		# plugin_data=$(git show $git_hash:versions/plugins.json --format=)
-		# theme_data=$(git show $git_hash:versions/themes.json --format=)
-		# core_version=$(git show $git_hash:versions/core.json --format=)
+		users=${response_parsed[4]}
 
 		# Add all files to git repo
 		git add -A
 
 		# Current git status
-		git_status=`git status -s`
+		git_status=$(git status -s)
 
 		if [[ "$git_status" == "" && "$force" != "true" ]]; then
 			# Skip quicksave as nothing changed
@@ -139,43 +128,40 @@ run_command() {
 		fi
 
 		# New commit
-		git_commit=`git commit -m "quicksave on $timedate"`
+		git_commit=$(git commit -m "quicksave on $timedate")
 
 		# Save git hash
-		git_hash=`git log -n 1 --pretty=format:"%H"`  # Get hash of last commit (commit hash)
-		git_date=`git log -n 1 --pretty=format:"%ct"` # Get date of last commit (UNIX timestamp)
-		git_status=`git show $git_hash --shortstat --format=`
-		if [[ "$OSTYPE" == "linux-gnu" ]]; then
-			# Linux - Base64 disable line wrapping
-			git_status=`echo -e "$git_status" | sed -e 's/^[[:space:]]*//' | base64 -w 0`
-			plugin_data=`echo -e $plugin_data | base64 -w 0`
-			theme_data=`echo -e $theme_data | base64 -w 0`
-			user_data=`echo -e $user_data | base64 -w 0`
-		elif [[ "$OSTYPE" == "darwin"* ]]; then
-			# MacOS - Base64
-			git_status=`echo -e "$git_status" | sed -e 's/^[[:space:]]*//' | base64`
-			plugin_data=`echo -e $plugin_data | base64`
-			theme_data=`echo -e $theme_data | base64`
-			user_data=`echo -e $user_data | base64`
-		fi
+		git_status=$(git show $git_commit --shortstat --format=)
+		core=$(git show ${git_commit}:versions/core.json)
+		themes=$(git show ${git_commit}:versions/themes.json)
+		plugins=$(git show ${git_commit}:versions/plugins.json)
+		date=$(git show -s --pretty=format:"%ct" $git_commit) # Get date of last commit (UNIX timestamp)
 
-		echo "Git hash $git_hash"
+		# Build json for quicksave
+		read -r -d '' quicksave << EOM
+[{
+"git_commit":"$git_commit",
+"git_status":"$git_status",
+"date":"$date",
+"core":"$core",
+"themes": $themes,
+"plugins": $plugins
+}]
+EOM
+
+		echo "Git hash $git_commit"
 
 		if [[ "$debug" == "true" ]]; then
-			echo "$captaincore_api/$domain/?git_commit=$git_hash&git_status=$git_status&core=$core_version&plugins=$plugin_data&themes=$theme_data&users=$user_data&token=$token"
 			read -r -d '' VAR << EOM
-			{
-				"command": "quicksave",
-				"home_url": "$home_url",
-				"date":"$git_date",
-				"git_commit":"$git_hash",
-				"git_status":"$git_status",
-				"core":"$core_version",
-				"plugins":"$plugin_data",
-				"themes":"$theme_data",
-				"users":"$user_data",
-				"token":"$token",
-			}
+{
+	"command": "import-quicksaves",
+	"data": $quicksave,
+	"home_url":"$home_url",
+	"themes": $themes,
+	"plugins": $plugins,
+	"users":"$users",
+	"token":"$token"
+}
 EOM
 			echo $VAR
 			continue
@@ -186,25 +172,16 @@ EOM
 			curl_argument="-k"
 		fi
 
-		# Adds sync data to CaptainCore GUI
-		curl ${curl_argument} --request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
+		# Adds quicksave to CaptainCore GUI
+		curl ${curl_argument} --request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOM
 {
-	"command":"quicksave",
+	"command": "import-quicksaves",
+	"data": $quicksave,
 	"home_url":"$home_url",
-	"date":"$git_date",
-	"git_commit":"$git_hash",
-	"git_status":"$git_status",
-	"core":"$core_version",
-	"plugins":"$plugin_data",
-	"themes":"$theme_data",
 	"users":"$user_data",
 	"token":"$token"
 }
-EOF
-
-		## Generates snapshot archive
-		#cd ~/Backup/
-		#zip -r ~/Quicksaves/$domain-$timedate.zip $domain/ --include=$domain/wp-content/plugins/\* --include=$domain/wp-content/themes/\*
+EOM
 
 		## Store updated info in WordPress datastore
 		site_id=$(captaincore site get $site --field=ID)
