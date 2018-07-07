@@ -79,8 +79,8 @@ EOM
 			read -r -d '' VAR << EOM
 			{
 				"command": "import-quicksaves",
-				"data": $quicksaves
-				"token":"$token",
+				"data": $quicksaves,
+				"token":"$token"
 			}
 EOM
 			echo $VAR
