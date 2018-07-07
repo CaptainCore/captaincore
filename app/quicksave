@@ -145,8 +145,8 @@ run_command() {
 "git_status":"$git_status",
 "date":"$date",
 "core":"$core",
-"themes": $themes,
-"plugins": $plugins
+"themes":$themes,
+"plugins":$plugins
 }]
 EOM
 
@@ -158,9 +158,9 @@ EOM
 	"command": "import-quicksaves",
 	"data": $quicksave,
 	"home_url":"$home_url",
-	"themes": $themes,
-	"plugins": $plugins,
-	"users":"$users",
+	"themes":$themes,
+	"plugins":$plugins,
+	"users":$users,
 	"token":"$token"
 }
 EOM
@@ -179,7 +179,9 @@ EOM
 	"command": "import-quicksaves",
 	"data": $quicksave,
 	"home_url":"$home_url",
-	"users":"$user_data",
+	"themes":$themes,
+	"plugins":$plugins,
+	"users":$users,
 	"token":"$token"
 }
 EOM
