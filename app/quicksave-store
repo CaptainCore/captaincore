@@ -55,6 +55,16 @@ run_command() {
 			date=$(git show -s --pretty=format:"%ct" $git_commit) # Get date of last commit (UNIX timestamp)
 			git_status=$(git show $git_commit --shortstat --format=)
 
+			# Needs to start with json otherwise don't add.
+			if [[ $themes != "[{"* ]]; then
+				themes=""
+			fi
+
+			# Needs to start with json otherwise don't add.
+			if [[ $plugins != "[{"* ]]; then
+				plugins=""
+			fi
+
 			read -r -d '' quicksave << EOM
 			{
 				"git_commit":"$git_commit",
