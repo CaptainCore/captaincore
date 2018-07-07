@@ -3,7 +3,7 @@
 #
 #   Grabs file diff between Quicksaves
 #
-#   `captaincore quicksave-file-diff <site> <git_hash_current> <file>`
+#   `captaincore quicksave-file-diff <site> --hash=<git_hash> --file=<file>`
 #
 #   Example: captaincore quicksave-file-diff sitename 4c43c16ae40f384e93573133282bb86a46d040fd versions/plugins.json
 #
@@ -13,24 +13,19 @@ root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_
 source ${root_path}config
 source ${root_path}lib/arguments
 
-site=$1
-git_hash=$2
-git_hash_compare=$3
-file=$4
+run_command() {
 
-if [ $# -gt 0 ]; then
+	for website in "$@"; do
 
-  run_command() {
+		eval $(captaincore site get $website --bash)
 
-		eval $(captaincore site get $site --bash)
+		# Return error if domain not found
+		if [[ "$domain" == "" ]]; then
+		  echo "Can't locate website for site $site"
+		  return 1
+		fi
 
-    # Return error if domain not found
-    if [[ "$domain" == "" ]]; then
-      echo "Can't locate website for site $site"
-      return 1
-    fi
-
-    cd $path/${site}_${site_id}/quicksave/
+		cd $path/${site}_${site_id}/quicksave/
 
 		# capture all git commit into array
 		git_commits=($(git log --pretty=format:"%H"))
@@ -42,10 +37,21 @@ if [ $# -gt 0 ]; then
 		done
 
 		git_hash_previous=${git_commits[ $(( $current_index + 1 )) ]}
-    git_diff=`git diff $git_hash $git_hash_previous -- $file`
-    echo "$git_diff"
+		git_diff=`git diff $hash $git_hash_previous -- $file`
+		echo "$git_diff"
 
-  }
-  run_command
+	done
 
+}
+run_command
+
+# See if any sites are specifed
+if [ ${#arguments[*]} -gt 0 ]; then
+  # Runs on specific sites
+  run_command ${arguments[*]}
+fi
+
+# Error if no sites specifed
+if [ ${#arguments[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
 fi
