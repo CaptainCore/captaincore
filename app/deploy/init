@@ -63,7 +63,8 @@ run_command() {
 	"token":"$token"
 }
 EOF
-          sleep 1s
+					# Set permalink to 'Post name' format
+					captaincore ssh $site --script=rewrite-prep
 
         fi
 
