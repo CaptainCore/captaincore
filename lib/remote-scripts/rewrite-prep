@@ -1,0 +1,12 @@
+#!/bin/bash
+
+#
+#   Preps permalink if needed
+#
+#   `rewrite-prep`
+#
+
+if [[ $(wp option get permalink_structure) == '' ]]; then
+	# Update 'plain' permalink to 'post name'
+	wp rewrite structure '/%postname%/'
+fi
