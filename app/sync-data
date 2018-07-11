@@ -39,34 +39,34 @@ if [ $# -gt 0 ]; then
 			if [[ "$response" != "" ]]; then
 				IFS=$'\n' read -rd '' -a response_parsed <<<"$response"
 
-				plugin_data=${response_parsed[0]}
-				theme_data=${response_parsed[1]}
-				core_version=${response_parsed[2]}
+				plugins=${response_parsed[0]}
+				themes=${response_parsed[1]}
+				core=${response_parsed[2]}
 				home_url=${response_parsed[3]}
-				user_data=${response_parsed[4]}
+				users=${response_parsed[4]}
 
 				# Store updated info in WordPress datastore
 				cd ${root_path}data
-				wp post meta update $site_id plugins "$plugin_data"
-				wp post meta update $site_id themes "$theme_data"
-				wp post meta update $site_id core $core_version
+				wp post meta update $site_id plugins "$plugins"
+				wp post meta update $site_id themes "$themes"
+				wp post meta update $site_id core $core
 				wp post meta update $site_id home_url $home_url
-				wp post meta update $site_id users "$user_data"
-
-				if [[ "$OSTYPE" == "linux-gnu" ]]; then
-					# Linux - Base64 disable line wrapping
-					plugin_data=`echo -e $plugin_data | base64 -w 0`
-					theme_data=`echo -e $theme_data | base64 -w 0`
-					user_data=`echo -e $user_data | base64 -w 0`
-				elif [[ "$OSTYPE" == "darwin"* ]]; then
-					# MacOS - Base64
-					plugin_data=`echo -e $plugin_data | base64`
-					theme_data=`echo -e $theme_data | base64`
-					user_data=`echo -e $user_data | base64`
-				fi
+				wp post meta update $site_id users "$users"
 
 				if [[ "$debug" == "true" ]]; then
-					echo "$captaincore_api/$domain/?core=$core_version&plugins=$plugin_data&themes=$theme_data&users=$user_data&token=$token"
+					# Build json for quicksave
+					read -r -d '' data << EOM
+{
+	"command": "sync-data",
+	"token":"$token",
+	"home_url":"$home_url",
+	"core":"$core",
+	"themes":$themes,
+	"plugins":$plugins,
+	"users":$users
+}
+EOM
+					echo $data
 					continue
 				fi
 
@@ -81,10 +81,10 @@ if [ $# -gt 0 ]; then
 	"command": "sync-data",
 	"token":"$token",
 	"home_url":"$home_url",
-	"core":"$core_version",
-	"plugins":"$plugin_data",
-	"themes":"$theme_data",
-	"users":"$user_data"
+	"core":"$core",
+	"themes":$themes,
+	"plugins":$plugins,
+	"users":$users
 }
 EOF
 
