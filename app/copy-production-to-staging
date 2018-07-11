@@ -15,10 +15,10 @@ run_command() {
 
   echo "Deploying $# staging sites"
   INDEX=1
-  for site in "$@"; do
+  for website in "$@"; do
 
     # Load site vars
-    eval $(captaincore site get $site --bash)
+    eval $(captaincore site get $website --bash)
 
     # Vars found, proceed
     if ! [ -z "$domain" ]; then
