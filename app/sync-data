@@ -47,11 +47,13 @@ if [ $# -gt 0 ]; then
 
 				# Store updated info in WordPress datastore
 				cd ${root_path}data
-				wp post meta update $site_id plugins "$plugins"
-				wp post meta update $site_id themes "$themes"
 				wp post meta update $site_id core $core
 				wp post meta update $site_id home_url $home_url
-				wp post meta update $site_id users "$users"
+				wp post meta update $site_id plugins "$plugins"
+				wp post meta update $site_id themes "$themes"
+				wp post meta update $site_id users << heredoc
+$users
+heredoc
 
 				if [[ "$debug" == "true" ]]; then
 					# Build json for quicksave
