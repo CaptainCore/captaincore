@@ -174,7 +174,7 @@ EOM
 		fi
 
 		# Adds quicksave to CaptainCore GUI
-		curl ${curl_argument} --request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOM
+		curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOM
 {
 	"command": "import-quicksaves",
 	"data": $quicksave,

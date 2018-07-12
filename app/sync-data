@@ -85,7 +85,7 @@ EOM
 				fi
 
 				# Adds sync data to CaptainCore GUI
-				curl ${curl_argument} --request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
+				curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
 	"command": "sync-data",
 	"token":"$token",

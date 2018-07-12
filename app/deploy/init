@@ -56,7 +56,7 @@ run_command() {
           token_key=$(captaincore get token $site)
 
           # Assign token and backup link
-          curl --request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
+          curl --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
 	"command":"token",
 	"token_key":"$token_key",

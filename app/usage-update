@@ -32,7 +32,7 @@ run_command () {
         views=`captaincore stats $domain`
 
         # Updates stats with no storage since it's a subsite
-        curl --request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
+        curl --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
 	"storage": "0",
 	"token":"$token",
@@ -58,7 +58,7 @@ EOF
         views=`captaincore stats $domain`
 
         # Post folder size bytes and yearly views to ACF fields
-        curl --request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
+        curl --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
 	"storage":"$folder_size",
 	"token":"$token",

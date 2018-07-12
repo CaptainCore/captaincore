@@ -63,7 +63,7 @@ run_command () {
         views=`captaincore stats $domain`
 
         # Updates stats with no storage since it's a subsite
-        curl --request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
+        curl --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
 	"storage":"0",
 	"token":"$token",
@@ -133,7 +133,7 @@ EOF
             ts sh -c "echo \"Finished remote backup $site (${INDEX}/$#)\" >> $logs_path/backup-remote.txt && tail -6 $logs_path/site-$site-remote.txt >> $logs_path/backup-remote.txt"
 
             # Post folder size bytes and yearly views to ACF field
-            curl --request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
+            curl --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
 	"storage": "$folder_size",
 	"token":"$token"
@@ -195,7 +195,7 @@ EOF
             views=`captaincore stats $domain`
 
             # Post folder size bytes and yearly views to ACF fields
-            curl --request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
+            curl --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
 	"storage":"$folder_size",
 	"views":"$views",

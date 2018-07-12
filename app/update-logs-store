@@ -33,7 +33,7 @@ run_command () {
 			response=$(captaincore update-fetch $site)
 
 			if [[ "$debug" == "true" ]]; then
-				echo "$captaincore_api/$domain/?core=$core_version&plugins=$plugin_data&themes=$theme_data&users=$user_data&token=$token"
+				echo "$captaincore_api?core=$core_version&plugins=$plugin_data&themes=$theme_data&users=$user_data&token=$token"
 				continue
 			fi
 
@@ -43,7 +43,7 @@ run_command () {
 			fi
 
 			# Adds sync data to CaptainCore GUI
-			curl ${curl_argument}--request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
+			curl ${curl_argument}--request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
 	"command": "import-update-log",
 	"token":"$token",

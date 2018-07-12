@@ -96,7 +96,7 @@ run_command () {
 					json="[{\"date\":\"$date\",\"type\":\"theme\",\"updates\":$(cat $file)}]";
 
 					# Adds sync data to CaptainCore GUI
-					curl ${curl_argument}--request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
+					curl ${curl_argument}--request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
 "command": "import-update-log",
 "token":"$token",
@@ -115,7 +115,7 @@ EOF
 					json="[{\"date\":\"$date\",\"type\":\"plugin\",\"updates\":$(cat $file)}]";
 
 					# Adds sync data to CaptainCore GUI
-					curl ${curl_argument}--request POST "$captaincore_api/$domain/" --header "Content-Type: application/json" --data @- << EOF
+					curl ${curl_argument}--request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
 "command": "import-update-log",
 "token":"$token",
