@@ -33,9 +33,16 @@ if [ $# -gt 0 ]; then
 		if [[ $site_id != "" ]] && [[ $site != "" ]]; then
 
 			echo "${INDEX}/$# - $domain"
+			let INDEX=${INDEX}+1
 
 			# Nasty bash hack in order to grab all of the details from one single SSH tunnel (WP Engine connection is slow)
 			response=$(captaincore ssh $site --script=fetch-site-data)
+
+			if [[ $response == *"website host provider not recognized" ]]; then
+				echo "Error: Can't SSH to $site";
+				continue
+			fi
+
 			if [[ "$response" != "" ]]; then
 				IFS=$'\n' read -rd '' -a response_parsed <<<"$response"
 
@@ -109,7 +116,6 @@ EOF
     s3path=''
     subsite=''
 
-		let INDEX=${INDEX}+1
 	done
 
 fi
