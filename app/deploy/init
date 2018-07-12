@@ -59,6 +59,7 @@ run_command() {
           curl --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
 	"command":"token",
+	"site_id":"$site_id",
 	"token_key":"$token_key",
 	"token":"$token"
 }

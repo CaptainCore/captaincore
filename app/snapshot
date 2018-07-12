@@ -91,10 +91,12 @@ run_command() {
         # Adds sync data to CaptainCore GUI
         curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
-"storage": "$snapshot_size",
-"archive":"${site}-${timedate}.zip",
-"email":"$email",
-"token":"$token"
+	"command":"snapshot",
+	"site_id":"$site_id",
+	"storage":"$snapshot_size",
+	"archive":"${site}-${timedate}.zip",
+	"email":"$email",
+	"token":"$token"
 }
 EOF
 

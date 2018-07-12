@@ -156,6 +156,7 @@ EOM
 			read -r -d '' VAR << EOM
 {
 	"command": "import-quicksaves",
+	"site_id":"$site_id",
 	"data": $quicksave,
 	"home_url":"$home_url",
 	"themes":$themes,
@@ -177,6 +178,7 @@ EOM
 		curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOM
 {
 	"command": "import-quicksaves",
+	"site_id":"$site_id",
 	"data": $quicksave,
 	"home_url":"$home_url",
 	"themes":$themes,
@@ -187,7 +189,6 @@ EOM
 EOM
 
 		## Store updated info in WordPress datastore
-		site_id=$(captaincore site get $site --field=ID)
 		cd ${root_path}data
 		wp post meta update $site_id plugins "${response_parsed[0]}"
 		wp post meta update $site_id themes "${response_parsed[1]}"

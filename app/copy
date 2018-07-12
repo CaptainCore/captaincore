@@ -76,6 +76,7 @@ run_command() {
   curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
 	"command":"copy",
+	"site_id":"$site_id",
 	"site_source_id":"$site_source_id",
 	"site_destination_id":"$site_destination_id",
 	"email":"$email",

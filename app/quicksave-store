@@ -81,6 +81,7 @@ EOM
 			read -r -d '' VAR << EOM
 {
 	"command": "import-quicksaves",
+	"site_id":"$site_id",
 	"data": $quicksaves,
 	"token":"$token"
 }
@@ -98,6 +99,7 @@ EOM
 		curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOM
 {
 	"command": "import-quicksaves",
+	"site_id":"$site_id",
 	"data": $quicksaves,
 	"token":"$token"
 }

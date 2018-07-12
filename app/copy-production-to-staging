@@ -57,6 +57,7 @@ run_command() {
       curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
 	"command":"production-to-staging",
+	"site_id":"$site_id",
 	"email":"$email",
 	"token":"$token"
 }

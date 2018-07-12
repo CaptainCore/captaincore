@@ -66,7 +66,8 @@ heredoc
 					# Build json for quicksave
 					read -r -d '' data << EOM
 {
-	"command": "sync-data",
+	"command":"sync-data",
+	"site_id":"$site_id",
 	"token":"$token",
 	"home_url":"$home_url",
 	"core":"$core",
@@ -87,7 +88,8 @@ EOM
 				# Adds sync data to CaptainCore GUI
 				curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
-	"command": "sync-data",
+	"command":"sync-data",
+	"site_id":"$site_id",
 	"token":"$token",
 	"home_url":"$home_url",
 	"core":"$core",
