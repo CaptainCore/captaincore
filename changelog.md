@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.6] - 2018-07-15
+### Added
+- Command `captaincore update-logs-store <site>`
+- Command `captaincore quicksave-store <site>`
+- Argument `--all` to `captaincore ssh`
+- Remote script `rewrite-prep`
+
+### Changed
+- CaptainCore API moved to custom WordPress rest endpoint. All communication to API now require a `site_id`.
+- Renamed remote scripts `applyssl` and `applysslwithwww` to `applyhttps` and `applyhttpswithwww`
+- Renamed config `captaincore_wordpress_site` to `captaincore_gui`
+- Remote script `migrate` - Only download if local file doesn't exist.
+- Command `captaincore update` now send update logs to CaptainCore API.
+
+### Removed
+- Argument `<git_hash_previous>` from `captaincore quicksave-file-diff`. This is now automatically calculated.
+- Domain requirement from CaptainCore API. Will need determine site from included `site_id`.
+
 ## [0.2.5] - 2018-07-01
 ### Added
 - Global argument `--run-in-background=<job-id>`
