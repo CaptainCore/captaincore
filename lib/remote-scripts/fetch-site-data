@@ -7,12 +7,20 @@
 #   line 3: core version, line 4: home url, line 5: user data
 #
 
-wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version
+
+plugins=$(wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version)
+themes=$(wp theme list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version)
+core=$(wp core version --skip-themes --skip-plugins --skip-packages)
+home_url=$(wp option get home --skip-themes --skip-plugins --skip-packages)
+users=$(wp user list --format=json)
+
+# Assume WP-CLI output may contain whitespaces and remove.
+echo -e "${plugins}" | tr -d '[:space:]'
 echo ""
-wp theme list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version
+echo -e "${themes}" | tr -d '[:space:]'
 echo ""
-wp core version --skip-themes --skip-plugins --skip-packages
+echo -e "${core}" | tr -d '[:space:]'
 echo ""
-wp option get home --skip-themes --skip-plugins --skip-packages
+echo -e "${home_url}" | tr -d '[:space:]'
 echo ""
-wp user list --format=json
+echo -e "${users}" | tr -d '[:space:]'
