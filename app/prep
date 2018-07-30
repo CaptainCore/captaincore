@@ -41,3 +41,5 @@ if [[ $skip_deployment != true ]]; then
   echo "Running Initial Backup"
 
 fi
+
+captaincore sync-data $site
