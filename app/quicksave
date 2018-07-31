@@ -196,6 +196,9 @@ EOM
 		wp post meta update $site_id home_url ${response_parsed[3]}
 		wp post meta update $site_id users "${response_parsed[4]}"
 
+		# Backup Quicksave to remote
+		ts rclone sync $path/${site}_${site_id}/quicksave/ $rclone_backup/${site}_${site_id}/quicksave/ -v --exclude .DS_Store --fast-list --transfers=32 --log-file="$logs_path/site-$site-remote.txt"
+
 		# Clear out variables
 		site=''
 		domain=''
