@@ -211,6 +211,9 @@ EOM
 
 	# End logging
 	echo "$(date +'%Y-%m-%d %H:%M') Finished generating quicksaves" >> $logs_path/quicksave.log
+	echo "$(date +'%Y-%m-%d %H:%M') Finished generating quicksaves"
+	echo "$(date +'%Y-%m-%d %H:%M') Finishing queued remote backups"
+	ts -w
 
 	fi
 }
