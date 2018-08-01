@@ -134,7 +134,7 @@ run_command () {
 after_command () {
 
   # Send 1 email for entire check
-  if [[ $send_email == "true" ]]; then
+  if [[ $send_email == "true" ]] || [[ $debug == "true" ]]; then
 
 		errors_html=$( printf '%s<br />' "${errors[@]}" )
 		warnings_html=$( printf '%s<br />' "${warnings[@]}" )
