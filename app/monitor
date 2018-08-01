@@ -92,6 +92,7 @@ run_command () {
     # Bail if home url not defined
     if [[ "$home_url" == "" ]]; then
       echo "Skipping $website, WordPress home url not found"
+			warnings+=("Skipping $website, WordPress home url not found")
       continue
     fi
 
