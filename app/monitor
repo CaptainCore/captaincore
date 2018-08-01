@@ -20,82 +20,138 @@ root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_
 source ${root_path}config
 source ${root_path}lib/arguments
 
-user_agent="captaincore/1.0 (CaptainCore Health Check by CaptaionCore.io)"
+# Vars
+user_agent="captaincore/1.0 (CaptainCore Health Check by CaptainCore.io)"
+errors=()
+warnings=()
+send_email=false
 
-run_command () {
-if [ $# -gt 0 ]; then
+prepare_command () {
 
-	output=()
+  # See if any sites are specifed
+  if [ ${#arguments[*]} -gt 0 ]; then
+    # Runs on specific sites
+    run_command ${arguments[*]}
+    after_command
+    return 1
+  fi
 
-	for website in "$@"; do
+  if [[ $all == "true" ]] && [[ "$parallel" -gt "0" ]]; then
 
-		# Load site configs
-		home_url=$(captaincore site get $website --field=home_url)
-		if [[ "$home_url" != "" ]]; then
-			response=$(curl -A "$user_agent" --write-out %{http_code} --silent --output /dev/null $home_url)
-			echo "Response code $response for $home_url"
-		else
-			echo "Skipping $website, WordPress home url not found"
-		fi
-		#if [[ "$response" != "200" ]]; then
-			# Compares $home_url IP with $address IP. If different then send email showing the difference
+    # Runs on all sites
+    all_sites=(${websites[@]})
+    site_count=${#all_sites[*]}
+    echo "Running monitor check ${#all_sites[*]} sites"
+    parallel_sets=$(($site_count / $parallel))
 
-			# Adds $domain and $repsonse to new array
-			output+="Response code $response for $home_url"
-		#fi
+    for parallel_set in `seq 1 $parallel_sets`; do
 
-		#	#send email
-		# output "Response code $response for $address" per each item in array
-		#	#echo "$output" | mutt -e 'set content_type=text/html' -s "Monitor: 3 errors" -- $captaincore_admin_email
+      set_needed=$(( $parallel_set *  $parallel ))
+      if [[ "$set_needed" -lt "$site_count" ]]; then
+        current_parallel=$(($parallel_set * $parallel))
+        last_parallel=$(($current_parallel + $parallel - 1))
+        for i in `seq $current_parallel $last_parallel`; do
+          if [[ "$i" -lt "$site_count" ]]; then
+            run_command ${all_sites[$i]} &
+          fi
+        done
+        wait
+      fi
+    done
 
-	done
+    after_command
+    return 1
 
-	# Send 1 email for entire check
+  fi
 
-fi
+  if [[ $all == "true" ]]; then
+    all_sites=(${websites[@]})
+    site_count=${#all_sites[*]}
+    echo "Running monitor check $site_count sites"
+    # Runs on all sites
+    run_command ${websites[@]}
+    after_command
+    return 1
+  fi
+
+  # Error if no sites specifed
+  if [[ $all != "true" ]] && [ ${#arguments[*]} -eq 0 ]; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
+    return 1
+  fi
+
 }
 
-# See if any sites are specifed
-if [ ${#arguments[*]} -gt 0 ]; then
-  # Runs on specific sites
-  run_command ${arguments[*]}
-fi
+run_command () {
 
-if [[ $all == "true" ]] && [[ "$parallel" -gt "0" ]]; then
-  # Runs on all sites
-	all_sites=(${websites[@]})
-	site_count=${#all_sites[*]}
-  echo "Running monitor check ${#all_sites[*]} sites"
-	parallel_sets=$(($site_count / $parallel))
-	for parallel_set in `seq 1 $parallel_sets`; do
+  for website in "$@"; do
 
-		set_needed=$(( $parallel_set *  $parallel ))
+    # Load site configs
+    eval $(captaincore site get $website --bash)
 
-		if [[ "$set_needed" -lt "$site_count" ]]; then
+    # Bail if home url not defined
+    if [[ "$home_url" == "" ]]; then
+      echo "Skipping $website, WordPress home url not found"
+      continue
+    fi
 
-			current_parallel=$(($parallel_set * $parallel))
-			last_parallel=$(($current_parallel + $parallel - 1))
+    # Run the health check
+    response=$(curl -A "$user_agent" --write-out %{http_code} --max-time 30 --silent --output /dev/null $home_url)
+    echo "Response code $response for $home_url"
 
-			for i in `seq $current_parallel $last_parallel`; do
-					if [[ "$i" -lt "$site_count" ]]; then
-						run_command ${all_sites[$i]} &
-					fi
-			done
+    # Was healthy and still is, proceed without new health log
+    if [[ "$healthly" == "true" ]] && [[ $response == "200" ]]; then
 
-			wait
+      continue
+    fi
 
-		fi
+    # Just became healthy. Update status and mark new health
+    if [[ $response == "200" ]]; then
 
-	done
-elif [[ $all == "true" ]]; then
-	all_sites=(${websites[@]})
-	site_count=${#all_sites[*]}
-	echo "Running monitor check $site_count sites"
-	# Runs on all sites
-	run_command ${websites[@]}
-fi
+      continue
+    fi
 
-# Error if no sites specifed
-if [[ $all != "true" ]] && [ ${#arguments[*]} -eq 0 ]; then
-  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
-fi
+		# Handle redirects
+    if [[ $response == "301" ]]; then
+			warnings+=("Response code $response for $home_url")
+      continue
+    fi
+
+    if [[ "$response" != "200" ]]; then
+      # Compares $home_url IP with $address IP. If different then send email showing the difference
+      # Adds $domain and $repsonse to new array
+      send_email=true
+    fi
+
+    # Append error to errors for email purposes
+    errors+=("Response code $response for $home_url")
+
+  done
+
+}
+
+after_command () {
+
+  # Send 1 email for entire check
+  if [[ $send_email == "true" ]]; then
+
+		errors_html=$( printf '%s<br />' "${errors[@]}" )
+		warnings_html=$( printf '%s<br />' "${warnings[@]}" )
+
+		# Builds up email message
+		read -r -d '' email_message << heredoc
+Errors<br />
+$errors_html
+<br />
+Warnings<br />
+$warnings_html
+heredoc
+
+    # output "Response code $response for $address" per each item in array
+    echo $email_message | mutt -e 'set content_type=text/html' -s "Monitor: ${#errors[@]} errors" -- $captaincore_admin_email
+
+  fi
+
+}
+
+prepare_command
