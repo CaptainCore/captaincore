@@ -32,7 +32,7 @@ run_command () {
         # Updates stats with no storage since it's a subsite
         curl --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
-	"commmand":"usage-update",
+	"command":"usage-update",
 	"site_id":"$site_id",
 	"storage": "0",
 	"token":"$token",
@@ -61,7 +61,7 @@ EOF
 				if [[ "$debug" == "true" ]]; then
 					read -r -d '' VAR << EOM
 					{
-						"commmand":"usage-update",
+						"command":"usage-update",
 						"site_id":"$site_id",
 						"storage":"$folder_size",
 						"token":"$token",
@@ -75,7 +75,7 @@ EOM
         # Post folder size bytes and yearly views to ACF fields
         curl --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
-	"commmand":"usage-update",
+	"command":"usage-update",
 	"site_id":"$site_id",
 	"storage":"$folder_size",
 	"token":"$token",
