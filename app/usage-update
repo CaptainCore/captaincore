@@ -1,14 +1,13 @@
 #!/bin/bash
 
-##
-##      Generates usage stats (Storage and Views) for CaptainCore Plugin
-##
-##      Pass arguments from command line like this
-##      captaincore usage-update <site> <site>
-##
-##      Or backup everything like this
-##      captaincore usage-update
-##
+#
+#   Generates usage stats (Storage and Views) for CaptainCore Plugin
+#
+#   `captaincore usage-update <site>...`
+#
+#    Or backup everything like this
+#    captaincore usage-update
+#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
@@ -16,7 +15,6 @@ source ${root_path}config
 source ${root_path}lib/arguments
 
 run_command () {
-  if [ $# -gt 0 ]; then
 
     echo "Generating usage stats for $# websites"
     INDEX=1
@@ -56,8 +54,23 @@ EOF
           folder_size=`find $path/${site}_${site_id}/backup/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
         fi
 
-        ### Views for yearly stats
+        # Views for yearly stats
         views=`captaincore stats $domain`
+
+				# Debug API request
+				if [[ "$debug" == "true" ]]; then
+					read -r -d '' VAR << EOM
+					{
+						"commmand":"usage-update",
+						"site_id":"$site_id",
+						"storage":"$folder_size",
+						"token":"$token",
+						"views":"$views"
+					}
+EOM
+					echo $VAR
+					continue
+				fi
 
         # Post folder size bytes and yearly views to ACF fields
         curl --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
@@ -88,7 +101,6 @@ EOF
       let INDEX=${INDEX}+1
     done
 
-  fi
 }
 
 # See if any sites are specifed
