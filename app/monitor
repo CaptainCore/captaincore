@@ -12,7 +12,7 @@
 #   Checks all sites.
 #
 #   [--parallel=<number-of-checks>]
-#   Number of moniter checks to run at same time
+#   Number of moniter checks to run at same time. Defaults to 20.
 #
 
 # Load configuration
@@ -26,100 +26,22 @@ errors=()
 warnings=()
 send_email="false"
 
-prepare_command () {
+run_command () {
+
+  # Default parallel to 20
+  if [[ $parallel == "" ]]; then
+    parallel=20
+  fi
 
   # See if any sites are specifed
   if [ ${#arguments[*]} -gt 0 ]; then
     # Runs on specific sites
-    run_command ${arguments[*]}
-    after_command
-    return 1
-  fi
-
-  if [[ $all == "true" ]] && [[ "$parallel" -gt "0" ]]; then
-
-    # Runs on all sites
-    #all_sites=(${websites[@]})
-    #site_count=${#all_sites[*]}
-    #echo "Running monitor check ${#all_sites[*]} sites"
-    #parallel_sets=$(($site_count / $parallel))
-
-		# Generate random auth
-		auth=''; for count in {0..6}; do auth+=$(printf "%x" $(($RANDOM%16)) ); done;
-
-		# Begin time tracking
-		overalltimebegin=$(date +"%s")
-		backup_date=$(date +'%Y-%m-%d')
-		backup_time=$(date +'%H-%M')
-
-		# Define log file format
-		log_file=$logs/${backup_date}_${backup_time}_$auth.txt
-		echo "logging to $log_file"
-
-		# Run all checks in parallel. Collect the results in log file.
-		( echo ${websites[@]} | xargs -P $parallel -n 1 captaincore monitor --json ) 2>&1 | tee $log_file
-
-		echo "Finished checks now building email"
-
-		errors=()
-		warnings=()
-
-		# Parse results into warnings and errors
-		while read line; do
-
-			# check for json
-			if [[ $line == "{"* ]] && [[ $line == *"}" ]]; then
-
-				http_code=$(echo $line | json http_code)
-				html_valid=$(echo $line | json html_valid)
-				url=$(echo $line | json url)
-
-				if [[ $http_code == "301" ]]; then
-					warnings+=("Response code $http_code for $url")
-		    fi
-
-		    if [[ "$http_code" != "200" ]]; then
-		      # Compares $home_url IP with $address IP. If different then send email showing the difference
-		      # Adds $domain and $repsonse to new array
-					errors+=("Response code $http_code for $url")
-					send_email="true"
-		    fi
-
-			fi
-
-done < $log_file
-
-		# If warn
-		#send_email="true"
-
-    #for parallel_set in `seq 1 $parallel_sets`; do
-#
-    #  set_needed=$(( $parallel_set *  $parallel ))
-    #  if [[ "$set_needed" -lt "$site_count" ]]; then
-    #    current_parallel=$(($parallel_set * $parallel))
-    #    last_parallel=$(($current_parallel + $parallel - 1))
-    #    for i in `seq $current_parallel $last_parallel`; do
-    #      if [[ "$i" -lt "$site_count" ]]; then
-    #        run_command ${all_sites[$i]} &
-    #      fi
-    #    done
-    #    wait
-    #  fi
-    #done
-
-    after_command
-    return 1
-
+    sites=${arguments[*]}
   fi
 
   if [[ $all == "true" ]]; then
-    all_sites=(${websites[@]})
-    site_count=${#all_sites[*]}
-    echo "Running monitor check $site_count sites"
-    # Runs on all sites
-    run_command ${websites[@]}
-    after_command
-    return 1
+    # Runs on specific sites
+    sites=${websites[@]}
   fi
 
   # Error if no sites specifed
@@ -128,95 +50,53 @@ done < $log_file
     return 1
   fi
 
-}
+	# Generate random auth
+	auth=''; for count in {0..6}; do auth+=$(printf "%x" $(($RANDOM%16)) ); done;
 
-run_command () {
+	# Begin time tracking
+	overalltimebegin=$(date +"%s")
+	backup_date=$(date +'%Y-%m-%d')
+	backup_time=$(date +'%H-%M')
 
-  for website in "$@"; do
+	# Define log file format
+	log_file=$logs/${backup_date}_${backup_time}_$auth.txt
+	echo "logging to $log_file"
 
-    # Load site configs
-    eval $(captaincore site get $website --bash)
+  # Run all checks in parallel. Collect the results in log file.
+  ( echo $sites | xargs -P $parallel -n 1 captaincore monitor-check ) 2>&1 | tee $log_file
 
-    # Bail if home url not defined
-    if [[ "$home_url" == "" ]]; then
-      echo "Skipping $website, WordPress home url not found"
-			warnings+=("Skipping $website, WordPress home url not found")
-      continue
+  echo "Finished checks now building email if needed"
+
+  errors=()
+  warnings=()
+
+  # Parse results into warnings and errors
+  while read line; do
+
+    # check for json
+    if [[ $line == "{"* ]] && [[ $line == *"}" ]]; then
+
+      http_code=$(echo $line | json http_code)
+      html_valid=$(echo $line | json html_valid)
+      url=$(echo $line | json url)
+
+      if [[ $http_code == "301" ]]; then
+        warnings+=("Response code $http_code for $url")
+      fi
+
+      if [[ "$http_code" != "200" ]]; then
+        # Compares $home_url IP with $address IP. If different then send email showing the difference
+        # Adds $domain and $repsonse to new array
+        errors+=("Response code $http_code for $url")
+        send_email="true"
+      fi
+
     fi
 
-    # Run the health check. Return http_code and body.
-    response=$(curl -A "$user_agent" --write-out %{http_code} --max-time 30 --silent $home_url)
+  done < $log_file
 
-		# Pull out http code
-		http_code=${response:${#response}-3}
-
-		# Pull out body
-		body=${response:0:${#response}-3}
-
-		# valid body contains </html>
-		html_end_tag=$(echo $body | perl -wnE'say for /<\/html>/g')
-
-		# check if </html> found
-		if [[ $html_end_tag == "</html>" ]]; then
-			html_end_tag_check="true"
-		else
-			html_end_tag_check="false"
-		fi
-
-		if [[ $json == "true" ]]; then
-
-			# Build json for output
-			read -r -d '' json_output << EOM
-{
-"http_code":"$http_code",
-"url":"$home_url",
-"site_id":"$site_id",
-"html_valid":"$html_end_tag_check"
-}
-EOM
-			echo $json_output
-			continue
-
-		fi
-
-		echo "Response code $http_code for $home_url"
-
-    # Was healthy and still is, proceed without new health log
-    if [[ "$healthly" == "true" ]] && [[ $http_code == "200" ]]; then
-
-      continue
-    fi
-
-    # Just became healthy. Update status and mark new health
-    if [[ $http_code == "200" ]]; then
-
-      continue
-    fi
-
-		# Handle redirects
-    if [[ $http_code == "301" ]]; then
-			warnings+=("Response code $http_code for $home_url")
-      continue
-    fi
-
-    if [[ "$http_code" != "200" ]]; then
-      # Compares $home_url IP with $address IP. If different then send email showing the difference
-      # Adds $domain and $repsonse to new array
-			echo "found error, send an email"
-			send_email="true"
-    fi
-
-    # Append error to errors for email purposes
-    errors+=("Response code $http_code for $home_url")
-
-  done
-
-}
-
-after_command () {
-
-  # Send 1 email for entire check
-  if [[ $send_email == "true" ]] || [[ $debug == "true" ]]; then
+	# Send 1 email for entire check
+	if [[ $send_email == "true" ]] || [[ $debug == "true" ]]; then
 
 		echo "Sending Email"
 
@@ -232,10 +112,95 @@ Warnings<br />
 $warnings_html
 heredoc
 
-    # output "Response code $response for $address" per each item in array
-    echo $email_message | mutt -e 'set content_type=text/html' -s "Monitor: ${#errors[@]} errors" -- $captaincore_admin_email
+		# output "Response code $response for $address" per each item in array
+		echo $email_message | mutt -e 'set content_type=text/html' -s "Monitor: ${#errors[@]} errors" -- $captaincore_admin_email
 
-  fi
+	fi
+
+  return 1
 
 }
-prepare_command
+
+run_command_old () {
+
+  for website in "$@"; do
+
+    # Load site configs
+    eval $(captaincore site get $website --bash)
+
+    # Bail if home url not defined
+    if [[ "$home_url" == "" ]]; then
+      echo "Skipping $website, WordPress home url not found"
+      warnings+=("Skipping $website, WordPress home url not found")
+      continue
+    fi
+
+    # Run the health check. Return http_code and body.
+    response=$(curl -A "$user_agent" --write-out %{http_code} --max-time 30 --silent $home_url)
+
+    # Pull out http code
+    http_code=${response:${#response}-3}
+
+    # Pull out body
+    body=${response:0:${#response}-3}
+
+    # valid body contains </html>
+    html_end_tag=$(echo $body | perl -wnE'say for /<\/html>/g')
+
+    # check if </html> found
+    if [[ $html_end_tag == "</html>" ]]; then
+      html_end_tag_check="true"
+    else
+      html_end_tag_check="false"
+    fi
+
+    if [[ $json == "true" ]]; then
+
+      # Build json for output
+      read -r -d '' json_output << EOM
+{
+"http_code":"$http_code",
+"url":"$home_url",
+"site_id":"$site_id",
+"html_valid":"$html_end_tag_check"
+}
+EOM
+      echo $json_output
+      continue
+
+    fi
+
+    echo "Response code $http_code for $home_url"
+
+    # Was healthy and still is, proceed without new health log
+    if [[ "$healthly" == "true" ]] && [[ $http_code == "200" ]]; then
+
+      continue
+    fi
+
+    # Just became healthy. Update status and mark new health
+    if [[ $http_code == "200" ]]; then
+
+      continue
+    fi
+
+    # Handle redirects
+    if [[ $http_code == "301" ]]; then
+      warnings+=("Response code $http_code for $home_url")
+      continue
+    fi
+
+    if [[ "$http_code" != "200" ]]; then
+      # Compares $home_url IP with $address IP. If different then send email showing the difference
+      # Adds $domain and $repsonse to new array
+      echo "found error, send an email"
+      send_email="true"
+    fi
+
+    # Append error to errors for email purposes
+    errors+=("Response code $http_code for $home_url")
+
+  done
+
+}
+run_command
