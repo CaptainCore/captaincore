@@ -20,11 +20,6 @@ root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_
 source ${root_path}config
 source ${root_path}lib/arguments
 
-# Vars
-errors=()
-warnings=()
-send_email="false"
-
 run_command () {
 
   # Default parallel to 20
@@ -70,57 +65,24 @@ run_command () {
 
   echo "Finished checks now building email if needed"
 
-  errors=()
-  warnings=()
+	#
+	cd ${root_path}data
+	error_count=$(wp eval-file ${root_path}lib/php/monitor-error-count.php $log_file)
 
-  # Parse results into warnings and errors
-  while read line; do
+	# Send email if needed
+	if [[ $error_count != "0" ]]; then
 
-    # check for json
-    if [[ $line == "{"* ]] && [[ $line == *"}" ]]; then
-
-      http_code=$(echo $line | json http_code)
-      html_valid=$(echo $line | json html_valid)
-      url=$(echo $line | json url)
-
-      if [[ $http_code == "301" ]]; then
-        warnings+=("Response code $http_code for $url")
-      fi
-
-      if [[ "$http_code" != "200" ]]; then
-        # Compares $home_url IP with $address IP. If different then send email showing the difference
-        # Adds $domain and $repsonse to new array
-        errors+=("Response code $http_code for $url")
-        send_email="true"
-      fi
-
-    fi
-
-  done < $log_file
-
-	# Send 1 email for entire check
-	if [[ $send_email == "true" ]] || [[ $debug == "true" ]]; then
+		# Build emails
+		email_content=$(wp eval-file ${root_path}lib/php/monitor-generate-email.php $log_file)
 
 		echo "Sending Email"
 
-		errors_html=$( printf '%s<br />' "${errors[@]}" )
-		warnings_html=$( printf '%s<br />' "${warnings[@]}" )
-
-		# Builds up email message
-		read -r -d '' email_message << heredoc
-Errors<br />
-$errors_html
-<br />
-Warnings<br />
-$warnings_html
-heredoc
-
 		# output "Response code $response for $address" per each item in array
-		echo $email_message | mutt -e 'set content_type=text/html' -s "Monitor: ${#errors[@]} errors" -- $captaincore_admin_email
+		echo $email_content | mutt -e 'set content_type=text/html' -s "Monitor: $error_count errors" -- $captaincore_admin_email
 
 	fi
 
-  return 1
+	return 1
 
 }
 
