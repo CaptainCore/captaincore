@@ -13,7 +13,7 @@ url=$1
 run_command () {
 
   # Run the health check. Return http_code and body.
-  response=$(curl -A "$user_agent" --write-out %{http_code} --max-time 30 --silent $url)
+  response=$(curl --user-agent "$user_agent" --write-out %{http_code} --max-time 30 --silent $url)
 
   # Pull out http code
   http_code=${response:${#response}-3}
