@@ -24,7 +24,7 @@ run_command () {
 
   # Default parallel to 20
   if [[ $parallel == "" ]]; then
-    parallel=20
+    parallel=15
   fi
 
   # See if any sites are specifed
