@@ -21,7 +21,6 @@ source ${root_path}config
 source ${root_path}lib/arguments
 
 # Vars
-user_agent="captaincore/1.0 (CaptainCore Health Check by CaptainCore.io)"
 errors=()
 warnings=()
 send_email="false"
@@ -35,13 +34,17 @@ run_command () {
 
   # See if any sites are specifed
   if [ ${#arguments[*]} -gt 0 ]; then
+		sites=()
     # Runs on specific sites
-    sites=${arguments[*]}
+		for site in ${arguments[*]}; do
+			sites+=( $( captaincore site get $site --field=home_url ) )
+		done
+		sites=${sites[@]}
   fi
 
   if [[ $all == "true" ]]; then
-    # Runs on specific sites
-    sites=${websites[@]}
+    # Runs on all sites
+    sites=$(captaincore site list --field=home_url)
   fi
 
   # Error if no sites specifed

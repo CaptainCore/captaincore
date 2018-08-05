@@ -135,12 +135,18 @@ foreach ( $websites as $website_id ) {
 
 	if ( isset( $staging ) ) {
 		$results[] = $site . '-staging';
-	} elseif ( isset( $all ) ) {
+		return;
+	}
+	if ( isset( $all ) ) {
 		$results[] = $site;
 		$results[] = $site . '-staging';
-	} else {
+		return;
+	}
+
+	if ($site != "") {
 		$results[] = $site;
 	}
+
 }
 
 echo implode( ' ', $results );
