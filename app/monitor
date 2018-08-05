@@ -60,7 +60,7 @@ run_command () {
 	log_file=$logs/${backup_date}_${backup_time}_$auth.txt
 	echo "logging to $log_file"
 
-  # Run all checks in parallel. Collect the results in log file.
+  # Run checks in parallel. Collect the results in log file.
   ( echo $urls_to_check | xargs -P $parallel -n 1 captaincore monitor-check ) 2>&1 | tee $log_file
 
   echo "Finished checks now building email if needed"
