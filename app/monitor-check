@@ -22,7 +22,7 @@ run_command () {
   body=${response:0:${#response}-3}
 
   # valid body contains </html>
-  html_end_tag=$(echo $body | perl -wnE'say for /<\/html>/g')
+  html_end_tag=$(echo -e "$body" | perl -wnE'say for /<\/html>/g')
 
   # check if </html> found
   if [[ $html_end_tag == "</html>" ]]; then
