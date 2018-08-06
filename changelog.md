@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.7] - 2018-08-06
+### Added
+- Command `captaincore monitor-check <site>`. Standalone script which allows checking of individual valid urls for parallelizing purposes.
+- Local script `monitor-error-count`
+- Local script `monitor-generator-email`
+- [Emoji-Log](https://github.com/ahmadawais/Emoji-Log) for git commits.
+
+### Changed
+- Improved remote script `fetch-site-data`. Results are now striped of whitespace.
+- Run `sync-data` during site prep
+- After `quicksave` backup quicksave to remote
+- Improvements to `captaincore monitor`. Added basic email reporting for errors and warnings. Add max time of 30 secs per check. Parallel now defaults to 20. Refactored code. Moved email generation and error count to PHP.
+
 ## [0.2.6] - 2018-07-15
 ### Added
 - Command `captaincore update-logs-store <site>`
@@ -95,7 +108,7 @@
 ## [0.2.1] - 2018-05-08
 ### Added
 - Command `captaincore update` for themes/plugin updates. Changes are logged in json files.
-- Commmand `captaincore update-fetch` to return update logs in json format
+- Command `captaincore update-fetch` to return update logs in json format
 - Command `db-restore` for pulling in a revision from Rclone remote.
 - Argument `[--all]` to `captaincore backup` for backing up all sites
 - Argument `[--all]` to `captaincore update` for updating all sites
@@ -283,7 +296,7 @@
 ### Added
 - Argument `--delete-after-snapshot` to `captaincore snapshot`
 - Config process command `captaincore config process` which will safely update the logins only when needed
-- Generate rclone commmand `captaincore generate rclone <install>` which now imports staging credentials automatically.
+- Generate rclone command `captaincore generate rclone <install>` which now imports staging credentials automatically.
 - Setup instructions to readme.md for installing rclone systemwide
 - Generate usage command `captaincore generate usage`
 - Command for grabbing Quicksave changes from git repo
