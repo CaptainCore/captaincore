@@ -1,8 +1,12 @@
-# CaptainCore CLI
-[![Logo](https://captaincore.io/wp-content/uploads/2018/02/main-web-icons-captain.png)](https://captaincore.io)
+<h1 align="center">
+  <a href="https://captaincore.io"><img src="https://captaincore.io/wp-content/uploads/2018/02/main-web-icons-captain.png" width="70" /></a><br />
+CaptainCore CLI
 
-## Description
-[CaptainCore](https://captaincore.io) is a powerful toolkit for managing WordPress sites via SSH & WP-CLI. Supports hosting providers [WP Engine](https://wpengine.com/) and [Kinsta](https://kinsta.com/). Powers the CaptainCore GUI (WordPress plugin). Built using [Bash CLI](https://github.com/SierraSoftworks/bash-cli).
+</h1>
+
+[CaptainCore](https://captaincore.io) is a powerful toolkit for managing WordPress sites via SSH & WP-CLI. Supports hosting providers [WP Engine](https://wpengine.com/) and [Kinsta](https://kinsta.com/). Built using [Bash CLI](https://github.com/SierraSoftworks/bash-cli). Integrates with the CaptainCore GUI (WordPress plugin). 
+
+[![emoji-log](https://cdn.rawgit.com/ahmadawais/stuff/ca97874/emoji-log/flat.svg)](https://github.com/ahmadawais/Emoji-Log/)
 
 ## Getting started
 
