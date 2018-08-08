@@ -1,21 +1,17 @@
 #!/bin/bash
 
 #
-#   Generates zip files for paid plugins for deployment purposes
+#   Generates zip files for plugins for deployment purposes
 #
-#   `captaincore plugins-zip`
+#   `captaincore plugins-zip <site> <plugin>...`
 #
 
-# TODO - Move static list to CaptainCore Plugin
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}config
+source ${root_path}lib/arguments
 
-## admin-columns-pro : Admin Columns Pro
-## cac-addon-acf : Admin Columns - Advanced Custom Fields add-on
-## advanced-custom-fields-pro : Advanced Custom Fields Pro
-## advanced-responsive-video-embedder : Advanced Responsive Video Embedder
-## arve-pro : Advanced Responsive Video Embedder Pro
+site=$1
+plugins=${arguments[@]/$site}
 
-plugins=(captaincore-client gravityforms admin-columns-pro cac-addon-acf advanced-custom-fields-pro advanced-responsive-video-embedder arve-pro wpmudev-updates wp-smush-pro)
-
-for plugin in ${plugins[@]}; do
-	captaincore ssh anchorhost --command="cd wp-content/plugins; zip -r ${plugin}.zip $plugin"
-done
+captaincore ssh $site --script=plugins-zip --plugins="\'$plugins\'"

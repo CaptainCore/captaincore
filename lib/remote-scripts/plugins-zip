@@ -1,0 +1,50 @@
+#!/bin/bash
+
+#
+#   Plugins Zip
+#
+#   `plugins-zip --plugins="<plugin>..."
+#
+
+# Loop through arguments and separate regular arguments from flags (--flag)
+for var in "$@"; do
+
+  # If starts with "--" then assign it to a flag array
+  if [[ $var == --* ]]; then
+    count=1+${#flags[*]}
+    flags[$count]=$var
+    # Else assign to an arguments array
+  else
+    count=1+${#arguments[*]}
+    arguments[$count]=$var
+  fi
+
+done
+
+# Loop through flags and assign to variable. A flag "--email=my-email@my-site.com" becomes $email
+for i in "${!flags[@]}"; do
+
+  # replace "-" with "_" and remove leading "--"
+  flag_name=`echo ${flags[$i]} | cut -c 3-`
+
+  # detected flag contains data
+  if [[ $flag_name == *"="* ]]; then
+    flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
+    flag_name=`echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1'` # extract name
+    flag_name=${flag_name/-/_}
+    declare "$flag_name"="$flag_value" # assigns to $flag_flagname
+  else
+    # assigns to $flag_flagname boolen
+    flag_name=${flag_name//-/_}
+    declare "$flag_name"=true
+  fi
+
+done
+
+plugins=($plugins)
+
+cd wp-content/plugins
+
+for plugin in ${plugins[@]}; do
+	echo "zip -r ${plugin}.zip $plugin"
+done
