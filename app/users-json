@@ -19,9 +19,24 @@ $customers = explode(",", $_GET['--customers'] );
 
 $preloaded_users = array();
 
+// Loads CLI configs
+$file = $_SERVER['HOME'] . '/.captaincore-cli/config';
+if ( file_exists( $file ) ) {
+
+	$file = file_get_contents( $file );
+	// Matches config keys and values
+	$pattern = '/(.+)=\"(.+)\"/';
+	preg_match_all( $pattern, $file, $matches );
+
+}
+
+// Fetches from CLI configs
+$captaincore_gui_key = array_search( 'captaincore_gui', $matches[1] );
+$captaincore_gui    = $matches[2][ $captaincore_gui_key ];
+
 foreach ($customers as $customer) {
 
-		$url = "https://anchor.host/wp-json/wp/v2/captcore_customer/$customer/?token=$token";
+		$url = "$captaincore_gui/wp-json/wp/v2/captcore_customer/$customer/?token=$token";
     $curl = curl_init( $url );
 
     curl_setopt( $curl, CURLOPT_RETURNTRANSFER, 1);

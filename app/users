@@ -1,14 +1,13 @@
 #! /usr/bin/env php
 <?php
-##
-##		Generates a self destructing WordPress mu-plugin which will preload WordPress users
-##
-## 		Pass arguments from command line like this
-##		captaincore users --site=<site>
-##
-##		assign command line arguments to variables
-## 		userlist=~/Documents/Scripts/userlist.json becomes $_GET['userlist']
-##
+#
+#   Generates a self destructing WordPress mu-plugin which will preload WordPress users
+#
+#   captaincore users --site=<site>
+#
+#   assign command line arguments to variables
+#   userlist=~/Documents/Scripts/userlist.json becomes $_GET['userlist']
+#
 
 if (isset($argv)) {
 	parse_str(implode('&', array_slice($argv, 1)), $_GET);
@@ -94,13 +93,26 @@ function add_admin_acct(){
 
 EOT;
 
+// Loads CLI configs
+$file = $_SERVER['HOME'] . '/.captaincore-cli/config';
+if ( file_exists( $file ) ) {
+
+	$file = file_get_contents( $file );
+	// Matches config keys and values
+	$pattern = '/(.+)=\"(.+)\"/';
+	preg_match_all( $pattern, $file, $matches );
+
+}
+
+// Fetches from CLI configs
+$captaincore_gui_key = array_search( 'captaincore_gui', $matches[1] );
+$captaincore_gui    = $matches[2][ $captaincore_gui_key ];
 
 ## mu-plugin: update admin email if needed
-
 if ($customers and $customers[0]) {
     ## Fetch preloded add email
     $customer = $customers[0];
-    $curl = curl_init( "https://anchor.host/wp-json/wp/v2/captcore_customer/$customer/?token=$token" );
+    $curl = curl_init( "$captaincore_gui/wp-json/wp/v2/captcore_customer/$customer/?token=$token" );
     curl_setopt( $curl, CURLOPT_RETURNTRANSFER, 1);
     $response = curl_exec( $curl );
     $json_results_website = json_decode($response, true);
