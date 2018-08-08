@@ -2,6 +2,21 @@
 
 parse_str( implode( '&', $args ) );
 
+// Loads CLI configs
+$file = $_SERVER['HOME'] . '/.captaincore-cli/config';
+if ( file_exists( $file ) ) {
+
+	$file = file_get_contents( $file );
+	// Matches config keys and values
+	$pattern = '/(.+)=\"(.+)\"/';
+	preg_match_all( $pattern, $file, $matches );
+
+}
+
+// Fetches from CLI configs
+$captaincore_admin_email_key = array_search( 'captaincore_admin_email', $matches[1] );
+$captaincore_admin_email    = $matches[2][ $captaincore_admin_email_key ];
+
 // Build arguments
 $arguments = array(
 	'post_type'      => 'captcore_website',
@@ -43,4 +58,4 @@ if ( $found_site ) {
 }
 
 // Make final snapshot then remove local files
-$output = shell_exec( 'captaincore snapshot ' . $site . ' --delete-after-snapshot --email=support@anchor.host > /dev/null 2>/dev/null &' );
+$output = shell_exec( "captaincore snapshot $site --delete-after-snapshot --email=$captaincore_admin_email > /dev/null 2>/dev/null &" );
