@@ -43,7 +43,7 @@ else ## not recognized so attempt WP Engine's format
 	if [ -n "$2" ]; then
 	  scp -o StrictHostKeyChecking=no -P 22 $wpe_ssh_user+$1@$1.ssh.wpengine.net:sites/$1/$2 $2
 	else
-	  echo 'Missing argument. Ex: captaincore download anchorhost1 logo.png'
+	  echo 'Missing argument. Ex: captaincore download sitename1 logo.png'
 	fi
 
 fi
