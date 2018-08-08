@@ -12,7 +12,7 @@ parse_str(implode('&', array_slice($argv, 1)), $_GET);
 if ($_GET && $_GET['file']) {
 	$file = $_GET['file'];
 } else {
-	$file = "~/Logs/anchor_dropbox_log_overall.txt";
+	$file = '~/Logs/captaincore_dropbox_log_overall.txt';
 }
 
 function secs_to_str($duration) {

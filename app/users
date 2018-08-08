@@ -19,7 +19,7 @@ $token = $_GET['--token'];
 $customers = explode(",", $_GET['--customers'] );
 $userlist = $_SERVER['HOME'] . "/Tmp/userlist-$site.json";
 $json = json_decode(file_get_contents($userlist), true);
-$generated_plugin = $_SERVER['HOME'] ."/Tmp/anchor_load_$site.php";
+$generated_plugin = $_SERVER['HOME'] ."/Tmp/captaincore_load_$site.php";
 
 ## mu-plugin generate: beginning of file
 $content = <<<EOT

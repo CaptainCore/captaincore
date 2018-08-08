@@ -44,7 +44,7 @@ run_command () {
         captaincore users --site=$site --token=$website_token --customers=$preloadusers
 
         ### upload password plugin to mu-plugins
-        rclone copy ~/Tmp/anchor_load_$site.php sftp-$site:${homedir}wp-content/mu-plugins/
+        rclone copy ~/Tmp/captaincore_load_$site.php sftp-$site:${homedir}wp-content/mu-plugins/
 
         ### Trigger website to load password
         wget --no-cache --spider $address/wp-admin/
@@ -52,7 +52,7 @@ run_command () {
         curl -Il $address/wp-login.php
 
         ## remove password plugin
-        rclone delete sftp-$site:${homedir}wp-content/mu-plugins/anchor_load_$site.php
+        rclone delete sftp-$site:${homedir}wp-content/mu-plugins/captaincore_load_$site.php
 
       fi
 
