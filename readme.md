@@ -13,7 +13,6 @@ CaptainCore CLI
 - Install `captaincore` command by running `sudo ln -s ~/.captaincore-cli/cli /usr/local/bin/captaincore`
 - Download latest rclone and install system wide by running `sudo ln -s ~/Download/rclone-v1.41-osx-amd64/rclone /usr/local/bin/rclone`
 - Copy config.sample.sh to config and configure with appropriate folders
-- Run `captaincore utils dropbox_uploader` and config with Dropbox account
 - Run `rclone config` and config Dropbox account
 - Install WP-CLI `curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar; chmod +x wp-cli.phar; sudo mv wp-cli.phar /usr/local/bin/wp`
 - Install JSON package `sudo npm install --global json`

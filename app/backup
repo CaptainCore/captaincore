@@ -249,8 +249,7 @@ EOF
     rclone sync $logs/$backup_date/$backup_time-$auth $rclone_logs/$backup_date/$backup_time-$auth --exclude .DS_Store
 
     # Generate dropbox link to logs
-    shareurl=`captaincore utils dropbox_uploader share Backup/Logs/$backup_date/$backup_time-$auth`
-    shareurl=`echo $shareurl | grep -o 'https.*'`
+    shareurl=$(rclone link $rclone_logs/$backup_date/$backup_time-$auth)
 
     # Generate overall emails
     ( echo "$(captaincore get transferred-stats file=$logs_path/backup-remote.txt)" && printf "<br><a href='$shareurl'>View Logs</a><br><br>" && grep -r "FTP response" $logs_path/backup-log.txt; ) \
