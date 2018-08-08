@@ -2,9 +2,12 @@
 
 ## Keys
 access_key="###############"  # WordPress API Key
-token="####################"  # WordPress Token Key for captaincore CLI
-auth="#####################"  # WordPress Auth Key for captaincore CLI
+token="####################"  # WordPress Token Key for CaptainCore CLI
+auth="#####################"  # WordPress Auth Key for CaptainCore CLI
 local_wp_db_pw="###########"  # Local MariaDB password
+WPCOM_API_KEY="############"  # Preload WordPress.com key
+GF_LICENSE_KEY="###########"  # Preload Gravity Forms Pro key
+ACF_PRO_KEY="##############"  # Preload ACF Pro key
 
 ## Paths
 path="/Users/name/Backup"                  # Backup Folder
@@ -17,9 +20,16 @@ rclone_logs="Dropbox:Backup/Logs"          # Rclone remote for backup logs
 rclone_snapshot="B2:Backup/Snapshots"      # Rclone remote for snapshots
 
 ## Vars
-# captaincore_dev="true"                           # Enable development mode
-# captaincore_master="user@captcore.mysite.com"    # LOCAL USE - Defines master address
-# captaincore_master_port="12345"                  # LOCAL USE - Defines master port
+# captaincore_dev="true"                                  # Enable development mode
+# captaincore_master="user@captcore.mysite.com"           # LOCAL USE - Defines master address
+# captaincore_master_port="12345"                         # LOCAL USE - Defines master port
+captaincore_branding_name="CaptainCore Client"            # Client Plugin Branding Name
+captaincore_branding_title="CaptainCore Client"           # Client Plugin Branding Title
+captaincore_branding_author="CaptainCore"                 # Client Plugin Branding Author
+captaincore_branding_author_uri="https://captaincore.io"  # Client Plugin Branding Link
+captaincore_server="anchor.host"
+captaincore_master="***REMOVED***"
+captaincore_master_port="***REMOVED***"
 captaincore_api="https://mysite.com/captcore-api"  # Defines CaptainCore API
 captaincore_gui="https://mysite.com"               # Defines CaptainCore GUI
 captaincore_admin_email="notify@mysite.com"        # Defines CaptainCore admin email notify
