@@ -45,7 +45,7 @@ if ! [ -z "$domain" ]; then
 	    fi
 
 		else
-			echo 'Missing argument. Ex: captaincore upload anchorhost1 "~/Download/migration.zip'
+			echo 'Missing argument. Ex: captaincore upload sitename1 "~/Download/migration.zip'
 		fi
 
   else ## If not Kinsta then try connecting using WP Engine's format
@@ -57,7 +57,7 @@ if ! [ -z "$domain" ]; then
 				scp -o StrictHostKeyChecking=no -P 22 $2 $wpe_ssh_user+$1@$1.ssh.wpengine.net:sites/$1/_wpeprivate/
 			fi
 		else
-		  echo 'Missing argument. Ex: captaincore upload anchorhost1 "~/Download/migration.zip'
+		  echo 'Missing argument. Ex: captaincore upload sitename1 "~/Download/migration.zip'
 		fi
 
   fi
@@ -71,7 +71,7 @@ else ## not recognized so attempt WP Engine's format
 	  	scp -o StrictHostKeyChecking=no -P 22 $2 $wpe_ssh_user+$1@$1.ssh.wpengine.net:sites/$1/_wpeprivate/
 		fi
 	else
-	  echo 'Missing argument. Ex: captaincore upload anchorhost1 "~/Download/migration.zip'
+	  echo 'Missing argument. Ex: captaincore upload sitename1 "~/Download/migration.zip'
 	fi
 
 fi

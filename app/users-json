@@ -1,9 +1,9 @@
 #! /usr/bin/env php
 <?php
 #
-#   Generates a json file based on an API call to anchor.host containing list of users to preload
+#   Generates a json file based on an API call to CaptainCore GUI containing list of users to preload
 #
-#   captaincore users-json --token=random --customers=1294,1245 --site=anchorhost
+#   captaincore users-json --token=random --customers=1294,1245 --site=sitename1
 #
 #   assign command line arguments to variables
 #   	userlist=~/Documents/Scripts/userlist.csv becomes $_GET['userlist']

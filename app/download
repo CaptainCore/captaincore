@@ -25,7 +25,7 @@ if ! [ -z "$domain" ]; then
 		if [ -n "$2" ]; then
 			scp -o StrictHostKeyChecking=no -P $port $username@$address:public/$2 $2
 		else
-			echo 'Missing argument. Ex: captaincore download anchorhost1 logo.png'
+			echo 'Missing argument. Ex: captaincore download sitename1 logo.png'
 		fi
 
   else ## If not Kinsta then try connecting using WP Engine's format
@@ -33,7 +33,7 @@ if ! [ -z "$domain" ]; then
 		if [ -n "$2" ]; then
 		  scp -o StrictHostKeyChecking=no -P 22 $wpe_ssh_user+$1@$1.ssh.wpengine.net:sites/$1/$2 $2
 		else
-		  echo 'Missing argument. Ex: captaincore download anchorhost1 logo.png'
+		  echo 'Missing argument. Ex: captaincore download sitename1 logo.png'
 		fi
 
   fi

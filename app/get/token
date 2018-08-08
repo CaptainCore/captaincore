@@ -2,8 +2,8 @@
 <?php
 
 //  Pass arguments from command line like this
-//  captaincore get token anchor.host
-//  captaincore get token --file=/Sites/anchor.dev/wp-config.php
+//  captaincore get token sitename.com
+//  captaincore get token --file=/Sites/sitename.dev/wp-config.php
 
 parse_str(implode('&', array_slice($argv, 1)), $_GET);
 
@@ -48,7 +48,7 @@ if (isset($_GET['--file'])) {
 	$site = $site_data->site;
 
 	$file = $captaincore_path . "/${site}_${site_id}/backup/wp-config.php";
-	
+
 	if (file_exists($file)) {
 		$wp_config = file_get_contents($file);
 
