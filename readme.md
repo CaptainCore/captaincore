@@ -1,6 +1,6 @@
 <h1 align="center">
   <a href="https://captaincore.io"><img src="https://captaincore.io/wp-content/uploads/2018/02/main-web-icons-captain.png" width="70" /></a><br />
-CaptainCore CLI 
+CaptainCore CLI
 
 </h1>
 
@@ -21,14 +21,16 @@ Eventually all of these steps will be wrapped into a single kickstart.sh script.
 
 - Download `git clone https://github.com/captaincore/captaincore-cli.git ~/.captaincore-cli/`
 - Install `captaincore` command globally by running `sudo ln -s ~/.captaincore-cli/cli /usr/local/bin/captaincore`
-- Download latest rclone and install system wide by running `sudo ln -s ~/Download/rclone-v1.42-linux-amd64/rclone /usr/local/bin/rclone`
+- Download [latest rclone](https://rclone.org/downloads/) and install system wide by running `sudo ln -s ~/Download/rclone-v1.42-linux-amd64/rclone /usr/local/bin/rclone`
 - Run `rclone config` and add your [cloud storage providers](https://rclone.org/overview/). Recommend Backblaze B2 for backups/snapshots and Dropbox for log files as they require link sharing support.
-- Copy `config.sample` to `config` and configure
+- Install PHP: `sudo apt-get install -y php7.0 php7.0-fpm php7.0-cli php7.0-common php7.0-mbstring php7.0-gd php7.0-intl php7.0-xml php7.0-mysql php7.0-mcrypt php7.0-zip`
 - Install WP-CLI: [Refer to Offical Docs](https://make.wordpress.org/cli/handbook/installing/)
 - Install JSON package: `sudo npm install --global json`
 - Install NGINX: `sudo apt-get install nginx && sudo systemctl enable nginx.service && sudo systemctl start nginx.service`
 - Install MariaDB: `sudo apt-get install mariadb-server mariadb-client && sudo systemctl enable mysql.service && sudo systemctl start mysql.service && sudo mysql_secure_installation`
 - Copy MariaDB root password to `~/.captaincore-cli/config` as `local_wp_db_pw="<db-password>"`
+- Copy `config.sample` to `config` and configure `Local Paths`, `Remote Paths` and `Vars`
+- Run `captaincore cli install`
 
 ## Usage
 

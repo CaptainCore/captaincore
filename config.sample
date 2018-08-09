@@ -9,27 +9,30 @@ WPCOM_API_KEY="############"  # Preload WordPress.com key
 GF_LICENSE_KEY="###########"  # Preload Gravity Forms Pro key
 ACF_PRO_KEY="##############"  # Preload ACF Pro key
 
-## Paths
-path="/Users/name/Backup"                  # Backup Folder
-logs="/Users/name/Logs"                    # Log Folder
-path_tmp="/Users/name/Tmp"                 # Tmp Folder
-path_scripts="/Users/name/Scripts"         # Scripts Folder
-rclone_archive="Dropbox:Backup/Archive/"   # Rclone remote for archive
-rclone_backup="B2:Backup/Sites"            # Rclone remote for backups
-rclone_logs="Dropbox:Backup/Logs"          # Rclone remote for backup logs
-rclone_snapshot="B2:Backup/Snapshots"      # Rclone remote for snapshots
+## Local Paths
+path="/Users/name/CaptainCore"       # Local Sites data
+logs="/Users/name/Logs"              # Local Log Folder
+path_tmp="/Users/name/Tmp"           # Local Tmp Folder
+path_scripts="/Users/name/Scripts"   # Local Scripts Folder
+
+## Remote Paths
+rclone_archive="Dropbox:Backup/Archive/"   # Rclone Bucket:Path for archive
+rclone_backup="B2:Backup/Sites"            # Rclone Bucket:Path for backups
+rclone_logs="Dropbox:Backup/Logs"          # Rclone Bucket:Path for backup logs
+rclone_snapshot="B2:Backup/Snapshots"      # Rclone Bucket:Path for snapshots
 
 ## Vars
-# captaincore_dev="true"                                  # Enable development mode
-# captaincore_master="user@captcore.mysite.com"           # LOCAL USE - Defines master address
-# captaincore_master_port="12345"                         # LOCAL USE - Defines master port
+# captaincore_dev="true"                           # Enable development mode
+# captaincore_master="user@captcore.mysite.com"    # LOCAL USE - Defines master address
+# captaincore_master_port="12345"                  # LOCAL USE - Defines master port
+captaincore_api="https://mysite.com/captcore-api"  # Defines CaptainCore API
+captaincore_gui="https://mysite.com"               # Defines CaptainCore GUI
+captaincore_admin_email="notify@mysite.com"        # Defines CaptainCore admin email notify
+wpe_ssh_user=email@captaincore.io                  # WP Engine SSH username
+websites=$(captaincore site list)                  # Site names
+
 captaincore_branding_name="CaptainCore Client"            # Client Plugin Branding Name
 captaincore_branding_title="CaptainCore Client"           # Client Plugin Branding Title
 captaincore_branding_author="CaptainCore"                 # Client Plugin Branding Author
 captaincore_branding_author_uri="https://captaincore.io"  # Client Plugin Branding Link
-captaincore_server="anchor.host"
-captaincore_api="https://mysite.com/captcore-api"  # Defines CaptainCore API
-captaincore_gui="https://mysite.com"               # Defines CaptainCore GUI
-captaincore_admin_email="notify@mysite.com"        # Defines CaptainCore admin email notify
-websites=$(captaincore site list)                  # Site names
-wpe_ssh_user=email@captaincore.io                  # WP Engine SSH username
+captaincore_server="anchor.host"                          # Client Plugin Server
