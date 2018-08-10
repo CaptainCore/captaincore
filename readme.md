@@ -50,6 +50,10 @@ Adds a site to CaptainCore CLI.
 
 `captaincore site add <site> --id=<id> --domain=<domain> --username=<username> --password=<password> --address=<address> --protocol=<protocol> --port=<port> --staging_username=<staging_username> --staging_password=<staging_password> --staging_address=<staging_address> --staging_protocol=<staging_protocol> --staging_port=<staging_port> [--preloadusers=<preloadusers>] [--homedir=<homedir>] [--s3accesskey=<s3accesskey>] [--s3secretkey=<s3secretkey>] [--s3bucket=<s3bucket>] [--s3path=<s3path>]`
 
+Updates a site in CaptainCore CLI.
+
+`captaincore site update <site> --id=<id> --domain=<domain> --username=<username> --password=<password> --address=<address> --protocol=<protocol> --port=<port> --staging_username=<staging_username> --staging_password=<staging_password> --staging_address=<staging_address> --staging_protocol=<staging_protocol> --staging_port=<staging_port> [--preloadusers=<preloadusers>] [--homedir=<homedir>] [--s3accesskey=<s3accesskey>] [--s3secretkey=<s3secretkey>] [--s3bucket=<s3bucket>] [--s3path=<s3path>]`
+
 Removes a site from CaptainCore CLI.
 
 `captaincore site delete <site>`
@@ -57,6 +61,22 @@ Removes a site from CaptainCore CLI.
 Backups one or more sites.
 
 `captaincore backup [<site>...] [--all] [--use-direct] [--skip-remote] [--skip-db] [--with-staging]`
+
+Get details about a site.
+
+`captaincore site get <site> [--field=<field>] [--bash]`
+
+Creates [Quicksave (plugins/themes)](https://anchor.host/introducing-quicksaves-with-rollbacks/) of website
+
+`captaincore quicksave [<site>...] [--all] [--force] [--debug]`
+
+Rollback from a Quicksave (theme/plugin)
+
+`captaincore rollback <site> <commit> [--plugin=<plugin>] [--theme=<theme>] [--all]`
+
+Login to WordPress using links
+
+`captaincore login <site> <login> [--open]`
 
 SSH wrapper
 
@@ -70,11 +90,37 @@ Shows last 12 months of stats from WordPress.com API.
 
 `captaincore stats <site>`
 
+Updates themes/plugins on WordPress sites
+
+`captaincore update [<site>...] [--all] [--exclude-themes=<themes>] [--exclude-plugins=<plugins>] [--<field>=<value>]`
+
+List sites
+
+`captaincore site list [--all] [--staging] [--updates-enabled] [--filter=<theme|plugin|core>] [--filter-name=<name>] [--filter-version=<version>] [--filter-status=<active|inactive|dropin|must-use>] [--field=<field>]`
+
 ## Real World Examples
 
-Downgrade WooCommerce on sites only running speific WooCommerce version
+Downgrade WooCommerce on sites running a specific WooCommerce version
 
 `captaincore ssh $(captaincore site list --filter=plugin --filter-name=woocommerce --filter-version=3.3.0) --command="wp plugin install woocommerce --version=3.2.6"`
+
+Upgrade Ultimate Member plugin on sites with it installed
+
+```
+sites=( $(captaincore site list --filter=plugin --filter-name=ultimate-member) )
+for site in ${sites[@]}; do
+  captaincore ssh $site --command="wp plugin update ultimate-member"
+done
+```
+
+Fix bug with Mailgun plugin by patching in missing region setting.
+
+```
+sites=( $(captaincore site list --filter=plugin --filter-name=mailgun) )
+for site in ${sites[@]}; do
+  captaincore ssh $site --command="wp option patch insert mailgun region us"
+done
+```
 
 Backup all sites
 
@@ -83,6 +129,10 @@ Backup all sites
 Generate quicksave for all sites
 
 `captaincore quicksave --all`
+
+Monitor check all sites
+
+`captaincore monitor --all`
 
 Launch site. Will change default Kinsta/WP Engine urls to real domain name and drop search engine privacy.
 
