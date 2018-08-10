@@ -67,13 +67,13 @@ run_command () {
 
 	# Have local PHP handle error count
 	cd ${root_path}data
-	error_count=$(wp eval-file ${root_path}lib/php/monitor-error-count.php $log_file --skip-wordpress)
+	error_count=$(wp eval-file ${root_path}lib/local-scripts/monitor-error-count.php $log_file --skip-wordpress)
 
 	# Send email if needed
 	if [[ $error_count != "0" ]]; then
 
 		# Build emails
-		email_content=$(wp eval-file ${root_path}lib/php/monitor-generate-email.php $log_file --skip-wordpress)
+		email_content=$(wp eval-file ${root_path}lib/local-scripts/monitor-generate-email.php $log_file --skip-wordpress)
 
 		echo "Sending Email"
 

@@ -18,7 +18,7 @@ for i in "${!flags[@]}"; do
 done
 
 cd ${root_path}data
-wp eval-file ../lib/php/site-update.php site=$1 ${flags[@]}
+wp eval-file ../lib/local-scripts/site-update.php site=$1 ${flags[@]}
 
 # Load site configs
 eval $(captaincore site get $1 --bash)

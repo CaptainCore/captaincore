@@ -20,4 +20,4 @@ for i in "${!flags[@]}"; do
 done
 
 cd ${root_path}data
-wp eval-file ../lib/php/site-add.php site=$1 ${flags[@]}
+wp eval-file ../lib/local-scripts/site-add.php site=$1 ${flags[@]}

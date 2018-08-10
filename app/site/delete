@@ -16,5 +16,5 @@ eval $(captaincore site get $1 --bash)
 cd ${root_path}data
 
 if [[ "$site" != "" ]] && [[ "$site_id" != "" ]]; then
-	wp eval-file ../lib/php/site-delete.php site=$site id=$site_id
+	wp eval-file ../lib/local-scripts/site-delete.php site=$site id=$site_id
 fi

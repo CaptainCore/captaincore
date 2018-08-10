@@ -20,4 +20,4 @@ done
 
 cd ${root_path}data
 
-wp eval-file ${root_path}lib/php/site-list.php ${flags[@]}
+wp eval-file ${root_path}lib/local-scripts/site-list.php ${flags[@]}
