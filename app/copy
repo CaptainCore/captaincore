@@ -3,7 +3,7 @@
 #
 #   Copy a site (destination will be overriden)
 #
-#  `captaincore copy <site-source> <site-destination>`
+#   `captaincore copy <site-source> <site-destination>`
 #
 #   [--email=<email>]
 #   Email on completion

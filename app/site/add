@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-#   Loads new site configurations into logins via command line
+#   Adds a site to CaptainCore CLI.
 #
 #   `captaincore site add <site>`
 #

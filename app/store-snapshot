@@ -1,11 +1,10 @@
 #!/bin/bash
 
-##
-##      Download and store WP Engine snapshot on Dropbox
-##
-##      Pass arguments from command line like this
-##      captaincore utils store_snapshot <url|file>
-##
+#
+#   Store zip to rclone remote for cold storage
+#
+#   `captaincore utils store_snapshot <url|file>`
+#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
