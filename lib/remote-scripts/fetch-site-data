@@ -15,12 +15,12 @@ home_url=$(wp option get home --skip-themes --skip-plugins --skip-packages)
 users=$(wp user list --format=json)
 
 # Assume WP-CLI output may contain whitespaces and remove.
-echo -e "${plugins}" | tr -d '[:space:]'
+echo -e "${plugins}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
 echo ""
-echo -e "${themes}" | tr -d '[:space:]'
+echo -e "${themes}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
 echo ""
-echo -e "${core}" | tr -d '[:space:]'
+echo -e "${core}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
 echo ""
-echo -e "${home_url}" | tr -d '[:space:]'
+echo -e "${home_url}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
 echo ""
-echo -e "${users}" | tr -d '[:space:]'
+echo -e "${users}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
