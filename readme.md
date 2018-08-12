@@ -107,8 +107,7 @@ Downgrade WooCommerce on sites running a specific WooCommerce version
 Upgrade Ultimate Member plugin on sites with it installed
 
 ```
-sites=( $(captaincore site list --filter=plugin --filter-name=ultimate-member) )
-for site in ${sites[@]}; do
+for site in $(captaincore site list --filter=plugin --filter-name=ultimate-member); do
   captaincore ssh $site --command="wp plugin update ultimate-member"
 done
 ```
@@ -116,8 +115,7 @@ done
 Fix bug with Mailgun plugin by patching in missing region setting.
 
 ```
-sites=( $(captaincore site list --filter=plugin --filter-name=mailgun) )
-for site in ${sites[@]}; do
+for site in $(captaincore site list --filter=plugin --filter-name=mailgun); do
   captaincore ssh $site --command="wp option patch insert mailgun region us"
 done
 ```
