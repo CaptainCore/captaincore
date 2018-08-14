@@ -9,4 +9,4 @@ wp db reset --yes
 wp db import $database_file
 siteurl=`wp option get siteurl`
 siteurlhttp=${siteurl/https:/http:}
-wp search-replace $siteurl $siteurlhttp --all-tables
+wp search-replace $siteurl $siteurlhttp --all-tables --report-changed-only

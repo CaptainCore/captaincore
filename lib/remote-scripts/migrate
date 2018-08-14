@@ -153,7 +153,7 @@ migrate_website() {
       wp rewrite flush --skip-plugins --skip-themes
       wp_home_imported=$(wp option get home)
       if [[ "$update_urls" == "true" ]]; then
-        wp search-replace $wp_home_imported $wp_home --skip-plugins --skip-themes --all-tables
+        wp search-replace $wp_home_imported $wp_home --skip-plugins --skip-themes --all-tables --report-changed-only
       fi
       # convert MyISAM tables to InnoDB
       wp db query "SELECT CONCAT('ALTER TABLE ', TABLE_SCHEMA,'.', TABLE_NAME, ' ENGINE=InnoDB;') FROM information_schema.TABLES WHERE ENGINE = 'MyISAM'" --skip-column-names > db_optimize.sql

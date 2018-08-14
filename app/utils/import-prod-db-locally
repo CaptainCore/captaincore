@@ -73,7 +73,7 @@ if [ $# -gt 0 ]; then
       # Update urls
       current_url=`wp option get home`
       new_url=https://${PWD##*/}.test
-      wp search-replace $current_url $new_url --all-tables --skip-plugins --skip-themes
+      wp search-replace $current_url $new_url --all-tables --skip-plugins --skip-themes --report-changed-only
 
 
 		fi
