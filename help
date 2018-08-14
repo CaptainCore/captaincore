@@ -8,7 +8,7 @@ CLI_ENTRYPOINT=`basename "$1"`
 # If we don't have any additional help arguments, then show the app's
 # header as well.
 if [ $# == 1 ]; then
-    bcli_show_header "$ROOT_DIR/app"
+  bcli_show_header "$ROOT_DIR/app"
 fi
 
 # Locate the correct level to display the helpfile for, either a directory
@@ -16,57 +16,56 @@ fi
 HELP_FILE="$ROOT_DIR/app/"
 HELP_ARG_START=2
 while [[ -d "$HELP_FILE" && $HELP_ARG_START -le $# ]]; do
-    HELP_FILE="$HELP_FILE/${!HELP_ARG_START}"
-    HELP_ARG_START=$(($HELP_ARG_START+1))
+  HELP_FILE="$HELP_FILE/${!HELP_ARG_START}"
+  HELP_ARG_START=$(($HELP_ARG_START+1))
 done
 
 # If we've got a directory's helpfile to show, then print out the list of
 # commands in that directory along with its help content.
 if [[ -d "$HELP_FILE" ]]; then
-    # echo -e "${COLOR_GREEN}$CLI_ENTRYPOINT ${COLOR_CYAN}${@:2:$(($HELP_ARG_START-1))} ${COLOR_NORMAL}"
+  # echo -e "${COLOR_GREEN}$CLI_ENTRYPOINT ${COLOR_CYAN}${@:2:$(($HELP_ARG_START-1))} ${COLOR_NORMAL}"
 
-    # If there's a help file available for this directory, then show it.
-    if [[ -f "$HELP_FILE/.help" ]]; then
-			  echo ""
-        cat "$HELP_FILE/.help"
+  # If there's a help file available for this directory, then show it.
+  if [[ -f "$HELP_FILE/.help" ]]; then
+    echo ""
+    cat "$HELP_FILE/.help"
+    echo ""
+  fi
+
+  echo ""
+  echo -e "${COLOR_MAGENTA}Commands${COLOR_NORMAL}"
+  echo ""
+
+  for file in $HELP_FILE/*; do
+    cmd=`basename "$file"`
+
+    # Don't show hidden files as available commands
+    if [[ "$cmd" != .* && "$cmd" != *.php &&"$cmd" != *.sh && "$cmd" != *.usage && "$cmd" != *.help ]]; then
+      echo -en "${COLOR_GREEN}$CLI_ENTRYPOINT ${COLOR_CYAN}${@:2:$(($HELP_ARG_START-1))} $cmd ${COLOR_NORMAL}"
+
+      if [[ -f "$file.usage" ]]; then
+        bcli_trim_whitespace "$(cat "$file.usage")"
         echo ""
+      elif [[ -d "$file" ]]; then
+        echo -e "${COLOR_MAGENTA}...${COLOR_NORMAL}"
+      else
+        echo ""
+      fi
     fi
+  done
 
-    echo ""
-    echo -e "${COLOR_MAGENTA}Commands${COLOR_NORMAL}"
-    echo ""
-
-    for file in $HELP_FILE/*; do
-        cmd=`basename "$file"`
-
-        # Don't show hidden files as available commands
-        if [[ "$cmd" != .* && "$cmd" != *.php &&"$cmd" != *.sh && "$cmd" != *.usage && "$cmd" != *.help ]]; then
-            echo -en "${COLOR_GREEN}$CLI_ENTRYPOINT ${COLOR_CYAN}${@:2:$(($HELP_ARG_START-1))} $cmd ${COLOR_NORMAL}"
-
-            if [[ -f "$file.usage" ]]; then
-                bcli_trim_whitespace "$(cat "$file.usage")"
-                echo ""
-            elif [[ -d "$file" ]]; then
-                echo -e "${COLOR_MAGENTA}...${COLOR_NORMAL}"
-            else
-                echo ""
-            fi
-        fi
-    done
-
-    exit 0
+  exit 0
 fi
 
 echo -en "${COLOR_GREEN}$CLI_ENTRYPOINT ${COLOR_CYAN}${@:2:$(($HELP_ARG_START-1))} ${COLOR_NORMAL}"
 if [[ -f "$HELP_FILE.usage" ]]; then
-    bcli_trim_whitespace "$(cat "$HELP_FILE.usage")"
-    echo ""
+  bcli_trim_whitespace "$(cat "$HELP_FILE.usage")"
+  echo ""
 else
-    echo ""
+  echo ""
 fi
 
-
 if [[ -f "$HELP_FILE.help" ]]; then
-    cat "$HELP_FILE.help"
-    echo ""
+  cat "$HELP_FILE.help"
+  echo ""
 fi
