@@ -12,7 +12,7 @@
 #   Checks all sites.
 #
 #   [--parallel=<number-of-checks>]
-#   Number of moniter checks to run at same time. Defaults to 20.
+#   Number of moniter checks to run at same time. Defaults to 15.
 #
 
 # Load configuration
@@ -22,19 +22,19 @@ source ${root_path}lib/arguments
 
 run_command () {
 
-  # Default parallel to 20
+  # Assign default parallel if needed
   if [[ $parallel == "" ]]; then
     parallel=15
   fi
 
   # See if any sites are specifed
   if [ ${#arguments[*]} -gt 0 ]; then
-		urls_to_check=()
+    urls_to_check=()
     # Runs on specific sites
-		for site in ${arguments[*]}; do
-			urls_to_check+=( $( captaincore site get $site --field=home_url ) )
-		done
-		urls_to_check=${urls_to_check[@]}
+    for site in ${arguments[*]}; do
+      urls_to_check+=( $( captaincore site get $site --field=home_url ) )
+    done
+    urls_to_check=${urls_to_check[@]}
   fi
 
   if [[ $all == "true" ]]; then
@@ -48,41 +48,41 @@ run_command () {
     return 1
   fi
 
-	# Generate random auth
-	auth=''; for count in {0..6}; do auth+=$(printf "%x" $(($RANDOM%16)) ); done;
+  # Generate random auth
+  auth=''; for count in {0..6}; do auth+=$(printf "%x" $(($RANDOM%16)) ); done;
 
-	# Begin time tracking
-	overalltimebegin=$(date +"%s")
-	backup_date=$(date +'%Y-%m-%d')
-	backup_time=$(date +'%H-%M')
+  # Begin time tracking
+  overalltimebegin=$(date +"%s")
+  backup_date=$(date +'%Y-%m-%d')
+  backup_time=$(date +'%H-%M')
 
-	# Define log file format
-	log_file=$logs/${backup_date}_${backup_time}_$auth.txt
-	echo "logging to $log_file"
+  # Define log file format
+  log_file=$logs/${backup_date}_${backup_time}_$auth.txt
+  echo "logging to $log_file"
 
   # Run checks in parallel. Collect the results in log file.
   ( echo $urls_to_check | xargs -P $parallel -n 1 captaincore monitor-check ) 2>&1 | tee $log_file
 
   echo "Finished checks now building email if needed"
 
-	# Have local PHP handle error count
-	cd ${root_path}data
-	error_count=$(wp eval-file ${root_path}lib/local-scripts/monitor-error-count.php $log_file --skip-wordpress)
+  # Have local PHP handle error count
+  cd ${root_path}data
+  error_count=$(wp eval-file ${root_path}lib/local-scripts/monitor-error-count.php $log_file --skip-wordpress)
 
-	# Send email if needed
-	if [[ $error_count != "0" ]]; then
+  # Send email if needed
+  if [[ $error_count != "0" ]]; then
 
-		# Build emails
-		email_content=$(wp eval-file ${root_path}lib/local-scripts/monitor-generate-email.php $log_file --skip-wordpress)
+    # Build emails
+    email_content=$(wp eval-file ${root_path}lib/local-scripts/monitor-generate-email.php $log_file --skip-wordpress)
 
-		echo "Sending Email"
+    echo "Sending Email"
 
-		# output "Response code $response for $address" per each item in array
-		echo $email_content | mutt -e 'set content_type=text/html' -s "Monitor: $error_count errors" -- $captaincore_admin_email
+    # output "Response code $response for $address" per each item in array
+    echo $email_content | mutt -e 'set content_type=text/html' -s "Monitor: $error_count errors" -- $captaincore_admin_email
 
-	fi
+  fi
 
-	return 1
+  return 1
 
 }
 run_command
