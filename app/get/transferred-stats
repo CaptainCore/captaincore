@@ -3,15 +3,12 @@
 #
 #   Extracts transferred stats from log files
 #
-#   php calculate_transferred.php file=Logs/2017-07-01/20-25-f6c28f5/site-sitename1-dropbox.txt
+#   `captaincore get transferred-stats <file>`
 #
 
-parse_str( implode( '&', array_slice( $argv, 1 ) ), $_GET );
-
-if ( $_GET && $_GET['file'] ) {
-	$file = $_GET['file'];
-} else {
-	$file = '~/Logs/captaincore_dropbox_log_overall.txt';
+// Assign file
+if ( $argv && $argv[1] ) {
+	$file = $argv[1];
 }
 
 function secs_to_str( $duration ) {
