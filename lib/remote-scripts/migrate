@@ -45,12 +45,12 @@ for i in "${!flags[@]}"; do
 done
 
 backup_url=$url
-backupformat=`echo $backup_url | perl -n -e '/.+\.(.+)/&& print $1'`
+backupformat=$( echo $backup_url | perl -n -e '/.+\.(.+)/&& print $1' )
 
 # Store current path
 homedir=$(pwd)
 
-migrate_website() {
+run_command() {
 
   # Find private folder
   if [ -d "_wpeprivate" ]; then
@@ -78,12 +78,12 @@ migrate_website() {
     backup_url=${backup_url/wp-admin\/admin-ajax.php?action=pb_backupbuddy_backupbuddy&function=download_archive&backupbuddy_backup=/wp-content\/uploads\/backupbuddy_backups/}
   fi
 
-	if [ -f $url ]; then
-	   echo "File $url exists."
-	else
-		# Downloads backup file
-	  wget --progress=bar:force:noscroll $backup_url
-	fi
+  if [ -f $url ]; then
+    echo "File $url exists."
+  else
+    # Downloads backup file
+    wget --progress=bar:force:noscroll $backup_url
+  fi
 
   if [[ "$backupformat" == "zip" ]]; then
     unzip -o *.zip -x "__MACOSX/*" -x "cgi-bin/*"
@@ -106,13 +106,13 @@ migrate_website() {
 
   # Migrate themes if found
   for d in $wordpresspath/themes/*/; do
-		rm -rf $homedir/wp-content/themes/$( basename $d )
+    rm -rf $homedir/wp-content/themes/$( basename $d )
     mv $d $homedir/wp-content/themes/
   done
 
   # Migrate plugins if found
   for d in $wordpresspath/plugins/*/; do
-		rm -rf $homedir/wp-content/plugins/$( basename $d )
+    rm -rf $homedir/wp-content/plugins/$( basename $d )
     mv $d $homedir/wp-content/plugins/
   done
 
@@ -123,12 +123,12 @@ migrate_website() {
 
   # Outputs table prefix and updates if different
   cat $private/$wordpresspath/../wp-config.php | grep table_prefix
-	table_prefix=$(cat $private/$wordpresspath/../wp-config.php | grep table_prefix | perl -n -e '/\047(.+)\047/&& print $1')
+  table_prefix=$( cat $private/$wordpresspath/../wp-config.php | grep table_prefix | perl -n -e '/\047(.+)\047/&& print $1' )
   cd $homedir
-	current_table_prefix=$(wp config get table_prefix)
-	if [[ "$table_prefix" != "$current_table_prefix" ]]; then
-		wp config set table_prefix $table_prefix
-	fi
+  current_table_prefix=$( wp config get table_prefix )
+  if [[ "$table_prefix" != "$current_table_prefix" ]]; then
+    wp config set table_prefix $table_prefix
+  fi
 
   # Reset folder and file permissions
   find . -type d -exec chmod 755 {} \;
@@ -137,21 +137,21 @@ migrate_website() {
 
   echo "Found the following database:"
   find $homedir/wp-content/uploads $private -type f -name '*.sql'
-  databases=$(find $private -type f -name '*.sql')
-  database_count=$(echo -n $databases | grep -c '^')
-	if [[ "$database_count" == "0" ]]; then
-		# Expand db search
-		 databases=$(find $homedir -type f -name '*.sql')
-		 database_count=$(echo -n $databases | grep -c '^')
-	fi
+  databases=$( find $private -type f -name '*.sql' )
+  database_count=$( echo -n $databases | grep -c '^' )
+  if [[ "$database_count" == "0" ]]; then
+    # Expand db search
+    databases=$( find $homedir -type f -name '*.sql' )
+    database_count=$( echo -n $databases | grep -c '^' )
+  fi
   if [[ "$database_count" -gt "0" ]]; then
-    database_file=$(echo "$databases" | head -1)
+    database_file=$( echo "$databases" | head -1 )
     if [ -f "$database_file" ]; then
       wp db reset --yes
       wp db import $database_file
       wp cache flush --skip-plugins --skip-themes
       wp rewrite flush --skip-plugins --skip-themes
-      wp_home_imported=$(wp option get home)
+      wp_home_imported=$( wp option get home )
       if [[ "$update_urls" == "true" ]]; then
         wp search-replace $wp_home_imported $wp_home --skip-plugins --skip-themes --all-tables --report-changed-only
       fi
@@ -163,4 +163,4 @@ migrate_website() {
   fi
 
 }
-migrate_website
+run_command

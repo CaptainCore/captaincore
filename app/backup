@@ -53,7 +53,7 @@ run_command() {
   for site in "$@"; do
 
     # Load site configs
-    eval $(captaincore site get $site --bash)
+    eval $( captaincore site get $site --bash )
 
     # If subsite update stats and skip backup
     if [[ $subsite == "true" ]]; then
@@ -86,7 +86,7 @@ EOF
     fi
 
     # Lookup rclone
-    remotes=$(rclone listremotes)
+    remotes=$( rclone listremotes )
 
     # Check for rclone remote
     rclone_remote_lookup=false
@@ -108,7 +108,7 @@ EOF
 
     # Handle FTP errors
     if [[ $ftp_search_for_wordpress != "wp-admin" ]]; then
-			wordpress_not_found=true
+      wordpress_not_found=true
     fi
 
     # Incremental backup locally with rclone
@@ -144,7 +144,9 @@ EOF
       folder_size=$( du -s --block-size=1 $path/${site}_${site_id}/backup/ )
       folder_size=$( echo $folder_size | cut -d' ' -f 1 )
 
-    elif [[ "$OSTYPE" == "darwin"* ]]; then
+    fi
+
+    if [[ "$OSTYPE" == "darwin"* ]]; then
 
       # Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
       folder_size=$( find $path/${site}_${site_id}/backup/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}' )
@@ -189,7 +191,7 @@ EOF
     s3bucket=''
     s3path=''
     subsite=''
-		wordpress_not_found=''
+    wordpress_not_found=''
 
     let INDEX=${INDEX}+1
   done
