@@ -20,7 +20,7 @@ root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_
 source ${root_path}config
 source ${root_path}lib/arguments
 
-run_command () {
+run_command() {
 
   # Assign default parallel if needed
   if [[ $parallel == "" ]]; then

@@ -13,7 +13,7 @@
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source ${root_path}config
 
-run_command () {
+run_command() {
   for (( i = 1; i <= $#; i++ )); do
 
     var="$i"

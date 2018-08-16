@@ -10,7 +10,7 @@
 user_agent="captaincore/1.0 (CaptainCore Health Check by CaptainCore.io)"
 url=$1
 
-run_command () {
+run_command() {
 
   # Run the health check. Return http_code and body.
   response=$(curl --user-agent "$user_agent" --write-out %{http_code} --max-time 30 --silent $url)

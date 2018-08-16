@@ -62,7 +62,7 @@ for i in "${!flags[@]}"; do
 
 done
 
-run_command () {
+run_command() {
 
   for website in "$@"; do
 

@@ -14,7 +14,7 @@ root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_
 source ${root_path}config
 source ${root_path}lib/arguments
 
-run_command () {
+run_command() {
 
     echo "Generating usage stats for $# websites"
     INDEX=1
