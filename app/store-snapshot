@@ -3,19 +3,27 @@
 #
 #   Store zip to rclone remote for cold storage
 #
-#   `captaincore utils store_snapshot <url|file>`
+#   `captaincore store-snapshot <url|file>`
 #
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source ${root_path}config
 
-wpdownloadzip=$1
-if [ -e $wpdownloadzip ]; then
-	echo "Found local file $wpdownloadzip"
-	rclone move $wpdownloadzip $rclone_archive -v
-else
-	wpdownloadzipfilename=`echo $wpdownloadzip | perl -n -e '/.+\/+(.+\.zip)/&& print $1'`
-	wget -O $wpdownloadzipfilename $wpdownloadzip
-	rclone move $wpdownloadzipfilename $rclone_archive -v
-fi
+zip=$1
+
+run_command() {
+
+	if [ -e $zip ]; then
+		echo "Found local file $zip"
+		rclone move $zip $rclone_archive -v
+		continue
+	fi
+
+	zip_filename=$( echo $zip | perl -n -e '/.+\/+(.+\.zip)/&& print $1' )
+	wget -O $zip_filename $zip
+	rclone move $zip_filename $rclone_archive -v
+
+}
+
+run_command
