@@ -9,38 +9,47 @@
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source ${root_path}config
 
-remote_site_ids=( $(ssh $captaincore_master -p $captaincore_master_port "captaincore site list --field=ids") )
-local_site_ids=( $(captaincore site list --field=ids) )
+run_command() {
 
-site_ids_to_sync=()
-for i in "${remote_site_ids[@]}"; do
+  if [[ $captaincore_master == "" ]] || [[ $captaincore_master_port == "" ]]; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please define `captaincore_master` and `captaincore_master_port` within config file."
+    return
+  fi
+
+  if [[ "$#" -gt "0" ]]; then
+
+    echo "Manually syncing $@"
+    cd ${root_path}data
+    wp db query "delete from wp_posts where ID in ($@);"
+    wp db query "delete from wp_postmeta where post_id in ($@);"
+    ssh $captaincore_master -p $captaincore_master_port "bash -s" < ${root_path}lib/remote-scripts/master-db-query $@ > sync.sql
+    wp db import sync.sql
+    return
+
+  fi
+
+  remote_site_ids=( $( ssh $captaincore_master -p $captaincore_master_port "captaincore site list --field=ids" ) )
+  local_site_ids=( $( captaincore site list --field=ids ) )
+
+  site_ids_to_sync=()
+  for i in "${remote_site_ids[@]}"; do
     skip=
     for j in "${local_site_ids[@]}"; do
-        [[ $i == $j ]] && { skip=1; break; }
+      [[ $i == $j ]] && { skip=1; break; }
     done
     [[ -n $skip ]] || site_ids_to_sync+=("$i")
-done
+  done
 
-if [[ "${#site_ids_to_sync[@]}" == "0" ]]; then
+  if [[ "${#site_ids_to_sync[@]}" == "0" ]]; then
 
-	echo "Already synced"
+    echo "Already synced"
+    return
+  fi
 
-else
+  echo "Syncing site ids: ${site_ids_to_sync[@]}"
+  cd ${root_path}data
+  ssh $captaincore_master -p $captaincore_master_port "bash -s" < ${root_path}lib/remote-scripts/master-db-query ${site_ids_to_sync[@]} > sync.sql
+  wp db import sync.sql
 
-	echo "Syncing site ids: ${site_ids_to_sync[@]}"
-	cd ~/.captaincore-cli/data
-	ssh $captaincore_master -p $captaincore_master_port "bash -s" < ${root_path}lib/remote-scripts/master-db-query ${site_ids_to_sync[@]} > sync.sql
-	wp db import sync.sql
-
-fi
-
-if [[ "$#" -gt "0" ]]; then
-
-	echo "Manually syncing $@"
-	cd ~/.captaincore-cli/data
-	wp db query "delete from wp_posts where ID in ($@);"
-	wp db query "delete from wp_postmeta where post_id in ($@);"
-	ssh $captaincore_master -p $captaincore_master_port "bash -s" < ${root_path}lib/remote-scripts/master-db-query $@ > sync.sql
-	wp db import sync.sql
-
-fi
+}
+run_command $@
