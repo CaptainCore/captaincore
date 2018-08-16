@@ -3,108 +3,71 @@
 #
 #   Import production database to local WordPress site
 #
-#   `captaincore utils import-prod-db-locally sitename1`
+#   `captaincore local-db-import-from-production <site>`
 #
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source ${root_path}config
+source ${root_path}lib/arguments
 
-# Loop through arguments and separate regular arguments from flags (--flag)
-for var in "$@"
-do
-	# If starts with "--" then assign it to a flag array
-    if [[ $var == --* ]]
-    then
-    	count=1+${#flags[*]}
-    	flags[$count]=$var
-    # Else assign to an arguments array
-    else
-    	count=1+${#arguments[*]}
-    	arguments[$count]=$var
-    fi
-done
+run_command() {
 
-# Loop through flags and assign to variable. A flag "--skip-dropbox" becomes $flag_skip_dropbox
-for i in "${!flags[@]}"; do
+  echo "Importing $# site"
+  INDEX=1
+  for website in "$@"; do
 
-	# replace "-" with "_" and remove leading "--"
-	flag_name=`echo ${flags[$i]} | tr - _`
-	flag_name=`echo $flag_name | cut -c 3-`
+    # Load site configs
+    eval $(captaincore site get $website --bash)
 
-  if [[ $flag_name == *"="* ]]; then
-    # extract value
-    flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'`
-    flag_name=`echo $flag_name | perl -n -e '/(.+)?=.+/&& print $1'`
-    # assigns to $flag_flagname
-    declare "$flag_name"="$flag_value"
-  else
-    # assigns to $flag_flagname
-    declare "flag_$flag_name"=true
-  fi
-
-done
-
-import_prod_db_locally () {
-if [ $# -gt 0 ]; then
-
-	echo "Importing $# site"
-	INDEX=1
-	for website in "$@"; do
-
-		# Load site configs
-		eval $(captaincore site get $website --bash)
-
-		# Site found, start the backup
-		if ! [ -z "$domain" ]; then
-
-      # Make database backup on production
-      captaincore ssh $website --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql"
-
-      # Sync production to staging
-      rclone copy sftp-$website:${homedir}/wp-content/mysql.sql wp-content/ --verbose=1
-
-      # Import database locally
-      wp db import wp-content/mysql.sql --skip-plugins --skip-themes
-
-      # Disable emails
-      wp plugin install log-emails disable-emails --skip-plugins --skip-themes --activate --force
-
-      # Update urls
-      current_url=`wp option get home`
-      new_url=https://${PWD##*/}.test
-      wp search-replace $current_url $new_url --all-tables --skip-plugins --skip-themes --report-changed-only
-
-
+    if ! [ -z "$domain" ]; then
+			echo "$domain not found"
+			continue
 		fi
 
-		### Clear out variables
-		domain=''
-		username=''
-		password=''
-		address=''
-		protocol=''
-		port=''
+    # Make database backup on production
+    captaincore ssh $website --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql"
+
+    # Sync production to local directory
+    rclone copy sftp-$website:${homedir}/wp-content/mysql.sql wp-content/ --verbose=1
+
+    # Import database locally
+    wp db import wp-content/mysql.sql --skip-plugins --skip-themes
+
+    # Disable emails
+    wp plugin install log-emails disable-emails --skip-plugins --skip-themes --activate --force
+
+    # Update urls
+    current_url=$( wp option get home )
+    new_url=https://${PWD##*/}.test
+    wp search-replace $current_url $new_url --all-tables --skip-plugins --skip-themes --report-changed-only
+
+    ### Clear out variables
+    domain=''
+    username=''
+    password=''
+    address=''
+    protocol=''
+    port=''
     username_staging=''
     password_staging=''
     address_staging=''
     protocol_staging=''
     port_staging=''
     preloadusers=''
-		homedir=''
-		remoteserver=''
+    homedir=''
+    remoteserver=''
     s3bucket=''
     s3path=''
     subsite=''
 
-		let INDEX=${INDEX}+1
-	done
+    let INDEX=${INDEX}+1
+  done
 
-fi
 }
 
-### See if any specific sites are selected
+# See if any specific sites are selected
 if [ ${#arguments[*]} -gt 0 ]; then
-	# Import production site database locally
-	import_prod_db_locally ${arguments[*]}
+  # Import production site database locally
+  run_command ${arguments[*]}
 fi
