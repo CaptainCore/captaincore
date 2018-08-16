@@ -9,31 +9,38 @@
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source ${root_path}config
+source ${root_path}lib/arguments
 
 site=$1
 
-# Load site vars
-eval $(captaincore site get $site --bash)
+run_command() {
 
-# Credentials found, proceed
-if ! [ -z "$domain" ]; then
+  # Load site vars
+  eval $(captaincore site get $site --bash)
 
-	# Remove if already found
-	rclone config delete sftp-$site
-	rclone config delete sftp-$site-staging
+  # Domain not found
+  if [ -z "$domain" ]; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Domain not found."
+    return
+  fi
 
-	echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $site"
+  # Remove if already found
+  rclone config delete sftp-$site
+  rclone config delete sftp-$site-staging
 
-	password=$(captaincore site get $site --field=password)
-	password_staging=$(captaincore site get $site --field=password_staging)
+  echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $site"
 
-	# Add new WordPress site to Rclone
-	rclone_pass=$(rclone obscure $password)
-	rclone config create sftp-$site $protocol host $address user $username port $port pass $rclone_pass
+  password=$(captaincore site get $site --field=password)
+  password_staging=$(captaincore site get $site --field=password_staging)
 
-	if [[ "$password_staging" != "" ]]; then
-		rclone_pass_staging=$(rclone obscure $password_staging)
-		rclone config create sftp-$site-staging $protocol_staging host $address_staging user $username_staging port $port_staging pass $rclone_pass_staging
-	fi
+  # Add new WordPress site to Rclone
+  rclone_pass=$(rclone obscure $password)
+  rclone config create sftp-$site $protocol host $address user $username port $port pass $rclone_pass
 
-fi
+  if [[ "$password_staging" != "" ]]; then
+    rclone_pass_staging=$(rclone obscure $password_staging)
+    rclone config create sftp-$site-staging $protocol_staging host $address_staging user $username_staging port $port_staging pass $rclone_pass_staging
+  fi
+
+}
+run_command
