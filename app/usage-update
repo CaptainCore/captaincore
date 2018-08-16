@@ -1,12 +1,9 @@
 #!/bin/bash
 
 #
-#   Generates usage stats (Storage and Views) for CaptainCore Plugin
+#   Generates usage stats (Storage and Views) for CaptainCore GUI
 #
 #   `captaincore usage-update <site>...`
-#
-#    Or backup everything like this
-#    captaincore usage-update
 #
 
 # Load configuration
