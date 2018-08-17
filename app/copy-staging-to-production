@@ -13,83 +13,84 @@ source ${root_path}lib/arguments
 
 run_command() {
 
-    echo "Deploying $# production sites"
-    INDEX=1
-    for website in "$@"; do
+  echo "Deploying $# production sites"
+  INDEX=1
+  for website in "$@"; do
 
-      # Load site configs
-      eval $(captaincore site get $website --bash)
+    # Load site configs
+    eval $(captaincore site get $website --bash)
 
-      # Site found, start the backup
-      if ! [ -z "$domain" ]; then
+    # Vars found, proceed
+    if [ -z "$domain" ]; then
+      echo "Domain not found"
+      return
+    fi
 
-        if [ "$homedir" == "" ]; then
-          homedir="/"
-        fi
+    if [ "$homedir" == "" ]; then
+      homedir="/"
+    fi
 
-        # Unique timestamp
-        timestamp=$(date +%s)
+    # Unique timestamp
+    timestamp=$(date +%s)
 
-        # Store production url
-        production_url=`captaincore ssh $site --command="wp option get home --skip-themes --skip-plugins"`
+    # Store production url
+    production_url=`captaincore ssh $site --command="wp option get home --skip-themes --skip-plugins"`
 
-        # Remove trailing slash if found
-        if [[ "${production_url:(-1)}" == "/" ]]; then
-          production_url=${production_url::(-1)}
-        fi
+    # Remove trailing slash if found
+    if [[ "${production_url:(-1)}" == "/" ]]; then
+      production_url=${production_url::(-1)}
+    fi
 
-        # Make staging snapshot with unique timestamp
-        captaincore ssh $site-staging --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/"
+    # Make staging snapshot with unique timestamp
+    captaincore ssh $site-staging --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/"
 
-        # Download staging snapshot to production site and import database
-        captaincore ssh $site --command="wget https://staging-${site}.kinsta.com/wp-content_$timestamp.zip; mv wp-content_$timestamp.zip wp-content.zip; rm -rf wp-content/; unzip wp-content.zip; rm wp-content.zip; wp db import wp-content/mysql.sql --skip-plugins --skip-themes"
+    # Download staging snapshot to production site and import database
+    captaincore ssh $site --command="wget https://staging-${site}.kinsta.com/wp-content_$timestamp.zip; mv wp-content_$timestamp.zip wp-content.zip; rm -rf wp-content/; unzip wp-content.zip; rm wp-content.zip; wp db import wp-content/mysql.sql --skip-plugins --skip-themes"
 
-        # Remove from production_to_staging
-        captaincore ssh $site-staging --command="rm -f wp-content_$timestamp.zip"
+    # Remove from production_to_staging
+    captaincore ssh $site-staging --command="rm -f wp-content_$timestamp.zip"
 
-        # Find and replace urls
-        captaincore ssh $site --command="wp search-replace http://staging-${site}.kinsta.com $production_url --all-tables --skip-plugins --skip-themes; wp search-replace https://staging-${site}.kinsta.com $production_url --all-tables --skip-plugins --skip-themes"
+    # Find and replace urls
+    captaincore ssh $site --command="wp search-replace http://staging-${site}.kinsta.com $production_url --all-tables --skip-plugins --skip-themes; wp search-replace https://staging-${site}.kinsta.com $production_url --all-tables --skip-plugins --skip-themes"
 
-        # Disable search privacy and deactivate disable email on production site
-        captaincore ssh $site --command="wp option update blog_public 1 --skip-plugins --skip-themes; wp plugin deactivate disable-emails --skip-plugins --skip-themes"
+    # Disable search privacy and deactivate disable email on production site
+    captaincore ssh $site --command="wp option update blog_public 1 --skip-plugins --skip-themes; wp plugin deactivate disable-emails --skip-plugins --skip-themes"
 
-        # Post completion to CaptainCore API
-        if [[ $captaincore_dev == true ]]; then
-          curl_argument="-k"
-        fi
+    # Post completion to CaptainCore API
+    if [[ $captaincore_dev == true ]]; then
+      curl_argument="-k"
+    fi
 
-        curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
+    curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
-	"command":"staging-to-production",
-	"site_id":"$site_id",
-	"email":"$email",
-	"token":"$token"
+"command":"staging-to-production",
+"site_id":"$site_id",
+"email":"$email",
+"token":"$token"
 }
 EOF
 
-      fi
+    # Clear out variables
+    domain=''
+    username=''
+    password=''
+    address=''
+    protocol=''
+    port=''
+    username_staging=''
+    password_staging=''
+    address_staging=''
+    protocol_staging=''
+    port_staging=''
+    preloadusers=''
+    homedir=''
+    remoteserver=''
+    s3bucket=''
+    s3path=''
+    subsite=''
 
-      ### Clear out variables
-      domain=''
-      username=''
-      password=''
-      address=''
-      protocol=''
-      port=''
-      username_staging=''
-      password_staging=''
-      address_staging=''
-      protocol_staging=''
-      port_staging=''
-      preloadusers=''
-      homedir=''
-      remoteserver=''
-      s3bucket=''
-      s3path=''
-      subsite=''
-
-      let INDEX=${INDEX}+1
-    done
+    let INDEX=${INDEX}+1
+  done
 
 }
 
