@@ -16,35 +16,32 @@ source ${root_path}lib/arguments
 
 run_command() {
 
-	if [ $# -gt 0 ]; then
+  echo "Opening $# sites"
 
-	echo "Opening $# sites"
+  INDEX=0
 
-	INDEX=0
+  for site in "$@"; do
 
-	for site in "$@"; do
+    let INDEX=${INDEX}+1
 
-		let INDEX=${INDEX}+1
+    # Load site configs
+    eval $(captaincore site get $site --bash)
 
-		# Load site configs
-		eval $(captaincore site get $site --bash)
+    ## Return error if domain not found
+    if [[ "$domain" == "" ]]; then
+      echo "Can't locate website for $site"
+      continue
+    fi
 
-		## Return error if domain not found
-		if [[ "$domain" == "" ]]; then
-			echo "Can't locate website for $site"
-			continue
-		fi
+    ## Return error if home_url not found
+    if [[ "$home_url" != "" ]]; then
+      open $home_url
+    else
+      open "http://${address}"
+    fi
 
-		## Return error if home_url not found
-		if [[ "$home_url" != "" ]]; then
-			open $home_url
-		else
-			open "http://${address}"
-		fi
+  done
 
-	done
-
-	fi
 }
 
 # See if any sites are specifed
@@ -56,7 +53,7 @@ fi
 if [[ $all == "true" ]]; then
   # Runs on all sites
   echo "Opens all sites"
-	run_command ${websites[@]}
+  run_command ${websites[@]}
 fi
 
 # Error if no sites specifed
