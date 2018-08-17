@@ -19,49 +19,50 @@ source ${root_path}config
 source ${root_path}lib/arguments
 
 run_command() {
-  if [ $# -gt 0 ]; then
 
-    INDEX=1
-    for site in "$@"; do
+  INDEX=1
+  for site in "$@"; do
 
-      # Load site configs
-      eval $(captaincore site get $site --bash)
+    # Load site configs
+    eval $(captaincore site get $site --bash)
 
-      # Site found, start the backup
-      if ! [ -z "$domain" ]; then
+    if [ -z "$domain" ]; then
+      echo "Domain not found"
+      return
+    fi
 
-        if [ "$homedir" != "" ]; then
-          homedir="${homedir}/"
-        fi
-				json="["
-				size_production=$(rclone size sftp-$site:$homedir --json)
-				size_staging=$(rclone size sftp-$site-staging:$homedir --json)
-				json+="{\"name\":\"$site\","${size_production:1:${#size_production}}
-				if [[ "$size_staging" != "" ]]; then
-					json+=","
-				fi
-				json+="{\"name\":\"$site-staging\","${size_staging:1:${#size_staging}}
-				json+="]"
-				echo $json
-      fi
+    if [ "$homedir" != "" ]; then
+      homedir="${homedir}/"
+    fi
+    json="["
+    size_production=$(rclone size sftp-$site:$homedir --json)
+    size_staging=$(rclone size sftp-$site-staging:$homedir --json)
+    json+="{\"name\":\"$site\","${size_production:1:${#size_production}}
+    if [[ "$size_staging" != "" ]]; then
+      json+=","
+    fi
+    json+="{\"name\":\"$site-staging\","${size_staging:1:${#size_staging}}
+    json+="]"
 
-      ### Clear out variables
-      domain=''
-      username=''
-      password=''
-      address=''
-      protocol=''
-      port=''
-      homedir=''
-      remoteserver=''
-      s3bucket=''
-      s3path=''
-      subsite=''
+    echo $json
 
-      let INDEX=${INDEX}+1
-    done
+    # Clear out variables
+    domain=''
+    username=''
+    password=''
+    address=''
+    protocol=''
+    port=''
+    homedir=''
+    remoteserver=''
+    s3bucket=''
+    s3path=''
+    subsite=''
 
-  fi
+    let INDEX=${INDEX}+1
+
+  done
+
 }
 
 # See if any sites are specifed
@@ -72,7 +73,7 @@ fi
 
 if [[ $all == "true" ]]; then
   # Runs on all sites
-	run_command ${websites[@]}
+  run_command ${websites[@]}
 fi
 
 # Error if no sites specifed
