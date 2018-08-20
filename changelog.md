@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.2.8] - 2018-08-20
+### Added
+- Argument `<site>` and `<plugin>...` to command `plugins-zip`
+- Configs `captaincore_branding_name`, `captaincore_branding_title`, `captaincore_branding_author`, `captaincore_branding_author_uri`, `captaincore_server`, `WPCOM_API_KEY`, `GF_LICENSE_KEY` and `ACF_PRO_KEY` to `config` file
+
+### Changed
+- Command `captaincore plugins-zip` now handled through single SSH request.
+- Command `captaincore cli update` now pulls via git.
+- Command `captaincore backup` now using rclone link sharing rather then separate script.
+- When doing a `wp search-replace` always use argument `--report-changed-only`
+- Revised `readme.md` and `config.sample` documentation.
+- Renamed directory `lib/php` to `lib/local-scripts` for better clarity and consistency.
+- Renamed remote scripts for applying https to `apply-https` and `apply-https-with-www`.
+- Renamed `captaincore utils localwp` to `captaincore local-create-wordpress`
+- Renamed `captaincore utils import-prod-db-locally` to `captaincore local-db-import-from-production`
+- Bug fix with `captaincore upload`.
+- Bug fix remote script `fetch-site-data` when trimming whitespace.
+- Improved `readme.md`
+- Improved `captaincore get transferred-stats` regex matching. Accepts `<file>` argument directly rather then `--file=<file>`.
+- Improved `curl` requests. Now uses defined config `$captaincore_gui`.
+
+### Removed
+- Argument `--file` from `captaincore get transferred-stats`
+- Unused submodule dnsrecon
+- Dropbox uploader script
+
 ## [0.2.7] - 2018-08-06
 ### Added
 - Command `captaincore monitor-check <site>`. Standalone script which allows checking of individual valid urls for parallelizing purposes.
