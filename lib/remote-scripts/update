@@ -66,18 +66,18 @@ run_command() {
     cd $homedir
   fi
 
-  echo "<?php define( 'WP_ADMIN', true ); ?>" > $private/require_wp_admin.php
+  echo "<?php define( 'WP_ADMIN', true ); ?>" > $private/require-wp-admin.php
 
   if [[ $exclude_themes == "" ]]; then
-  	wp theme update ${flags[@]} --require="$private/require_wp_admin.php"
+  	wp theme update ${flags[@]} --require="$private/require-wp-admin.php"
   else
-  	wp theme update ${flags[@]} --require="$private/require_wp_admin.php" --exclude=$exclude_themes
+  	wp theme update ${flags[@]} --require="$private/require-wp-admin.php" --exclude=$exclude_themes
   fi
   echo " "
   if [[ $exclude_plugins == "" ]]; then
-  	wp plugin update ${flags[@]} --require="$private/require_wp_admin.php"
+  	wp plugin update ${flags[@]} --require="$private/require-wp-admin.php"
   else
-  	wp plugin update ${flags[@]} --require="$private/require_wp_admin.php" --exclude=$exclude_plugins
+  	wp plugin update ${flags[@]} --require="$private/require-wp-admin.php" --exclude=$exclude_plugins
   fi
 
 }
