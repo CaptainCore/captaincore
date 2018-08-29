@@ -47,14 +47,38 @@ for i in "${!flags[@]}"; do
 
 done
 
-if [[ $exclude_themes == "" ]]; then
-	wp theme update ${flags[@]}
-else
-	wp theme update ${flags[@]} --exclude=$exclude_themes
-fi
-echo " "
-if [[ $exclude_plugins == "" ]]; then
-	wp plugin update ${flags[@]}
-else
-	wp plugin update ${flags[@]} --exclude=$exclude_plugins
-fi
+# Store current path
+homedir=$(pwd)
+
+run_command() {
+
+  # Find private folder
+  if [ ! -d "_wpeprivate" ] && [ ! -d "../private" ]; then
+    echo "Can't find private folder '/_wpeprivate' or '../private'. Updates skipped.";
+    return 1
+  fi
+  if [ -d "_wpeprivate" ]; then
+    private=${homedir}/_wpeprivate
+  fi
+  if [ -d "../private" ]; then
+    cd ../private
+    private=$(pwd)
+    cd $homedir
+  fi
+
+  echo "<?php define( 'WP_ADMIN', true ); ?>" > $private/require_wp_admin.php
+
+  if [[ $exclude_themes == "" ]]; then
+  	wp theme update ${flags[@]} --require="$private/require_wp_admin.php"
+  else
+  	wp theme update ${flags[@]} --require="$private/require_wp_admin.php" --exclude=$exclude_themes
+  fi
+  echo " "
+  if [[ $exclude_plugins == "" ]]; then
+  	wp plugin update ${flags[@]} --require="$private/require_wp_admin.php"
+  else
+  	wp plugin update ${flags[@]} --require="$private/require_wp_admin.php" --exclude=$exclude_plugins
+  fi
+
+}
+run_command
