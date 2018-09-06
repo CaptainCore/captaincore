@@ -21,7 +21,6 @@ source ${root_path}config
 source ${root_path}lib/arguments
 
 run_command() {
-if [ $# -gt 0 ]; then
 
 	INDEX=1
 	for website in "$@"; do
@@ -29,42 +28,49 @@ if [ $# -gt 0 ]; then
 		# Load site configs
 		eval $(captaincore site get $website --bash)
 
-		# Site found, start the backup
-		if [[ $site_id != "" ]] && [[ $site != "" ]]; then
+		echo "${INDEX}/$# - $domain"
+		let INDEX=${INDEX}+1
 
-			echo "${INDEX}/$# - $domain"
-			let INDEX=${INDEX}+1
+		# Skip if not compatible
+		if [[ $protocol != "sftp" ]] || [[ $site == "" ]]; then
+			echo "Error: Can't SSH to $site";
+			continue
+		fi
 
-			# Nasty bash hack in order to grab all of the details from one single SSH tunnel (WP Engine connection is slow)
-			response=$(captaincore ssh $site --script=fetch-site-data)
+		# Nasty bash hack in order to grab all of the details from one single SSH tunnel (WP Engine connection is slow)
+		response=$(captaincore ssh $site --script=fetch-site-data)
 
-			if [[ $response == *"website host provider not recognized" ]]; then
-				echo "Error: Can't SSH to $site";
-				continue
-			fi
+		if [[ $response == *"website host provider not recognized" ]] || [[ $reponse == *"Error: SSH not supported"* ]]; then
+			echo "Error: Can't SSH to $site";
+			continue
+		fi
 
-			if [[ "$response" != "" ]]; then
-				IFS=$'\n' read -rd '' -a response_parsed <<<"$response"
+		if [[ "$response" == "" ]]; then
+			echo "Error: Reponse from $site is empty.";
+			continue
+		fi
 
-				plugins=${response_parsed[0]}
-				themes=${response_parsed[1]}
-				core=${response_parsed[2]}
-				home_url=${response_parsed[3]}
-				users=${response_parsed[4]}
+		IFS=$'\n' read -rd '' -a response_parsed <<<"$response"
 
-				# Store updated info in WordPress datastore
-				cd ${root_path}data
-				wp post meta update $site_id core $core
-				wp post meta update $site_id home_url $home_url
-				wp post meta update $site_id plugins "$plugins"
-				wp post meta update $site_id themes "$themes"
-				wp post meta update $site_id users << heredoc
+		plugins=${response_parsed[0]}
+		themes=${response_parsed[1]}
+		core=${response_parsed[2]}
+		home_url=${response_parsed[3]}
+		users=${response_parsed[4]}
+
+		# Store updated info in WordPress datastore
+		cd ${root_path}data
+		wp post meta update $site_id core $core
+		wp post meta update $site_id home_url $home_url
+		wp post meta update $site_id plugins "$plugins"
+		wp post meta update $site_id themes "$themes"
+		wp post meta update $site_id users << heredoc
 $users
 heredoc
 
-				if [[ "$debug" == "true" ]]; then
-					# Build json for quicksave
-					read -r -d '' data << EOM
+		if [[ "$debug" == "true" ]]; then
+			# Build json for quicksave
+			read -r -d '' data << EOM
 {
 	"command":"sync-data",
 	"site_id":"$site_id",
@@ -76,17 +82,16 @@ heredoc
 	"users":$users
 }
 EOM
-					echo $data
-					continue
-				fi
+			echo $data
+			continue
+		fi
 
+		if [[ "$captaincore_dev" == true ]]; then
+			curl_argument="-k"
+		fi
 
-				if [[ "$captaincore_dev" == true ]]; then
-					curl_argument="-k"
-				fi
-
-				# Adds sync data to CaptainCore GUI
-				curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
+		# Adds sync data to CaptainCore GUI
+		curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
 	"command":"sync-data",
 	"site_id":"$site_id",
@@ -98,10 +103,6 @@ EOM
 	"users":$users
 }
 EOF
-
-			fi
-
-		fi
 
 		# Clear out variables
 		site=''
@@ -120,7 +121,6 @@ EOF
 
 	done
 
-fi
 }
 
 # See if any sites are specifed
