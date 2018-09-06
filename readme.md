@@ -32,6 +32,13 @@ Eventually all of these steps will be wrapped into a single kickstart.sh script.
 - Copy `config.sample` to `config` and configure `Local Paths`, `Remote Paths` and `Vars`
 - Run `captaincore cli install`
 
+Long running tasks like `captaincore copy` or `captaincore move` can prematurely end due to SSH idle. In order to prevent add the following to  `~/.ssh/config` which will keep SSH alive by sending a signal every four minutes (240 seconds) to the remote host.
+
+```
+Host *
+ServerAliveInterval 240
+```
+
 ## Usage
 
 ### How site names work
