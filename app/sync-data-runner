@@ -1,0 +1,95 @@
+#!/bin/bash
+
+#
+#   Sync website data for an single site
+#
+#   `captaincore sync-data-runner <site>`
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}config
+source ${root_path}lib/arguments
+
+run_command() {
+
+	# Load site configs
+	eval $(captaincore site get $1 --bash)
+
+	# Skip if not compatible
+	if [[ $protocol != "sftp" ]] || [[ $site == "" ]]; then
+		echo "Error: Can't SSH to $site";
+		return 1
+	fi
+
+	# Nasty bash hack in order to grab all of the details from one single SSH tunnel (WP Engine connection is slow)
+	response=$(captaincore ssh $site --script=fetch-site-data)
+
+	if [[ $response == *"website host provider not recognized" ]] || [[ $reponse == *"Error: SSH not supported"* ]]; then
+		echo "Error: Can't SSH to $site";
+		return 1
+	fi
+
+	if [[ "$response" == "" ]]; then
+		echo "Error: Reponse from $site is empty.";
+		return 1
+	fi
+
+	IFS=$'\n' read -rd '' -a response_parsed <<<"$response"
+
+	plugins=${response_parsed[0]}
+	themes=${response_parsed[1]}
+	core=${response_parsed[2]}
+	home_url=${response_parsed[3]}
+	users=${response_parsed[4]}
+
+	# Store updated info in WordPress datastore
+	cd ${root_path}data
+	wp --quiet post meta update $site_id core $core
+	wp --quiet post meta update $site_id home_url $home_url
+	wp --quiet post meta update $site_id plugins "$plugins"
+	wp --quiet post meta update $site_id themes "$themes"
+	wp --quiet post meta update $site_id users << heredoc
+$users
+heredoc
+
+	if [[ "$debug" == "true" ]]; then
+		# Build json for quicksave
+		read -r -d '' data << EOM
+{
+"command":"sync-data",
+"site_id":"$site_id",
+"token":"$token",
+"home_url":"$home_url",
+"core":"$core",
+"themes":$themes,
+"plugins":$plugins,
+"users":$users
+}
+EOM
+		echo $data
+		return 1
+	fi
+
+	if [[ "$captaincore_dev" == true ]]; then
+		curl_argument="-k -s"
+	fi
+
+	# Adds sync data to CaptainCore GUI
+	curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
+{
+"command":"sync-data",
+"site_id":"$site_id",
+"token":"$token",
+"home_url":"$home_url",
+"core":"$core",
+"themes":$themes,
+"plugins":$plugins,
+"users":$users
+}
+EOF
+
+	echo ""
+
+}
+run_command $1

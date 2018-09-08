@@ -22,141 +22,36 @@ source ${root_path}lib/arguments
 
 run_command() {
 
-	INDEX=1
-	for website in "$@"; do
+	websites=$@
 
-		# Load site configs
-		eval $(captaincore site get $website --bash)
+	# Assign default parallel if needed
+  if [[ $parallel == "" ]]; then
+    parallel=3
+  fi
 
-		echo "${INDEX}/$# - $domain"
-		let INDEX=${INDEX}+1
+  # Generate random auth
+  auth=''; for count in {0..6}; do auth+=$(printf "%x" $(($RANDOM%16)) ); done;
 
-		# Skip if not compatible
-		if [[ $protocol != "sftp" ]] || [[ $site == "" ]]; then
-			echo "Error: Can't SSH to $site";
-			continue
-		fi
+  # Begin time tracking
+  log_date=$(date +'%Y-%m-%d')
+  log_time=$(date +'%H-%M')
 
-		# Nasty bash hack in order to grab all of the details from one single SSH tunnel (WP Engine connection is slow)
-		response=$(captaincore ssh $site --script=fetch-site-data)
+  # Define log file format
+  log_file=$logs/${log_date}_${log_time}_$auth.txt
+  echo "logging to $log_file"
 
-		if [[ $response == *"website host provider not recognized" ]] || [[ $reponse == *"Error: SSH not supported"* ]]; then
-			echo "Error: Can't SSH to $site";
-			continue
-		fi
-
-		if [[ "$response" == "" ]]; then
-			echo "Error: Reponse from $site is empty.";
-			continue
-		fi
-
-		IFS=$'\n' read -rd '' -a response_parsed <<<"$response"
-
-		plugins=${response_parsed[0]}
-		themes=${response_parsed[1]}
-		core=${response_parsed[2]}
-		home_url=${response_parsed[3]}
-		users=${response_parsed[4]}
-
-		# Store updated info in WordPress datastore
-		cd ${root_path}data
-		wp post meta update $site_id core $core
-		wp post meta update $site_id home_url $home_url
-		wp post meta update $site_id plugins "$plugins"
-		wp post meta update $site_id themes "$themes"
-		wp post meta update $site_id users << heredoc
-$users
-heredoc
-
-		if [[ "$debug" == "true" ]]; then
-			# Build json for quicksave
-			read -r -d '' data << EOM
-{
-	"command":"sync-data",
-	"site_id":"$site_id",
-	"token":"$token",
-	"home_url":"$home_url",
-	"core":"$core",
-	"themes":$themes,
-	"plugins":$plugins,
-	"users":$users
-}
-EOM
-			echo $data
-			continue
-		fi
-
-		if [[ "$captaincore_dev" == true ]]; then
-			curl_argument="-k"
-		fi
-
-		# Adds sync data to CaptainCore GUI
-		curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
-{
-	"command":"sync-data",
-	"site_id":"$site_id",
-	"token":"$token",
-	"home_url":"$home_url",
-	"core":"$core",
-	"themes":$themes,
-	"plugins":$plugins,
-	"users":$users
-}
-EOF
-
-		# Clear out variables
-		site=''
-		site_id=''
-		domain=''
-		username=''
-		password=''
-		address=''
-		protocol=''
-		port=''
-		homedir=''
-		remoteserver=''
-    s3bucket=''
-    s3path=''
-    subsite=''
-
-	done
+  ( echo $websites | xargs -P $parallel -n 1 captaincore sync-data-runner ) 2>&1 | tee $log_file
 
 }
 
 # See if any sites are specifed
-if [ ${#arguments[*]} -gt 0 ]; then
+if [ ${#arguments[*]} -gt 0 ] && [[ $all != "true" ]]; then
   # Runs on specific sites
   run_command ${arguments[*]}
 fi
 
-if [[ $all == "true" ]] && [[ "$parallel" -gt "0" ]]; then
-  # Runs on all sites
-	all_sites=(${websites[@]})
-	site_count=${#all_sites[*]}
-  echo "Running sync website data on ${#all_sites[*]} sites"
-	parallel_sets=$(($site_count / $parallel))
-	for parallel_set in `seq 1 $parallel_sets`; do
-
-		set_needed=$(( $parallel_set *  $parallel ))
-
-		if [[ "$set_needed" -lt "$site_count" ]]; then
-
-			current_parallel=$(($parallel_set * $parallel))
-			last_parallel=$(($current_parallel + $parallel - 1))
-
-			for i in `seq $current_parallel $last_parallel`; do
-					if [[ "$i" -lt "$site_count" ]]; then
-						run_command ${all_sites[$i]} &
-					fi
-			done
-
-			wait
-
-		fi
-
-	done
-elif [[ $all == "true" ]]; then
-  # Runs on all sites
+# Runs on all sites
+if [[ $all == "true" ]]; then
   echo "Sync website data on all sites"
 	run_command ${websites[@]}
 fi
