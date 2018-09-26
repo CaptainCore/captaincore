@@ -27,6 +27,7 @@ rclone_snapshot="B2:Backup/Snapshots"      # Rclone Bucket:Path for snapshots
 # captaincore_master_port="12345"                  # LOCAL USE - Defines master port
 captaincore_api="https://mysite.com/captcore-api"  # Defines CaptainCore API
 captaincore_gui="https://mysite.com"               # Defines CaptainCore GUI
+captaincore_site_name="anchorhost"                 # Defines CaptainCore Site Name (for SSH)
 captaincore_admin_email="notify@mysite.com"        # Defines CaptainCore admin email notify
 wpe_ssh_user=email@captaincore.io                  # WP Engine SSH username
 websites=$(captaincore site list)                  # Site names
