@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.9] - 2018-09-26
+### Added
+- Command `captaincore multisite-extract-subsite`. Helps extract subsite from a Multisite network
+- Concurrency to `captaincore sync-data`
+- Command `captaincore sync-data-runner` for concurrency support
+
+### Changed
+- Run `captaincore update` with WP_ADMIN set true for increased compatibility.
+- Deactivate `wp-rocket` when using `copy-production-to-staging`
+
 ## [0.2.8] - 2018-08-20
 ### Added
 - Argument `<site>` and `<plugin>...` to command `plugins-zip`
