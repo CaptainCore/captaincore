@@ -101,7 +101,7 @@ run_command() {
 		  git init
 		fi
 
-		rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ $path/${site}_${site_id}/backup/wp-content/mu-plugins/ $path/${site}_${site_id}/quicksave/mu-plugins
+		rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" $path/${site}_${site_id}/backup/wp-content/mu-plugins/ $path/${site}_${site_id}/quicksave/mu-plugins
 		rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ $path/${site}_${site_id}/backup/wp-content/plugins/ $path/${site}_${site_id}/quicksave/plugins
 		rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ $path/${site}_${site_id}/backup/wp-content/themes/ $path/${site}_${site_id}/quicksave/themes
 
