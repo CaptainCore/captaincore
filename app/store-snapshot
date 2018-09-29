@@ -17,7 +17,7 @@ run_command() {
 	if [ -e $zip ]; then
 		echo "Found local file $zip"
 		rclone move $zip $rclone_archive -v
-		continue
+		return 1
 	fi
 
 	zip_filename=$( echo $zip | perl -n -e '/.+\/+(.+\.zip)/&& print $1' )
