@@ -85,6 +85,16 @@ run_command() {
       continue
     fi
 
+    if [[ "$use_staging" == "true" && "$address" == *".kinsta.com" && "$address_staging" == "" ]]; then
+      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Missing Kinsta staging site."
+      continue
+    fi
+
+    if [[ "$use_staging" == "true" && "$address" == *".wpengine.com" && "$site_staging" == "" ]]; then
+      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Missing WP Engine staging site."
+      continue
+    fi
+
     # If website on Kinsta then prepare their format
     if [[ "$address" == *".kinsta.com" ]]; then
 
@@ -92,9 +102,9 @@ run_command() {
       commandprep="cd public/ &&"
 
       # Kinsta ssh address format
-      if [[ "$use_staging" != "true" ]]; then
-        remoteserver="-oStrictHostKeyChecking=no $username@$address -p $port"
-      else
+      remoteserver="-oStrictHostKeyChecking=no $username@$address -p $port"
+
+      if [[ "$use_staging" == "true" ]]; then
         remoteserver="-oStrictHostKeyChecking=no $username_staging@$address_staging -p $port_staging"
       fi
 
@@ -107,7 +117,11 @@ run_command() {
       commandprep="rm ~/.wp-cli/config.yml; cd sites/* &&"
 
       # WP Engine ssh address format
-      remoteserver="-oStrictHostKeyChecking=no $wpe_ssh_user+$site@$site.ssh.wpengine.net"
+      remoteserver="-oStrictHostKeyChecking=no ${wpe_ssh_user}+${site}@${site}.ssh.wpengine.net"
+
+      if [[ "$use_staging" == "true" ]]; then
+        remoteserver="-oStrictHostKeyChecking=no ${wpe_ssh_user}+${site_staging}@${site_staging}.ssh.wpengine.net"
+      fi
 
     fi
 
