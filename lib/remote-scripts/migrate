@@ -55,17 +55,21 @@ run_command() {
   # Find private folder
   if [ -d "_wpeprivate" ]; then
     private=${homedir}/_wpeprivate
-  elif [ -d "../private" ]; then
+  fi
+
+  if [ -d "../private" ]; then
     cd ../private
     private=$(pwd)
     cd $homedir
-  else
+  fi
+
+  if [ ! -d "_wpeprivate" ] && [ ! -d "../private" ]; then
     echo "Can't find private folder '/_wpeprivate' or '../private'. Migration cancelled.";
     return 1
   fi
 
   # Verifies WordPress
-  wp_home=$(wp option get home --skip-themes --skip-plugins)
+  wp_home=$( wp option get home --skip-themes --skip-plugins )
   if [[ "$wp_home" != "http"* ]]; then
     echo "WordPress not found. Migration cancelled.";
     return 1
@@ -133,34 +137,48 @@ run_command() {
   # Reset folder and file permissions
   find . -type d -exec chmod 755 {} \;
   find . -type f -exec chmod 644 {} \;
+
+  # Secure database
   chmod 600 $homedir/wp-content/mysql.sql
 
   echo "Found the following database:"
   find $homedir/wp-content/uploads $private -type f -name '*.sql'
   databases=$( find $private -type f -name '*.sql' )
   database_count=$( echo -n $databases | grep -c '^' )
+
   if [[ "$database_count" == "0" ]]; then
     # Expand db search
     databases=$( find $homedir -type f -name '*.sql' )
     database_count=$( echo -n $databases | grep -c '^' )
   fi
-  if [[ "$database_count" -gt "0" ]]; then
-    database_file=$( echo "$databases" | head -1 )
-    if [ -f "$database_file" ]; then
-      wp db reset --yes
-      wp db import $database_file
-      wp cache flush --skip-plugins --skip-themes
-      wp rewrite flush --skip-plugins --skip-themes
-      wp_home_imported=$( wp option get home )
-      if [[ "$update_urls" == "true" ]]; then
-        wp search-replace $wp_home_imported $wp_home --skip-plugins --skip-themes --all-tables --report-changed-only
-      fi
-      # convert MyISAM tables to InnoDB
-      wp db query "SELECT CONCAT('ALTER TABLE ', TABLE_SCHEMA,'.', TABLE_NAME, ' ENGINE=InnoDB;') FROM information_schema.TABLES WHERE ENGINE = 'MyISAM'" --skip-column-names > db_optimize.sql
-      wp db query < db_optimize.sql
-      rm db_optimize.sql
-    fi
+
+  if [[ "$database_count" == "0" ]]; then
+    echo "Database not found. Skipping database import.";
+    return 1
   fi
+
+  # select first database and import
+  database_file=$( echo "$databases" | head -1 )
+
+  if [ ! -f "$database_file" ]; then
+    echo "Database $database_file not found. Skipping database import.";
+    return 1
+  fi
+
+  wp db reset --yes
+  wp db import $database_file
+  wp cache flush --skip-plugins --skip-themes
+  wp rewrite flush --skip-plugins --skip-themes
+  wp_home_imported=$( wp option get home )
+
+  if [[ "$update_urls" == "true" ]]; then
+    wp search-replace $wp_home_imported $wp_home --skip-plugins --skip-themes --all-tables --report-changed-only
+  fi
+
+  # convert MyISAM tables to InnoDB
+  wp db query "SELECT CONCAT('ALTER TABLE ', TABLE_SCHEMA,'.', TABLE_NAME, ' ENGINE=InnoDB;') FROM information_schema.TABLES WHERE ENGINE = 'MyISAM'" --skip-column-names > db_optimize.sql
+  wp db query < db_optimize.sql
+  rm db_optimize.sql
 
 }
 run_command
