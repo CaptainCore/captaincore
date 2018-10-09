@@ -88,13 +88,14 @@ run_command() {
   cd restore_$timedate
 
   # Downloads backup file (No local file found)
-  if [ ! -f "$url" ]; then
+  if [ ! -f "$private/$url" ]; then
     wget --progress=bar:force:noscroll -O restore_$timedate.out $backup_url
   fi
 
   # Preps local restore file (local file found)
-  if [ -f "$url" ]; then
-    mv $url restore_$timedate.out
+  if [ -f "$private/$url" ]; then
+    echo "Local file '${url}' found. Renaming to 'restore_${timedate}.out'."
+    mv "$private/$url" "$private/restore_$timedate/restore_$timedate.out"
   fi
 
   if [[ "$backupformat" == "zip" ]]; then
