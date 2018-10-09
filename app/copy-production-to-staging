@@ -41,16 +41,13 @@ run_command() {
     fi
 
     # Download production snapshot to staging site and import database
-    captaincore ssh $site-staging --command="wget http://$address/wp-content_$timestamp.zip; mv wp-content_$timestamp.zip wp-content.zip; rm -rf wp-content/; unzip wp-content.zip; rm wp-content.zip; wp db import wp-content/mysql.sql --skip-plugins --skip-themes"
+    captaincore ssh $site-staging --script=migrate --update-urls --url="http://$address/wp-content_$timestamp.zip"
 
     # Remove from production_to_staging_kinsta
     captaincore ssh $site --command="rm -f wp-content_$timestamp.zip"
 
-    # Find and replace urls
-    captaincore ssh $site-staging --command="wp search-replace //$domain //staging-$site.kinsta.com --all-tables --skip-plugins --skip-themes --report-changed-only; wp search-replace //www.$domain //staging-$site.kinsta.com --all-tables --skip-plugins --skip-themes --report-changed-only"
-
     # Enable search privacy and disable email on staging site
-    captaincore ssh $site-staging --command="wp option update blog_public 0 --skip-plugins --skip-themes; wp plugin install log-emails disable-emails --activate --skip-plugins --skip-themes; wp plugin deactivate wp-rocket sendgrid-email-delivery-simplified mailgun login-recaptcha --skip-plugins --skip-themes"
+    captaincore ssh $site-staging --command="wp option update blog_public 0 --skip-plugins --skip-themes; wp plugin install log-emails --activate --skip-plugins --skip-themes; wp plugin deactivate wp-rocket sendgrid-email-delivery-simplified mailgun login-recaptcha --skip-plugins --skip-themes"
 
     ## Post completion to CaptainCore API
     if [[ $captaincore_dev == true ]]; then
