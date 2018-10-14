@@ -15,10 +15,13 @@ run_command() {
 
   cd ${root_path}data
 
+  # Export crontab
+  crontab -l > backup_crontab.conf
+
   # Export rclone configs
   rclone_configs=$(rclone config file)
   rclone_configs=${rclone_configs##*$'\n'}
-  cat $rclone_configs > .rclone.conf
+  cat $rclone_configs > backup_rclone.conf
 
   # Export WordPress configs
   wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql
