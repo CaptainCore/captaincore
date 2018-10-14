@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.0] - 2018-10-14
+### Added
+- Functionality to remote script `migrate`. Files from zip now extract within a new timestamped folder. Supports moving non-default root level files and folders. Supports moving blogs.dir folder for legacy multisite networks. Better feedback while running. Reapplies search privacy settings. Better wp-config.php handling.
+- New var to config `captaincore_branding_slug`. Used when generating stats mu-plugin.
+- New var to config `captaincore_tracker` for running a Fathom Analytics instance. Used when generating stats mu-plugin.
+
+### Changed
+- Improved staging and production deploys. Now uses new `migrate` remote script.
+- Improvements for `captaincore ssh`. Now checks and fails properly for staging sites which do not exists. Bug fix when sending arguments with spaces to remote script.
+- Make sure database export is secured when running `captaincore backup`
+- Bug fix causing files within Kinsta cache plugin from being excluded during Quicksaves.
+- Bug fix when uploading local zip with `captaincore store-snapshot`
+- Bug fix with `captaincore util git-permissions-reset` Only process a max of 1000 files per run.
+
 ## [0.2.9] - 2018-09-26
 ### Added
 - Command `captaincore multisite-extract-subsite`. Helps extract subsite from a Multisite network
