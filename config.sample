@@ -36,4 +36,6 @@ captaincore_branding_name="CaptainCore Client"            # Client Plugin Brandi
 captaincore_branding_title="CaptainCore Client"           # Client Plugin Branding Title
 captaincore_branding_author="CaptainCore"                 # Client Plugin Branding Author
 captaincore_branding_author_uri="https://captaincore.io"  # Client Plugin Branding Link
-captaincore_server="anchor.host"                          # Client Plugin Server
+captaincore_branding_slug="my-company-name"               # Client Plugin Slug
+captaincore_server="my-company-name.com"                  # Client Plugin Server
+captaincore_tracker="stats.my-company-name.com"           # Fathom Analytics instance
