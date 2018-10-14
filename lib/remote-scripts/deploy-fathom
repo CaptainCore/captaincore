@@ -1,0 +1,90 @@
+#!/bin/bash
+
+#
+#   Deploy Fathom
+#
+#   `deploy-fathom --tracker=<tracker-domain> --id=<site-id> --branding_author=<captaincore_branding_author> --branding_author_uri=<captaincore_branding_author_uri> --branding_slug=<captaincore_branding_slug>`
+#
+
+# Loop through arguments and separate regular arguments from flags
+for arg in "$@"; do
+
+  # If does not starts with "--"
+  if [[ $arg != --* ]]; then
+    # Add to arguments array
+    count=1+${#arguments[*]}
+    arguments[$count]=$arg
+    continue
+  fi
+
+  # replace "-" with "_" and remove leading "--"
+  flag_name=$( echo ${arg} | cut -c 3- )
+
+  # detected flag contains data
+  if [[ ${arg} == *"="* ]]; then
+
+    flag_value=$( echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1' ) # extract value
+    flag_name=$( echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1' ) # extract name
+    flag_name=${flag_name/-/_}
+
+    # Wrap flag value in quotes
+    if [[ $flag_value != '"'* ]]; then
+      flags[$i]="--$flag_name=\"$flag_value\""
+    fi
+
+    # assigns to $flag_flagname
+    declare "$flag_name"="$flag_value"
+    continue
+
+  fi
+
+  if [[ ${arg} != *"="* ]]; then
+    # assigns to $flag_flagname boolen
+    flag_name=${flag_name//-/_}
+    declare "$flag_name"=true
+  fi
+
+  #  Add to flags array
+  count=1+${#flags[*]}
+  flags[$count]=$arg
+
+done
+
+# Build json for quicksave
+read -r -d '' build_mu_plugin << heredoc
+<?php
+
+/**
+ * Plugin Name: $branding_author Stats
+ * Description: Fathom Analytics tracking snippet for ${branding_author}'s bundled Fathom instance.
+ * Version: 1.0
+ * Author: $branding_author
+ * Author URI: $branding_author_uri
+ * Text Domain: ${branding_slug}-stats
+ */
+
+function ${branding_slug}_fathom_print_js_snippet() { ?>
+<!-- Fathom - simple website analytics - https://github.com/usefathom/fathom -->
+<script>
+(function(f, a, t, h, o, m){
+	a[h]=a[h]||function(){
+		(a[h].q=a[h].q||[]).push(arguments)
+	};
+	o=f.createElement('script'),
+	m=f.getElementsByTagName('script')[0];
+	o.async=1; o.src=t; o.id='fathom-script';
+	m.parentNode.insertBefore(o,m)
+})(document, window, '//$tracker/tracker.js', 'fathom');
+fathom('set', 'siteId', '$id');
+fathom('trackPageview');
+</script>
+<!-- / Fathom -->
+<?php
+
+}
+
+add_action( 'wp_head', '${branding_slug}_fathom_print_js_snippet', 50 );
+heredoc
+
+echo "Generating 'wp-content/mu-plugins/${branding_slug}-stats.php'"
+echo "$build_mu_plugin" > wp-content/mu-plugins/${branding_slug}-stats.php
