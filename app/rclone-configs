@@ -19,7 +19,7 @@ run_command() {
   eval $(captaincore site get $site --bash)
 
   # Domain not found
-  if [ -z "$domain" ]; then
+  if [[ $domain == "" ]]; then
     echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Domain not found."
     return
   fi

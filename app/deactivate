@@ -98,8 +98,7 @@ run_command() {
     # Load site configs
 		eval $(captaincore site get $website --bash)
 
-    # Site found, start the backup
-    if ! [ -z "$domain" ]; then
+    if [[ $domain == "" ]]; then
 			echo "Domain not found"
       continue
 		fi
