@@ -1,0 +1,36 @@
+#!/bin/bash
+
+#
+#   Backups CaptainCore configurations to remote.
+#
+#   `captaincore cli backup`
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}config
+source ${root_path}lib/arguments
+
+run_command() {
+
+  cd ${root_path}data
+
+  # Export rclone configs
+  rclone_configs=$(rclone config file)
+  rclone_configs=${rclone_configs##*$'\n'}
+  cat $rclone_configs > .rclone.conf
+
+  # Export WordPress configs
+  wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql
+  chmod 600 wp-content/mysql.sql
+
+  # Create Archive
+  cd ~
+  zip -r captaincore_backup.zip .captaincore-cli
+
+  # Upload to remove
+  rclone sync captaincore_backup.zip ${rclone_cli_backup}/
+
+}
+
+run_command
