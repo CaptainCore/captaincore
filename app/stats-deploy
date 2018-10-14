@@ -1,0 +1,36 @@
+#!/bin/bash
+
+#
+#   Generates and deploys fathom tracker
+#
+#   `captaincore stats-deploy <site> <fathom-site-id>`
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}config
+source ${root_path}lib/arguments
+
+run_command() {
+
+  site=$1
+  id=$2
+
+  if [[ $site == "" ]]; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a site."
+    return 1
+  fi
+
+  if [[ $id == "" ]]; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a fathom site id."
+    return 1
+  fi
+
+  if [[ $tracker == "" ]]; then
+    tracker=$captaincore_tracker
+  fi
+
+  captaincore ssh $site --script=deploy-fathom --tracker=$tracker --id=$id --branding_author="$captaincore_branding_author" --branding_author_uri="$captaincore_branding_author_uri" --branding_slug=$captaincore_branding_slug
+
+}
+run_command ${arguments[*]}
