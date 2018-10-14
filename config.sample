@@ -16,10 +16,11 @@ path_tmp="/Users/name/Tmp"           # Local Tmp Folder
 path_scripts="/Users/name/Scripts"   # Local Scripts Folder
 
 ## Remote Paths
-rclone_archive="Dropbox:Backup/Archive/"   # Rclone Bucket:Path for archive
-rclone_backup="B2:Backup/Sites"            # Rclone Bucket:Path for backups
-rclone_logs="Dropbox:Backup/Logs"          # Rclone Bucket:Path for backup logs
-rclone_snapshot="B2:Backup/Snapshots"      # Rclone Bucket:Path for snapshots
+rclone_archive="Dropbox:Backup/Archive/"     # Rclone Bucket:Path for archive
+rclone_backup="B2:Backup/Sites"              # Rclone Bucket:Path for backups
+rclone_cli_backup="B2:Backup/Services/core"  # Rclone Bucket:Path for cli backups
+rclone_logs="Dropbox:Backup/Logs"            # Rclone Bucket:Path for backup logs
+rclone_snapshot="B2:Backup/Snapshots"        # Rclone Bucket:Path for snapshots
 
 ## Vars
 # captaincore_dev="true"                           # Enable development mode
