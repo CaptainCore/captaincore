@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
 
-##
-##		Resets file permissions within git repo on current directory
-##    (Useful when restoring .git repo and file permissions changed)
-##
-## 		captaincore utils git-permissions-reset
-##
+#
+#   Resets file permissions within git repo on current directory
+#   (Useful when restoring .git repo and file permissions changed)
+#
+#   captaincore utils git-permissions-reset
+#
 
-git_status=`git status`
-modified_files=`captaincore utils git-modified-files "$git_status"`
+# Grab first 1000 lines in git status.
+git_status=$( git status | head -n 1000 )
+
+# Select only the modified files
+modified_files=$( captaincore utils git-modified-files "$git_status" )
+
 for file in $modified_files; do
-  git_diff=`git diff HEAD $file`
-  new_permissions=`captaincore utils git-diff-permission-check "$git_diff"`
+  git_diff=$( git diff HEAD $file )
+  new_permissions=$( captaincore utils git-diff-permission-check "$git_diff" )
   if [[ ! -z "$new_permissions" ]]; then
     chmod $new_permissions $file
     echo "Setting $file to $new_permissions"
