@@ -23,13 +23,13 @@ for arg in "$@"; do
   count=1+${#flags[*]}
   flags[$count]=$arg
 
-  # Process flags without data (Assigns to variable)
+  # Process flags without data (Assign to variable)
   if [[ $arg != *"="* ]]; then
     flag_name=${flag_name//-/_}
     declare "$flag_name"=true
   fi
 
-  # Process flags with data (# Assigns to variable)
+  # Process flags with data (Assign to variable)
   if [[ $arg == *"="* ]]; then
     flag_value=$( echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1' ) # extract value
     flag_name=$( echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1' ) # extract name
