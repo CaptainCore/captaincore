@@ -56,8 +56,8 @@ for i in "${!flags[@]}"; do
     flag_name=`echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1'` # extract name
     flag_name=${flag_name/-/_}
 
-    # Rewrap existing flag value
-    flags[$i]="--$flag_name=\"$flag_value\""
+    # Double wrap flag value to remain safe as SSH argument
+    flags[$i]="--$flag_name=\\\"\"$flag_value\\\"\""
 
     declare "$flag_name"="$flag_value" # assigns to $flag_flagname
 
