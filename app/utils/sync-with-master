@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 #
 #   Sync CaptainCore local db with CaptainCore master db

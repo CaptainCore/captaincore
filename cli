@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Begin time tracking
 overalltimebegin=$(date +%s)

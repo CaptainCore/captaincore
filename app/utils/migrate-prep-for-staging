@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 #
 #   One time script to migrate from using $path/$site to $path/${site}_${site_id} for folders

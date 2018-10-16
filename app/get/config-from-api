@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 #
 #   Gets config from CaptainCore's Wordpress Site (captaincore_gui)
