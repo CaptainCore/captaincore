@@ -9,40 +9,46 @@
 #   Extra arguments to pass to `[wp theme update](https://developer.wordpress.org/cli/commands/theme/update/)` and `[wp plugin update]( https://developer.wordpress.org/cli/commands/plugin/update/)`.
 #
 
-# Loop through arguments and separate regular arguments from flags (--flag)
-for var in "$@"; do
+# Loop through arguments and separate regular arguments from flags
+for arg in "$@"; do
 
-  # If starts with "--" then assign it to a flag array
-  if [[ $var == --* ]]; then
-    count=1+${#flags[*]}
-    flags[$count]=$var
-    # Else assign to an arguments array
-  else
+  # Add to arguments array. (Does not starts with "--")
+  if [[ $arg != --* ]]; then
     count=1+${#arguments[*]}
-    arguments[$count]=$var
+    arguments[$count]=$arg
+    continue
   fi
 
-done
+  # Remove leading "--"
+  flag_name=$( echo $arg | cut -c 3- )
 
-# Loop through flags and assign to variable. A flag "--email=my-email@my-site.com" becomes $email
-for i in "${!flags[@]}"; do
+  # Add to flags array
+  count=1+${#flags[*]}
+  if [[ "$arg" != "--script"* ]] && [[ "$arg" != *"--exclude_plugins"* ]] && [[ "$arg" != "--exclude_themes"* ]] && [[ "$arg" != "--site"* ]]; then
+    # Remove first and last quote if found
+    arg_for_flag="${arg%\"}"
+    arg_for_flag="${arg_for_flag/=\"/=}"
+    flags[$count]=$arg_for_flag
+  fi
 
-  # replace "-" with "_" and remove leading "--"
-  flag_name=`echo ${flags[$i]} | cut -c 3-`
-
-  # detected flag contains data
-  if [[ $flag_name == *"="* ]]; then
-    flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
-    flag_name=`echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1'` # extract name
-    flag_name=${flag_name/-/_}
-    declare "$flag_name"="$flag_value" # assigns to $flag_flagname
-		if [[ "$flag_name" == "script" ]] || [[ "$flag_name" == "exclude_plugins" ]] || [[ "$flag_name" == "exclude_themes" ]] || [[ "$flag_name" == "site" ]]; then
-			unset flags[$i]
-		fi
-  else
-    # assigns to $flag_flagname boolen
+  # Process flags without data (Assign to variable)
+  if [[ $arg != *"="* ]]; then
     flag_name=${flag_name//-/_}
     declare "$flag_name"=true
+  fi
+
+  # Process flags with data (Assign to variable)
+  if [[ $arg == *"="* ]]; then
+    flag_value=$( echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1' ) # extract value
+    flag_name=$( echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1' ) # extract name
+    flag_name=${flag_name/-/_}
+
+    # Remove first and last quote if found
+    flag_value="${flag_value%\"}"
+    flag_value="${flag_value#\"}"
+
+    declare "$flag_name"="$flag_value"
+    continue
   fi
 
 done
@@ -75,7 +81,7 @@ run_command() {
   fi
   echo " "
   if [[ $exclude_plugins == "" ]]; then
-  	wp plugin update ${flags[@]} --require="$private/require-wp-admin.php"
+    wp plugin update ${flags[@]} --require="$private/require-wp-admin.php"
   else
   	wp plugin update ${flags[@]} --require="$private/require-wp-admin.php" --exclude=$exclude_plugins
   fi
