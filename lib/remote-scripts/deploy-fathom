@@ -45,7 +45,7 @@ for arg in "$@"; do
 
 done
 
-# Build json for quicksave
+# Generate must-use plugin
 read -r -d '' build_mu_plugin << heredoc
 <?php
 
