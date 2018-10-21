@@ -11,6 +11,9 @@
 #   [--all]
 #    Updates all sites.
 #
+#   [--updates-enabled]
+#   Updates all sites marked for automatic updates
+#
 #   [--exclude-themes=<themes>]
 #   Passed onto `wp theme update --exclude=<theme-names>`
 #
@@ -168,7 +171,12 @@ if [[ $all == "true" ]]; then
 	run_command ${websites[@]}
 fi
 
+if [[ $updates_enabled == "true" ]]; then
+  # Runs on all sites
+	run_command $(captaincore site list --updates-enabled)
+fi
+
 # Error if no sites specifed
-if [[ $all != "true" ]] && [ ${#arguments[*]} -eq 0 ]; then
+if [[ $all != "true" ]] && [[ $updates_enabled != "true" ]] && [ ${#arguments[*]} -eq 0 ]; then
   echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
 fi
