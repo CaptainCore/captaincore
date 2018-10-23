@@ -30,8 +30,8 @@ run_command() {
 
   echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $site"
 
-  password=$(captaincore site get $site --field=password)
-  password_staging=$(captaincore site get $site --field=password_staging)
+  password=$(captaincore site get ${site}@${provider} --field=password)
+  password_staging=$(captaincore site get ${site}@${provider} --field=password_staging)
 
   # Add new WordPress site to Rclone
   rclone_pass=$(rclone obscure $password)

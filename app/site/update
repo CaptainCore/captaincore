@@ -24,7 +24,7 @@ wp eval-file ../lib/local-scripts/site-update.php site=$1 ${flags[@]}
 eval $(captaincore site get $1 --bash)
 
 # Generate rclone keys
-captaincore rclone-configs $site
+captaincore rclone-configs ${site}@${provider}
 
 # Prep site without deploying plugins or users (in background)
-captaincore prep $site --skip-deployment
+captaincore prep ${site}@${provider} --skip-deployment
