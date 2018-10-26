@@ -39,6 +39,16 @@ $arguments = array(
 	),
 );
 
+if ( $provider ) {
+
+	$arguments['meta_query'][] = array(
+		'key'     => 'provider', // name of custom field
+		'value'   => $provider,
+		'compare' => '=',
+	);
+
+}
+
 if ( $filter ) {
 
 	if ( $filter and $filter_version and $filter_status and $filter_name ) {
