@@ -19,27 +19,27 @@ site=$1
 eval $(captaincore site get $site --bash)
 
 # Deploy SSH keys
-captaincore deploy keys ${site}@${provider}
+captaincore deploy keys $site
 
 # load custom configs into wp-config.php and .htaccess, setups up token
-captaincore deploy init ${site}@${provider}
+captaincore deploy init $site
 echo "load custom configs into wp-config.php and .htaccess"
 echo "Setting up token"
 
 if [[ $skip_deployment != true ]]; then
 
   ## loads users
-  captaincore deploy users ${site}@${provider}
+  captaincore deploy users $site
   echo "Preload Users"
 
   ## install plugins
-  captaincore deploy plugins ${site}@${provider}
+  captaincore deploy plugins $site
   echo "Preload Plugins"
 
   ## run initial backup
-  captaincore backup ${site}@${provider}
+  captaincore backup $site
   echo "Running Initial Backup"
 
 fi
 
-captaincore sync-data ${site}@${provider}
+captaincore sync-data $site
