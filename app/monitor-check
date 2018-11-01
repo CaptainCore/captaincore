@@ -13,10 +13,13 @@ url=$1
 run_command() {
 
   # Run the health check. Return http_code and body.
-  response=$(curl --user-agent "$user_agent" --write-out %{http_code} --max-time 30 --silent $url)
+  response=$(curl -L --user-agent "$user_agent" --write-out "|%{num_redirects}|%{http_code}" --max-time 30 --silent $url)
+
+  # Pull out number of redirects
+  num_redirects=$( echo $response | perl -ne '/.+\|(\d+)\|(\d+)/&& print $1' )
 
   # Pull out http code
-  http_code=${response:${#response}-3}
+  http_code=$( echo $response | perl -ne '/.+\|(\d+)\|(\d+)/&& print $2' )
 
   # Pull out body
   body=${response:0:${#response}-3}
@@ -35,6 +38,7 @@ run_command() {
   read -r -d '' json_output << EOM
 {
 "http_code":"$http_code",
+"num_redirects":"$num_redirects",
 "url":"$url",
 "html_valid":"$html_end_tag_check"
 }
