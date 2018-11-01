@@ -69,10 +69,27 @@ run_command() {
   cd ${root_path}data
   error_count=$(wp eval-file ${root_path}lib/local-scripts/monitor-error-count.php $log_file --skip-wordpress)
 
-  # If no errors then stop here 
+  # If no errors then stop here
   if [[ $error_count == "0" ]]; then
     return 1
   fi
+
+  echo "Found $error_count errors. Checking those URLs again."
+
+  # Fetch urls with errors for another another check
+  urls_to_check=$(wp eval-file ${root_path}lib/local-scripts/monitor-fetch-errors-and-clean.php $log_file --skip-wordpress)
+
+  # Runs checks in parallel (errors only). Append results to log file.
+  ( echo $urls_to_check | xargs -P $parallel -n 1 captaincore monitor-check ) 2>&1 | tee -a $log_file
+
+  error_count=$(wp eval-file ${root_path}lib/local-scripts/monitor-error-count.php $log_file --skip-wordpress)
+
+  # If no errors then stop here
+  if [[ $error_count == "0" ]]; then
+    return 1
+  fi
+
+  echo "Found $error_count errors. Building email."
 
   # Build emails
   email_content=$(wp eval-file ${root_path}lib/local-scripts/monitor-generate-email.php $log_file --skip-wordpress)
