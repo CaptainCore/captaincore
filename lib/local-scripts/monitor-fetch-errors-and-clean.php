@@ -39,6 +39,9 @@ foreach ( $lines as $line ) {
   $urls_with_errors[] = $url;
 }
 
+// Append extra space at bottom for formatting
+$output[] = "";
+
 // Update log file without errors
 $contents_updated = implode( "\n", $output );
 file_put_contents( $args[0], $contents_updated );
