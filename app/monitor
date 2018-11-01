@@ -69,20 +69,18 @@ run_command() {
   cd ${root_path}data
   error_count=$(wp eval-file ${root_path}lib/local-scripts/monitor-error-count.php $log_file --skip-wordpress)
 
-  # Send email if needed
-  if [[ $error_count != "0" ]]; then
-
-    # Build emails
-    email_content=$(wp eval-file ${root_path}lib/local-scripts/monitor-generate-email.php $log_file --skip-wordpress)
-
-    echo "Sending Email"
-
-    # output "Response code $response for $address" per each item in array
-    echo $email_content | mutt -e 'set content_type=text/html' -s "Monitor: $error_count errors" -- $captaincore_admin_email
-
+  # If no errors then stop here 
+  if [[ $error_count == "0" ]]; then
+    return 1
   fi
 
-  return 1
+  # Build emails
+  email_content=$(wp eval-file ${root_path}lib/local-scripts/monitor-generate-email.php $log_file --skip-wordpress)
+
+  echo "Sending Email"
+
+  # output "Response code $response for $address" per each item in array
+  echo $email_content | mutt -e 'set content_type=text/html' -s "Monitor: $error_count errors" -- $captaincore_admin_email
 
 }
 run_command
