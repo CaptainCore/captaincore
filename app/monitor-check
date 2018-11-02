@@ -16,13 +16,13 @@ run_command() {
   response=$(curl -L --user-agent "$user_agent" --write-out "|%{num_redirects}|%{http_code}" --max-time 30 --silent $url)
 
   # Pull out number of redirects
-  num_redirects=$( echo -e "$response" | perl -ne '/.+\|(\d+)\|(\d+)/&& print $1' )
+  num_redirects=$( echo -e "$response" | perl -ne '/.*\|(\d+)\|(\d+)/&& print $1' )
 
   # Pull out http code
-  http_code=$( echo -e "$response" | perl -ne '/.+\|(\d+)\|(\d+)/&& print $2' )
+  http_code=$( echo -e "$response" | perl -ne '/.*\|(\d+)\|(\d+)/&& print $2' )
 
   # Pull out body
-  body_extra=$( echo -e "$response" | perl -ne '/.+(\|\d+\|\d+)/&& print $1' )
+  body_extra=$( echo -e "$response" | perl -ne '/.*(\|\d+\|\d+)/&& print $1' )
   body=${response/$body_extra/}
 
   # valid body contains </html>
