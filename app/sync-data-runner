@@ -53,9 +53,8 @@ run_command() {
 $users
 heredoc
 
-	if [[ "$debug" == "true" ]]; then
-		# Build json for quicksave
-		read -r -d '' data << EOM
+# Build json for quicksave
+read -r -d '' data << heredoc
 {
 "command":"sync-data",
 "site_id":"$site_id",
@@ -66,7 +65,9 @@ heredoc
 "plugins":$plugins,
 "users":$users
 }
-EOM
+heredoc
+
+	if [[ "$debug" == "true" ]]; then
 		echo $data
 		return 1
 	fi
@@ -76,18 +77,9 @@ EOM
 	fi
 
 	# Adds sync data to CaptainCore GUI
-	curl ${curl_argument} --silent --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
-{
-"command":"sync-data",
-"site_id":"$site_id",
-"token":"$token",
-"home_url":"$home_url",
-"core":"$core",
-"themes":$themes,
-"plugins":$plugins,
-"users":$users
-}
-EOF
+	curl ${curl_argument} --silent --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << heredoc
+$data
+heredoc
 
 	echo ""
 
