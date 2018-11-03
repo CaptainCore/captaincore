@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+
+#
+#   Deploy Helper plugin
+#
+#   `deploy-helper`
+#
+
+# Generate must-use plugin
+read -r -d '' build_mu_plugin << 'heredoc'
+<?php
+/**
+ * Plugin Name: CaptainCore Helper
+ * Plugin URI: https://captaincore.io
+ * Description: Collection of helper functions for CaptainCore
+ * Version: 0.1.0
+ * Author: CaptainCore
+ * Author URI: https://captaincore.io
+ * Text Domain: captaincore-helper
+ */
+
+/**
+ * Registers Rest API endpoint for quick logins
+ */
+function captaincore_register_login_rest_endpoint() {
+	// Custom endpoint for CaptainCore API
+	register_rest_route(
+		'captaincore/v1', '/login', array(
+			'methods'       => 'POST',
+			'callback'      => 'captaincore_login_func',
+			'show_in_index' => false
+		)
+	);
+}
+
+add_action( 'rest_api_init', 'captaincore_register_login_rest_endpoint' );
+
+function captaincore_login_func( WP_REST_Request $request ) {
+
+	$post = json_decode( file_get_contents( 'php://input' ) );
+
+	// Error if token not valid
+	if ( $post->token != md5( AUTH_KEY ) ) {
+		// Create the response object
+		return new WP_Error( 'token_invalid', 'Invalid Token', array( 'status' => 404 ) );
+	}
+
+	$count = 1;
+
+	$user = get_user_by( "login", $post->user_login );
+	$tokens = $new_tokens = array();
+
+	for ( $i = 0; $i < $count; $i++ ) {
+		$password = wp_generate_password();
+		$token = sha1( $password );
+		$tokens[] = $token;
+		$new_tokens[] = $token;
+	}
+
+	update_user_meta( $user->ID, 'captaincore_login_token', $tokens );
+	foreach ( $new_tokens as $token ) {
+		$query_args = array(
+			'user_id'                 => $user->ID,
+			'captaincore_login_token' => $token,
+		);
+		$login_url = add_query_arg( $query_args, wp_login_url() );
+	}
+
+	return $login_url;
+
+}
+
+/**
+ * Login a request in as a user if the token is valid.
+ */
+function captaincore_login_handle_token() {
+	global $pagenow;
+
+	if ( 'wp-login.php' !== $pagenow || empty( $_GET['user_id'] ) || empty( $_GET['captaincore_login_token'] ) ) {
+		return;
+	}
+
+	if ( is_user_logged_in() ) {
+		$error = sprintf( __( 'Invalid one-time login token, but you are logged in as \'%s\'. <a href="%s">Go to the dashboard instead</a>?', 'captaincore-login' ), wp_get_current_user()->user_login, admin_url() );
+	} else {
+		$error = sprintf( __( 'Invalid one-time login token. <a href="%s">Try signing in instead</a>?', 'captaincore-login' ), wp_login_url() );
+	}
+
+	// Use a generic error message to ensure user ids can't be sniffed
+	$user = get_user_by( 'id', (int) $_GET['user_id'] );
+	if ( ! $user ) {
+		wp_die( $error );
+	}
+
+	$tokens = get_user_meta( $user->ID, 'captaincore_login_token', true );
+	$tokens = is_string( $tokens ) ? array( $tokens ) : $tokens;
+	$is_valid = false;
+	foreach ( $tokens as $i => $token ) {
+		if ( hash_equals( $token, $_GET['captaincore_login_token'] ) ) {
+			$is_valid = true;
+			unset( $tokens[ $i ] );
+			break;
+		}
+	}
+
+	if ( ! $is_valid ) {
+		wp_die( $error );
+	}
+
+	update_user_meta( $user->ID, 'captaincore_login_token', $tokens );
+	wp_set_auth_cookie( $user->ID, true, is_ssl() );
+	wp_safe_redirect( admin_url() );
+	exit;
+
+}
+
+add_action( 'init', 'captaincore_login_handle_token' );
+heredoc
+
+echo "Generating 'wp-content/mu-plugins/captaincore-helper.php'"
+echo "$build_mu_plugin" # > wp-content/mu-plugins/captaincore-helper.php
