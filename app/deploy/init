@@ -13,50 +13,51 @@ source ${root_path}lib/arguments
 
 run_command() {
 
-  if [ $# -gt 0 ]; then
+  echo "Run init on $# sites"
+  INDEX=1
 
-    echo "Run init on $# sites"
-    INDEX=1
-    for website in "$@"; do
+  for website in "$@"; do
 
-      # Load site configs
-      eval $(captaincore site get $website --bash)
+    # Load site configs
+    eval $(captaincore site get $website --bash)
 
-      # Site found, start the backup
-      if ! [ -z "$domain" ]; then
+    if [[ $domain == "" ]]; then
+      echo "Error: $site missing domain."
+      continue
+    fi
 
-        # captures FTP errors in $ftp_output and file listing within file called ftp_ls
-        ftp_output=$( { rclone lsd sftp-$site:$homedir ; } 2>&1 )
-        ftp_search_for_wordpress=`echo "$ftp_output" | perl -wnE'say for /wp-admin/g'`
+    # Captures FTP errors in $ftp_output and file listing to log file
+    ftp_output=$( { rclone lsd sftp-$site:$homedir ; } 2>&1 )
+    ftp_search_for_wordpress=$( echo "$ftp_output" | perl -wnE'say for /wp-admin/g' )
 
-        # Handle FTP errors
-        if [ $ftp_search_for_wordpress != "wp-admin" ]; then
-          ## Add FTP error to log file
-          echo "FTP response: $site ($ftp_output)"
-        else
+    # Handle FTP errors
+    if [[ $ftp_search_for_wordpress != "wp-admin" ]]; then
+      echo "Error: $site missing WordPress."
+      continue
+    fi
 
-          # Append trailing slash if homedir exist
-          if [ "$homedir" != "" ]; then
-            homedir="${homedir}/"
-          fi
+    # Append trailing slash if homedir exist
+    if [ "$homedir" != "" ]; then
+      homedir="${homedir}/"
+    fi
 
-          # Pull down wp-config.php and .htaccess
-          rclone copy sftp-$site:${homedir}wp-config.php $path/${site}_${site_id}/backup/
-          rclone copy sftp-$site:${homedir}.htaccess $path/${site}_${site_id}/backup/
+    # Pull down wp-config.php and .htaccess
+    rclone copy sftp-$site:${homedir}wp-config.php $path/${site}_${site_id}/backup/
+    rclone copy sftp-$site:${homedir}.htaccess $path/${site}_${site_id}/backup/
 
-          # load custom configs into wp-config.php and .htaccess
-          captaincore get configs --wpconfig=$path/${site}_${site_id}/backup/wp-config.php --htaccess=$path/${site}_${site_id}/backup/.htaccess --domain=$domain
-          sleep 1s
+    # load custom configs into wp-config.php and .htaccess
+    captaincore get configs --wpconfig=$path/${site}_${site_id}/backup/wp-config.php --htaccess=$path/${site}_${site_id}/backup/.htaccess --domain=$domain
+    sleep 1s
 
-          # Push up modified wp-config.php and .htaccess
-          rclone copy $path/${site}_${site_id}/backup/wp-config.php sftp-$site:${homedir}
-          rclone copy $path/${site}_${site_id}/backup/.htaccess sftp-$site:${homedir}
+    # Push up modified wp-config.php and .htaccess
+    rclone copy $path/${site}_${site_id}/backup/wp-config.php sftp-$site:${homedir}
+    rclone copy $path/${site}_${site_id}/backup/.htaccess sftp-$site:${homedir}
 
-          # Generate token
-          token_key=$(captaincore get token $site)
+    # Generate token
+    token_key=$(captaincore get token $site)
 
-          # Assign token and backup link
-          curl --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
+    # Assign token and backup link
+    curl --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
 	"command":"token",
 	"site_id":"$site_id",
@@ -64,30 +65,26 @@ run_command() {
 	"token":"$token"
 }
 EOF
-					# Set permalink to 'Post name' format
-					captaincore ssh $site --script=rewrite-prep
 
-          # Deploy helper plugin
-          captaincore ssh $site --script=deploy-helper
+    # Set permalink to 'Post name' format if not set
+    captaincore ssh $site --script=rewrite-prep
 
-        fi
+    # Deploy helper plugin
+    captaincore ssh $site --script=deploy-helper
 
-      fi
+    # Clear out variables
+    domain=''
+    username=''
+    password=''
+    address=''
+    protocol=''
+    port=''
+    homedir=''
+    remoteserver=''
 
-      ### Clear out variables
-      domain=''
-      username=''
-      password=''
-      address=''
-      protocol=''
-      port=''
-      homedir=''
-      remoteserver=''
+    let INDEX=${INDEX}+1
+  done
 
-      let INDEX=${INDEX}+1
-    done
-
-  fi
 }
 
 # See if any sites are specifed
