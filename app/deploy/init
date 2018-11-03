@@ -67,6 +67,9 @@ EOF
 					# Set permalink to 'Post name' format
 					captaincore ssh $site --script=rewrite-prep
 
+          # Deploy helper plugin
+          captaincore ssh $site --script=deploy-helper
+
         fi
 
       fi
