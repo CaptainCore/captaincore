@@ -118,4 +118,4 @@ add_action( 'init', 'captaincore_login_handle_token' );
 heredoc
 
 echo "Generating 'wp-content/mu-plugins/captaincore-helper.php'"
-echo "$build_mu_plugin" # > wp-content/mu-plugins/captaincore-helper.php
+echo "$build_mu_plugin" > wp-content/mu-plugins/captaincore-helper.php
