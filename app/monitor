@@ -14,6 +14,9 @@
 #   [--parallel=<number-of-checks>]
 #   Number of moniter checks to run at same time. Defaults to 15.
 #
+#   [--page=<page-url>]
+#   Check a specific page. Example `--page=/wp-admin/`. Defaults to home page.
+#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
@@ -22,6 +25,8 @@ source ${root_path}lib/arguments
 
 run_command() {
 
+  urls_to_check=()
+
   # Assign default parallel if needed
   if [[ $parallel == "" ]]; then
     parallel=15
@@ -29,17 +34,21 @@ run_command() {
 
   # See if any sites are specifed
   if [ ${#arguments[*]} -gt 0 ]; then
-    urls_to_check=()
     # Runs on specific sites
     for site in ${arguments[*]}; do
-      urls_to_check+=( $( captaincore site get $site --field=home_url ) )
+      url=$( captaincore site get $site --field=home_url )
+      urls_to_check+=( ${url}${page} )
     done
     urls_to_check=${urls_to_check[@]}
   fi
 
   if [[ $all == "true" ]]; then
     # Runs on all sites
-    urls_to_check=$(captaincore site list --field=home_url)
+    urls=$(captaincore site list --field=home_url)
+    for url in ${urls[*]}; do
+      urls_to_check+=( ${url}${page} )
+    done
+    urls_to_check=${urls_to_check[@]}
   fi
 
   # Error if no sites specifed
