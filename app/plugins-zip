@@ -14,4 +14,4 @@ source ${root_path}lib/arguments
 site=$1
 plugins=${arguments[@]/$site}
 
-captaincore ssh $site --script=plugins-zip --plugins="\'$plugins\'"
+captaincore ssh $site --script=plugins-zip --plugins="$plugins"

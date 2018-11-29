@@ -50,5 +50,5 @@ plugins=($plugins)
 cd wp-content/plugins
 
 for plugin in ${plugins[@]}; do
-	echo "zip -r ${plugin}.zip $plugin"
+	zip -r ${plugin}.zip $plugin
 done
