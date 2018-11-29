@@ -46,8 +46,10 @@ if ( count( $errors ) > 0 ) {
 	foreach ( $errors as $error ) {
 		$html .= trim( $error ) . "<br />\n";
 	};
-
-	$html .= '<br /><strong>Warnings</strong><br /><br />';
+	
+	if ( count( $warnings ) > 0 ) {
+		$html .= '<br /><strong>Warnings</strong><br /><br />';
+	}
 
 	foreach ( $warnings as $warning ) {
 		$html .= trim( $warning ) . "<br />\n";
