@@ -40,8 +40,10 @@ run_command() {
       captaincore ssh $site-staging --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/"
     fi
 
+    staging_home_url=$( captaincore ssh dev-staging --command="wp option get home --skip-plugins --skip-themes" )
+
     # Download staging snapshot to production site and import database
-    captaincore ssh $site --script=migrate --update-urls --url="https://staging-${site}.kinsta.com/wp-content_$timestamp.zip"
+    captaincore ssh $site --script=migrate --update-urls --url="${staging_home_url}/wp-content_$timestamp.zip"
 
     # Remove from production_to_staging
     captaincore ssh $site-staging --command="rm -f wp-content_$timestamp.zip"

@@ -11,7 +11,7 @@ site=$1
 # Load site vars
 eval $(captaincore site get $site --bash)
 
-if [[ $address == *".kinsta.com"* ]]; then
+if [[ $address == *".kinsta."* ]]; then
 
   # Extract a JSON value from a BASH script (https://gist.github.com/cjus/1047794)
   function jsonValue() {

@@ -94,7 +94,7 @@ run_command() {
       continue
     fi
 
-    if [[ "$use_staging" == "true" && "$address" == *".kinsta.com" && "$address_staging" == "" ]]; then
+    if [[ "$use_staging" == "true" && "$address" == *".kinsta."* && "$address_staging" == "" ]]; then
       echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Missing Kinsta staging site."
       continue
     fi
@@ -105,7 +105,7 @@ run_command() {
     fi
 
     # If website on Kinsta then prepare their format
-    if [[ "$address" == *".kinsta.com" ]]; then
+    if [[ "$address" == *".kinsta."* ]]; then
 
       # Kinsta's command prep
       commandprep="cd public/ &&"

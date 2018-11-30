@@ -20,7 +20,7 @@ eval $(captaincore site get $site --bash)
 if ! [ -z "$domain" ]; then
 
   ## If website on Kinsta then connect SSH using their format
-  if [[ "$address" == *".kinsta.com" ]]; then
+  if [[ "$address" == *".kinsta."* ]]; then
 
 		if [ -n "$2" ]; then
 			scp -o StrictHostKeyChecking=no -P $port $username@$address:public/$2 $2

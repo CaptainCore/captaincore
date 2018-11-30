@@ -27,7 +27,7 @@ eval $(captaincore site get $website --bash)
 if ! [ -z "$domain" ]; then
 
   ## If website on Kinsta then connect SSH using their format
-  if [[ "$address" == *".kinsta.com" ]]; then
+  if [[ "$address" == *".kinsta."* ]]; then
 
 		if [ -n "$2" ]; then
 			if [[ "$use_staging" != "true" ]]; then

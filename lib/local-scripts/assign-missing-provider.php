@@ -14,7 +14,7 @@ foreach ( $websites as $website ) {
 
 	if ( $provider == '' ) {
 
-		if ( strpos( $address, '.kinsta.com' ) !== false ) {
+		if ( strpos( $address, '.kinsta.' ) !== false ) {
 			echo 'Assigning kinsta to provider for ' . get_the_title( $website->ID ) . "\n";
 			update_post_meta( $website->ID, 'provider', 'kinsta' );
 		}

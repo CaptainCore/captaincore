@@ -118,7 +118,7 @@ EOF
     if [[ $skip_db != true ]] && [[ $wordpress_not_found != true ]]; then
 
       ## Database backup (if remote server available)
-      if [[ "$address" == *".kinsta.com" ]] || [[ "$address" == *".wpengine.com" ]]; then
+      if [[ "$address" == *".kinsta."* ]] || [[ "$address" == *".wpengine.com" ]]; then
         captaincore ssh $site --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; chmod 600 wp-content/mysql.sql"
       fi
 
