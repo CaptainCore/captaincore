@@ -1,10 +1,25 @@
 # Changelog
 
+## [0.3.1] - 2018-12-03
+### Added
+- Local script `monitor-fetch-errors-and-clean`
+- Remote script `deploy-helper`. Deploys a must-use helper plugin for CaptainCore. Initial release include quick login support for CaptainCore GUI.
+- Command `captaincore cli backup`. Backups current CaptainCore cli configs to remote.
+- Config `rclone_cli_backup` which configures where to store CaptainCore cli backups.
+- Argument `--updates-enabled` to `captaincore update`
+- Argument `--page` to `captaincore monitor`
+
+### Changed
+- Bug fix to resolve [inconsistent arguments with remote scripts over SSH](https://anchor.host/?p=58761).
+- Consistent sha-bangs on bash script files.
+- Improved local script `monitor-generate-email`
+- Reset file permissions.
+
 ## [0.3.0] - 2018-10-14
 ### Added
 - Functionality to remote script `migrate`. Files from zip now extract within a new timestamped folder. Supports moving non-default root level files and folders. Supports moving blogs.dir folder for legacy multisite networks. Better feedback while running. Reapplies search privacy settings. Better wp-config.php handling.
-- New var to config `captaincore_branding_slug`. Used when generating stats mu-plugin.
-- New var to config `captaincore_tracker` for running a Fathom Analytics instance. Used when generating stats mu-plugin.
+- Config `captaincore_branding_slug`. Used when generating stats mu-plugin.
+- Config `captaincore_tracker` for running a Fathom Analytics instance. Used when generating stats mu-plugin.
 
 ### Changed
 - Improved staging and production deploys. Now uses new `migrate` remote script.
