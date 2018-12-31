@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.3.2] - 2018-12-31
+### Changed
+- Bug fix with command `plugins-get`
+
 ## [0.3.1] - 2018-12-03
 ### Added
 - Local script `monitor-fetch-errors-and-clean`
