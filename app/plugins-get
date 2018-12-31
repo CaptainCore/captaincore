@@ -30,9 +30,6 @@ if ( file_exists( $file ) ) {
 $captaincore_gui_key = array_search( 'captaincore_gui', $matches[1] );
 $captaincore_gui    = $matches[2][ $captaincore_gui_key ];
 
-// Loads WordPress
-include $_SERVER['HOME'] . '/data/wp-settings.php';
-
 foreach ( $customers as $customer ) {
 
 	$curl = curl_init( "$captaincore_gui/wp-json/wp/v2/captcore_customer/$customer/?token=$token" );
