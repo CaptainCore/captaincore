@@ -28,7 +28,7 @@ run_command() {
 		cd $path/${site}_${site_id}/quicksave/
 
 		# capture all git commit into array
-		git_commits=($(git log --pretty=format:"%H"))
+		git_commits=($( git log --pretty=format:"%H" ))
 
 		for i in ${!git_commits[@]}; do
 			if [[ "${git_commits[$i]}" == "$hash" ]]; then
@@ -37,13 +37,12 @@ run_command() {
 		done
 
 		git_hash_previous=${git_commits[ $(( $current_index + 1 )) ]}
-		git_diff=`git diff $hash $git_hash_previous -- $file`
+		git_diff=$( git diff $git_hash_previous $hash -- $file )
 		echo "$git_diff"
 
 	done
 
 }
-run_command
 
 # See if any sites are specifed
 if [ ${#arguments[*]} -gt 0 ]; then
