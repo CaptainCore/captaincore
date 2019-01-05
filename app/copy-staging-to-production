@@ -3,7 +3,7 @@
 #
 #   Copy staging to production (Kinsta only)
 #
-#   `captaincore copy-staging-to-production <site> --email=<email> [--skip-uploads]`
+#   `captaincore copy-staging-to-production <site> --email=<email>`
 #
 
 # Load configuration
@@ -26,27 +26,31 @@ run_command() {
       return
     fi
 
-    if [ "$homedir" == "" ]; then
-      homedir="/"
+    if [ "$homedir" != "" ]; then
+      homedir="${homedir}/"
     fi
 
     # Unique timestamp
     timestamp=$(date +%s)
 
-    # Make staging snapshot with unique timestamp
-    if [[ "$skip_uploads" == "true" ]]; then
-      captaincore ssh $site-staging --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/ --exclude=wp-content/uploads/\* --exclude=wp-content/updraft/\*"
-    else
-      captaincore ssh $site-staging --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/"
-    fi
+    # Grab core version
+    core_version=$( captaincore ssh $site-staging --command="wp core version" )
 
-    staging_home_url=$( captaincore ssh dev-staging --command="wp option get home --skip-plugins --skip-themes" )
+    captaincore ssh $site-staging --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/ --exclude=wp-content/uploads/\* --exclude=wp-content/updraft/\*"
+
+    staging_home_url=$( captaincore ssh $site-staging --command="wp option get home --skip-plugins --skip-themes" )
 
     # Download staging snapshot to production site and import database
     captaincore ssh $site --script=migrate --update-urls --url="${staging_home_url}/wp-content_$timestamp.zip"
 
     # Remove from production_to_staging
     captaincore ssh $site-staging --command="rm -f wp-content_$timestamp.zip"
+
+    # Install matching core version
+    captaincore ssh $site --command="wp core update --version=$core_version"
+
+    # Sync uploads folders
+    rclone sync sftp-${site}-staging:${homedir}wp-content/uploads/ sftp-${site}:${homedir}wp-content/uploads/ -v
 
     # Post completion to CaptainCore API
     if [[ $captaincore_dev == true ]]; then

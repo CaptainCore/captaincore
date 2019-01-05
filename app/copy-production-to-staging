@@ -3,7 +3,7 @@
 #
 #   Copy production to staging (Kinsta only)
 #
-#   `captaincore copy-production-to-staging <site> --email=<email> [--skip-uploads]`
+#   `captaincore copy-production-to-staging <site> --email=<email>`
 #
 
 # Load configuration
@@ -26,19 +26,17 @@ run_command() {
       return
     fi
 
-    if [ "$homedir" == "" ]; then
-      homedir="/"
+    if [ "$homedir" != "" ]; then
+      homedir="${homedir}/"
     fi
 
     # Unique timestamp
     timestamp=$(date +%s)
 
-    # Make production snapshot with unique timestamp
-    if [[ "$skip_uploads" == "true" ]]; then
-      captaincore ssh $site --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/ --exclude=wp-content/uploads/\* --exclude=wp-content/updraft/\*"
-    else
-      captaincore ssh $site --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/"
-    fi
+    # Grab core version
+    core_version=$( captaincore ssh $site --command="wp core version" )
+
+    captaincore ssh $site --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/ --exclude=wp-content/uploads/\* --exclude=wp-content/updraft/\*"
 
     # Download production snapshot to staging site and import database
     captaincore ssh $site-staging --script=migrate --update-urls --url="http://$address/wp-content_$timestamp.zip"
@@ -49,7 +47,13 @@ run_command() {
     # Enable search privacy and disable email on staging site
     captaincore ssh $site-staging --command="wp option update blog_public 0 --skip-plugins --skip-themes; wp plugin install log-emails --activate --skip-plugins --skip-themes; wp plugin deactivate wp-rocket sendgrid-email-delivery-simplified mailgun login-recaptcha --skip-plugins --skip-themes"
 
-    ## Post completion to CaptainCore API
+    # Install matching core version
+    captaincore ssh $site-staging --command="wp core update --version=$core_version"
+
+    # Sync uploads folders
+    rclone sync sftp-${site}:${homedir}wp-content/uploads/ sftp-${site}-staging:${homedir}wp-content/uploads/ -v
+
+    # Post completion to CaptainCore API
     if [[ $captaincore_dev == true ]]; then
       curl_argument="-k"
     fi
