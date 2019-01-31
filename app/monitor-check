@@ -13,7 +13,7 @@ url=$1
 run_command() {
 
   # Run the health check. Return http_code and body.
-  response=$(curl -L --user-agent "$user_agent" --write-out "|%{num_redirects}|%{http_code}" --max-time 30 --silent $url)
+  response=$(curl -L --user-agent "$user_agent" --write-out "|%{num_redirects}|%{http_code}" --max-time 30 --compressed --silent $url)
 
   # Pull out number of redirects
   num_redirects=$( echo -e "$response" | perl -ne '/.*\|(\d+)\|(\d+)$/&& print $1' )
