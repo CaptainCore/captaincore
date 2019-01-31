@@ -11,6 +11,8 @@
 #   [--all]
 #   Checks all sites.
 #
+#   [-urls="<url1> <url2> <url3>"]
+#
 #   [--parallel=<number-of-checks>]
 #   Number of moniter checks to run at same time. Defaults to 15.
 #
@@ -42,6 +44,10 @@ run_command() {
     urls_to_check=${urls_to_check[@]}
   fi
 
+  if [[ ${#urls} != 0 ]]; then
+    urls_to_check=${urls}
+  fi
+
   if [[ $all == "true" ]]; then
     # Runs on all sites
     urls=$(captaincore site list --field=home_url)
@@ -52,7 +58,7 @@ run_command() {
   fi
 
   # Error if no sites specifed
-  if [[ $all != "true" ]] && [ ${#arguments[*]} -eq 0 ]; then
+  if [[ $all != "true" ]] && [ ${#arguments[*]} -eq 0 ] && [[ ${#urls} == 0 ]]; then
     echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
     return 1
   fi
