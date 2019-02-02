@@ -13,7 +13,7 @@ url=$1
 run_command() {
 
   # Run the health check. Return http_code and body.
-  response=$(curl -L --user-agent "$user_agent" --write-out "|%{num_redirects}|%{http_code}" --max-time 30 --compressed --insecure --silent $url)
+  response=$(curl -L --user-agent "$user_agent" --write-out "|%{num_redirects}|%{http_code}" --max-time 30 --compressed --silent $url)
   response_last_line=$( echo -e "$response" | tail -n1 )
 
   # Pull out number of redirects
