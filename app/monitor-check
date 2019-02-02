@@ -14,19 +14,16 @@ run_command() {
 
   # Run the health check. Return http_code and body.
   response=$(curl -L --user-agent "$user_agent" --write-out "|%{num_redirects}|%{http_code}" --max-time 30 --compressed --silent $url)
+  response_last_line=$( echo -e "$response" | tail -n1 )
 
   # Pull out number of redirects
-  num_redirects=$( echo -e "$response" | perl -ne '/.*\|(\d+)\|(\d+)$/&& print $1' )
+  num_redirects=$( echo -e "$response_last_line" | perl -ne '/.*\|(\d+)\|(\d+)$/&& print $1' )
 
   # Pull out http code
-  http_code=$( echo -e "$response" | perl -ne '/.*\|(\d+)\|(\d+)$/&& print $2' )
+  http_code=$( echo -e "$response_last_line" | perl -ne '/.*\|(\d+)\|(\d+)$/&& print $2' )
 
-  # Pull out body
-  body_extra=$( echo -e "$response" | perl -ne '/.*(\|\d+\|\d+)$/&& print $1' )
-  body=${response/$body_extra/}
-
-  # valid body contains </html>
-  html_end_tag=$(echo -e "$body" | perl -wnE'say for /<\/html>/g')
+  # Pull out </html> from bottom if found. Valid code should contain </html> near the bottom.
+  html_end_tag=$( echo -e "$response" | tail -n10 | perl -wnE'say for /<\/html>/g' )
 
   # check if </html> found
   if [[ $html_end_tag == "</html>" ]]; then
