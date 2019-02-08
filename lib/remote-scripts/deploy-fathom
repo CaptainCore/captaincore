@@ -45,6 +45,20 @@ for arg in "$@"; do
 
 done
 
+read -r -d '' php_code << heredoc
+\$ids=json_decode('$id');
+if( is_array(\$ids) ) { 
+  echo count( json_decode('$id') ); 
+}
+heredoc
+tracker_count=$( php -r "$php_code" )
+
+if [[ "$tracker_count" -eq "1" ]]; then 
+  id=$( php -r "echo json_decode('$id')[0]->code;" )
+fi
+
+if [[ "$tracker_count" -eq "1" ]] || [[ "$tracker_count" == "" ]]; then
+
 # Generate must-use plugin
 read -r -d '' build_mu_plugin << heredoc
 <?php
@@ -80,6 +94,74 @@ fathom('trackPageview');
 
 add_action( 'wp_head', '${branding_slug}_fathom_print_js_snippet', 50 );
 heredoc
+
+else
+
+read -r -d '' php_code << heredoc
+\$ids = json_decode('$id');
+echo '\$fathom_site_ids = array(';
+echo "\n";
+foreach (\$ids as \$id) { 
+  echo '     "'.\$id->domain .'" => "'.\$id->code .'",';
+  echo "\n";
+}
+echo "  );";
+heredoc
+
+fathom_site_ids_code=$( php -r "$php_code" )
+
+# Generate must-use plugin
+read -r -d '' build_mu_plugin << heredoc
+<?php
+
+/**
+ * Plugin Name: $branding_author Stats
+ * Description: Fathom Analytics tracking snippet for ${branding_author}'s bundled Fathom instance.
+ * Version: 1.0
+ * Author: $branding_author
+ * Author URI: $branding_author_uri
+ * Text Domain: ${branding_slug}-stats
+ */
+
+function ${branding_slug}_fathom_print_js_snippet() { 
+
+  // Only run if multisite is active
+  if (function_exists('get_blog_details')) {
+
+  \$current_site = get_blog_details();
+
+  $fathom_site_ids_code
+
+  if ( array_key_exists( \$current_site->domain, \$fathom_site_ids ) ) {
+
+                \$fathom_site_id = \$fathom_site_ids[\$current_site->domain];
+  
+  ?>
+<!-- Fathom - simple website analytics - https://github.com/usefathom/fathom -->
+<script>
+(function(f, a, t, h, o, m){
+	a[h]=a[h]||function(){
+		(a[h].q=a[h].q||[]).push(arguments)
+	};
+	o=f.createElement('script'),
+	m=f.getElementsByTagName('script')[0];
+	o.async=1; o.src=t; o.id='fathom-script';
+	m.parentNode.insertBefore(o,m)
+})(document, window, '//$tracker/tracker.js', 'fathom');
+fathom('set', 'siteId', '<?php echo \$fathom_site_id; ?>');
+fathom('trackPageview');
+</script>
+<!-- / Fathom -->
+<?php
+
+  }
+  }
+}
+
+add_action( 'wp_head', '${branding_slug}_fathom_print_js_snippet', 50 );
+heredoc
+
+fi
 
 echo "Generating 'wp-content/mu-plugins/${branding_slug}-stats.php'"
 echo "$build_mu_plugin" > wp-content/mu-plugins/${branding_slug}-stats.php

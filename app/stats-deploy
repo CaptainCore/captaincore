@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 
 #
-#   Generates and deploys fathom tracker
+#   Generates and deploys Fathom tracker
 #
 #   `captaincore stats-deploy <site> <fathom-site-id>`
+#
+#   For multisite networks mutiple tracking codes can be WordPress passed in the following JSON format
+#   '[{"domain":"site123.com","code":"ABCDE"},{"domain":"site346.com","code":"ABCDF"}]'
 #
 
 # Load configuration
@@ -14,7 +17,7 @@ source ${root_path}lib/arguments
 run_command() {
 
   site=$1
-  id=$2
+  id=$( echo $2 | sed 's/"/\\"/g')
 
   if [[ $site == "" ]]; then
     echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a site."
@@ -30,7 +33,7 @@ run_command() {
     tracker=$captaincore_tracker
   fi
 
-  captaincore ssh $site --script=deploy-fathom --tracker=$tracker --id=$id --branding_author="$captaincore_branding_author" --branding_author_uri="$captaincore_branding_author_uri" --branding_slug=$captaincore_branding_slug
+  captaincore ssh $site --script=deploy-fathom --tracker=$tracker --id="$id" --branding_author="$captaincore_branding_author" --branding_author_uri="$captaincore_branding_author_uri" --branding_slug=$captaincore_branding_slug
 
 }
 run_command ${arguments[*]}
