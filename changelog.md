@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.3] - 2019-02-09
+### Added
+- Argument `--urls` to `captaincore monitor`
+
+### Changed
+- Multisite support to remote script `deploy-fathom`
+- Improvements to `captaincore monitor-check`
+- Reversed git compare with `quicksave-file-diff`
+- Removed argument --skip-uploads from `copy-production-to-staging` and `copy-staging-to-production`. Now always skips uploads and syncs them incrementially using rclone.
+- Install matching version of WordPress core when using `copy-production-to-staging` and `copy-staging-to-production`.
+
 ## [0.3.2] - 2018-12-31
 ### Changed
 - Bug fix with command `plugins-get`
