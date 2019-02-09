@@ -17,7 +17,9 @@ source ${root_path}lib/arguments
 run_command() {
 
   site=$1
-  id=$( echo $2 | sed 's/"/\\"/g')
+  
+  # Replace all double quotes " with \" and remove single quotes
+  id=$( echo $2 | sed 's/"/\\"/g' | sed "s/'//g")
 
   if [[ $site == "" ]]; then
     echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a site."
@@ -33,7 +35,7 @@ run_command() {
     tracker=$captaincore_tracker
   fi
 
-  captaincore ssh $site --script=deploy-fathom --tracker=$tracker --id="$id" --branding_author="$captaincore_branding_author" --branding_author_uri="$captaincore_branding_author_uri" --branding_slug=$captaincore_branding_slug
+  captaincore ssh $site --script=deploy-fathom --tracker=$tracker --id=$id --branding_author="$captaincore_branding_author" --branding_author_uri="$captaincore_branding_author_uri" --branding_slug=$captaincore_branding_slug
 
 }
 run_command ${arguments[*]}
