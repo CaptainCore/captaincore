@@ -14,7 +14,6 @@ if ( strpos( $site, '@' ) !== false ) {
 	$provider = $split[1];
 }
 
-
 // Check if site
 $found_site = get_post( $id );
 
@@ -29,8 +28,9 @@ if ( $found_site ) {
 		'post_author' => '1',
 		'meta_input'  => array(
 			'site'                      => $site,
-			'address'                   => $address,
 			'provider'                  => $provider,
+			'fathom'                    => $fathom,
+			'address'                   => $address,
 			'username'                  => $username,
 			'password'                  => $password,
 			'protocol'                  => $protocol,
@@ -76,6 +76,7 @@ if ( $found_site ) {
 		'meta_input'  => array(
 			'site'                      => $site,
 			'provider'                  => $provider,
+			'fathom'                    => $fathom,
 			'address'                   => $address,
 			'username'                  => $username,
 			'password'                  => $password,

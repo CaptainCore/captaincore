@@ -24,7 +24,7 @@ run_command() {
       if [[ $subsite == "true" ]]; then
 
         # Views for yearly stats
-        views=`captaincore stats $domain`
+        views=$( captaincore stats $site )
 
         # Updates stats with no storage since it's a subsite
         curl --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
@@ -52,7 +52,7 @@ EOF
         fi
 
         # Views for yearly stats
-        views=`captaincore stats $domain`
+        views=$( captaincore stats $site )
 
 				# Debug API request
 				if [[ "$debug" == "true" ]]; then
