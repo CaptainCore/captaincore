@@ -19,11 +19,11 @@ run_command() {
     eval $( captaincore site get $site --bash )
 
     if [[ "$fathom" != "" ]]; then
-        captaincore stats-fetch $site fathom
+        captaincore stats-fetch $domain fathom
     fi
 
     if [[ "$fathom" == "" ]]; then
-        captaincore stats-fetch $site wordpress
+        captaincore stats-fetch $domain wordpress
     fi
 
 }

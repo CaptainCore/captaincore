@@ -84,7 +84,11 @@ if ( $domain and $provider == "fathom" ) {
 
 
     // Return yearly average pageviews
-    echo $yearly_average_pageviews;
+    if ($yearly_average_pageviews > 0 ) {
+        echo $yearly_average_pageviews;
+    } else {
+        echo '0';
+    }
 
 }
 
