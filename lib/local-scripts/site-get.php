@@ -54,7 +54,11 @@ foreach ( $site_ids as $site_id ) {
 		} elseif ( $f == 'fathom' ) {
 			$value = get_post_meta( $site_id, $f, true );
 			$bash .= "fathom=$value\n";
-			$json .= "\"fathom\":${value},";
+			if ( $value ) {
+				$json .= "\"fathom\":${value},";
+			} else {
+				$json .= "\"fathom\":\"\",";
+			}
 		} else {
 			$value = get_post_meta( $site_id, $f, true );
 			$bash .= "$f=$value\n";
