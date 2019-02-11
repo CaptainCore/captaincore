@@ -46,15 +46,23 @@ for arg in "$@"; do
 done
 
 read -r -d '' php_code << heredoc
-\$ids=json_decode('$id');
+\$ids = "$id";
+\$ids = json_decode(str_replace("'",'"',\$ids));
 if( is_array(\$ids) ) { 
-  echo count( json_decode('$id') ); 
+  echo count( \$ids ); 
 }
 heredoc
+
 tracker_count=$( php -r "$php_code" )
 
+read -r -d '' php_code << heredoc
+\$ids = "$id";
+\$ids = json_decode(str_replace("'",'"',\$ids));
+echo \$ids[0]->code;
+heredoc
+
 if [[ "$tracker_count" -eq "1" ]]; then 
-  id=$( php -r "echo json_decode('$id')[0]->code;" )
+  id=$( php -r "$php_code" )
 fi
 
 if [[ "$tracker_count" -eq "1" ]] || [[ "$tracker_count" == "" ]]; then
