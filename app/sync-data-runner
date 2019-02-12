@@ -65,7 +65,7 @@ read -r -d '' data << heredoc
 "core":"$core",
 "themes":$themes,
 "plugins":$plugins,
-"subsite_count":$subsite_count,
+"subsite_count":"$subsite_count",
 "users":$users
 }
 heredoc
