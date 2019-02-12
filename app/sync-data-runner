@@ -42,6 +42,7 @@ run_command() {
 	core=${response_parsed[2]}
 	home_url=${response_parsed[3]}
 	users=${response_parsed[4]}
+	subsite_count=${response_parsed[5]}
 
 	# Store updated info in WordPress datastore
 	cd ${root_path}data
@@ -49,6 +50,7 @@ run_command() {
 	wp --quiet post meta update $site_id home_url $home_url
 	wp --quiet post meta update $site_id plugins "$plugins"
 	wp --quiet post meta update $site_id themes "$themes"
+	wp --quiet post meta update $site_id subsite_count "$subsite_count"
 	wp --quiet post meta update $site_id users << heredoc
 $users
 heredoc
@@ -63,6 +65,7 @@ read -r -d '' data << heredoc
 "core":"$core",
 "themes":$themes,
 "plugins":$plugins,
+"subsite_count":$subsite_count,
 "users":$users
 }
 heredoc
