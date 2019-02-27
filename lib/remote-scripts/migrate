@@ -93,7 +93,7 @@ run_command() {
 
   # Downloads backup file (No local file found)
   if [ ! -f "$private/$url" ]; then
-    wget --progress=bar:force:noscroll -O restore_$timedate.out $backup_url
+    wget --no-check-certificate --progress=bar:force:noscroll -O restore_$timedate.out $backup_url
   fi
 
   # Preps local restore file (local file found)
@@ -242,7 +242,7 @@ run_command() {
   rm db_optimize.sql
 
   # Flush permalinks
-  wp rewrite flush --skip-plugins --skip-themes
+  wp rewrite flush
 
 }
 run_command
