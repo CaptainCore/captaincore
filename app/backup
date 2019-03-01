@@ -158,7 +158,7 @@ EOF
       # Incremental backup upload to Remote
       echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $site to remote (${INDEX}/$#)" >> $logs_path/backup-log.txt
       echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $site to remote (${INDEX}/$#)"
-      ts rclone sync $path/${site}_${site_id}/backup/ $rclone_backup/${site}_${site_id}/backup/ -v --exclude .DS_Store --fast-list --transfers=32 --log-file="$logs_path/site-$site-remote.txt"
+      ts rclone sync $path/${site}_${site_id}/backup/ $rclone_backup/${site}_${site_id}/backup/ -v --exclude .DS_Store --fast-list --transfers=16 --log-file="$logs_path/site-$site-remote.txt"
 
       # Add site to Remote log file
       # Grabs last 6 lines of output from remote transfer to log file
