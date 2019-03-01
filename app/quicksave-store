@@ -30,6 +30,13 @@ run_command() {
 
 		let INDEX=${INDEX}+1
 
+		# Extract environment
+		if [[ "$site" == *"-staging"* ]]; then
+			environment=staging
+		else
+			environment=production
+		fi
+
 		# Load site configs
 		eval $(captaincore site get $website --bash)
 
@@ -81,6 +88,7 @@ EOM
 			read -r -d '' VAR << EOM
 {
 	"command": "import-quicksaves",
+	"environment":"$environment",
 	"site_id":"$site_id",
 	"data": $quicksaves,
 	"token":"$token"
@@ -99,6 +107,7 @@ EOM
 		curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOM
 {
 	"command": "import-quicksaves",
+	"environment":"$environment",
 	"site_id":"$site_id",
 	"data": $quicksaves,
 	"token":"$token"

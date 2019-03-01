@@ -52,10 +52,17 @@ run_command() {
 
 		let INDEX=${INDEX}+1
 
+		# Extract environment
+		if [[ "$site" == *"-staging"* ]]; then
+			environment=staging
+		else
+			environment=production
+		fi
+		
 		# Load site configs
 		eval $(captaincore site get $website --bash)
 
-		## Return error if domain not found
+		# Return error if domain not found
 		if [[ "$domain" == "" ]] || [[ "$site" == "" ]]; then
 			echo "Can't locate website for $site"
 			continue
@@ -157,6 +164,7 @@ EOM
 {
 	"command": "import-quicksaves",
 	"site_id":"$site_id",
+	"environment":"$environment",
 	"data": $quicksave,
 	"home_url":"$home_url",
 	"themes":$themes,
@@ -179,6 +187,7 @@ EOM
 {
 	"command": "import-quicksaves",
 	"site_id":"$site_id",
+	"environment":"$environment",
 	"data": $quicksave,
 	"home_url":"$home_url",
 	"themes":$themes,
@@ -199,7 +208,7 @@ ${response_parsed[4]}
 heredoc
 
 		# Backup Quicksave to remote
-		ts rclone sync $path/${site}_${site_id}/quicksave/ $rclone_backup/${site}_${site_id}/quicksave/ -v --exclude .DS_Store --fast-list --transfers=32 --log-file="$logs_path/site-$site-remote.txt"
+		ts rclone sync $path/${site}_${site_id}/quicksave/ $rclone_backup/${site}_${site_id}/quicksave/ -v --exclude .DS_Store --fast-list --transfers=16 --log-file="$logs_path/site-$site-remote.txt"
 
 		# Clear out variables
 		site=''
