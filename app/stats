@@ -15,6 +15,12 @@ run_command() {
 
     site=$1
 
+    # Extract environment and disgard stats from staging environments
+    if [[ "$site" == *"-staging"* ]]; then
+        printf "0"
+        return
+    fi
+
     # Load site configs
     eval $( captaincore site get $site --bash )
 

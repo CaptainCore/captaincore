@@ -48,7 +48,7 @@ run_command() {
 			continue
 		fi
 
-		cd $path/${site}_${site_id}/quicksave/
+		cd $path/${site}_${site_id}/${environment}/quicksave/
 
 		# capture all git commit into array
 		git_commits=($(git log --pretty=format:"%H"))
@@ -117,7 +117,7 @@ EOM
 		# Clear out variables
 		site=''
 		domain=''
-		homedir=''
+		home_directory=''
 		subsite=''
 		response=''
 		response_parsed=''

@@ -40,6 +40,13 @@ run_command() {
     INDEX=1
     for website in "$@"; do
 
+    	# Extract environment
+      if [[ "$website" == *"-staging"* ]]; then
+        environment=staging
+      else
+        environment=production
+      fi
+
       # Load site configs
       eval $(captaincore site get $website --bash)
 
@@ -62,7 +69,7 @@ run_command() {
       echo "$(date +'%Y-%m-%d %H:%M') Begin updates on $site (${INDEX}/$#)"
 
       ### Define log file format
-			logs_path=$path/${site}_${site_id}/updates/
+			logs_path=$path/${site}_${site_id}/${environment}/updates/
 
 			### Generate log folder
 			mkdir -p $logs_path

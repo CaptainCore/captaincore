@@ -37,9 +37,16 @@ run_command() {
     INDEX=1
     for website in "$@"; do
 
+    	# Extract environment
+      if [[ "$website" == *"-staging"* ]]; then
+        environment=staging
+      else
+        environment=production
+      fi
+
       eval $(captaincore site get $website --bash)
 
-      ## Return error if domain not found
+      # Return error if domain not found
       if [[ "$domain" == "" ]]; then
         echo "Can't locate website for site $site"
         return 1
@@ -51,10 +58,8 @@ run_command() {
       fi
 
       if [[ "$skip_backup" != "true" ]]; then
-
         # Generate fresh backup
         captaincore backup $site
-
       fi
 
       # Generates snapshot archive
@@ -63,9 +68,9 @@ run_command() {
       ln -s backup/ $site-$timedate # create directory shortcut for naming purposes
       zip -r $site-$timedate.zip $site-$timedate/ --exclude=$site-$timedate/_wpeprivate/\* --exclude=\*.git\* --exclude=$site-$timedate/wp-content/advanced-cache.php --exclude=$site-$timedate/wp-content/mu-plugins/mu-plugin.php --exclude=$site-$timedate/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$site-$timedate/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$site-$timedate/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$site-$timedate/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$site-$timedate/wp-content/mu-plugins/wpengine-common/\*
       rm $site-$timedate # remove directory shortcut
-      mkdir snapshots
-      mv $site-$timedate.zip snapshots
-      cd snapshots
+      mkdir -p ${environment}/snapshots
+      mv $site-$timedate.zip ${environment}/snapshots
+      cd ${environment}/snapshots
 
       # Grab snapshot size in bytes
       if [[ "$OSTYPE" == "linux-gnu" ]]; then
@@ -81,7 +86,7 @@ run_command() {
       if [[ $skip_remote != true ]]; then
 
         # Moves snapshot to Backblaze archive folder
-        rclone move $site-$timedate.zip $rclone_snapshot/${site}_${site_id}/
+        rclone move $site-$timedate.zip $rclone_snapshot/${site}_${site_id}/${environment}/
 
         # Post snapshot to ACF field
         if [[ "$captaincore_dev" == true ]]; then
@@ -93,6 +98,7 @@ run_command() {
 {
 	"command":"snapshot",
 	"site_id":"$site_id",
+  "environment":"$environment",
 	"storage":"$snapshot_size",
 	"archive":"${site}-${timedate}.zip",
 	"email":"$email",
@@ -106,14 +112,14 @@ EOF
 
         echo "Removing files after snapshot"
 
-        ## Removed from rclone
+        # Removed from rclone
         rclone config delete sftp-$site
         rclone config delete sftp-$site-staging
 
-        ## Removes directory from backup server
-        rm -rf $path/${site}_${site_id}/backup/
+        # Removes directory from backup server
+        rm -rf $path/${site}_${site_id}/${environment}/backup/
 
-        ## Remove from remote storage
+        # Remove from remote storage
         rclone purge --fast-list $rclone_backup/${site}_${site_id}
 
       fi

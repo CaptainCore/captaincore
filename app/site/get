@@ -34,15 +34,25 @@ run_command() {
     site=$(echo $site | awk -F@ '{print $1}')
   fi
 
+  # Extract environment
+  if [[ "$site" == *"-staging" ]] || [[ "$site" == *"-staging@" ]]; then
+    environment=staging
+  fi
+  if [[ ! "$site" == *"-"* ]] || [[ "$site" == *"-production" ]] || [[ "$site" == *"-production@" ]]; then
+    environment=production
+  fi
+
+  site=$(echo $site | awk -F- '{print $1}')
+
   if [[ "$bash" == "true" ]]; then
 		# Output bash format
-    wp eval-file ${root_path}lib/local-scripts/site-get.php site=$site provider=$provider format=bash field=$field
+    wp eval-file ${root_path}lib/local-scripts/site-get.php site=$site provider=$provider environment=$environment format=bash field=$field
   elif [[ "$field" != "" ]]; then
 		# Output raw format
-		wp eval-file ${root_path}lib/local-scripts/site-get.php site=$site provider=$provider format=json field=$field
+		wp eval-file ${root_path}lib/local-scripts/site-get.php site=$site provider=$provider environment=$environment format=json field=$field
 	else
 		# Output json format
-    wp eval-file ${root_path}lib/local-scripts/site-get.php site=$site provider=$provider format=json field=$field | json
+    wp eval-file ${root_path}lib/local-scripts/site-get.php site=$site provider=$provider environment=$environment format=json field=$field --skip-themes --skip-plugins --skip-packages
   fi
 
 }

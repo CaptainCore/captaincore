@@ -16,6 +16,13 @@ run_command() {
 	# Load site configs
 	eval $(captaincore site get $1 --bash)
 
+	# Environment
+	if [[ $environment == "" ]]; then
+		environment=production
+	else
+		site=${site}-${environment}
+	fi
+
 	# Skip if not compatible
 	if [[ $protocol != "sftp" ]] || [[ $site == "" ]]; then
 		echo "Error: Can't SSH to $site";
@@ -59,6 +66,7 @@ heredoc
 read -r -d '' data << heredoc
 {
 "command":"sync-data",
+"environment":"$environment",
 "site_id":"$site_id",
 "token":"$token",
 "home_url":"$home_url",

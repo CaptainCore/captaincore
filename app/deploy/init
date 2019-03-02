@@ -18,6 +18,13 @@ run_command() {
 
   for website in "$@"; do
 
+    # Extract environment
+		if [[ "$website" == *"-staging"* ]]; then
+			environment=staging
+		else
+			environment=production
+		fi
+
     # Load site configs
     eval $(captaincore site get $website --bash)
 
@@ -42,16 +49,16 @@ run_command() {
     fi
 
     # Pull down wp-config.php and .htaccess
-    rclone copy sftp-$site:${homedir}wp-config.php $path/${site}_${site_id}/backup/
-    rclone copy sftp-$site:${homedir}.htaccess $path/${site}_${site_id}/backup/
+    rclone copy sftp-$site:${home_directory}wp-config.php $path/${site}_${site_id}/${environment}/backup/
+    rclone copy sftp-$site:${home_directory}.htaccess $path/${site}_${site_id}/${environment}/backup/
 
     # load custom configs into wp-config.php and .htaccess
-    captaincore get configs --wpconfig=$path/${site}_${site_id}/backup/wp-config.php --htaccess=$path/${site}_${site_id}/backup/.htaccess --domain=$domain
+    captaincore get configs --wpconfig=$path/${site}_${site_id}/${environment}/backup/wp-config.php --htaccess=$path/${site}_${site_id}/${environment}/backup/.htaccess --domain=$domain
     sleep 1s
 
     # Push up modified wp-config.php and .htaccess
-    rclone copy $path/${site}_${site_id}/backup/wp-config.php sftp-$site:${homedir}
-    rclone copy $path/${site}_${site_id}/backup/.htaccess sftp-$site:${homedir}
+    rclone copy $path/${site}_${site_id}/${environment}/backup/wp-config.php sftp-$site:${home_directory}
+    rclone copy $path/${site}_${site_id}/${environment}/backup/.htaccess sftp-$site:${home_directory}
 
     # Generate token
     token_key=$(captaincore get token $site)

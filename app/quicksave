@@ -87,37 +87,37 @@ run_command() {
 		echo "$(date +'%Y-%m-%d %H:%M') Begin quicksave for $site (${INDEX}/$#)"
 
 		# Updates themes/plugins before Quicksave (Selective backup site locally)
-		rclone sync sftp-$site:${homedir}wp-content/themes/ $path/${site}_${site_id}/backup/wp-content/themes/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site.txt"
-		rclone sync sftp-$site:${homedir}wp-content/mu-plugins/ $path/${site}_${site_id}/backup/wp-content/mu-plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site.txt"
-		rclone sync sftp-$site:${homedir}wp-content/plugins/ $path/${site}_${site_id}/backup/wp-content/plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site.txt"
+		rclone sync sftp-$site:${home_directory}wp-content/themes/ $path/${site}_${site_id}/${environment}/backup/wp-content/themes/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site.txt"
+		rclone sync sftp-$site:${home_directory}wp-content/mu-plugins/ $path/${site}_${site_id}/${environment}/backup/wp-content/mu-plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site.txt"
+		rclone sync sftp-$site:${home_directory}wp-content/plugins/ $path/${site}_${site_id}/${environment}/backup/wp-content/plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site.txt"
 		echo "" >> $logs_path/site-$site.txt
 
 		## Current timestamp
 		timedate=$(date +%Y-%m-%d_%H-%M-%S)
 
 		## Sync to git repo
-		mkdir -p $path/${site}_${site_id}/quicksave/mu-plugins
-		mkdir -p $path/${site}_${site_id}/quicksave/plugins
-		mkdir -p $path/${site}_${site_id}/quicksave/themes
-		mkdir -p $path/${site}_${site_id}/quicksave/versions
+		mkdir -p $path/${site}_${site_id}/${environment}/quicksave/mu-plugins
+		mkdir -p $path/${site}_${site_id}/${environment}/quicksave/plugins
+		mkdir -p $path/${site}_${site_id}/${environment}/quicksave/themes
+		mkdir -p $path/${site}_${site_id}/${environment}/quicksave/versions
 
-		cd $path/${site}_${site_id}/quicksave/
+		cd $path/${site}_${site_id}/${environment}/quicksave/
 
 		## Create new git repo if needed
 		if [ ! -d ".git" ]; then
 		  git init
 		fi
 
-		rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" $path/${site}_${site_id}/backup/wp-content/mu-plugins/ $path/${site}_${site_id}/quicksave/mu-plugins
-		rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ $path/${site}_${site_id}/backup/wp-content/plugins/ $path/${site}_${site_id}/quicksave/plugins
-		rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ $path/${site}_${site_id}/backup/wp-content/themes/ $path/${site}_${site_id}/quicksave/themes
+		rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" $path/${site}_${site_id}/${environment}/backup/wp-content/mu-plugins/ $path/${site}_${site_id}/${environment}/quicksave/mu-plugins
+		rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ $path/${site}_${site_id}/${environment}/backup/wp-content/plugins/ $path/${site}_${site_id}/${environment}/quicksave/plugins
+		rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ $path/${site}_${site_id}/${environment}/backup/wp-content/themes/ $path/${site}_${site_id}/${environment}/quicksave/themes
 
 		## Nasty bash hack in order to grab all of the details from one single SSH tunnel (WP Engine connection is slow)
 		response=$(captaincore ssh $site --script=fetch-site-data)
 		IFS=$'\n' read -rd '' -a response_parsed <<<"$response"
-		echo ${response_parsed[0]} > $path/${site}_${site_id}/quicksave/versions/plugins.json
-		echo ${response_parsed[1]} > $path/${site}_${site_id}/quicksave/versions/themes.json
-		echo ${response_parsed[2]} > $path/${site}_${site_id}/quicksave/versions/core.json
+		echo ${response_parsed[0]} > $path/${site}_${site_id}/${environment}/quicksave/versions/plugins.json
+		echo ${response_parsed[1]} > $path/${site}_${site_id}/${environment}/quicksave/versions/themes.json
+		echo ${response_parsed[2]} > $path/${site}_${site_id}/${environment}/quicksave/versions/core.json
 
 		home_url=${response_parsed[3]}
 		users=${response_parsed[4]}
@@ -208,7 +208,7 @@ ${response_parsed[4]}
 heredoc
 
 		# Backup Quicksave to remote
-		ts rclone sync $path/${site}_${site_id}/quicksave/ $rclone_backup/${site}_${site_id}/quicksave/ -v --exclude .DS_Store --fast-list --transfers=16 --log-file="$logs_path/site-$site-remote.txt"
+		ts rclone sync $path/${site}_${site_id}/${environment}/quicksave/ $rclone_backup/${site}_${site_id}/${environment}/quicksave/ -v --exclude .DS_Store --fast-list --transfers=16 --log-file="$logs_path/site-$site-remote.txt"
 
 		# Clear out variables
 		site=''

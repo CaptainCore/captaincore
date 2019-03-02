@@ -47,7 +47,7 @@ if (isset($_GET['--file'])) {
 	$site_id = $site_data->ID;
 	$site = $site_data->site;
 
-	$file = $captaincore_path . "/${site}_${site_id}/backup/wp-config.php";
+	$file = $captaincore_path . "/${site}_${site_id}/production/backup/wp-config.php";
 
 	if (file_exists($file)) {
 		$wp_config = file_get_contents($file);

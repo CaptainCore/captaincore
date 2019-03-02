@@ -20,9 +20,6 @@
 #   [--skip-db]
 #   Skips database backup
 #
-#   [--with-staging]
-#   Backups staging site
-#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
@@ -52,6 +49,13 @@ run_command() {
   INDEX=1
   for site in "$@"; do
 
+    # Extract environment
+    if [[ "$site" == *"-staging"* ]]; then
+      environment=staging
+    else
+      environment=production
+    fi
+
     # Load site configs
     eval $( captaincore site get $site --bash )
 
@@ -61,9 +65,9 @@ run_command() {
       continue
     fi
 
-    # Append trailing slash if homedir exist
-    if [ "$homedir" != "" ]; then
-      homedir="${homedir}/"
+    # Append trailing slash if home_directory exist
+    if [ "$home_directory" != "" ]; then
+      home_directory="${home_directory}/"
     fi
 
     # Lookup rclone
@@ -84,7 +88,7 @@ run_command() {
     fi
 
     # Captures FTP errors in $ftp_output and file listing to log file
-    ftp_output=$( { rclone lsd sftp-$site:$homedir ; } 2>&1 )
+    ftp_output=$( { rclone lsd sftp-$site:$home_directory ; } 2>&1 )
     ftp_search_for_wordpress=$( echo "$ftp_output" | perl -wnE'say for /wp-admin/g' )
 
     # Handle FTP errors
@@ -98,7 +102,7 @@ run_command() {
 
     if [[ $skip_db != true ]] && [[ $wordpress_not_found != true ]]; then
 
-      ## Database backup (if remote server available)
+      # Database backup (if remote server available)
       if [[ "$address" == *".kinsta."* ]] || [[ "$address" == *".wpengine.com" ]]; then
         captaincore ssh $site --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; chmod 600 wp-content/mysql.sql"
       fi
@@ -106,7 +110,7 @@ run_command() {
     fi
 
     # Backup site locally
-    rclone sync sftp-$site:$homedir $path/${site}_${site_id}/backup/ --exclude .DS_Store --exclude *timthumb.txt --exclude /wp-content/uploads_from_s3/ --verbose=1 --log-file="$logs_path/site-$site.txt"
+    rclone sync sftp-$site:$home_directory $path/${site}_${site_id}/${environment}/backup/ --exclude .DS_Store --exclude *timthumb.txt --exclude /wp-content/uploads_from_s3/ --verbose=1 --log-file="$logs_path/site-$site.txt"
     echo "" >> $logs_path/site-$site.txt
     tail $logs_path/site-$site.txt >> $logs_path/backup-local.txt
 
@@ -115,14 +119,14 @@ run_command() {
 
       echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $site (S3) to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
       echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $site (S3) to local (${INDEX}/$#)"
-      rclone sync s3-$site:$s3bucket/$s3path $path/${site}_${site_id}/backup/wp-content/uploads_from_s3/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site-s3.txt"
+      rclone sync s3-$site:$s3bucket/$s3path $path/${site}_${site_id}/${environment}/backup/wp-content/uploads_from_s3/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site-s3.txt"
 
     fi
 
     if [[ "$OSTYPE" == "linux-gnu" ]]; then
 
       # Begin folder size in bytes without apparent-size flag
-      folder_size=$( du -s --block-size=1 $path/${site}_${site_id}/backup/ )
+      folder_size=$( du -s --block-size=1 $path/${site}_${site_id}/${environment}/backup/ )
       folder_size=$( echo $folder_size | cut -d' ' -f 1 )
 
     fi
@@ -130,7 +134,7 @@ run_command() {
     if [[ "$OSTYPE" == "darwin"* ]]; then
 
       # Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
-      folder_size=$( find $path/${site}_${site_id}/backup/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}' )
+      folder_size=$( find $path/${site}_${site_id}/${environment}/backup/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}' )
 
     fi
 
@@ -139,7 +143,7 @@ run_command() {
       # Incremental backup upload to Remote
       echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $site to remote (${INDEX}/$#)" >> $logs_path/backup-log.txt
       echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $site to remote (${INDEX}/$#)"
-      ts rclone sync $path/${site}_${site_id}/backup/ $rclone_backup/${site}_${site_id}/backup/ -v --exclude .DS_Store --fast-list --transfers=16 --log-file="$logs_path/site-$site-remote.txt"
+      ts rclone sync $path/${site}_${site_id}/${environment}/backup/ $rclone_backup/${site}_${site_id}/${environment}/backup/ -v --exclude .DS_Store --fast-list --transfers=16 --log-file="$logs_path/site-$site-remote.txt"
 
       # Add site to Remote log file
       # Grabs last 6 lines of output from remote transfer to log file
@@ -153,6 +157,7 @@ run_command() {
 {
 "command":"usage-update",
 "site_id":"$site_id",
+"environment":"$environment",
 "storage":"$folder_size",
 "views":"$views",
 "token":"$token"
@@ -167,7 +172,7 @@ EOF
     address=''
     protocol=''
     port=''
-    homedir=''
+    home_directory=''
     remoteserver=''
     s3bucket=''
     s3path=''

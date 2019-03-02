@@ -15,15 +15,22 @@ run_command() {
 
 	for website in "$@"; do
 
+		# Extract environment
+		if [[ "$website" == *"-staging"* ]]; then
+			environment=staging
+		else
+			environment=production
+		fi
+
 		eval $(captaincore site get $website --bash)
 
-		## Return error if domain not found
+		# Return error if domain not found
 		if [[ "$domain" == "" ]]; then
 			echo "Can't locate website for site $site"
 			return 1
 		fi
 
-		cd $path/${site}_${site_id}/quicksave/
+		cd $path/${site}_${site_id}/${environment}/quicksave/
 		git_show=`git show $hash --name-status --format=`
 		echo "$git_show"
 
