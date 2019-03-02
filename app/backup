@@ -55,25 +55,6 @@ run_command() {
     # Load site configs
     eval $( captaincore site get $site --bash )
 
-    # If subsite update stats and skip backup
-    if [[ $subsite == "true" ]]; then
-
-      # Views for yearly stats
-      views=$( captaincore stats $site )
-
-      # Updates stats with no storage since it's a subsite
-      curl --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
-{
-"command":"usage-update",
-"site_id":"$site_id",
-"storage":"0",
-"token":"$token",
-"views":"$views"
-}
-EOF
-      continue
-    fi
-
     # Site found, start the backup
     if [[ $domain == "" ]]; then
       echo "Error: $site missing domain."
