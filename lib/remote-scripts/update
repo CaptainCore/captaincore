@@ -54,7 +54,7 @@ for arg in "$@"; do
 done
 
 # Store current path
-homedir=$(pwd)
+home_directory=$(pwd)
 
 run_command() {
 
@@ -64,12 +64,12 @@ run_command() {
     return 1
   fi
   if [ -d "_wpeprivate" ]; then
-    private=${homedir}/_wpeprivate
+    private=${home_directory}/_wpeprivate
   fi
   if [ -d "../private" ]; then
     cd ../private
     private=$(pwd)
-    cd $homedir
+    cd $home_directory
   fi
 
   echo "<?php define( 'WP_ADMIN', true ); ?>" > $private/require-wp-admin.php

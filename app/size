@@ -31,12 +31,12 @@ run_command() {
       return
     fi
 
-    if [ "$homedir" != "" ]; then
-      homedir="${homedir}/"
+    if [ "$home_directory" != "" ]; then
+      home_directory="${home_directory}/"
     fi
     json="["
-    size_production=$(rclone size sftp-$site:$homedir --json)
-    size_staging=$(rclone size sftp-$site-staging:$homedir --json)
+    size_production=$(rclone size sftp-$site:$home_directory --json)
+    size_staging=$(rclone size sftp-$site-staging:$home_directory --json)
     json+="{\"name\":\"$site\","${size_production:1:${#size_production}}
     if [[ "$size_staging" != "" ]]; then
       json+=","
@@ -53,7 +53,7 @@ run_command() {
     address=''
     protocol=''
     port=''
-    homedir=''
+    home_directory=''
     remoteserver=''
     s3bucket=''
     s3path=''

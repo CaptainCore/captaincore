@@ -27,7 +27,7 @@ run_command() {
     fi
 
     # Captures FTP errors in $ftp_output and file listing to log file
-    ftp_output=$( { rclone lsd sftp-$site:$homedir ; } 2>&1 )
+    ftp_output=$( { rclone lsd sftp-$site:$home_directory ; } 2>&1 )
     ftp_search_for_wordpress=$( echo "$ftp_output" | perl -wnE'say for /wp-admin/g' )
 
     # Handle FTP errors
@@ -36,9 +36,9 @@ run_command() {
       continue
     fi
 
-    # Append trailing slash if homedir exist
-    if [ "$homedir" != "" ]; then
-      homedir="${homedir}/"
+    # Append trailing slash if home_directory exist
+    if [ "$home_directory" != "" ]; then
+      home_directory="${home_directory}/"
     fi
 
     # Pull down wp-config.php and .htaccess
@@ -79,7 +79,7 @@ EOF
     address=''
     protocol=''
     port=''
-    homedir=''
+    home_directory=''
     remoteserver=''
 
     let INDEX=${INDEX}+1

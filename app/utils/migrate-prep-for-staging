@@ -46,7 +46,7 @@ run_command() {
       address=''
       protocol=''
       port=''
-      homedir=''
+      home_directory=''
       remoteserver=''
       s3bucket=''
       s3path=''

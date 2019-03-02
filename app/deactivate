@@ -103,12 +103,12 @@ run_command() {
       continue
 		fi
 
-		if [[ "$homedir" != "" ]]; then
-			homedir="${homedir}/"
+		if [[ "$home_directory" != "" ]]; then
+			home_directory="${home_directory}/"
 		fi
 
     # Upload deactivation plugin to mu-plugins
-    rclone copyto ~/Tmp/captaincore_deactivated_${timestamp}.php sftp-$site:${homedir}wp-content/mu-plugins/captaincore_deactivated.php
+    rclone copyto ~/Tmp/captaincore_deactivated_${timestamp}.php sftp-$site:${home_directory}wp-content/mu-plugins/captaincore_deactivated.php
 
     echo "deactivated $domain"
 

@@ -26,8 +26,8 @@ run_command() {
       return
     fi
 
-    if [ "$homedir" != "" ]; then
-      homedir="${homedir}/"
+    if [ "$home_directory" != "" ]; then
+      home_directory="${home_directory}/"
     fi
 
     # Unique timestamp
@@ -50,7 +50,7 @@ run_command() {
     captaincore ssh $site --command="wp core update --version=$core_version"
 
     # Sync uploads folders
-    rclone sync sftp-${site}-staging:${homedir}wp-content/uploads/ sftp-${site}:${homedir}wp-content/uploads/ -v
+    rclone sync sftp-${site}-staging:${home_directory}wp-content/uploads/ sftp-${site}:${home_directory}wp-content/uploads/ -v
 
     # Post completion to CaptainCore API
     if [[ $captaincore_dev == true ]]; then
@@ -79,7 +79,7 @@ EOF
     protocol_staging=''
     port_staging=''
     preloadusers=''
-    homedir=''
+    home_directory=''
     remoteserver=''
     s3bucket=''
     s3path=''

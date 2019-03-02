@@ -32,9 +32,9 @@ run_command() {
 		echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a login."
 	fi
 
-	# Append trailing slash if homedir exist
-	if [ "$homedir" != "" ]; then
-		homedir="${homedir}/"
+	# Append trailing slash if home_directory exist
+	if [ "$home_directory" != "" ]; then
+		home_directory="${home_directory}/"
 	fi
 
 	# Fetch login

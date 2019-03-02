@@ -71,8 +71,8 @@ run_command() {
 		cd $path/${site}_${site_id}/quicksave/
 		mkdir -p ~/Tmp/restore/$commit/$file_path
 		git show $commit:$file > ~/Tmp/restore/$commit/$file
-		if [[ "$homedir" != "" ]]; then
-			homedir="${homedir}/"
+		if [[ "$home_directory" != "" ]]; then
+			home_directory="${home_directory}/"
 		fi
 		rclone copyto ~/Tmp/restore/$commit/$file sftp-$site:${homdir}wp-content/$file
 		rm -rf ~/Tmp/restore/$commit/

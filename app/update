@@ -44,7 +44,7 @@ run_command() {
       eval $(captaincore site get $website --bash)
 
       # captures FTP errors in $ftp_output and file listing to log file
-      ftp_output=$( { rclone lsd sftp-$site:$homedir ; } 2>&1 )
+      ftp_output=$( { rclone lsd sftp-$site:$home_directory ; } 2>&1 )
       ftp_search_for_wordpress=`echo "$ftp_output" | perl -wnE'say for /wp-admin/g'`
 
       # Handle FTP errors
@@ -142,7 +142,7 @@ EOF
       address=''
       protocol=''
       port=''
-      homedir=''
+      home_directory=''
       remoteserver=''
       s3bucket=''
       s3path=''

@@ -33,31 +33,31 @@ run_command() {
     return 1
   fi
 
-  homedir_source=$( captaincore site get $site_name_source --field=homedir)
-  homedir_destination=$( captaincore site get $site_name_destination --field=homedir)
+  home_directory_source=$( captaincore site get $site_name_source --field=home_directory)
+  home_directory_destination=$( captaincore site get $site_name_destination --field=home_directory)
 
-  # Append trailing slash if homedir exist
-  if [ "$homedir_source" != "" ]; then
-    homedir_source="${homedir_source}/"
+  # Append trailing slash if home_directory exist
+  if [ "$home_directory_source" != "" ]; then
+    home_directory_source="${home_directory_source}/"
   fi
 
-  # Append trailing slash if homedir exist
-  if [ "$homedir_destination" != "" ]; then
-    homedir_destination="${homedir_destination}/"
+  # Append trailing slash if home_directory exist
+  if [ "$home_directory_destination" != "" ]; then
+    home_directory_destination="${home_directory_destination}/"
   fi
 
   # Check and sync legacy multisite upload files
   folder_check=$( { rclone lsd sftp-${site_name_source}:wp-content/blogs.dir/${subsite_id}/files/ ; } 2>&1 )
   if [[ $folder_check != *"directory not found"* ]]; then
     echo "Found legacy subsite uploads (wp-content/blogs.dir/${subsite_id}/files/). Transferring..."
-    rclone sync sftp-${site_name_source}:${homedir_source}wp-content/blogs.dir/${subsite_id}/files/ sftp-${site_name_destination}:${homedir_destination}wp-content/uploads/ -v
+    rclone sync sftp-${site_name_source}:${home_directory_source}wp-content/blogs.dir/${subsite_id}/files/ sftp-${site_name_destination}:${home_directory_destination}wp-content/uploads/ -v
   fi
 
   # Check and sync modern multisite upload files
   folder_check=$( { rclone lsd sftp-${site_name_source}:wp-content/uploads/sites/${subsite_id}/ ; } 2>&1 )
   if [[ $folder_check != *"directory not found"* ]]; then
     echo "Found subsite uploads (wp-content/uploads/sites/${subsite_id}/). Transferring..."
-    rclone sync sftp-${site_name_source}:${homedir_source}wp-content/uploads/sites/${subsite_id}/ sftp-${site_name_destination}:${homedir_destination}wp-content/uploads/ -v
+    rclone sync sftp-${site_name_source}:${home_directory_source}wp-content/uploads/sites/${subsite_id}/ sftp-${site_name_destination}:${home_directory_destination}wp-content/uploads/ -v
   fi
 
   subsite_url=$( captaincore ssh $site_name_source --command="wp site list --site__in=${subsite_id} --field=url" )
@@ -66,12 +66,12 @@ run_command() {
 
   for theme in ${active_themes[@]}; do
     echo "Copying theme ${theme}"
-    rclone sync sftp-${site_name_source}:${homedir_source}wp-content/themes/${theme} sftp-${site_name_destination}:${homedir_destination}wp-content/themes/${theme} -v
+    rclone sync sftp-${site_name_source}:${home_directory_source}wp-content/themes/${theme} sftp-${site_name_destination}:${home_directory_destination}wp-content/themes/${theme} -v
   done
 
   for plugin in ${active_plugins[@]}; do
     echo "Copying plugin ${plugin}"
-    rclone sync sftp-${site_name_source}:${homedir_source}wp-content/plugins/${plugin} sftp-${site_name_destination}:${homedir_destination}wp-content/plugins/${plugin} -v
+    rclone sync sftp-${site_name_source}:${home_directory_source}wp-content/plugins/${plugin} sftp-${site_name_destination}:${home_directory_destination}wp-content/plugins/${plugin} -v
   done
 
   return 1

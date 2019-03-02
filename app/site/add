@@ -5,7 +5,7 @@
 #
 #   `captaincore site add <site>`
 #
-#   --id=<id> --domain=<domain> --username=<username> --password=<password> --address=<address> --protocol=<protocol> --port=<port> --staging_username=<staging_username> --staging_password=<staging_password> --staging_address=<staging_address> --staging_protocol=<staging_protocol> --staging_port=<staging_port> [--preloadusers=<preloadusers>] [--homedir=<homedir>] [--s3accesskey=<s3accesskey>] [--s3secretkey=<s3secretkey>] [--s3bucket=<s3bucket>] [--s3path=<s3path>]
+#   --id=<id> --domain=<domain> --username=<username> --password=<password> --address=<address> --protocol=<protocol> --port=<port> --staging_username=<staging_username> --staging_password=<staging_password> --staging_address=<staging_address> --staging_protocol=<staging_protocol> --staging_port=<staging_port> [--preloadusers=<preloadusers>] [--home_directory=<home_directory>] [--s3accesskey=<s3accesskey>] [--s3secretkey=<s3secretkey>] [--s3bucket=<s3bucket>] [--s3path=<s3path>]
 #   Example: captaincore site add <site> --id=1234 --domain=sitename.com --username=sitename --password=random --address=sitename.wpengine.com --protocol=sftp --port=2222 --staging_username=sitename-staging --staging_password=randompassword --staging_address=sitename.wpengine.com --staging_protocol=sftp --staging_port=2222 --preloadusers=1737
 #
 

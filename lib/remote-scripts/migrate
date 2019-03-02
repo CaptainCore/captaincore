@@ -52,19 +52,19 @@ backup_url=$url
 backupformat=$( echo $backup_url | perl -n -e '/.+\.(.+)/&& print $1' )
 
 # Store current path
-homedir=$(pwd)
+home_directory=$(pwd)
 
 run_command() {
 
   # Find private folder
   if [ -d "_wpeprivate" ]; then
-    private=${homedir}/_wpeprivate
+    private=${home_directory}/_wpeprivate
   fi
 
   if [ -d "../private" ]; then
     cd ../private
     private=$(pwd)
-    cd $homedir
+    cd $home_directory
   fi
 
   if [ ! -d "_wpeprivate" ] && [ ! -d "../private" ]; then
@@ -125,30 +125,30 @@ run_command() {
 
   # Migrate blogs.dir if found
   if [ -d $wordpresspath/blogs.dir ]; then
-    rm -rf $homedir/wp-content/blogs.dir
+    rm -rf $home_directory/wp-content/blogs.dir
     echo "Moving: blogs.dir"
-    mv $wordpresspath/blogs.dir $homedir/wp-content/
+    mv $wordpresspath/blogs.dir $home_directory/wp-content/
   fi
 
   # Migrate uploads if found
   if [ -d $wordpresspath/uploads ]; then
-    rm -rf $homedir/wp-content/uploads
+    rm -rf $home_directory/wp-content/uploads
     echo "Moving: uploads"
-    mv $wordpresspath/uploads $homedir/wp-content/
+    mv $wordpresspath/uploads $home_directory/wp-content/
   fi
 
   # Migrate themes if found
   for d in $wordpresspath/themes/*/; do
-    rm -rf $homedir/wp-content/themes/$( basename $d )
+    rm -rf $home_directory/wp-content/themes/$( basename $d )
     echo "Moving: themes/$d"
-    mv $d $homedir/wp-content/themes/
+    mv $d $home_directory/wp-content/themes/
   done
 
   # Migrate plugins if found
   for d in $wordpresspath/plugins/*/; do
-    rm -rf $homedir/wp-content/plugins/$( basename $d )
+    rm -rf $home_directory/wp-content/plugins/$( basename $d )
     echo "Moving: plugins/$d"
-    mv $d $homedir/wp-content/plugins/
+    mv $d $home_directory/wp-content/plugins/
   done
 
   # Find non-default root level files and folders
@@ -165,11 +165,11 @@ run_command() {
 
   # Move non-default root level files and folders
   for file in "${root_files[@]}"; do
-    rm -rf $homedir/$file
-    echo "Moving: $file to $homedir/"
-    mv $file ${homedir}/
+    rm -rf $home_directory/$file
+    echo "Moving: $file to $home_directory/"
+    mv $file ${home_directory}/
   done
-  cd $homedir
+  cd $home_directory
 
   # Remove select plugins if found
   wp plugin delete backupbuddy wp-super-cache adminer wordfence w3-total-cache wp-file-cache broken-link-checker yet-another-related-posts-plugin comet-cache-1 woothemes-updater ewww-image-optimizer https-redirection really-simple-ssl hello wordpress-php-info force-strong-passwords --skip-plugins --skip-themes
@@ -181,7 +181,7 @@ run_command() {
     table_prefix=$( cat wp-config.php | grep table_prefix | perl -n -e '/\047(.+)\047/&& print $1' )
   fi
 
-  cd $homedir
+  cd $home_directory
   current_table_prefix=$( wp config get table_prefix )
   if [[ $table_prefix != "" && $table_prefix != "$current_table_prefix" ]]; then
     wp config set table_prefix $table_prefix
@@ -195,16 +195,16 @@ run_command() {
   find . -type f -exec chmod 644 {} \;
 
   # Secure database
-  chmod 600 $homedir/wp-content/mysql.sql
+  chmod 600 $home_directory/wp-content/mysql.sql
 
   echo "Found the following database:"
-  find $homedir/wp-content/uploads $private/restore_$timedate/ -type f -name '*.sql'
+  find $home_directory/wp-content/uploads $private/restore_$timedate/ -type f -name '*.sql'
   databases=$( find $private/restore_$timedate/ -type f -name '*.sql' )
   database_count=$( echo -n $databases | grep -c '^' )
 
   if [[ "$database_count" == "0" ]]; then
     # Expand db search
-    databases=$( find $homedir -type f -name '*.sql' )
+    databases=$( find $home_directory -type f -name '*.sql' )
     database_count=$( echo -n $databases | grep -c '^' )
   fi
 
