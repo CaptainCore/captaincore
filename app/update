@@ -121,7 +121,7 @@ EOF
 				if [[ "${response_parsed[1]}" = *"[{"* ]]; then
 					echo "Writing plugin updates to file"
 					date=$(date +'%Y-%m-%d-%H%M%S')
-					file="${logs_path}/${date}-themes.json"
+					file="${logs_path}/${date}-plugins.json"
 					echo ${response_parsed[1]} > $file
 					json="[{\"date\":\"$date\",\"type\":\"plugin\",\"updates\":$(cat $file)}]";
 
