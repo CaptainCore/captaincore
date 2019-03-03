@@ -30,16 +30,17 @@ run_command() {
 
   echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $site"
 
-  password=$(captaincore site get $site --field=password)
-  password_staging=$(captaincore site get $site --field=password_staging)
+  password=$(captaincore site get ${site} --field=password)
+  password_staging=$(captaincore site get ${site}-staging --field=password)
 
   # Add new WordPress site to Rclone
   rclone_pass=$(rclone obscure $password)
   rclone config create sftp-$site $protocol host $address user $username port $port pass $rclone_pass
 
   if [[ "$password_staging" != "" ]]; then
-    rclone_pass_staging=$(rclone obscure $password_staging)
-    rclone config create sftp-$site-staging $protocol_staging host $address_staging user $username_staging port $port_staging pass $rclone_pass_staging
+    eval $(captaincore site get ${site}-staging --bash)
+    rclone_pass=$(rclone obscure $password_staging)
+    rclone config create sftp-${site}-staging $protocol host $address user $username port $port pass $rclone_pass
   fi
 
 }

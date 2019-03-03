@@ -52,6 +52,7 @@ foreach ( $site_ids as $site_id ) {
 	if ( $environment == "production" ) {
 		$address                 = get_post_meta( $site_id, "address", true );
 		$username                = get_post_meta( $site_id, "username", true );
+		$password                = get_post_meta( $site_id, "password", true );
 		$protocol                = get_post_meta( $site_id, "protocol", true );
 		$port                    = get_post_meta( $site_id, "port", true );
 		$home_directory          = get_post_meta( $site_id, "home_directory", true );
@@ -72,6 +73,7 @@ foreach ( $site_ids as $site_id ) {
 	if ( $environment == "staging" ) {
 		$address                 = get_post_meta( $site_id, "address_staging", true );
 		$username                = get_post_meta( $site_id, "username_staging", true );
+		$password                = get_post_meta( $site_id, "password_staging", true );
 		$protocol                = get_post_meta( $site_id, "protocol_staging", true );
 		$port                    = get_post_meta( $site_id, "port_staging", true );
 		$home_directory          = get_post_meta( $site_id, "home_directory_staging", true );

@@ -75,9 +75,11 @@ run_command() {
 
   for website in "$@"; do
 
-    if [[ "$website" == *"-staging" ]]; then
-      website=${website//-staging/}
-      use_staging=true
+    # Extract environment
+    if [[ "$website" == *"-staging"* ]]; then
+      environment=staging
+    else
+      environment=production
     fi
 
     # Load site configs
@@ -94,13 +96,13 @@ run_command() {
       continue
     fi
 
-    if [[ "$use_staging" == "true" && "$address" == *".kinsta."* && "$address_staging" == "" ]]; then
-      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Missing Kinsta staging site."
+    if [[ "$address" == *".kinsta."* && "$address" == "" ]]; then
+      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Missing Kinsta site."
       continue
     fi
 
-    if [[ "$use_staging" == "true" && "$address" == *".wpengine.com" && "$site_staging" == "" ]]; then
-      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Missing WP Engine staging site."
+    if [[ "$address" == *".wpengine.com" && "$environment" == "staging" ]]; then
+      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Missing WP Engine site."
       continue
     fi
 
@@ -166,7 +168,7 @@ run_command() {
     # Runs ssh
     ssh $remoteserver
 
-    ### Clear out variables
+    # Clear out variables
     domain=''
     username=''
     password=''

@@ -28,12 +28,12 @@ source ${root_path}lib/arguments
 
 run_command() {
 
-    ### Begin time tracking
+    # Begin time tracking
     overalltimebegin=$(date +"%s")
     backup_date=$(date +'%Y-%m-%d')
     backup_time=$(date +'%H-%M')
 
-    ### Begin logging
+    # Begin logging
     echo "$(date +'%Y-%m-%d %H:%M') Begin updates"
 
     echo "Updating $# sites"
@@ -63,16 +63,20 @@ run_command() {
 
       fi
 
-      ## No errors found, run updates
+      # No errors found, run updates
 
-      ### run updates
+      # run updates
       echo "$(date +'%Y-%m-%d %H:%M') Begin updates on $site (${INDEX}/$#)"
 
-      ### Define log file format
+      # Define log file format
 			logs_path=$path/${site}_${site_id}/${environment}/updates/
 
-			### Generate log folder
+			# Generate log folder
 			mkdir -p $logs_path
+
+      if [[ "$environment" == "staging" ]]; then
+        site=${site}-staging
+      fi
 
 			# Exclude themes or plugins if marked for exclusion
 			if [[ $exclude_themes != "" ]] && [[ $exclude_plugins != "" ]]; then
@@ -108,7 +112,8 @@ run_command() {
 					# Adds sync data to CaptainCore GUI
 					curl ${curl_argument}--request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
-"command": "import-update-log",
+"command":"import-update-log",
+"environment":"$environment",
 "site_id":"$site_id",
 "token":"$token",
 "data":$json
@@ -128,7 +133,8 @@ EOF
 					# Adds sync data to CaptainCore GUI
 					curl ${curl_argument}--request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
-"command": "import-update-log",
+"command":"import-update-log",
+"environment":"$environment",
 "site_id":"$site_id",
 "token":"$token",
 "data":$json
@@ -139,7 +145,7 @@ EOF
 
       	fi
 
-      ### Clear out variables
+      # Clear out variables
 			exclude_themes=''
 			exclude_plugins=''
       domain=''
@@ -160,7 +166,7 @@ EOF
 
     echo "$(date +'%Y-%m-%d %H:%M') Updates finished"
 
-    ### End time tracking
+    # End time tracking
     overalltimeend=$(date +"%s")
     diff=$(($overalltimeend-$overalltimebegin))
     echo "$(date +'%Y-%m-%d %H:%M') $(($diff / 3600)) hours, $((($diff / 60) % 60)) minutes and $(($diff % 60)) seconds elapsed."
