@@ -13,14 +13,21 @@ source ${root_path}lib/arguments
 
 run_command() {
 
+	site=$1
+
+	# Extract environment
+    if [[ "$site" == *"-staging"* ]]; then
+      environment=staging
+    else
+      environment=production
+    fi
+
 	# Load site configs
-	eval $(captaincore site get $1 --bash)
+	eval $(captaincore site get $site --bash)
 
 	# Environment
-	if [[ $environment == "" ]]; then
-		environment=production
-	else
-		site=${site}-${environment}
+	if [[ $environment == "staging" ]]; then
+		site=${site}-staging
 	fi
 
 	# Skip if not compatible
