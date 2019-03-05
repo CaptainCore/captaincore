@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.0] - 2019-04-04
+### Added
+- Environment support to commands `quicksave` and `quicksave-store`
+- Added multisite site count to remote script `fetch-site-data`
+- Command `captaincore stats-fetch`
+- Fetch stats from Fathom
+
+### Changed
+- *Breaking changes* - Updated folder structure to include environments. New format: `<path>/<site>_<site-id>/<environment>/`. Each environment can now handle `backups`,`snapshots`, `quicksaves` and `updates`.
+- Command `captaincore site get` now returns a single environment (production by default). Example `captaincore site get <site>` and `captaincore site get <site>-production` will return production details whereas `captaincore site get <site>-staging` will return staging.
+- Command `captaincore stats` now requires `<site>` instead of domain. This allows stats to be pulled dynamically from various provider (WordPress.com and Fathom).
+- Improved error handling with command `captaincore site delete`.
+- Remote script `migrate` properly flushes permalinks and ignores SSL errors from source backups.
+- Bug fix where certain theme updates were missed due to duplicate json file name.
+
 ## [0.3.3] - 2019-02-09
 ### Added
 - Argument `--urls` to `captaincore monitor`
