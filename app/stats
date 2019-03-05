@@ -14,6 +14,10 @@ source ${root_path}lib/arguments
 run_command() {
 
     site=$1
+    if [[ "$site" == "" ]]; then
+        echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a <site>."
+        return
+    fi
 
     # Extract environment and disgard stats from staging environments
     if [[ "$site" == *"-staging"* ]]; then
