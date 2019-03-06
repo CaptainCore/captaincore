@@ -11,7 +11,10 @@
 #   [--all]
 #   Checks all sites.
 #
-#   [-urls="<url1> <url2> <url3>"]
+#   [--urls="<url1> <url2> <url3>"]
+#
+#   [--retry=<number-of-retries>]
+#   Number of retries for failures. Defaults to 3.
 #
 #   [--parallel=<number-of-checks>]
 #   Number of moniter checks to run at same time. Defaults to 15.
@@ -29,7 +32,12 @@ run_command() {
 
   urls_to_check=()
 
-  # Assign default parallel if needed
+  # Assign default retry
+  if [[ $retry == "" ]]; then
+    retry=3
+  fi
+
+  # Assign default parallel
   if [[ $parallel == "" ]]; then
     parallel=15
   fi
@@ -57,6 +65,8 @@ run_command() {
     urls_to_check=${urls_to_check[@]}
   fi
 
+  orignal_urls_to_check=$urls_to_check
+
   # Error if no sites specifed
   if [[ $all != "true" ]] && [ ${#arguments[*]} -eq 0 ] && [[ ${#urls} == 0 ]]; then
     echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
@@ -75,41 +85,49 @@ run_command() {
   log_file=$logs/${backup_date}_${backup_time}_$auth.txt
   echo "logging to $log_file"
 
-  # Run checks in parallel. Collect the results in log file.
-  ( echo $urls_to_check | xargs -P $parallel -n 1 captaincore monitor-check ) 2>&1 | tee $log_file
-
-  echo "Finished checks now building email if needed"
-
-  # Have local PHP handle error count
   cd ${root_path}data
-  error_count=$(wp eval-file ${root_path}lib/local-scripts/monitor-error-count.php $log_file --skip-wordpress)
 
-  # If no errors then stop here
-  if [[ $error_count == "0" ]]; then
-    return 1
-  fi
+  for attempt in $(seq 1 $retry); do 
 
-  echo "Found $error_count errors. Checking those URLs again."
+    # Run checks in parallel. Collect the results in log file.
+    ( echo $urls_to_check | xargs -P $parallel -n 1 captaincore monitor-check ) 2>&1 | tee $log_file
 
-  # Fetch urls with errors for another another check
-  urls_to_check=$(wp eval-file ${root_path}lib/local-scripts/monitor-fetch-errors-and-clean.php $log_file --skip-wordpress)
+    # Have local PHP handle error count
+    error_count=$(php ${root_path}lib/local-scripts/monitor.php check $log_file)
 
-  # Runs checks in parallel (errors only). Append results to log file.
-  ( echo $urls_to_check | xargs -P $parallel -n 1 captaincore monitor-check ) 2>&1 | tee -a $log_file
+    # If no errors then skip the rest of the attempts.
+    if [[ $error_count == "0" ]]; then
+      break
+    fi
 
-  error_count=$(wp eval-file ${root_path}lib/local-scripts/monitor-error-count.php $log_file --skip-wordpress)
+    # Skip last attempt
+    if [[ $attempt != $retry ]]; then 
 
-  # If no errors then stop here
-  if [[ $error_count == "0" ]]; then
-    return 1
-  fi
+      echo "Attempt #${attempt} found $error_count errors. Checking those URLs again.";
 
-  echo "Found $error_count errors. Building email."
+      # Fetch urls with errors for another another check
+      urls_to_check=$(php ${root_path}lib/local-scripts/monitor.php process $log_file)
+
+      # Empty space for formating
+      echo "" >> $log_file
+      
+    else
+
+      echo "Attempt #${attempt} found $error_count errors."
+
+    fi
+
+  done
 
   # Build emails
-  email_content=$(wp eval-file ${root_path}lib/local-scripts/monitor-generate-email.php $log_file --skip-wordpress)
+  email_content=$(php ${root_path}lib/local-scripts/monitor.php generate $log_file "$orignal_urls_to_check")
 
-  echo "Sending Email"
+  if [[ $email_content == "" ]]; then
+    echo "Email not needed"
+  else 
+    echo "Sending Email"
+    echo $email_content
+  fi
 
   # output "Response code $response for $address" per each item in array
   echo $email_content | mutt -e 'set content_type=text/html' -s "Monitor: $error_count errors" -- $captaincore_admin_email
