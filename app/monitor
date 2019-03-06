@@ -122,15 +122,15 @@ run_command() {
   # Build emails
   email_content=$(php ${root_path}lib/local-scripts/monitor.php generate $log_file "$orignal_urls_to_check")
 
-  if [[ $email_content == "" ]]; then
-    echo "Email not needed"
-  else 
+  if [[ $email_content != "" ]]; then
+
     echo "Sending Email"
     echo $email_content
-  fi
 
-  # output "Response code $response for $address" per each item in array
-  echo $email_content | mutt -e 'set content_type=text/html' -s "Monitor: $error_count errors" -- $captaincore_admin_email
+    # output "Response code $response for $address" per each item in array
+    echo $email_content | mutt -e 'set content_type=text/html' -s "Monitor: $error_count errors" -- $captaincore_admin_email
+
+  fi
 
 }
 run_command
