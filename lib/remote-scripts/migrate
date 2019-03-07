@@ -49,7 +49,6 @@ for arg in "$@"; do
 done
 
 backup_url=$url
-backupformat=$( echo $backup_url | perl -n -e '/.+\.(.+)/&& print $1' )
 
 # Store current path
 home_directory=$(pwd)
@@ -102,19 +101,19 @@ run_command() {
     mv "$private/$url" "$private/restore_$timedate/restore_$timedate.out"
   fi
 
-  if [[ "$backupformat" == "zip" ]]; then
-    mv restore_$timedate.out restore_$timedate.zip
-    unzip -o restore_$timedate.zip -x "__MACOSX/*" -x "cgi-bin/*"
-    rm restore_$timedate.zip
-  fi
-
-  if [[ "$backupformat" == "gz" ]]; then
+  if [[ "$backup_url" == *".gz"* ]]; then
     mv restore_$timedate.out restore_$timedate.gz
     tar xvzf restore_$timedate.gz
     rm restore_$timedate.gz
   fi
 
-  if [[ "$backupformat" == "tar" ]]; then
+  if [[ "$backup_url" == *".zip"* ]]; then
+    mv restore_$timedate.out restore_$timedate.zip
+    unzip -o restore_$timedate.zip -x "__MACOSX/*" -x "cgi-bin/*"
+    rm restore_$timedate.zip
+  fi
+
+  if [[ "$backup_url" == *".tar"* ]]; then
     mv restore_$timedate.out restore_$timedate.tar
     tar xvzf restore_$timedate.tar
     rm restore_$timedate.tar
@@ -122,6 +121,11 @@ run_command() {
 
   # Finds WordPress path
   wordpresspath=$( find * -type d -name 'wp-content' -print -quit )
+
+  if [[ $wordpresspath == "" ]]; then
+    echo "Can't find wp-content/ in backup. Migration cancelled.";
+    return 1
+  fi
 
   # Migrate blogs.dir if found
   if [ -d $wordpresspath/blogs.dir ]; then
