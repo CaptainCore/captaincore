@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.4.0] - 2019-04-04
+## [0.4.0] - 2019-03-04
 ### Added
 - Environment support to commands `quicksave` and `quicksave-store`
 - Added multisite site count to remote script `fetch-site-data`
