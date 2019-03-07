@@ -79,12 +79,12 @@ run_command() {
       fi
 
 			# Exclude themes or plugins if marked for exclusion
-			if [[ $exclude_themes != "" ]] && [[ $exclude_plugins != "" ]]; then
-				json_output=$(captaincore ssh $site --script=update --exclude_plugins=$exclude_plugins --exclude_themes=$exclude_themes --all --format=json)
-			elif [[ $exclude_themes != "" ]]; then
-				json_output=$(captaincore ssh $site --script=update --exclude_themes=$exclude_themes --all --format=json)
-			elif [[ $exclude_plugins != "" ]]; then
-				json_output=$(captaincore ssh $site --script=update --exclude_plugins=$exclude_plugins --all --format=json)
+			if [[ $updates_exclude_themes != "" ]] && [[ $updates_exclude_plugins != "" ]]; then
+				json_output=$(captaincore ssh $site --script=update --exclude_plugins=$updates_exclude_plugins --exclude_themes=$updates_exclude_themes --all --format=json)
+			elif [[ $updates_exclude_themes != "" ]]; then
+				json_output=$(captaincore ssh $site --script=update --exclude_themes=$updates_exclude_themes --all --format=json)
+			elif [[ $updates_exclude_plugins != "" ]]; then
+				json_output=$(captaincore ssh $site --script=update --exclude_plugins=$updates_exclude_plugins --all --format=json)
 			else
 				json_output=$(captaincore ssh $site --script=update --all --format=json)
 			fi
