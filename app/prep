@@ -43,3 +43,4 @@ if [[ $skip_deployment != true ]]; then
 fi
 
 captaincore sync-data $site
+captaincore sync-data ${site}-staging
