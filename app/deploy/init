@@ -78,6 +78,7 @@ EOF
 
     # Deploy helper plugin
     captaincore ssh $site --script=deploy-helper
+    captaincore ssh ${site}-staging --script=deploy-helper
 
     # Clear out variables
     domain=''
