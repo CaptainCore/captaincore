@@ -141,14 +141,14 @@ run_command() {
   for d in $wordpresspath/themes/*/; do
     rm -rf $home_directory/wp-content/themes/$( basename $d )
     echo "Moving: themes/$d"
-    mv $d $home_directory/wp-content/themes/
+    mv "$d" $home_directory/wp-content/themes/
   done
 
   # Migrate plugins if found
   for d in $wordpresspath/plugins/*/; do
     rm -rf $home_directory/wp-content/plugins/$( basename $d )
     echo "Moving: plugins/$d"
-    mv $d $home_directory/wp-content/plugins/
+    mv "$d" $home_directory/wp-content/plugins/
   done
 
   # Find non-default root level files and folders
@@ -167,7 +167,7 @@ run_command() {
   for file in "${root_files[@]}"; do
     rm -rf $home_directory/$file
     echo "Moving: $file to $home_directory/"
-    mv $file ${home_directory}/
+    mv "$file" ${home_directory}/
   done
   cd $home_directory
 
