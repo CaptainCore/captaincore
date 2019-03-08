@@ -60,14 +60,32 @@ run_command() {
 
 	# Store updated info in WordPress datastore
 	cd ${root_path}data
-	wp --quiet post meta update $site_id core $core
-	wp --quiet post meta update $site_id home_url $home_url
-	wp --quiet post meta update $site_id plugins "$plugins"
-	wp --quiet post meta update $site_id themes "$themes"
-	wp --quiet post meta update $site_id subsite_count "$subsite_count"
-	wp --quiet post meta update $site_id users << heredoc
+
+	if [[ $environment == "production" ]]; then
+
+		wp --quiet post meta update $site_id core $core
+		wp --quiet post meta update $site_id home_url $home_url
+		wp --quiet post meta update $site_id plugins "$plugins"
+		wp --quiet post meta update $site_id themes "$themes"
+		wp --quiet post meta update $site_id subsite_count "$subsite_count"
+		wp --quiet post meta update $site_id users << heredoc
 $users
 heredoc
+
+	fi
+
+	if [[ $environment == "staging" ]]; then
+
+		wp --quiet post meta update $site_id core_staging $core
+		wp --quiet post meta update $site_id home_url_staging $home_url
+		wp --quiet post meta update $site_id plugins_staging "$plugins"
+		wp --quiet post meta update $site_id themes_staging "$themes"
+		wp --quiet post meta update $site_id subsite_count_staging "$subsite_count"
+		wp --quiet post meta update $site_id users_staging << heredoc
+$users
+heredoc
+
+	fi
 
 # Build json for quicksave
 read -r -d '' data << heredoc
