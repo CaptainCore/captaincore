@@ -22,8 +22,9 @@ run_command() {
 	INDEX=1
 	for website in "$@"; do
 
+
 		# Load site configs
-		eval $(captaincore site get $website --bash)
+		eval $(captaincore site get $website --bash --captain_id=$captain_id)
 
 		# Site found, start the backup
 		if [[ $site_id != "" ]] && [[ $site != "" ]]; then

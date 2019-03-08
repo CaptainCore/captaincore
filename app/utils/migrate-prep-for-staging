@@ -19,7 +19,12 @@ run_command() {
     for website in "$@"; do
 
       # Load site configs
-      eval $(captaincore site get $website --bash)
+      eval $(captaincore site get $website --bash --captain_id=$captain_id)
+
+      # Adjust path if fleet mode enabled
+      if [[ "$captaincore_fleet" == "true" ]]; then 
+        path=${path}/${captain_id}
+      fi
 
       echo "Processing $site (${INDEX}/$#)"
 

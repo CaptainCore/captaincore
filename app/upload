@@ -21,7 +21,7 @@ if [[ "$website" == *"-staging" ]]; then
 fi
 
 # Load site configs
-eval $(captaincore site get $website --bash)
+eval $(captaincore site get $website --bash --captain_id=$captain_id)
 
 # Site found, start the backup
 if ! [ -z "$domain" ]; then

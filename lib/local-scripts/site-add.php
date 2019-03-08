@@ -14,19 +14,39 @@ if ( strpos( $site, '@' ) !== false ) {
 	$provider = $split[1];
 }
 
-// Check if site
-$found_site = get_post( $id );
+if ( $captain_id == "" ) {
+	$captain_id = 1;
+}
+
+$arguments = array(
+	'author'    	 => $captain_id,
+	'post_type'      => 'captcore_website',
+	'posts_per_page' => '1',
+	'meta_query'     => array(
+		array(
+			'key'     => 'site_id',
+			'value'   => $id,
+			'compare' => '=',
+		),
+	),
+);
+
+// Check for existing site
+$found_site = get_posts( $args );
 
 if ( $found_site ) {
 
+	$found_site_id = $found_site[0]->ID;
+
 	$my_post = array(
 
-		'ID'          => $id,
+		'ID'          => $found_site_id,
 		'post_title'  => $domain,
 		'post_type'   => 'captcore_website',
 		'post_status' => 'publish',
-		'post_author' => '1',
+		'post_author' => $captain_id,
 		'meta_input'  => array(
+			'site_id'						  => $id,
 			'site'                            => $site,
 			'provider'                        => $provider,
 			'fathom'                          => $fathom,
@@ -77,12 +97,12 @@ if ( $found_site ) {
 
 	$my_post = array(
 
-		'import_id'   => intval( $id ),
 		'post_title'  => $domain,
 		'post_type'   => 'captcore_website',
 		'post_status' => 'publish',
-		'post_author' => '1',
+		'post_author' => $captain_id,
 		'meta_input'  => array(
+			'site_id'						  => $id,
 			'site'                            => $site,
 			'provider'                        => $provider,
 			'fathom'                          => $fathom,

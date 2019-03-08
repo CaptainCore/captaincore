@@ -44,7 +44,7 @@ run_command() {
         environment=production
       fi
 
-      eval $(captaincore site get $website --bash)
+      eval $(captaincore site get $website --bash --captain_id=$captain_id)
 
       # Return error if domain not found
       if [[ "$domain" == "" ]]; then
@@ -59,7 +59,12 @@ run_command() {
 
       if [[ "$skip_backup" != "true" ]]; then
         # Generate fresh backup
-        captaincore backup $site
+        captaincore backup $site --captain_id=$captain_id
+      fi
+
+      # Adjust path if fleet mode enabled
+      if [[ "$captaincore_fleet" == "true" ]]; then 
+        path=${path}/${captain_id}
       fi
 
       # Generates snapshot archive

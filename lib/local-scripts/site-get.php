@@ -8,8 +8,13 @@ if ( $format == "" ) {
 	$format = "json";
 }
 
+if ( $captain_id == "" ) {
+	$captain_id = 1;
+}
+
 // WP_Query arguments
 $arguments = array(
+	'author'    	 => $captain_id,
 	'post_type'      => array( 'captcore_website' ),
 	'posts_per_page' => '1',
 	'fields'         => 'ids',

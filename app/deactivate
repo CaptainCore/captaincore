@@ -96,7 +96,7 @@ run_command() {
 	for website in "$@"; do
 
     # Load site configs
-		eval $(captaincore site get $website --bash)
+		eval $(captaincore site get $website --bash --captain_id=$captain_id)
 
     if [[ $domain == "" ]]; then
 			echo "Domain not found"

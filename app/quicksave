@@ -60,7 +60,7 @@ run_command() {
 		fi
 		
 		# Load site configs
-		eval $(captaincore site get $website --bash)
+		eval $(captaincore site get $website --bash --captain_id=$captain_id)
 
 		# Return error if domain not found
 		if [[ "$domain" == "" ]] || [[ "$site" == "" ]]; then
@@ -237,17 +237,17 @@ heredoc
 
 # See if any sites are specifed
 if [ ${#arguments[*]} -gt 0 ]; then
-  # Runs on specific sites
-  run_command ${arguments[*]}
+	# Runs on specific sites
+	run_command ${arguments[*]}
 fi
 
 if [[ $all == "true" ]]; then
-  # Runs on all sites
-  echo "Quicksaves all sites"
+	# Runs on all sites
+	echo "Quicksaves all sites"
 	run_command ${websites[@]}
 fi
 
 # Error if no sites specifed
 if [[ $all != "true" ]] && [ ${#arguments[*]} -eq 0 ]; then
-  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
+	echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
 fi

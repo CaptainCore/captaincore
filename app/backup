@@ -57,7 +57,7 @@ run_command() {
     fi
 
     # Load site configs
-    eval $( captaincore site get $site --bash )
+    eval $(captaincore site get $site --bash --captain_id=$captain_id)
 
     # Site found, start the backup
     if [[ $domain == "" ]]; then
@@ -107,6 +107,11 @@ run_command() {
         captaincore ssh $site --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; chmod 600 wp-content/mysql.sql"
       fi
 
+    fi
+
+    # Adjust path if fleet mode enabled
+    if [[ "$captaincore_fleet" == "true" ]]; then 
+      path=${path}/${captain_id}
     fi
 
     # Backup site locally

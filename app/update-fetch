@@ -19,9 +19,14 @@ run_command() {
 		echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a site."
 		exit 1
 	fi
-
+	
 	# Load site info
-	eval $(captaincore site get $website --bash)
+	eval $(captaincore site get $website --bash --captain_id=$captain_id)
+
+	# Adjust path if fleet mode enabled
+	if [[ "$captaincore_fleet" == "true" ]]; then 
+		path=${path}/${captain_id}
+	fi
 
 	# Check for directory
 	if [ ! -d "$path/${site}_${site_id}/updates" ]; then

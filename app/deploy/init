@@ -26,7 +26,7 @@ run_command() {
 		fi
 
     # Load site configs
-    eval $(captaincore site get $website --bash)
+    eval $(captaincore site get $website --bash --captain_id=$captain_id)
 
     if [[ $domain == "" ]]; then
       echo "Error: $site missing domain."
@@ -46,6 +46,11 @@ run_command() {
     # Append trailing slash if home_directory exist
     if [ "$home_directory" != "" ]; then
       home_directory="${home_directory}/"
+    fi
+
+    # Adjust path if fleet mode enabled
+    if [[ "$captaincore_fleet" == "true" ]]; then 
+      path=${path}/${captain_id}
     fi
 
     # Pull down wp-config.php and .htaccess

@@ -23,9 +23,9 @@ run_command() {
   for site in "$@"; do
 
     let INDEX=${INDEX}+1
-
+  
     # Load site configs
-    eval $(captaincore site get $site --bash)
+    eval $(captaincore site get $site --bash --captain_id=$captain_id)
 
     ## Return error if domain not found
     if [[ "$domain" == "" ]]; then

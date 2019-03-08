@@ -44,7 +44,12 @@ run_command() {
   fi
 
   # Load site info
-  eval $(captaincore site get $site --bash)
+  eval $(captaincore site get $site --bash --captain_id=$captain_id)
+
+  # Adjust path if fleet mode enabled
+  if [[ "$captaincore_fleet" == "true" ]]; then 
+    path=${path}/${captain_id}
+  fi
 
   if [[ "$plugin" != "" ]]; then
 

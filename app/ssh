@@ -83,12 +83,11 @@ run_command() {
     fi
 
     # Load site configs
-    eval $(captaincore site get $website --bash)
+    eval $(captaincore site get $website --bash --captain_id=$captain_id)
 
     if [[ "$address" == "" && "$captaincore_master" != "" ]]; then
-      echo "Site $website not found. Attempting sync with master ($captaincore_master)."
-      captaincore utils sync-with-master
-      eval $(captaincore site get $website --bash)
+      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Site $website not found."
+      continue
     fi
 
     if [[ "$protocol" != "sftp" ]]; then

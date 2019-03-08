@@ -38,14 +38,19 @@ run_command() {
 		fi
 
 		# Load site configs
-		eval $(captaincore site get $website --bash)
+		eval $(captaincore site get $website --bash --captain_id=$captain_id)
 
 		echo "${INDEX}/$# - $domain"
 
-		## Return error if domain not found
+		# Return error if domain not found
 		if [[ "$domain" == "" ]] || [[ "$site" == "" ]]; then
 			echo "Can't locate website for $site"
 			continue
+		fi
+
+		# Adjust path if fleet mode enabled
+		if [[ "$captaincore_fleet" == "true" ]]; then 
+			path=${path}/${captain_id}
 		fi
 
 		cd $path/${site}_${site_id}/${environment}/quicksave/

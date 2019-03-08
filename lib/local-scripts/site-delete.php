@@ -17,8 +17,13 @@ if ( file_exists( $file ) ) {
 $captaincore_admin_email_key = array_search( 'captaincore_admin_email', $matches[1] );
 $captaincore_admin_email    = $matches[2][ $captaincore_admin_email_key ];
 
+if ( $captain_id == "" ) {
+	$captain_id = 1;
+}
+
 // Build arguments
 $arguments = array(
+	'author'    	 => $captain_id,
 	'post_type'      => 'captcore_website',
 	'posts_per_page' => '-1',
 	'fields'         => 'ids',

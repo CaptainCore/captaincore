@@ -23,8 +23,9 @@ run_command() {
   INDEX=1
   for site in "$@"; do
 
+
     # Load site configs
-    eval $(captaincore site get $site --bash)
+    eval $(captaincore site get $site --bash --captain_id=$captain_id)
 
     if [ -z "$domain" ]; then
       echo "Domain not found"

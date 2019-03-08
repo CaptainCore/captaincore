@@ -23,8 +23,13 @@ run_command() {
       ## assume its a command and strip out the argument as the user group
       group=${site##*=}
     else
+    
+      if [[ "$captain_id" == "" ]]; then
+        captain_id=1
+      fi
+
       # Load site configs
-      eval $(captaincore site get $site --bash)
+      eval $(captaincore site get $site --bash --captain_id=$captain_id)
 
       # Append trailing slash if home_directory exist
       if [ "$home_directory" != "" ]; then

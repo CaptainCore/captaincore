@@ -3,7 +3,12 @@
 // Converts arguments --staging --all --plugin=woocommerce --plugin_status=active --theme=sitename1 into $staging $all
 parse_str( str_replace( '-', '_', implode( '&', $args ) ) );
 
+if ( $captain_id == "" ) {
+	$captain_id = 1;
+}
+
 $arguments = array(
+	'author'    	 => $captain_id,
 	'post_type'      => 'captcore_website',
 	'posts_per_page' => '-1',
 	'fields'         => 'ids',

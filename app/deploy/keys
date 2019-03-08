@@ -8,8 +8,12 @@
 
 site=$1
 
+if [[ "$captain_id" == "" ]]; then
+  captain_id=1
+fi
+
 # Load site vars
-eval $(captaincore site get $site --bash)
+eval $(captaincore site get $site --bash --captain_id=$captain_id)
 
 if [[ $address == *".kinsta."* ]]; then
 

@@ -17,8 +17,9 @@ if [ $# -gt 0 ]; then
     var="$i"
     site=${!var}
 
+
     # Load site configs
-    eval $(captaincore site get $site --bash)
+    eval $(captaincore site get $site --bash --captain_id=$captain_id)
 
     # Site found, start the backup
     if ! [ -z "$domain" ]; then

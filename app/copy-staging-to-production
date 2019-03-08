@@ -16,9 +16,9 @@ run_command() {
   echo "Deploying $# production sites"
   INDEX=1
   for website in "$@"; do
-
+  
     # Load site configs
-    eval $(captaincore site get $website --bash)
+    eval $(captaincore site get $website --bash --captain_id=$captain_id)
 
     # Vars found, proceed
     if [ -z "$domain" ]; then

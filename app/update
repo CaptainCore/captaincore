@@ -48,7 +48,12 @@ run_command() {
       fi
 
       # Load site configs
-      eval $(captaincore site get $website --bash)
+      eval $(captaincore site get $website --bash --captain_id=$captain_id)
+
+      # Adjust path if fleet mode enabled
+      if [[ "$captaincore_fleet" == "true" ]]; then 
+        path=${path}/${captain_id}
+      fi
 
       # captures FTP errors in $ftp_output and file listing to log file
       ftp_output=$( { rclone lsd sftp-$site:$home_directory ; } 2>&1 )
@@ -80,13 +85,13 @@ run_command() {
 
 			# Exclude themes or plugins if marked for exclusion
 			if [[ $updates_exclude_themes != "" ]] && [[ $updates_exclude_plugins != "" ]]; then
-				json_output=$(captaincore ssh $site --script=update --exclude_plugins=$updates_exclude_plugins --exclude_themes=$updates_exclude_themes --all --format=json)
+				json_output=$(captaincore ssh $site --script=update --exclude_plugins=$updates_exclude_plugins --exclude_themes=$updates_exclude_themes --all --format=json --captain_id=$captain_id)
 			elif [[ $updates_exclude_themes != "" ]]; then
-				json_output=$(captaincore ssh $site --script=update --exclude_themes=$updates_exclude_themes --all --format=json)
+				json_output=$(captaincore ssh $site --script=update --exclude_themes=$updates_exclude_themes --all --format=json --captain_id=$captain_id)
 			elif [[ $updates_exclude_plugins != "" ]]; then
-				json_output=$(captaincore ssh $site --script=update --exclude_plugins=$updates_exclude_plugins --all --format=json)
+				json_output=$(captaincore ssh $site --script=update --exclude_plugins=$updates_exclude_plugins --all --format=json --captain_id=$captain_id)
 			else
-				json_output=$(captaincore ssh $site --script=update --all --format=json)
+				json_output=$(captaincore ssh $site --script=update --all --format=json --captain_id=$captain_id)
 			fi
 
 			# If json output detected then parse updates
@@ -186,7 +191,7 @@ fi
 
 if [[ $updates_enabled == "true" ]]; then
   # Runs on all sites
-	run_command $(captaincore site list --updates-enabled)
+	run_command $(captaincore site list --updates-enabled --captain_id=$captain_id)
 fi
 
 # Error if no sites specifed

@@ -16,14 +16,14 @@ run_command() {
 	site=$1
 
 	# Extract environment
-    if [[ "$site" == *"-staging"* ]]; then
-      environment=staging
-    else
-      environment=production
-    fi
+	if [[ "$site" == *"-staging"* ]]; then
+		environment=staging
+	else
+		environment=production
+	fi
 
 	# Load site configs
-	eval $(captaincore site get $site --bash)
+	eval $(captaincore site get $site --bash --captain_id=$captain_id)
 
 	# Environment
 	if [[ $environment == "staging" ]]; then
