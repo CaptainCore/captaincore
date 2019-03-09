@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+
+#
+#   Fetch token for site
+#
+#   `captaincore site fetch-token <site>`
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}lib/arguments
+
+site=${arguments[1]}
+
+# Extract environment
+if [[ "$site" == *"-staging"* ]]; then
+    environment=staging
+else
+    environment=production
+fi
+
+# Adjust path if fleet mode enabled
+if [[ "$captaincore_fleet" == "true" ]]; then 
+    path=${path}/${captain_id}
+fi
+
+eval $(captaincore site get $site --bash --captain_id=$captain_id)
+
+# Grabs AUTH_KEY line from wp-config.php
+auth_code=$(grep "'AUTH_KEY'" $path/${site}_${site_id}/${environment}/backup/wp-config.php | awk -F "'" '{print $4}')
+
+# PHP script to parse and base64
+read -r -d '' php_code << heredoc
+\$auth_key = "$auth_code";
+echo md5(\$auth_key);
+heredoc
+
+php -r "$php_code"

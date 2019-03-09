@@ -40,7 +40,7 @@ run_command() {
       if ! [ -z "$domain" ]; then
 
         ### Loads token
-        website_token=$(captaincore get token $site)
+        website_token=$(captaincore site fetch-token $site --captain_id=$captain_id)
 
         ### Generate JSON file based on preloaded list
         captaincore users-json --token=$website_token --customers=$preloadusers --site=$site

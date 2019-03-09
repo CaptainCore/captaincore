@@ -57,7 +57,7 @@ run_command() {
     rclone copy sftp-$site:${home_directory}.htaccess $path/${site}_${site_id}/${environment}/backup/
 
     # load custom configs into wp-config.php and .htaccess
-    captaincore get configs --wpconfig=$path/${site}_${site_id}/${environment}/backup/wp-config.php --htaccess=$path/${site}_${site_id}/${environment}/backup/.htaccess --domain=$domain
+    captaincore get configs --wpconfig=$path/${site}_${site_id}/${environment}/backup/wp-config.php --htaccess=$path/${site}_${site_id}/${environment}/backup/.htaccess --domain=$domain --captain_id=$captain_id
     sleep 1s
 
     # Push up modified wp-config.php and .htaccess
@@ -65,7 +65,7 @@ run_command() {
     rclone copy $path/${site}_${site_id}/${environment}/backup/.htaccess sftp-$site:${home_directory}
 
     # Generate token
-    token_key=$(captaincore get token $site)
+    token_key=$(captaincore site fetch-token $site --captain_id=$captain_id)
 
     # Assign token and backup link
     curl --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
@@ -78,10 +78,10 @@ run_command() {
 EOF
 
     # Set permalink to 'Post name' format if not set
-    captaincore ssh $site --script=rewrite-prep
+    captaincore ssh ${site} --script=rewrite-prep
 
     # Deploy helper plugin
-    captaincore ssh $site --script=deploy-helper
+    captaincore ssh ${site} --script=deploy-helper
     captaincore ssh ${site}-staging --script=deploy-helper
 
     # Clear out variables

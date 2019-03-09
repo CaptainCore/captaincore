@@ -31,7 +31,7 @@ if [ $# -gt 0 ]; then
       captaincore ssh $site --command="wp plugin delete hello; wp plugin install $plugins --force"
 
       # Loads token
-      website_token=$(captaincore get token $site)
+      website_token=$(captaincore site fetch-token $site --captain_id=$captain_id)
 
       # Load dynamic list of plugins for site
       plugins=`captaincore plugins-get --token=$website_token --customers=$preloadusers`
