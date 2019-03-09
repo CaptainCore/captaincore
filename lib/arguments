@@ -14,34 +14,44 @@ COLOR_NORMAL="\033[39m"
 # Loop through arguments and separate regular arguments from flags (--flag)
 for var in "$@"; do
 
-  # If starts with "--" then assign it to a flag array
+  # If starts with "--" then assign to $flags array
   if [[ $var == --* ]]; then
     count=1+${#flags[*]}
     flags[$count]=$var
-    # Else assign to an arguments array
-  else
-    count=1+${#arguments[*]}
-    arguments[$count]=$var
+    continue
   fi
+  
+  # Assign to $arguments array
+  count=1+${#arguments[*]}
+  arguments[$count]=$var
 
 done
 
-# Loop through flags and assign to variable. A flag "--email=my-email@my-site.com" becomes $email
+# Loop through flags and defines variables. Example "--email=my-email@my-site.com" becomes $email
 for i in "${!flags[@]}"; do
 
-  # replace "-" with "_" and remove leading "--"
+  # Replace "-" with "_" and remove leading "--"
   flag_name=`echo ${flags[$i]} | cut -c 3-`
 
-  # detected flag contains data
+  # Defines variables for flags with data
   if [[ $flag_name == *"="* ]]; then
     flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
     flag_name=`echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1'` # extract name
     flag_name=${flag_name//-/_}
     declare "$flag_name"="$flag_value" # assigns to $flag_flagname
-  else
-    # assigns to $flag_flagname boolen
-    flag_name=${flag_name//-/_}
-    declare "$flag_name"=true
+    continue
   fi
 
+  # Defines variables for boolean flags
+  flag_name=${flag_name//-/_}
+  declare "$flag_name"=true
+
 done
+
+# Load configurations from config.json
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< $(php ${root_path}lib/local-scripts/configs.php fetch --captain_id=$captain_id)

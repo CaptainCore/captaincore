@@ -20,10 +20,6 @@ if ( isset( $all ) ) {
 	echo 'all';
 }
 
-if ( $captain_id == "" ) {
-	$captain_id = 1;
-}
-
 $arguments = array(
 	'author'		 => $captain_id,
 	'post_type'      => 'captcore_website',

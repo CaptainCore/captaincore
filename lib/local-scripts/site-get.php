@@ -8,10 +8,6 @@ if ( $format == "" ) {
 	$format = "json";
 }
 
-if ( $captain_id == "" ) {
-	$captain_id = 1;
-}
-
 // WP_Query arguments
 $arguments = array(
 	'author'    	 => $captain_id,
@@ -53,6 +49,7 @@ foreach ( $site_ids as $site_id ) {
 	$provider     = get_post_meta( $site_id, "provider", true );
 	$fathom       = get_post_meta( $site_id, "fathom", true );
 	$preloadusers = get_post_meta( $site_id, "preloadusers", true );
+	$status       = get_post_meta( $site_id, "status", true );
 
 	if ( $environment == "production" ) {
 		$address                 = get_post_meta( $site_id, "address", true );
@@ -99,6 +96,7 @@ foreach ( $site_ids as $site_id ) {
 	$array = array(
 		"ID"                      => $site_id,
 		"site"                    => $site,
+		"status"				  => $status,
 		"provider"                => $provider,
 		"preloadusers"            => $preloadusers,
 		"home_url"                => $home_url,
@@ -127,6 +125,7 @@ foreach ( $site_ids as $site_id ) {
 domain=$title
 fathom=$fathom
 site=$site
+status=$status
 provider=$provider
 preloadusers=$preloadusers
 home_url=$home_url

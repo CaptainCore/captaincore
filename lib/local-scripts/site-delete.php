@@ -3,53 +3,50 @@
 parse_str( implode( '&', $args ) );
 
 // Loads CLI configs
-$file = $_SERVER['HOME'] . '/.captaincore-cli/config';
-if ( file_exists( $file ) ) {
+$json = $_SERVER['HOME'] . '/.captaincore-cli/config.json';
 
-	$file = file_get_contents( $file );
-	// Matches config keys and values
-	$pattern = '/(.+)=\"(.+)\"/';
-	preg_match_all( $pattern, $file, $matches );
-
+if ( ! file_exists( $file ) ) {
+	return;
 }
 
-// Fetches from CLI configs
-$captaincore_admin_email_key = array_search( 'captaincore_admin_email', $matches[1] );
-$captaincore_admin_email    = $matches[2][ $captaincore_admin_email_key ];
+$config_data = json_decode ( file_get_contents( $json ) );
 
-if ( $captain_id == "" ) {
-	$captain_id = 1;
+foreach($config_data as $config) {
+	if ( isset( $config->captain_id ) and $config->captain_id == $captain_id ) {
+		$configuration = $config;
+		break;
+	}
 }
+
+// Fetch from CLI configs
+$captaincore_admin_email = $configuration->vars->captaincore_admin_email;
 
 // Build arguments
 $arguments = array(
 	'author'    	 => $captain_id,
 	'post_type'      => 'captcore_website',
-	'posts_per_page' => '-1',
-	'fields'         => 'ids',
-	'post__in'       => array( $id ),
+	'posts_per_page' => '1',
 	'meta_query'     => array(
-		'relation' => 'AND',
 		array(
-			'key'     => 'status', // name of custom field
-			'value'   => 'active', // matches exaclty "123", not just 123. This prevents a match for "1234"
+			'key'     => 'site_id',
+			'value'   => $id,
 			'compare' => '=',
 		),
 	),
 );
-
 // Check if site
 $found_site = get_posts( $arguments );
 
 if ( $found_site ) {
 
+	$found_site_id = $found_site[0]->ID;
+
 	$my_post = array(
 
-		'ID'          => $id,
+		'ID'          => $found_site_id,
 		'post_status' => 'publish',
 		'meta_input'  => array(
-		'status' => 'closed',
-
+			'status' => 'closed',
 		),
 	);
 	echo "Site removed\n";
@@ -63,4 +60,4 @@ if ( $found_site ) {
 }
 
 // Make final snapshot then remove local files
-$output = shell_exec( "captaincore snapshot $site --delete-after-snapshot --email=$captaincore_admin_email > /dev/null 2>/dev/null &" );
+$output = shell_exec( "captaincore snapshot $site --delete-after-snapshot --email=$captaincore_admin_email --captain_id=$captain_id > /dev/null 2>/dev/null &" );

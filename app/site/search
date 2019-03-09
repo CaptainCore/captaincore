@@ -19,4 +19,4 @@ source ${root_path}lib/arguments
 
 cd ${root_path}data
 
-wp eval-file ${root_path}lib/local-scripts/site-search.php search=$1 field=$field search-field=$search_field
+wp eval-file ${root_path}lib/local-scripts/site-search.php search=$1 field=$field search-field=$search_field captain_id=$captain_id

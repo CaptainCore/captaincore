@@ -1,0 +1,48 @@
+[
+    {
+        "system": {
+            "captaincore_fleet": "false",
+            "captaincore_dev": "false",
+            "captaincore_master": "user@captaincore.mysite.com",
+            "captaincore_master_port": "12345",
+            "logs": "\/Users\/username\/Logs",
+            "path": "\/Users\/username\/Sites",
+            "path_tmp": "\/Users\/username\/Tmp",
+            "path_scripts": "\/Users\/username\/Scripts",
+            "rclone_cli_backup": "B2:Backup\/Services\/core",
+            "local_wp_db_pw": "###########"
+        }
+    },
+    {
+        "captain_id": "1",
+        "keys": {
+            "access_key": "###########",
+            "token": "###########",
+            "auth": "###########",
+            "WPCOM_API_KEY": "###########",
+            "GF_LICENSE_KEY": "###########",
+            "ACF_PRO_KEY": "###########"
+        },
+        "remotes": {
+            "rclone_archive": "Dropbox:Backup\/Archive\/",
+            "rclone_backup": "B2:Backup\/Sites",
+            "rclone_logs": "Dropbox:Backup\/Logs",
+            "rclone_snapshot": "B2:Backup\/Snapshots"
+        },
+        "vars": {
+            "captaincore_branding_name": "CaptainCore Client",
+            "captaincore_branding_title": "CaptainCore Client",
+            "captaincore_branding_author": "CaptainCore",
+            "captaincore_branding_author_uri": "https:\/\/captaincore.io",
+            "captaincore_branding_slug": "my-company-name",
+            "captaincore_server": "my-company-name.com",
+            "captaincore_tracker": "stats.my-company-name.com",
+            "captaincore_gui": "https:\/\/mysite.com",
+            "captaincore_api": "https:\/\/mysite.com\/wp-json\/captaincore\/v1\/api",
+            "captaincore_admin_email": "notify@mysite.com",
+            "captaincore_admin_user": "username",
+            "wpe_ssh_user": "email@captaincore.io",
+            "websites": "site1 site2 site3"
+        }
+    }
+]

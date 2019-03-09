@@ -14,10 +14,6 @@ if ( strpos( $site, '@' ) !== false ) {
 	$provider = $split[1];
 }
 
-if ( $captain_id == "" ) {
-	$captain_id = 1;
-}
-
 $arguments = array(
 	'author'    	 => $captain_id,
 	'post_type'      => 'captcore_website',
