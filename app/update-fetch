@@ -20,7 +20,7 @@ run_command() {
 	fi
 	
 	# Load site info
-	eval $(captaincore site get $website --bash --captain_id=$captain_id)
+	while read site_configs; do declare "$site_configs"; done <<< $(captaincore site get $website --bash --captain_id=$captain_id)
 
 	# Adjust path if fleet mode enabled
 	if [[ "$captaincore_fleet" == "true" ]]; then 

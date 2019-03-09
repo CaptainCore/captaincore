@@ -12,10 +12,10 @@ source ${root_path}lib/arguments
 
 run_command() {
 
-  for website in "$@"; do
+  for website in "${arguments[*]}"; do
 
     # Load site configs
-    eval $(captaincore site get $website --bash --captain_id=$captain_id)
+    while read site_configs; do declare "$site_configs"; done <<< $(captaincore site get $website --bash --captain_id=$captain_id)
 
     if [ -z "$domain" ]; then
       echo "Domain not found"

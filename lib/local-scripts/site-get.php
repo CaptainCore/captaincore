@@ -125,7 +125,7 @@ foreach ( $site_ids as $site_id ) {
 domain=$title
 fathom=$fathom
 site=$site
-status=$status
+site_status=$status
 provider=$provider
 preloadusers=$preloadusers
 home_url=$home_url

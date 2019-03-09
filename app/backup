@@ -56,7 +56,7 @@ run_command() {
     fi
 
     # Load site configs
-    eval $(captaincore site get $site --bash --captain_id=$captain_id)
+    while read site_configs; do declare "$site_configs"; done <<< $(captaincore site get $site --bash --captain_id=$captain_id)
 
     # Site found, start the backup
     if [[ $domain == "" ]]; then

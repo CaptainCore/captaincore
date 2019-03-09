@@ -15,7 +15,7 @@ site=$1
 run_command() {
 
   # Load site vars
-  eval $(captaincore site get $site --bash --captain_id=$captain_id)
+  while read site_configs; do declare "$site_configs"; done <<< $(captaincore site get $site --bash --captain_id=$captain_id)
 
   # Domain not found
   if [[ $domain == "" ]]; then

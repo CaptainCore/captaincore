@@ -19,7 +19,7 @@ echo "Running checks on ${#arguments[*]} sites"
 if [[ "$skip_follow" == "true" ]]; then
 
   for website in "${arguments[@]}"; do
-		eval $(captaincore site get $website --bash --captain_id=$captain_id)
+		while read site_configs; do declare "$site_configs"; done <<< $(captaincore site get $website --bash --captain_id=$captain_id)
     ip=`dig $address a +short | tail -n 1`
     echo "$site	$domain	$ip"
   done
@@ -27,7 +27,7 @@ if [[ "$skip_follow" == "true" ]]; then
 else
 
   for website in "${arguments[@]}"; do
-		eval $(captaincore site get $website --bash --captain_id=$captain_id)
+		while read site_configs; do declare "$site_configs"; done <<< $(captaincore site get $website --bash --captain_id=$captain_id)
     curl_result=`curl -sLI http://$address`
     followed_domain=`echo -e "$curl_result" | perl -wnE'say for /Location: (?:http:\/\/|https:\/\/)?([A-Z|a-z|.|-]+)/g' | tail -n 1`
     ip=`dig $followed_domain a +short | tail -n 1`

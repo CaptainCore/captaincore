@@ -17,7 +17,7 @@ if [[ "$captain_id" == "" ]]; then
 fi
 
 # Load site configs
-eval $(captaincore site get $site --bash --captain_id=$captain_id)
+while read site_configs; do declare "$site_configs"; done <<< $(captaincore site get $site --bash --captain_id=$captain_id)
 
 # Site found
 if ! [ -z "$domain" ]; then

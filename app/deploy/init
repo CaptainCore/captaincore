@@ -25,7 +25,7 @@ run_command() {
 		fi
 
     # Load site configs
-    eval $(captaincore site get $website --bash --captain_id=$captain_id)
+    while read site_configs; do declare "$site_configs"; done <<< $(captaincore site get $website --bash --captain_id=$captain_id)
 
     if [[ $domain == "" ]]; then
       echo "Error: $site missing domain."
