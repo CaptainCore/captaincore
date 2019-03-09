@@ -20,7 +20,7 @@ cd ${root_path}data
 wp eval-file ../lib/local-scripts/site-update.php site=$1 ${flags[@]}
 
 # Load site configs
-eval $(captaincore site get $1 --bash)
+while read site_configs; do declare "$site_configs"; done <<< $(captaincore site get $1 --bash --captain_id=$captain_id)
 
 # Generate rclone keys
 captaincore rclone-configs $site --captain_id=$captain_id

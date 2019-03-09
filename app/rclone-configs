@@ -37,7 +37,7 @@ run_command() {
   rclone config create sftp-$site $protocol host $address user $username port $port pass $rclone_pass
 
   if [[ "$password_staging" != "" ]]; then
-    eval $(captaincore site get ${site}-staging --bash)
+    while read site_configs; do declare "$site_configs"; done <<< $(captaincore site get ${site}-staging --bash --captain_id=$captain_id)
     rclone_pass=$(rclone obscure $password_staging)
     rclone config create sftp-${site}-staging $protocol host $address user $username port $port pass $rclone_pass
   fi

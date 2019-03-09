@@ -63,7 +63,7 @@ run_command() {
   captaincore ssh $site_destination --command="wp search-replace $site_source_url $site_destination_url --all-tables --skip-plugins --skip-themes --report-changed-only"
 
   # Load vars
-  eval $(captaincore site get $site_destination --bash)
+  while read site_configs; do declare "$site_configs"; done <<< $(captaincore site get $site_destination --bash --captain_id=$captain_id)
 
   domain=$(echo $site_source_data | json -a address)
 
