@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+
+#
+#   Monitor check
+#
+#   `captaincore screenshot`
+#
+#   [<site>...]
+#   One or more sites to check.
+#
+#   [--all]
+#   Checks all sites.
+#
+#   [--parallel=<number-of-checks>]
+#   Number of moniter checks to run at same time. Defaults to 5.
+#
+#   [--page=<page-url>]
+#   Check a specific page. Example `--page=/wp-admin/`. Defaults to home page.
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}lib/arguments
+
+run_command() {
+
+  urls_to_check=()
+
+  # Assign default parallel if needed
+  if [[ $parallel == "" ]]; then
+    parallel=4
+  fi
+
+  echo "Preparing to take snapshots"
+
+  for website in "$@"; do
+
+    # Extract environment
+    if [[ "$website" == *"-staging"* ]]; then
+      environment=staging
+    else
+      environment=production
+    fi
+
+    # Load site configs
+    while read site_configs; do declare "$site_configs"; done <<< $(captaincore site get $website --bash --captain_id=$captain_id)
+
+    if [[ "$captaincore_fleet" == "true" ]]; then
+      site_path=$path/$captain_id;
+    fi
+
+    if [[ "$home_url" != "" ]]; then
+      mkdir -p $site_path/${site}_${site_id}/${environment}/screenshots/
+      urls_to_check+=( $site_path/${site}_${site_id}/${environment}/screenshots/,${home_url} )
+    fi
+
+  done
+
+  urls_to_check=${urls_to_check[@]}
+
+  # Run checks in parallel. Collect the results in log file.
+  ( echo $urls_to_check | xargs -P $parallel -n 1 captaincore screenshot-runner ) 2>&1 | tee $log_file
+
+}
+
+# See if any sites are specifed
+if [ ${#arguments[*]} -gt 0 ]; then
+  # Runs on specifed sites
+  run_command ${arguments[*]}
+fi
+
+if [[ $all == "true" ]]; then
+  # Runs on all sites
+  run_command ${websites[@]}
+fi
+
+# Error if no sites specifed
+if [[ $all != "true" ]] && [ ${#arguments[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
+fi
