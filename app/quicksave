@@ -67,6 +67,11 @@ run_command() {
 			continue
 		fi
 
+		# Adjust path if fleet mode enabled
+		if [[ "$captaincore_fleet" == "true" ]]; then 
+			path=${path}/${captain_id}
+		fi
+
 		site_path=${site}_${site_id}/${environment}
 
 		if [[ "$environment" == "staging" ]]; then
