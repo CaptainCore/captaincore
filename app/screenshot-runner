@@ -20,10 +20,9 @@ run_command() {
   fi
   echo "Generating screenshot for $url"
   bash_output=$( ( gowitness single --url="$url" --log-format=json --timeout=60 --destination="$path" ) 2>&1 | cat )
-  #echo "Bash $json"
 
   # PHP script to parse and base64
-    read -r -d '' php_code << heredoc
+  read -r -d '' php_code << heredoc
 \$raw = <<< EOT
 $bash_output
 EOT;

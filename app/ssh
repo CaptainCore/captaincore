@@ -22,54 +22,7 @@
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source ${root_path}lib/arguments
 
-# Loop through arguments and separate regular arguments from flags (--flag)
-all_arguments=( $@ )
-for var in "$@"; do
-
-  # If starts with "--" then assign to flag array
-  if [[ $var == --* ]]; then
-    count=1+${#flags[*]}
-    flags[$count]=$var
-    if [[ "$var" == "--script="* ]]; then
-      script_position=$(expr 1 + ${#flags[*]})
-    fi
-  fi
-
-  # If does not starts with "--" then assign to arguments array
-  if [[ $var != --* ]]; then
-    count=1+${#arguments[*]}
-    arguments[$count]=$var
-  fi
-
-done
-
-# Loop through flags and assign to variable. A flag "--email=my-email@my-site.com" becomes $email
-for i in "${!flags[@]}"; do
-
-  # replace "-" with "_" and remove leading "--"
-  flag_name=`echo ${flags[$i]} | cut -c 3-`
-
-  # detected flag contains data
-  if [[ ${flags[$i]} == *"="* ]]; then
-
-    flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
-    flag_name=`echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1'` # extract name
-    flag_name=${flag_name/-/_}
-
-    # Double wrap flag value to remain safe as SSH argument
-    flags[$i]="--$flag_name=\\\"\"$flag_value\\\"\""
-
-    declare "$flag_name"="$flag_value" # assigns to $flag_flagname
-
-  fi
-
-  if [[ ${flags[$i]} != *"="* ]]; then
-    # assigns to $flag_flagname boolen
-    flag_name=${flag_name//-/_}
-    declare "$flag_name"=true
-  fi
-
-done
+#
 
 run_command() {
 

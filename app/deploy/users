@@ -23,10 +23,6 @@ run_command() {
       ## assume its a command and strip out the argument as the user group
       group=${site##*=}
     else
-    
-      if [[ "$captain_id" == "" ]]; then
-        captain_id=1
-      fi
 
       # Load site configs
       while read site_configs; do declare "$site_configs"; done <<< $(captaincore site get $site --bash --captain_id=$captain_id)

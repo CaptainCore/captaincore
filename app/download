@@ -12,10 +12,6 @@ source ${root_path}lib/arguments
 
 site=$1
 
-if [[ "$captain_id" == "" ]]; then
-	captain_id=1
-fi
-
 # Load site configs
 while read site_configs; do declare "$site_configs"; done <<< $(captaincore site get $site --bash --captain_id=$captain_id)
 
