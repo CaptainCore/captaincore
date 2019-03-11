@@ -1,0 +1,174 @@
+#! /usr/bin/env php
+<?php
+#
+#   Loads custom configurations into wp-config.php and .htaccess
+#
+#   captaincore site deploy-configs <site>
+#
+
+if ( isset ( $argv ) ) {
+	parse_str(implode('&', array_slice($argv, 1)), $_GET);
+}
+
+$captain_id   = $_GET['--captain_id'];
+$site         = $argv[1];
+$site_details = json_decode( shell_exec( "captaincore site get $site --format=json --captain_id=$captain_id" ) );
+
+// Loads CLI configs
+$json = $_SERVER['HOME'] . '/.captaincore-cli/config.json';
+
+if ( ! file_exists( $json ) ) {
+	return;
+}
+
+$config_data = json_decode ( file_get_contents( $json ) );
+$system = $config_data[0]->system;
+
+foreach($config_data as $config) {
+	if ( isset( $config->captain_id ) and $config->captain_id == $captain_id ) {
+		$configuration = $config;
+		break;
+	}
+}
+
+$path = $system->path;
+
+if ( $system->captaincore_fleet == true ) {
+	$path = "{$path}/{$captain_id}";
+}
+
+$site_path = "$path/{$site_details->site}_{$site_details->ID}/production/backup/";
+
+$file = $site_path . "wp-config.php";
+
+# Check if wp-config.php exists
+if ( ! file_exists( $file ) ) {
+	return;
+}
+
+# Reads in wp-config.php file
+$current = file_get_contents( $file );
+$lines = explode( PHP_EOL, $current);
+
+$captaincore_branding = <<< heredoc
+serialize( array(
+	'name' => '{$configuration->vars->captaincore_branding_name}',
+	'title' => '{$configuration->vars->captaincore_branding_title}',
+	'author' => '{$configuration->vars->captaincore_branding_author}',
+	'authoruri' => '{$configuration->vars->captaincore_branding_author_uri}'
+) )
+heredoc;
+
+$keys_to_add = array(
+	'WPCOM_API_KEY'                   => "'{$configuration->keys->WPCOM_API_KEY}'",
+	'GF_LICENSE_KEY'                  => "'{$configuration->keys->GF_LICENSE_KEY}'",
+	'ACF_PRO_KEY'                     => "'{$configuration->keys->ACF_PRO_KEY}'",
+	'CAPTAINCORE_DOMAIN'              => "'{$site_details->domain}'",
+	'CAPTAINCORE_SERVER'              => "'{$configuration->vars->captaincore_server}'",
+	'CAPTAINCORE_BRANDING'            => $captaincore_branding,
+);
+
+// Hunt for existing keys and disregard if found
+foreach( $lines as $index => $line ) {
+
+	if (strpos($line, 'WPCOM_API_KEY') !== false) {
+		unset($keys_to_add['WPCOM_API_KEY']);
+	}
+
+	if (strpos($line, 'GF_LICENSE_KEY') !== false) {
+		unset($keys_to_add['GF_LICENSE_KEY']);
+	}
+
+	if (strpos($line, 'ACF_PRO_KEY') !== false) {
+		unset($keys_to_add['ACF_PRO_KEY']);
+	}
+
+	if (strpos($line, 'CAPTAINCORE_BRANDING') !== false) {
+		unset($keys_to_add['CAPTAINCORE_BRANDING']);
+	}
+
+	if (strpos($line, 'CAPTAINCORE_SERVER') !== false) {
+		unset($keys_to_add['CAPTAINCORE_SERVER']);
+	}
+
+	if (strpos($line, 'CAPTAINCORE_DOMAIN') !== false) {
+		unset($keys_to_add['CAPTAINCORE_DOMAIN']);
+	}
+
+	if (strpos($line, '# WP Engine Settings') !== false) {
+		// Target position below this line.
+		$key_index = $index;
+	}
+
+	if (strpos($line, "/* That's all, stop editing! Happy blogging. */") !== false) {
+		// Target position above this line.
+		$key_index = $index - 1;
+	}
+
+}
+
+$lines_to_add = array();
+
+foreach( $keys_to_add as $key => $value ) {
+	$lines_to_add[] = "define( '$key', $value );";
+}
+
+$new_lines = array_merge( 
+	array_slice( $lines, 0, $key_index + 1, true ),
+	$lines_to_add,
+	array_slice( $lines, $key_index + 1, count( $lines ), true )
+);
+
+$new_contents = implode( PHP_EOL, $new_lines );
+$output = file_put_contents( $file, $new_contents );
+
+// Customize .htaccess file
+$file = null;
+$file = $site_path . ".htaccess";
+
+# Check if .htaccess exists
+if ( ! file_exists( $file ) ) {
+	return;
+}
+
+# Reads in .htaccess file
+$current = file_get_contents( $file );
+$lines = explode( PHP_EOL, $current);
+
+$keys_to_add = array(
+	'post_max_size'       => "php_value post_max_size 200M",
+	'upload_max_filesize' => "php_value upload_max_filesize 200M",
+);
+
+// Hunt for existing keys and disregard if found
+foreach( $lines as $index => $line ) {
+
+	if (strpos($line, 'post_max_size') !== false) {
+		unset($keys_to_add['post_max_size']);
+	}
+
+	if (strpos($line, 'upload_max_filesize') !== false) {
+		unset($keys_to_add['upload_max_filesize']);
+	}
+
+	if (strpos($line, "# END WordPress") !== false) {
+		// Target position below this line.
+		$key_index = $index;
+	}
+
+}
+
+$lines_to_add = array();
+
+foreach( $keys_to_add as $key => $value ) {
+	$lines_to_add[] = $value;
+}
+
+$new_lines = array_merge( 
+	array_slice( $lines, 0, $key_index + 1, true ),
+	$lines_to_add,
+	array_slice( $lines, $key_index + 1, count( $lines ), true )
+);
+
+$new_contents = implode( PHP_EOL, $new_lines );
+$output 	  = file_put_contents( $file, $new_contents );
