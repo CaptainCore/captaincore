@@ -9,44 +9,64 @@
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source ${root_path}lib/arguments
 
-site=$1
+run_command() {
 
-if [[ "$captain_id" == "" ]]; then
-  captain_id=1
-fi
+  website=$1
 
-# Load site vars
-while read site_configs; do declare "$site_configs"; done <<< $(captaincore site get $site --bash --captain_id=$captain_id)
+  # Load site vars
+  while read site_configs; do declare "$site_configs"; done <<< $(captaincore site get $website --bash --captain_id=$captain_id)
 
-if [[ $address == *".kinsta."* ]]; then
+  if [[ $address == *".kinsta."* ]]; then
 
-  # Extract a JSON value from a BASH script (https://gist.github.com/cjus/1047794)
-  function jsonValue() {
-    KEY=$1
-    num=$2
-    awk -F"[,:}]" '{for(i=1;i<=NF;i++){if($i~/'$KEY'\042/){print $(i+1)}}}' | tr -d '"' | sed -n ${num}p
-  }
+    # Extract environment
+    if [[ "$website" == *"-staging"* ]]; then
+      environment="-staging"
+    fi
 
-  # Check for authorized_keys using rclone's JSON
-  check_for_keys=`rclone lsjson sftp-${site}:.ssh/authorized_keys --no-modtime`
-  check_for_keys_staging=`rclone lsjson sftp-${site}-staging:.ssh/authorized_keys --no-modtime`
+    # Check for authorized_keys using rclone's JSON
+    check_for_keys=$( rclone lsjson sftp-${site}${environment}:.ssh/authorized_keys --no-modtime )
+
+    # PHP script to read JSON value
+    read -r -d '' php_code << heredoc
+\$raw = <<< EOT
+$check_for_keys
+EOT;
+\$json = json_decode( \$raw );
+echo \$json[0]->Path;
+heredoc
 
   # Read the "Path" JSON value
-  found_authorized_keys=`echo $check_for_keys | jsonValue Path`
-  found_authorized_staging_keys=`echo $check_for_keys_staging | jsonValue Path`
+  found_authorized_keys=$( php -r "$php_code" )
 
+  # Read local key
+  local_public_key=$( cat ~/.ssh/id_rsa.pub )
+
+  # No authorized_keys found, generate new one
+  if [[ "$found_authorized_keys" != "authorized_keys" ]]; then
+    echo local_public_key | rclone rcat sftp-${site}${environment}:.ssh/authorized_keys
+  fi
+
+  # Exmaine existing authorized_keys file
   if [[ "$found_authorized_keys" == "authorized_keys" ]]; then
-    echo "found keys: TODO append to bottom of file";
-  else
-    cat ~/.ssh/id_rsa.pub | rclone rcat sftp-${site}:.ssh/authorized_keys
+
+    # Fetch current authorized_keys
+    authorized_keys=$( rclone cat sftp-${site}${environment}:.ssh/authorized_keys )
+
+    # Check if key is already added
+    if [ -z "${authorized_keys##*$local_public_key*}" ]; then
+      echo "Key already added."
+    else 
+      echo "Adding key."
+      printf "$authorized_keys\n$local_public_key\n" | rclone rcat sftp-${site}${environment}:.ssh/authorized_keys
+    fi
+
   fi
 
-  if [[ "$found_authorized_staging_keys" == "authorized_keys" ]]; then
-    echo "found keys on staging: TODO append to bottom of file";
-  else
-    cat ~/.ssh/id_rsa.pub | rclone rcat sftp-${site}-staging:.ssh/authorized_keys
-  fi
+  return
 
-else
   echo "Not a Kinsta site, skipping ssh keys"
+  
 fi
+
+}
+run_command $1
