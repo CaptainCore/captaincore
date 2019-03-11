@@ -57,7 +57,7 @@ run_command() {
     rclone copy sftp-$site:${home_directory}.htaccess $path/${site}_${site_id}/${environment}/backup/
 
     # load custom configs into wp-config.php and .htaccess
-    captaincore get configs --wpconfig=$path/${site}_${site_id}/${environment}/backup/wp-config.php --htaccess=$path/${site}_${site_id}/${environment}/backup/.htaccess --domain=$domain --captain_id=$captain_id
+    captaincore site deploy-configs $site --captain_id=$captain_id
     sleep 1s
 
     # Push up modified wp-config.php and .htaccess
