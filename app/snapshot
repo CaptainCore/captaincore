@@ -30,109 +30,106 @@ source ${root_path}lib/arguments
 
 run_command() {
 
-  if [ $# -gt 0 ]; then
+  echo "Generating snapshots for $# sites"
+  INDEX=1
+  for website in "$@"; do
 
-    echo "Generating snapshots for $# sites"
-    INDEX=1
-    for website in "$@"; do
+    # Extract environment
+    if [[ "$website" == *"-staging"* ]]; then
+      environment=staging
+    else
+      environment=production
+    fi
 
-    	# Extract environment
-      if [[ "$website" == *"-staging"* ]]; then
-        environment=staging
-      else
-        environment=production
+    while read site_configs; do declare "$site_configs"; done <<< $(captaincore site get $website --bash --captain_id=$captain_id)
+
+    # Return error if domain not found
+    if [[ "$domain" == "" ]]; then
+      echo "Can't locate website for site $site"
+      return 1
+    fi
+
+    if [[ "$site" == *"-staging" ]]; then
+      site=${site//-staging/}
+      use_staging=true
+    fi
+
+    if [[ "$skip_backup" != "true" ]]; then
+      # Generate fresh backup
+      captaincore backup $site --skip-remote --captain_id=$captain_id
+    fi
+
+    # Adjust path if fleet mode enabled
+    if [[ "$captaincore_fleet" == "true" ]]; then 
+      path=${path}/${captain_id}
+    fi
+
+    # Generates snapshot archive
+    timedate=$(date +'%Y-%m-%d-%H%M%S')
+    cd $path/${site}_${site_id}/
+    ln -s $environment/backup/ $site-$environment-$timedate # create directory shortcut for naming purposes
+    zip -r $site-$environment-$timedate.zip $site-$environment-$timedate/ --exclude=$site-$environment-$timedate/_wpeprivate/\* --exclude=\*.git\* --exclude=$site-$environment-$timedate/wp-content/advanced-cache.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/mu-plugin.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$site-$environment-$timedate/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$site-$environment-$timedate/wp-content/mu-plugins/wpengine-common/\*
+    rm $site-$environment-$timedate  # remove directory shortcut
+    mkdir -p ${environment}/snapshots
+    mv $site-$environment-$timedate.zip ${environment}/snapshots
+    cd ${environment}/snapshots
+
+    # Grab snapshot size in bytes
+    if [[ "$OSTYPE" == "linux-gnu" ]]; then
+      # Begin folder size in bytes without apparent-size flag
+      snapshot_size=`du -s --block-size=1 $site-$environment-$timedate.zip`
+      snapshot_size=`echo $snapshot_size | cut -d' ' -f 1`
+
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+      # Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
+      snapshot_size=`find $site-$environment-$timedate.zip -type f -print0 | xargs -0 stat -f%z`
+    fi
+
+    if [[ $skip_remote != true ]]; then
+
+      # Moves snapshot to Backblaze archive folder
+      rclone move $site-$environment-$timedate.zip $rclone_snapshot/${site}_${site_id}/
+
+      # Post snapshot to ACF field
+      if [[ "$captaincore_dev" == true ]]; then
+        curl_argument="-k"
       fi
 
-      while read site_configs; do declare "$site_configs"; done <<< $(captaincore site get $website --bash --captain_id=$captain_id)
-
-      # Return error if domain not found
-      if [[ "$domain" == "" ]]; then
-        echo "Can't locate website for site $site"
-        return 1
-      fi
-
-      if [[ "$site" == *"-staging" ]]; then
-        site=${site//-staging/}
-        use_staging=true
-      fi
-
-      if [[ "$skip_backup" != "true" ]]; then
-        # Generate fresh backup
-        captaincore backup $site --captain_id=$captain_id
-      fi
-
-      # Adjust path if fleet mode enabled
-      if [[ "$captaincore_fleet" == "true" ]]; then 
-        path=${path}/${captain_id}
-      fi
-
-      # Generates snapshot archive
-      timedate=$(date +'%Y-%m-%d-%H%M%S')
-      cd $path/${site}_${site_id}/
-      ln -s $environment/backup/ $site-$environment-$timedate # create directory shortcut for naming purposes
-      zip -r $site-$environment-$timedate.zip $site-$environment-$timedate/ --exclude=$site-$environment-$timedate/_wpeprivate/\* --exclude=\*.git\* --exclude=$site-$environment-$timedate/wp-content/advanced-cache.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/mu-plugin.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$site-$environment-$timedate/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$site-$environment-$timedate/wp-content/mu-plugins/wpengine-common/\*
-      rm $site-$environment-$timedate  # remove directory shortcut
-      mkdir -p ${environment}/snapshots
-      mv $site-$environment-$timedate.zip ${environment}/snapshots
-      cd ${environment}/snapshots
-
-      # Grab snapshot size in bytes
-      if [[ "$OSTYPE" == "linux-gnu" ]]; then
-        # Begin folder size in bytes without apparent-size flag
-        snapshot_size=`du -s --block-size=1 $site-$environment-$timedate.zip`
-        snapshot_size=`echo $snapshot_size | cut -d' ' -f 1`
-
-      elif [[ "$OSTYPE" == "darwin"* ]]; then
-        # Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
-        snapshot_size=`find $site-$environment-$timedate.zip -type f -print0 | xargs -0 stat -f%z`
-      fi
-
-      if [[ $skip_remote != true ]]; then
-
-        # Moves snapshot to Backblaze archive folder
-        rclone move $site-$environment-$timedate.zip $rclone_snapshot/${site}_${site_id}/
-
-        # Post snapshot to ACF field
-        if [[ "$captaincore_dev" == true ]]; then
-          curl_argument="-k"
-        fi
-
-        # Adds sync data to CaptainCore GUI
-        curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
+      # Adds sync data to CaptainCore GUI
+      curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
-	"command":"snapshot",
-	"site_id":"$site_id",
-  "environment":"$environment",
-	"storage":"$snapshot_size",
-	"archive":"${site}-${environment}-${timedate}.zip",
-	"email":"$email",
-	"token":"$token"
+"command":"snapshot",
+"site_id":"$site_id",
+"environment":"$environment",
+"storage":"$snapshot_size",
+"archive":"${site}-${environment}-${timedate}.zip",
+"email":"$email",
+"token":"$token"
 }
 EOF
 
-      fi
+    fi
 
-      if [[ $delete_after_snapshot == true ]]; then
+    if [[ $delete_after_snapshot == true ]]; then
 
-        echo "Removing files after snapshot"
+      echo "Removing files after snapshot"
 
-        # Removed from rclone
-        rclone config delete sftp-$site
-        rclone config delete sftp-$site-staging
+      # Removed from rclone
+      rclone config delete sftp-$site
+      rclone config delete sftp-$site-staging
 
-        # Removes directory from backup server
-        rm -rf $path/${site}_${site_id}/${environment}/backup/
+      # Removes directory from backup server
+      rm -rf $path/${site}_${site_id}/${environment}/backup/
 
-        # Remove from remote storage
-        rclone purge --fast-list $rclone_backup/${site}_${site_id}
+      # Remove from remote storage
+      rclone purge --fast-list $rclone_backup/${site}_${site_id}
 
-      fi
+    fi
 
-      let INDEX=${INDEX}+1
+    let INDEX=${INDEX}+1
 
-    done
+  done
 
-  fi
 }
 
 # See if any sites are specifed
