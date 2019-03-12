@@ -22,8 +22,6 @@
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source ${root_path}lib/arguments
 
-#
-
 run_command() {
 
   for website in "$@"; do
@@ -114,6 +112,11 @@ run_command() {
     # Runs ssh with command
     if [ -n "$command" ]; then
       ssh $remoteserver "$commandprep $command"
+      continue
+    fi
+
+    if [[ "$direct" == "true" ]]; then
+      ssh -T $remoteserver
       continue
     fi
 
