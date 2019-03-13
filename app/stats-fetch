@@ -13,11 +13,16 @@
 parse_str( implode( '&', array_slice( $argv, 1 ) ), $_GET );
 
 # Defaults
-$domain = "";
-$provider = "wordpress";
+$captain_id = $_GET['--captain_id'];
+$domain     = "";
+$provider   = "wordpress";
 
-if (isset($argv[1])) { $domain = $argv[1]; }
-if (isset($argv[2])) { $provider = $argv[2]; }
+if (isset($argv[1])) { 
+    $domain = $argv[1]; 
+}
+if (isset($argv[2]) && $argv[2] == "wordpress" || $argv[2] == "fathom") { 
+    $provider = $argv[2]; 
+}
 
 if ( $domain and $provider == "fathom" ) {
 
@@ -67,9 +72,7 @@ if ( $domain and $provider == "fathom" ) {
     LIMIT 12";
 
     $statement = $pdo->prepare($sql);
-
     $statement->execute();
-
     $stats = $statement->fetchAll();
 
     // Bail if stats not found
@@ -81,7 +84,6 @@ if ( $domain and $provider == "fathom" ) {
     $total_pageviews = array_sum(array_column($stats,'pageviews'));
     $monthly_average_pageviews = round($total_pageviews / $month_count);
     $yearly_average_pageviews = $monthly_average_pageviews * 12;
-
 
     // Return yearly average pageviews
     if ($yearly_average_pageviews > 0 ) {
@@ -95,19 +97,24 @@ if ( $domain and $provider == "fathom" ) {
 if ( $domain and $provider == "wordpress" ) {
 
     // Loads CLI configs
-    $file = $_SERVER['HOME'] . '/.captaincore-cli/config';
-    if ( file_exists( $file ) ) {
+    $json = $_SERVER['HOME'] . '/.captaincore-cli/config.json';
 
-        $file = file_get_contents( $file );
-        // Matches config keys and values
-        $pattern = '/(.+)=\"(.+)\"/';
-        preg_match_all( $pattern, $file, $matches );
+    if ( ! file_exists( $json ) ) {
+        return;
+    }
 
+    $config_data = json_decode ( file_get_contents( $json ) );
+    $system = $config_data[0]->system;
+
+    foreach($config_data as $config) {
+        if ( isset( $config->captain_id ) and $config->captain_id == $captain_id ) {
+            $configuration = $config;
+            break;
+        }
     }
 
     // Connects to WordPress.com and pulls blog ids
-    $access_key_id = array_search( 'access_key', $matches[1] );
-    $access_key    = $matches[2][ $access_key_id ];
+    $access_key = $configuration->keys->access_key;
 
     if ( $domain ) {
 
