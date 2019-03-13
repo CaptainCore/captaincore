@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+
+#
+#   Deploys assigned default plugins for a site
+#
+#   `captaincore site deploy-plugins [<site>...]`
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}lib/arguments
+
+run_command() {
+
+  for site in "$@"; do
+  
+    # Extract environment
+    if [[ "$site" == *"-staging"* ]]; then
+      environment=staging
+    else
+      environment=production
+    fi
+
+    # Load site configs
+    while read site_configs; do declare "$site_configs"; done <<< $(captaincore site get $site --bash --captain_id=$captain_id)
+
+    # If website on Kinsta then prepare their format
+    if [[ "$address" == *".kinsta."* ]]; then
+
+      # Kinsta's command prep
+      command_prep="cd public/ &&"
+
+    fi
+
+    if [[ "$address" == *".wpengine.com" ]]; then
+
+      # WP Engine's command prep
+      command_prep="rm ~/.wp-cli/config.yml; cd sites/* &&"
+
+    fi
+
+    wp_cli_command=$( captaincore site fetch-default-plugins ${site}-${environment} --captain_id=$captain_id )
+
+    captaincore ssh ${site}-${environment} --direct << EOF
+$command_prep
+$wp_cli_command
+EOF
+
+  done
+}
+
+# See if any sites are specifed
+if [ ${#arguments[*]} -gt 0 ]; then
+  # Runs on specifed sites
+  run_command ${arguments[*]}
+fi
+
+if [[ $all == "true" ]]; then
+  # Runs on all sites
+  run_command ${websites[@]}
+fi
+
+# Error if no sites specifed
+if [[ $all != "true" ]] && [ ${#arguments[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
+fi
