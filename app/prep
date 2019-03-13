@@ -18,22 +18,22 @@ site=$1
 while read site_configs; do declare "$site_configs"; done <<< $(captaincore site get $site --bash --captain_id=$captain_id)
 
 # Deploy SSH keys
-captaincore deploy keys $site --captain_id=$captain_id
-captaincore deploy keys ${site}-staging --captain_id=$captain_id
+captaincore site deploy-keys $site --captain_id=$captain_id
+captaincore site deploy-keys ${site}-staging --captain_id=$captain_id
 
 # load custom configs into wp-config.php and .htaccess, setups up token
-captaincore deploy init $site --captain_id=$captain_id
+captaincore site deploy-init $site --captain_id=$captain_id
 echo "load custom configs into wp-config.php and .htaccess"
 echo "Setting up token"
 
 if [[ $skip_deployment != true ]]; then
 
   ## loads users
-  captaincore deploy users $site --captain_id=$captain_id
+  captaincore site deploy-users $site --captain_id=$captain_id
   echo "Preload Users"
 
   ## install plugins
-  captaincore deploy plugins $site --captain_id=$captain_id
+  captaincore site deploy-plugins $site --captain_id=$captain_id
   echo "Preload Plugins"
 
   ## run initial backup
