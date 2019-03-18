@@ -42,7 +42,7 @@ run_command() {
 
   # Store updated info in WordPress datastore
 	cd ${root_path}data
-	wp --quiet post meta update $site_id fathom $code
+	wp --quiet post meta update $id fathom $code
 
 }
 run_command ${arguments[*]}

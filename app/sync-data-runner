@@ -62,12 +62,12 @@ run_command() {
 
 	if [[ $environment == "production" ]]; then
 
-		wp --quiet post meta update $site_id core $core
-		wp --quiet post meta update $site_id home_url $home_url
-		wp --quiet post meta update $site_id plugins "$plugins"
-		wp --quiet post meta update $site_id themes "$themes"
-		wp --quiet post meta update $site_id subsite_count "$subsite_count"
-		wp --quiet post meta update $site_id users << heredoc
+		wp --quiet post meta update $id core $core
+		wp --quiet post meta update $id home_url $home_url
+		wp --quiet post meta update $id plugins "$plugins"
+		wp --quiet post meta update $id themes "$themes"
+		wp --quiet post meta update $id subsite_count "$subsite_count"
+		wp --quiet post meta update $id users << heredoc
 $users
 heredoc
 
@@ -75,12 +75,12 @@ heredoc
 
 	if [[ $environment == "staging" ]]; then
 
-		wp --quiet post meta update $site_id core_staging $core
-		wp --quiet post meta update $site_id home_url_staging $home_url
-		wp --quiet post meta update $site_id plugins_staging "$plugins"
-		wp --quiet post meta update $site_id themes_staging "$themes"
-		wp --quiet post meta update $site_id subsite_count_staging "$subsite_count"
-		wp --quiet post meta update $site_id users_staging << heredoc
+		wp --quiet post meta update $id core_staging $core
+		wp --quiet post meta update $id home_url_staging $home_url
+		wp --quiet post meta update $id plugins_staging "$plugins"
+		wp --quiet post meta update $id themes_staging "$themes"
+		wp --quiet post meta update $id subsite_count_staging "$subsite_count"
+		wp --quiet post meta update $id users_staging << heredoc
 $users
 heredoc
 

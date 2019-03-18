@@ -212,11 +212,11 @@ EOM
 
 		## Store updated info in WordPress datastore
 		cd ${root_path}data
-		wp post meta update $site_id plugins "${response_parsed[0]}"
-		wp post meta update $site_id themes "${response_parsed[1]}"
-		wp post meta update $site_id core ${response_parsed[2]}
-		wp post meta update $site_id home_url ${response_parsed[3]}
-		wp post meta update $site_id users << heredoc
+		wp post meta update $id plugins "${response_parsed[0]}"
+		wp post meta update $id themes "${response_parsed[1]}"
+		wp post meta update $id core ${response_parsed[2]}
+		wp post meta update $id home_url ${response_parsed[3]}
+		wp post meta update $id users << heredoc
 ${response_parsed[4]}
 heredoc
 
