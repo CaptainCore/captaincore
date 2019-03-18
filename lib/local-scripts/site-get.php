@@ -95,8 +95,8 @@ foreach ( $site_ids as $site_id ) {
 	}
 
 	$array = array(
-		"ID"                      => $id,
-		"site_id"                 => $site_id,
+		"ID"                      => $site_id,
+		"site_id"                 => $id,
 		"site"                    => $site,
 		"status"				  => $status,
 		"provider"                => $provider,
@@ -123,8 +123,8 @@ foreach ( $site_ids as $site_id ) {
 		'offload_path'            => $offload_path,
 	);
 
-	$bash = "id=$id
-site_id=$site_id
+	$bash = "id=$site_id
+site_id=$id
 domain=$title
 fathom=$fathom
 site=$site
