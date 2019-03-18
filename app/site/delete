@@ -28,5 +28,8 @@ run_command() {
 		wp eval-file ../lib/local-scripts/site-delete.php site=$site id=$site_id captain_id=$captain_id
 	fi
 
+	# Update configs
+	captaincore configs update-websites --captain_id=$captain_id
+
 }
 run_command ${arguments[*]}

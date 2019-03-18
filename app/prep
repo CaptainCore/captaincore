@@ -44,3 +44,6 @@ fi
 
 captaincore sync-data $site --captain_id=$captain_id
 captaincore sync-data ${site}-staging --captain_id=$captain_id
+
+# Update configs
+captaincore configs update-websites --captain_id=$captain_id
