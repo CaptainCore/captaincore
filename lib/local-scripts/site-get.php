@@ -46,6 +46,7 @@ foreach ( $site_ids as $site_id ) {
 
 	$title        = get_the_title( $site_id );
 	$site         = get_post_meta( $site_id, "site", true );
+	$id           = get_post_meta( $site_id, "site_id", true );
 	$provider     = get_post_meta( $site_id, "provider", true );
 	$fathom       = get_post_meta( $site_id, "fathom", true );
 	$preloadusers = get_post_meta( $site_id, "preloadusers", true );
@@ -94,7 +95,7 @@ foreach ( $site_ids as $site_id ) {
 	}
 
 	$array = array(
-		"ID"                      => $site_id,
+		"ID"                      => $id,
 		"site"                    => $site,
 		"status"				  => $status,
 		"provider"                => $provider,
@@ -121,7 +122,7 @@ foreach ( $site_ids as $site_id ) {
 		'offload_path'            => $offload_path,
 	);
 
-	$bash = "site_id=$site_id
+	$bash = "site_id=$id
 domain=$title
 fathom=$fathom
 site=$site
