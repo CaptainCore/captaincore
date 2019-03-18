@@ -24,7 +24,7 @@ for arg in "$@"; do
 
   # Add to flags array
   count=1+${#flags[*]}
-  if [[ "$arg" != "--script"* ]] && [[ "$arg" != *"--exclude_plugins"* ]] && [[ "$arg" != "--exclude_themes"* ]] && [[ "$arg" != "--site"* ]]; then
+  if [[ "$arg" != "--script"* ]] && [[ "$arg" != *"--exclude_plugins"* ]] && [[ "$arg" != "--exclude_themes"* ]] && [[ "$arg" != "--site"* ]] && [[ "$arg" != "--captain_id"* ]]; then
     # Remove first and last quote if found
     arg_for_flag="${arg%\"}"
     arg_for_flag="${arg_for_flag/=\"/=}"
