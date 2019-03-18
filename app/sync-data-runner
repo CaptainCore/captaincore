@@ -36,7 +36,7 @@ run_command() {
 	fi
 
 	# Nasty bash hack in order to grab all of the details from one single SSH tunnel (WP Engine connection is slow)
-	response=$(captaincore ssh $site --script=fetch-site-data)
+	response=$(captaincore ssh $site --script=fetch-site-data --captain_id=$captain_id)
 
 	if [[ $response == *"website host provider not recognized" ]] || [[ $reponse == *"Error: SSH not supported"* ]]; then
 		echo "Error: Can't SSH to $site";
