@@ -14,6 +14,9 @@
 #   [--force]
 #   Force even if no changes were made.
 #
+#	[--skip-remote]
+#	Skips backup to remote
+#
 #   [--debug]
 #   Debug mode
 #
@@ -217,8 +220,12 @@ EOM
 ${response_parsed[4]}
 heredoc
 
-		# Backup Quicksave to remote
-		ts rclone sync $path/$site_path/quicksave/ $rclone_backup/$site_path/quicksave/ -v --exclude .DS_Store --fast-list --transfers=16 --log-file="$logs_path/site-$site-remote.txt"
+		if [[ "$skip_remote" != "true" ]]; then
+
+			# Backup Quicksave to remote
+			ts rclone sync $path/$site_path/quicksave/ $rclone_backup/$site_path/quicksave/ -v --exclude .DS_Store --fast-list --transfers=16 --log-file="$logs_path/site-$site-remote.txt"
+
+		fi
 
 		# Clear out variables
 		site=''
