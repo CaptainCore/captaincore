@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.4.1] - 2019-03-18
+### Added
+- Fleet mode  ⛵⛵⛵ which enables CaptainCore to manage sites for mutiple captains (CaptainCore GUIs).
+- Global argument `--fleet` which will loop any commands through all captains by `--captain_id=<id>`.
+- Config `captaincore_fleet` to activate Fleet mode. Sites will be stored in folders per `captain_id` in format:`<path>/<captain_id>/<site>_<site-id>/`
+- Configuration now stored in new `config.json` format.
+- Command `screenshot` and `screenshot-runner`. Takes screenshots using https://github.com/sensepost/gowitness and headless Chrome.
+- Command `site fetch-token` which replaces `get token` php script.
+- Command `site deploy-configs` which replaces `get configs` php script.
+- Argument `--direct` to `ssh`
+- Argument `--skip-remote` to `quicksave`
+
+### Changed
+- Improvements to command `monitor`. New argument `retry` which defines attempts on failures. New data storage `monitor.json` for tracking sites when offline and come back online. New "notify at" times defined as 1 hour, 4 hour and 24 hour. Other failure checks will be ignored per failure.
+- Improvement to command `snapshot` performance. 
+- Improvement to command `captaincore site deploy-init`. Now deploys helper mu-plugin plugin to both production and staging sites.
+- Fixes in remote script `migrate`. Properly handles themes/plugins with spaces in directory names.
+- Replaced configrations file `config` for new`config.json`.
+- Internally bundled configs script with arguments script. Now script files only needs a single include: `source ${root_path}lib/arguments`.
+- Remove global arguments `--run-in-background=<job-id>` and `mark-when-completed`
+- Replaced old commands `users`, `users-json`, `plugins-get`, `deploy plugins`, `deploy keys`, `deploy plugins`, `deploy users` and `deploy-init` with completely rewritten, simplified and organized commands `site deploy-init`, `site deploy-keys`, `site deploy-plugins`, `site deploy-users`, `site fetch-default-plugins` and `site fetch-default-users`. Replaced legacy mu-plugin injection method for proper WP-CLI over SSH deployment.
+
 ## [0.4.0] - 2019-03-04
 ### Added
 - Environment support to commands `quicksave` and `quicksave-store`
