@@ -126,7 +126,7 @@ run_command() {
 		rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ $path/$site_path/backup/wp-content/themes/ $path/$site_path/quicksave/themes
 
 		# Nasty bash hack in order to grab all of the details from one single SSH tunnel (WP Engine connection is slow)
-		response=$(captaincore ssh $site --script=fetch-site-data)
+		response=$(captaincore ssh $site --script=fetch-site-data --captain_id=$captain_id)
 		IFS=$'\n' read -rd '' -a response_parsed <<<"$response"
 		echo ${response_parsed[0]} > $path/$site_path/quicksave/versions/plugins.json
 		echo ${response_parsed[1]} > $path/$site_path/quicksave/versions/themes.json
