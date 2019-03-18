@@ -119,4 +119,9 @@ heredoc
 	echo ""
 
 }
-run_command $1
+
+# See if any sites are specifed
+if [ ${#arguments[*]} -gt 0 ]; then
+  # Runs on specifed sites
+  run_command ${arguments[*]}
+fi

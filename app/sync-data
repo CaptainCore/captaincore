@@ -39,7 +39,7 @@ run_command() {
   log_file=$logs/${log_date}_${log_time}_$auth.txt
   echo "logging to $log_file"
 
-  ( echo $websites | xargs -P $parallel -n 1 captaincore sync-data-runner ) 2>&1 | tee $log_file
+  ( echo $websites | xargs -P $parallel -n 1 captaincore sync-data-runner --captain_id=$captain_id ) 2>&1 | tee $log_file
 
 }
 
