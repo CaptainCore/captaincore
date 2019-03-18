@@ -225,7 +225,7 @@ if ( $command == "generate" ) {
 	$monitor_records = array_values($monitor_records);
 
 	// Update monitor.json
-	file_put_contents( $monitor_json, json_encode( $monitor_records ) );
+	file_put_contents( $monitor_json, json_encode( $monitor_records, JSON_PRETTY_PRINT ) );
 
 	// if errors then generate html
 	if ( count( $errors ) > 0 ) {
