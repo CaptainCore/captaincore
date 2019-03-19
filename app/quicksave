@@ -27,8 +27,6 @@ source ${root_path}lib/arguments
 
 run_command() {
 
-	if [ $# -gt 0 ]; then
-
 	echo "Generating quicksaves for $# sites"
 
 	# Generate random auth
@@ -47,6 +45,11 @@ run_command() {
 
 	# Begin logging
 	echo "$(date +'%Y-%m-%d %H:%M') Begin generating quicksaves" > $logs_path/quicksave.log
+
+	# Adjust path if fleet mode enabled
+	if [[ "$captaincore_fleet" == "true" ]]; then 
+		path=${path}/${captain_id}
+	fi
 
 	INDEX=0
 
@@ -68,11 +71,6 @@ run_command() {
 		if [[ "$domain" == "" ]] || [[ "$site" == "" ]]; then
 			echo "Can't locate website for $site"
 			continue
-		fi
-
-		# Adjust path if fleet mode enabled
-		if [[ "$captaincore_fleet" == "true" ]]; then 
-			path=${path}/${captain_id}
 		fi
 
 		site_path=${site}_${site_id}/${environment}
@@ -243,7 +241,6 @@ heredoc
 	echo "$(date +'%Y-%m-%d %H:%M') Finishing queued remote backups"
 	ts -w
 
-	fi
 }
 
 # See if any sites are specifed
