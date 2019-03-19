@@ -78,11 +78,11 @@ run_command() {
 EOF
 
     # Set permalink to 'Post name' format if not set
-    captaincore ssh ${site} --script=rewrite-prep
+    captaincore ssh ${site} --script=rewrite-prep --captain_id=$captain_id
 
     # Deploy helper plugin
-    captaincore ssh ${site} --script=deploy-helper
-    captaincore ssh ${site}-staging --script=deploy-helper
+    captaincore ssh ${site} --script=deploy-helper --captain_id=$captain_id
+    captaincore ssh ${site}-staging --script=deploy-helper --captain_id=$captain_id
 
     # Clear out variables
     domain=''
