@@ -30,6 +30,11 @@ source ${root_path}lib/arguments
 
 run_command() {
 
+  # Adjust path if fleet mode enabled
+  if [[ "$captaincore_fleet" == "true" ]]; then 
+    path=${path}/${captain_id}
+  fi
+
   echo "Generating snapshots for $# sites"
   INDEX=1
   for website in "$@"; do
@@ -59,20 +64,26 @@ run_command() {
       captaincore backup $site --skip-remote --captain_id=$captain_id
     fi
 
-    # Adjust path if fleet mode enabled
-    if [[ "$captaincore_fleet" == "true" ]]; then 
-      path=${path}/${captain_id}
-    fi
-
     # Generates snapshot archive
     timedate=$(date +'%Y-%m-%d-%H%M%S')
     cd $path/${site}_${site_id}/
-    ln -s $environment/backup/ $site-$environment-$timedate # create directory shortcut for naming purposes
-    zip -r $site-$environment-$timedate.zip $site-$environment-$timedate/ --exclude=$site-$environment-$timedate/_wpeprivate/\* --exclude=\*.git\* --exclude=$site-$environment-$timedate/wp-content/advanced-cache.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/mu-plugin.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$site-$environment-$timedate/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$site-$environment-$timedate/wp-content/mu-plugins/wpengine-common/\*
-    rm $site-$environment-$timedate  # remove directory shortcut
-    mkdir -p ${environment}/snapshots
-    mv $site-$environment-$timedate.zip ${environment}/snapshots
-    cd ${environment}/snapshots
+
+    if [[ $delete_after_snapshot == true ]]; then
+      cd $path/
+      zip -r $site-$environment-$timedate.zip ${site}_${site_id}/
+      mkdir -p ${site}_${site_id}-$timedate/${environment}/snapshots
+      mv $site-$environment-$timedate.zip ${environment}/snapshots
+      cd ${environment}/snapshots
+    fi
+
+    if [[ $delete_after_snapshot != true ]]; then
+      ln -s $environment/backup/ $site-$environment-$timedate # create directory shortcut for naming purposes
+      zip -r $site-$environment-$timedate.zip $site-$environment-$timedate/ --exclude=$site-$environment-$timedate/_wpeprivate/\* --exclude=\*.git\* --exclude=$site-$environment-$timedate/wp-content/advanced-cache.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/mu-plugin.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$site-$environment-$timedate/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$site-$environment-$timedate/wp-content/mu-plugins/wpengine-common/\*
+      rm $site-$environment-$timedate  # remove directory shortcut
+      mkdir -p ${environment}/snapshots
+      mv $site-$environment-$timedate.zip ${environment}/snapshots
+      cd ${environment}/snapshots
+    fi
 
     # Grab snapshot size in bytes
     if [[ "$OSTYPE" == "linux-gnu" ]]; then
@@ -119,7 +130,7 @@ EOF
       rclone config delete sftp-$site-staging
 
       # Removes directory from backup server
-      rm -rf $path/${site}_${site_id}/${environment}/backup/
+      rm -rf $path/${site}_${site_id}/
 
       # Remove from remote storage
       rclone purge --fast-list $rclone_backup/${site}_${site_id}
