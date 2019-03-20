@@ -24,6 +24,12 @@ run_command() {
     # Load site configs
     while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
 
+    # Pulls standard set of plugins from https://<captaincore_gui>/wp-json/captaincore/v1/client	
+    plugins=$(captaincore get config-from-api --field=preinstall_plugins --captain_id=$captain_id)
+
+    # Install standard set of plugins via WP-CLI (removing bundled hello plugin)	
+    captaincore ssh $site --command="wp plugin delete hello; wp plugin install $plugins --force" --captain_id=$captain_id)
+
     # If website on Kinsta then prepare their format
     if [[ "$address" == *".kinsta."* ]]; then
 
