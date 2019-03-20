@@ -37,7 +37,7 @@ if ( $system->captaincore_fleet == true ) {
 	$path = "{$path}/{$captain_id}";
 }
 
-$site_path = "$path/{$site_details->site}_{$site_details->ID}/production/backup/";
+$site_path = "$path/{$site_details->site}_{$site_details->site_id}/production/backup/";
 
 $file = $site_path . "wp-config.php";
 
