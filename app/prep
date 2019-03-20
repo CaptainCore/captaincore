@@ -15,10 +15,10 @@ source ${root_path}lib/arguments
 site=$1
 
 # Load site details
-while read site_configs; do declare "$site_configs"; done <<< $(captaincore site get $site --bash --captain_id=$captain_id)
+while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
 
 # Deploy SSH keys
-captaincore site deploy-keys $site --captain_id=$captain_id
+captaincore site deploy-keys ${site} --captain_id=$captain_id
 captaincore site deploy-keys ${site}-staging --captain_id=$captain_id
 
 # load custom configs into wp-config.php and .htaccess, setups up token
@@ -35,10 +35,6 @@ if [[ $skip_deployment != true ]]; then
   ## install plugins
   captaincore site deploy-plugins $site --captain_id=$captain_id
   echo "Preload Plugins"
-
-  ## run initial backup
-  captaincore backup $site
-  echo "Running Initial Backup"
 
 fi
 

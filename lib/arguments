@@ -54,4 +54,4 @@ while read config; do
     continue
   fi
   declare "$config"
-done <<< $(php ${root_path}lib/local-scripts/configs.php fetch --captain_id=$captain_id)
+done <<< "$(php ${root_path}lib/local-scripts/configs.php fetch --captain_id=$captain_id)"

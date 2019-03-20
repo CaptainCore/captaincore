@@ -24,7 +24,7 @@ run_command() {
 
 
     # Load site configs
-    while read site_configs; do declare "$site_configs"; done <<< $(captaincore site get $site --bash --captain_id=$captain_id)
+    while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
 
     if [ -z "$domain" ]; then
       echo "Domain not found"

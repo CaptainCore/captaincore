@@ -24,7 +24,7 @@ if [[ "$captaincore_fleet" == "true" ]]; then
     path=${path}/${captain_id}
 fi
 
-while read site_configs; do declare "$site_configs"; done <<< $(captaincore site get $site --bash --captain_id=$captain_id)
+while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
 
 if [ -f $path/${site}_${site_id}/${environment}/backup/wp-config.php ]; then
 

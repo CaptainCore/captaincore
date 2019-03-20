@@ -38,7 +38,7 @@ run_command() {
   captaincore ssh $site --script=deploy-fathom --tracker=$tracker --id="$id" --branding_author="$captaincore_branding_author" --branding_author_uri="$captaincore_branding_author_uri" --branding_slug=$captaincore_branding_slug --captain_id=$captain_id
     
   # Load site configs
-	while read site_configs; do declare "$site_configs"; done <<< $(captaincore site get $site --bash --captain_id=$captain_id)
+	while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
 
   # Store updated info in WordPress datastore
 	cd ${root_path}data

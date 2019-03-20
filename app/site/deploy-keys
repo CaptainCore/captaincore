@@ -14,7 +14,7 @@ run_command() {
   website=$1
 
   # Load site vars
-  while read site_configs; do declare "$site_configs"; done <<< $(captaincore site get $website --bash --captain_id=$captain_id)
+  while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain_id=$captain_id)"
 
   if [[ $address == *".kinsta."* ]]; then
 
