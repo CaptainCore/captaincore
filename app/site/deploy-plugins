@@ -28,7 +28,7 @@ run_command() {
     plugins=$(captaincore get config-from-api --field=preinstall_plugins --captain_id=$captain_id)
 
     # Install standard set of plugins via WP-CLI (removing bundled hello plugin)	
-    captaincore ssh $site --command="wp plugin delete hello; wp plugin install $plugins --force" --captain_id=$captain_id)
+    captaincore ssh $site --command="wp plugin delete hello; wp plugin install $plugins --force" --captain_id=$captain_id
 
     # If website on Kinsta then prepare their format
     if [[ "$address" == *".kinsta."* ]]; then
