@@ -33,7 +33,7 @@ if [ -f $path/${site}_${site_id}/${environment}/backup/wp-config.php ]; then
 
     # PHP script to parse and base64
     read -r -d '' php_code << heredoc
-\$auth_key = "$auth_code";
+\$auth_key = '$auth_code';
 echo md5(\$auth_key);
 heredoc
 
