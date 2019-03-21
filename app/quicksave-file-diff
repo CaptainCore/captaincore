@@ -31,11 +31,6 @@ run_command() {
 		  return 1
 		fi
 
-		# Adjust path if fleet mode enabled
-		if [[ "$captaincore_fleet" == "true" ]]; then 
-			path=${path}/${captain_id}
-		fi
-
 		cd $path/${site}_${site_id}/${environment}/quicksave/
 
 		# capture all git commit into array

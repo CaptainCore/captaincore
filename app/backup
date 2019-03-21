@@ -108,11 +108,6 @@ run_command() {
 
     fi
 
-    # Adjust path if fleet mode enabled
-    if [[ "$captaincore_fleet" == "true" ]]; then 
-      path=${path}/${captain_id}
-    fi
-
     # Backup site locally
     rclone sync sftp-$site:$home_directory $path/${site}_${site_id}/${environment}/backup/ --exclude .DS_Store --exclude *timthumb.txt --exclude /wp-content/uploads_from_s3/ --verbose=1 --log-file="$logs_path/site-$site.txt"
     echo "" >> $logs_path/site-$site.txt

@@ -30,11 +30,6 @@ source ${root_path}lib/arguments
 
 run_command() {
 
-  # Adjust path if fleet mode enabled
-  if [[ "$captaincore_fleet" == "true" ]]; then 
-    path=${path}/${captain_id}
-  fi
-
   echo "Generating snapshots for $# sites"
   INDEX=1
   for website in "$@"; do

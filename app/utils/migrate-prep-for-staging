@@ -20,11 +20,6 @@ run_command() {
       # Load site configs
       while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain_id=$captain_id)"
 
-      # Adjust path if fleet mode enabled
-      if [[ "$captaincore_fleet" == "true" ]]; then 
-        path=${path}/${captain_id}
-      fi
-
       echo "Processing $site (${INDEX}/$#)"
 
       # Site found

@@ -46,11 +46,6 @@ run_command() {
 	# Begin logging
 	echo "$(date +'%Y-%m-%d %H:%M') Begin generating quicksaves" > $logs_path/quicksave.log
 
-	# Adjust path if fleet mode enabled
-	if [[ "$captaincore_fleet" == "true" ]]; then 
-		path=${path}/${captain_id}
-	fi
-
 	INDEX=0
 
 	for website in "$@"; do

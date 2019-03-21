@@ -30,11 +30,6 @@ run_command() {
 			return 1
 		fi
 
-		# Adjust path if fleet mode enabled
-		if [[ "$captaincore_fleet" == "true" ]]; then 
-			path=${path}/${captain_id}
-		fi
-
 		cd $path/${site}_${site_id}/${environment}/quicksave/
 		git_show=`git show $hash --name-status --format=`
 		echo "$git_show"

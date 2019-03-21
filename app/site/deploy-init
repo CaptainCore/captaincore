@@ -47,11 +47,6 @@ run_command() {
       home_directory="${home_directory}/"
     fi
 
-    # Adjust path if fleet mode enabled
-    if [[ "$captaincore_fleet" == "true" ]]; then 
-      path=${path}/${captain_id}
-    fi
-
     # Pull down wp-config.php and .htaccess
     rclone copy sftp-$site:${home_directory}wp-config.php $path/${site}_${site_id}/${environment}/backup/
     rclone copy sftp-$site:${home_directory}.htaccess $path/${site}_${site_id}/${environment}/backup/
