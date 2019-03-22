@@ -46,6 +46,7 @@ run_command() {
 					read -r -d '' VAR << EOM
 					{
 						"command":"usage-update",
+            "environment":"$environment",
 						"site_id":"$site_id",
 						"storage":"$folder_size",
 						"token":"$token",
@@ -60,6 +61,7 @@ EOM
         curl --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
 	"command":"usage-update",
+  "environment":"$environment",
 	"site_id":"$site_id",
 	"storage":"$folder_size",
 	"token":"$token",
