@@ -28,11 +28,11 @@ echo "Setting up token"
 
 if [[ $skip_deployment != true ]]; then
 
-  ## loads users
+  # loads users
   captaincore site deploy-users $site --captain_id=$captain_id
   echo "Preload Users"
 
-  ## install plugins
+  # install plugins
   captaincore site deploy-plugins $site --captain_id=$captain_id
   echo "Preload Plugins"
 
