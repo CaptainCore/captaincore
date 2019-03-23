@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+
+#
+#   Removes a site from CaptainCore CLI.
+#
+#   `captaincore site delete <site>`
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}lib/arguments
+
+run_command() {
+
+	site=$1
+	cd ${root_path}data
+
+	# Requires <site>
+	if [[ "$site" == "" ]]; then
+		echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one a site."
+		return 1
+	fi
+
+	# Load site configs
+	while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
+
+	if [[ "$site" != "" ]] && [[ "$site_id" != "" ]]; then
+		wp eval-file ../lib/local-scripts/site-delete.php site=$site id=$site_id captain_id=$captain_id
+	fi
+
+	# Update configs
+	captaincore configs update-websites --captain_id=$captain_id
+
+}
+run_command ${arguments[*]}

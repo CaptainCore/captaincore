@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+
+#
+#   Updates a site in CaptainCore CLI.
+#
+#   `captaincore site update <site> --id=<id> --domain=<domain> --username=<username> --password=<password> --address=<address> --protocol=<protocol> --port=<port> --staging_username=<staging_username> --staging_password=<staging_password> --staging_address=<staging_address> --staging_protocol=<staging_protocol> --staging_port=<staging_port> [--preloadusers=<preloadusers>] [--home_directory=<home_directory>] [--s3accesskey=<s3accesskey>] [--s3secretkey=<s3secretkey>] [--s3bucket=<s3bucket>] [--s3path=<s3path>]`
+#
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}lib/arguments
+
+# Remove leading "--" from flags
+for i in "${!flags[@]}"; do
+	flags[$i]=`echo ${flags[$i]} | cut -c 3-`
+done
+
+cd ${root_path}data
+wp eval-file ../lib/local-scripts/site-update.php site=$1 ${flags[@]}
+
+# Load site configs
+while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $1 --bash --captain_id=$captain_id)"
+
+# Generate rclone keys
+captaincore rclone-configs $site --captain_id=$captain_id
+
+# Update configs
+captaincore configs update-websites --captain_id=$captain_id
