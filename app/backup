@@ -103,7 +103,7 @@ run_command() {
 
       # Database backup (if remote server available)
       if [[ "$address" == *".kinsta."* ]] || [[ "$address" == *".wpengine.com" ]]; then
-        captaincore ssh $site --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; chmod 600 wp-content/mysql.sql"
+        captaincore ssh $site --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; chmod 600 wp-content/mysql.sql" --captain_id=$captain_id
       fi
 
     fi
@@ -149,7 +149,7 @@ run_command() {
       ts sh -c "echo \"Finished remote backup $site (${INDEX}/$#)\" >> $logs_path/backup-remote.txt && tail -6 $logs_path/site-$site-remote.txt >> $logs_path/backup-remote.txt"
 
       # Views for yearly stats
-      views=$( captaincore stats $site )
+      views=$( captaincore stats $site --captain_id=$captain_id )
 
       # Post folder size bytes and yearly views to ACF fields
       curl --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
@@ -203,7 +203,7 @@ EOF
   shareurl=$(rclone link $rclone_logs/$backup_date/$backup_time-$auth)
 
   # Generate overall emails
-  ( echo "$(captaincore get transferred-stats $logs_path/backup-remote.txt)" && printf "<br><a href='$shareurl'>View Logs</a><br><br>" && grep -r "FTP response" $logs_path/backup-log.txt; ) \
+  ( echo "$(captaincore get transferred-stats $logs_path/backup-remote.txt --captain_id=$captain_id)" && printf "<br><a href='$shareurl'>View Logs</a><br><br>" && grep -r "FTP response" $logs_path/backup-log.txt; ) \
     | mutt -e 'set content_type=text/html' -s "Backup completed: $# sites | $backup_date" -a $logs_path/backup-log.txt -- $captaincore_admin_email
 
   cd $path
