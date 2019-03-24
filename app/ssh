@@ -46,18 +46,18 @@ run_command() {
       continue
     fi
 
-    if [[ "$address" == *".kinsta."* && "$address" == "" ]]; then
+    if [[ "$provider" == "kinsta" && "$address" == "" ]]; then
       echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Missing Kinsta site."
       continue
     fi
 
-    if [[ "$address" == *".wpengine.com" && "$environment" == "staging" ]]; then
+    if [[ "$provider" == "wpengine" && "$environment" == "staging" ]]; then
       echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Missing WP Engine site."
       continue
     fi
 
     # If website on Kinsta then prepare their format
-    if [[ "$address" == *".kinsta."* ]]; then
+    if [[ "$provider" == "kinsta" ]]; then
 
       # Kinsta's command prep
       commandprep="cd public/ &&"
@@ -72,7 +72,7 @@ run_command() {
     fi
 
     # If website on WP Engine then prepare their format
-    if [[ "$address" == *".wpengine.com" ]]; then
+    if [[ "$provider" == "wpengine" ]]; then
 
       # WP Engine's command prep
       commandprep="rm ~/.wp-cli/config.yml; cd sites/* &&"
