@@ -14,6 +14,9 @@
 #   [--email=<email>]
 #   On completion, send email to
 #
+#   [--filter=<filter-option>]
+#   Filter options include one or more of the following: database, themes, plugins, uploads, everything-else. Example --filter="database themes plugins" will generate a zip with only the database, themes and plugins. Without filter a snapshot will include everything.
+#
 #   [--skip-backup]
 #   Skips backup and makes snapshot based on local backup
 #
@@ -73,7 +76,40 @@ run_command() {
 
     if [[ $delete_after_snapshot != true ]]; then
       ln -s $environment/backup/ $site-$environment-$timedate # create directory shortcut for naming purposes
-      zip -r $site-$environment-$timedate.zip $site-$environment-$timedate/ --exclude=$site-$environment-$timedate/_wpeprivate/\* --exclude=\*.git\* --exclude=$site-$environment-$timedate/wp-content/advanced-cache.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/mu-plugin.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$site-$environment-$timedate/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$site-$environment-$timedate/wp-content/mu-plugins/wpengine-common/\*
+
+      if [[ "$filter" != "" ]]; then
+
+        # Turn filter in array
+        filters=($filter)
+
+        for option in ${filters[@]}; do
+
+          if [[ $option == "database" ]]; then
+            zip -r $site-$environment-$timedate.zip $site-$environment-$timedate/wp-content/mysql.sql
+          fi
+
+          if [[ $option == "themes" ]]; then
+            zip -r $site-$environment-$timedate.zip $site-$environment-$timedate/wp-content/themes/
+          fi
+
+          if [[ $option == "plugins" ]]; then
+            zip -r $site-$environment-$timedate.zip $site-$environment-$timedate/wp-content/plugins/
+          fi
+
+          if [[ $option == "uploads" ]]; then
+            zip -r $site-$environment-$timedate.zip $site-$environment-$timedate/wp-content/uploads/
+          fi
+
+          if [[ $option == "everything-else" ]]; then
+            zip -r $site-$environment-$timedate.zip $site-$environment-$timedate/ --exclude=$site-$environment-$timedate/wp-content/mysql.sql --exclude=$site-$environment-$timedate/wp-content/themes/\* --exclude=$site-$environment-$timedate/wp-content/plugins/\* --exclude=$site-$environment-$timedate/wp-content/uploads/\* --exclude=$site-$environment-$timedate/_wpeprivate/\* --exclude=\*.git\* --exclude=$site-$environment-$timedate/wp-content/advanced-cache.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/mu-plugin.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$site-$environment-$timedate/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$site-$environment-$timedate/wp-content/mu-plugins/wpengine-common/\*
+          fi
+
+        done
+
+      else 
+        # Add everything to ZIP
+        zip -r $site-$environment-$timedate.zip $site-$environment-$timedate/ --exclude=$site-$environment-$timedate/_wpeprivate/\* --exclude=\*.git\* --exclude=$site-$environment-$timedate/wp-content/advanced-cache.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/mu-plugin.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$site-$environment-$timedate/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$site-$environment-$timedate/wp-content/mu-plugins/wpengine-common/\*
+      fi
       rm $site-$environment-$timedate  # remove directory shortcut
       mkdir -p ${environment}/snapshots
       mv $site-$environment-$timedate.zip ${environment}/snapshots
