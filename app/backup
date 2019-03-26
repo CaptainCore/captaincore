@@ -20,6 +20,9 @@
 #   [--skip-db]
 #   Skips database backup
 #
+#   [--email-notify]
+#   Sends email summary on completion
+#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
@@ -202,9 +205,13 @@ EOF
   # Generate Rclone link to logs (https://rclone.org/commands/rclone_link/)
   shareurl=$(rclone link $rclone_logs/$backup_date/$backup_time-$auth)
 
-  # Generate overall emails
-  ( echo "$(captaincore get transferred-stats $logs_path/backup-remote.txt --captain_id=$captain_id)" && printf "<br><a href='$shareurl'>View Logs</a><br><br>" && grep -r "FTP response" $logs_path/backup-log.txt; ) \
-    | mutt -e 'set content_type=text/html' -s "Backup completed: $# sites | $backup_date" -a $logs_path/backup-log.txt -- $captaincore_admin_email
+  if [[ "$email_notify" == "true" ]]; then
+
+    # Generate overall emails
+    ( echo "$(captaincore get transferred-stats $logs_path/backup-remote.txt --captain_id=$captain_id)" && printf "<br><a href='$shareurl'>View Logs</a><br><br>" && grep -r "FTP response" $logs_path/backup-log.txt; ) \
+      | mutt -e 'set content_type=text/html' -s "Backup completed: $# sites | $backup_date" -a $logs_path/backup-log.txt -- $captaincore_admin_email
+
+  fi
 
   cd $path
 
