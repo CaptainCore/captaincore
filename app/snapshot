@@ -15,7 +15,7 @@
 #   On completion, send email to
 #
 #   [--filter=<filter-option>]
-#   Filter options include one or more of the following: database, themes, plugins, uploads, everything-else. Example --filter="database themes plugins" will generate a zip with only the database, themes and plugins. Without filter a snapshot will include everything.
+#   Filter options include one or more of the following: database, themes, plugins, uploads, everything-else. Example --filter=database,themes,plugins will generate a zip with only the database, themes and plugins. Without filter a snapshot will include everything.
 #
 #   [--skip-backup]
 #   Skips backup and makes snapshot based on local backup
@@ -80,7 +80,7 @@ run_command() {
       if [[ "$filter" != "" ]]; then
 
         # Turn filter in array
-        filters=($filter)
+        filters=($( echo $filter | tr , " "))
 
         for option in ${filters[@]}; do
 
