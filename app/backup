@@ -152,16 +152,16 @@ run_command() {
       ts sh -c "echo \"Finished remote backup $site (${INDEX}/$#)\" >> $logs_path/backup-remote.txt && tail -6 $logs_path/site-$site-remote.txt >> $logs_path/backup-remote.txt"
 
       # Views for yearly stats
-      views=$( captaincore stats $site --captain_id=$captain_id )
+      visits=$( captaincore stats $site --captain_id=$captain_id )
 
-      # Post folder size bytes and yearly views to ACF fields
+      # Post folder size bytes and yearly visits to ACF fields
       curl --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
 "command":"usage-update",
 "site_id":"$site_id",
 "environment":"$environment",
 "storage":"$folder_size",
-"views":"$views",
+"visits":"$visits",
 "token":"$token"
 }
 EOF

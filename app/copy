@@ -80,7 +80,7 @@ run_command() {
 	"site_destination_id":"$site_destination_id",
 	"email":"$email",
 	"storage":"$folder_size",
-	"views":"$views",
+	"visits":"$visits",
 	"token":"$token"
 }
 EOF

@@ -39,7 +39,7 @@ run_command() {
         fi
 
         # Views for yearly stats
-        views=$( captaincore stats $site )
+        visits=$( captaincore stats $site )
 
 				# Debug API request
 				if [[ "$debug" == "true" ]]; then
@@ -50,14 +50,14 @@ run_command() {
 						"site_id":"$site_id",
 						"storage":"$folder_size",
 						"token":"$token",
-						"views":"$views"
+						"visits":"$visits"
 					}
 EOM
 					echo $VAR
 					continue
 				fi
 
-        # Post folder size bytes and yearly views to ACF fields
+        # Post folder size bytes and yearly visits to ACF fields
         curl --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
 	"command":"usage-update",
@@ -65,7 +65,7 @@ EOM
 	"site_id":"$site_id",
 	"storage":"$folder_size",
 	"token":"$token",
-	"views":"$views"
+	"visits":"$visits"
 }
 EOF
         echo "Generated $domain"
