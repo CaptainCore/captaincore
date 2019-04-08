@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.2] - 2019-04-08
+## Added
+- Commands `site bare-add`, `site bare-delete` and `site bare-update` to handle site management from other CaptainCore servers. These are used from CaptainCore Dispatch to relay site changes to all servers.
+- Argument `--filter` argument to `snapshot` which supports options: database, themes, plugins, uploads and everything-else. 
+- Argument `--email-notify` to `backup`. Will no longer send emails by default.
+
+### Changed
+- New visits format in `backup`, `copy` and `usage-update`
+
 ## [0.4.1] - 2019-03-18
 ### Added
 - Fleet mode  ⛵⛵⛵ which enables CaptainCore to manage sites for mutiple captains (CaptainCore GUIs).
