@@ -134,6 +134,20 @@ run_command() {
     mv $wordpresspath/blogs.dir $home_directory/wp-content/
   fi
 
+  # Migrate gallery if found
+  if [ -d $wordpresspath/gallery ]; then
+    rm -rf $home_directory/wp-content/gallery
+    echo "Moving: gallery"
+    mv $wordpresspath/gallery $home_directory/wp-content/
+  fi
+
+  # Migrate ngg if found
+  if [ -d $wordpresspath/ngg ]; then
+    rm -rf $home_directory/wp-content/ngg
+    echo "Moving: ngg"
+    mv $wordpresspath/ngg $home_directory/wp-content/
+  fi
+
   # Migrate uploads if found
   if [ -d $wordpresspath/uploads ]; then
     rm -rf $home_directory/wp-content/uploads
