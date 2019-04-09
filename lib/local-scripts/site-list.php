@@ -182,6 +182,9 @@ foreach ( $websites as $website_id ) {
 		} else {
 			$site = get_post_meta( $website_id, $field, true );
 		}
+		if ( isset( $debug ) ) {
+			$site = "$site|DEBUG|". get_the_title( $website_id );
+		}
 	}
 
 	if ( in_array( "production", $targets ) ) {
