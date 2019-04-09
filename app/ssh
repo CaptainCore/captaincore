@@ -24,6 +24,8 @@ source ${root_path}lib/arguments
 
 run_command() {
 
+  echo "SSH on ${#@} sites"
+
   for website in "$@"; do
 
     # Extract environment
@@ -142,23 +144,26 @@ run_command() {
 
 }
 
-# See if any sites are specifed
-if [ ${#arguments[*]} -gt 0 ]; then
-  # Runs on specific sites
+# Runs on targeted sites
+if [ ${#targets[*]} -gt 0 ] && [[ $command != "" ]] || [[ $script != "" ]]; then
+  run_command $(captaincore site list ${targets[*]/targets=/@} --captain_id=$captain_id)
+  exit 1
+fi
+
+# Runs on specific sites
+if [ ${#targets[*]} -eq 0 ] && [ ${#arguments[*]} -gt 0 ]; then
   run_command ${arguments[*]}
-fi
-
-if [[ $all == "true" ]] && [[ ${#arguments[*]} -eq 0 ]]; then
-  # Runs on all sites
-  run_command ${websites[@]}
+  exit 1
 fi
 
 # Error if no sites specifed
-if [[ $all != "true" ]] && [ ${#arguments[*]} -eq 0 ]; then
-  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
+if [ ${#targets[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use a target @all, @production or @staging."
+  exit 1
 fi
 
 # Error if no sites specifed
-if [[ $all == "true" ]] && [ ${#arguments[*]} -eq 0 ]; then
-  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify at least one --command or --script when using --all."
+if [ ${#targets[*]} -gt 0 ] && [ ${#arguments[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify at least one --command or --script when using @target."
+  exit 1
 fi

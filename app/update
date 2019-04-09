@@ -175,14 +175,9 @@ if [ ${#arguments[*]} -gt 0 ]; then
   run_command ${arguments[*]}
 fi
 
-if [[ $all == "true" ]]; then
-  # Runs on all sites
-	run_command ${websites[@]}
-fi
-
-if [[ $updates_enabled == "true" ]]; then
-  # Runs on all sites
-	run_command $(captaincore site list --updates-enabled --captain_id=$captain_id)
+# Runs on targeted sites
+if [ ${#targets[*]} -gt 0 ]; then
+  run_command $(captaincore site list ${targets[*]/targets=/@} --captain_id=$captain_id)
 fi
 
 # Error if no sites specifed

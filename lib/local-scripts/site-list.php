@@ -16,9 +16,13 @@ foreach($args as $index => $arg) {
 // Converts --arguments into $arguments
 parse_str( implode( '&', $args ) );
 
-if ( isset( $all ) ) {
-	echo 'all';
+if ( !isset( $targets ) ) {
+	echo 'Error: Please specify a target @all, @production or @staging.';
+	return;
 }
+
+// Process sites to target
+$targets = explode(",",$targets);
 
 $arguments = array(
 	'author'		 => $captain_id,
@@ -116,11 +120,41 @@ if ( $filter ) {
 
 }
 
-if ( isset($updates_enabled) ) {
+if ( in_array("updates-on", $targets ) ) {
 
 	$arguments['meta_query'][] = array(
 		'key'     => "updates_enabled", // name of custom field
 		'value'   => '1',
+		'compare' => '=',
+	);
+
+}
+
+if ( in_array("updates-off", $targets ) ) {
+
+	$arguments['meta_query'][] = array(
+		'key'     => "updates_enabled", // name of custom field
+		'value'   => '0',
+		'compare' => '=',
+	);
+
+}
+
+if ( in_array("offload-on", $targets ) ) {
+
+	$arguments['meta_query'][] = array(
+		'key'     => "offload_enabled", // name of custom field
+		'value'   => '1',
+		'compare' => '=',
+	);
+
+}
+
+if ( in_array("offload-off", $targets ) ) {
+
+	$arguments['meta_query'][] = array(
+		'key'     => "offload_enabled", // name of custom field
+		'value'   => '0',
 		'compare' => '=',
 	);
 
@@ -133,6 +167,7 @@ $results = array();
 foreach ( $websites as $website_id ) {
 
 	$site = get_post_meta( $website_id, 'site', true );
+	$address_staging = get_post_meta( $website_id, 'address_staging', true );
 
 	if ( $field ) {
 		if ( $field == 'ids' ) {
@@ -144,18 +179,21 @@ foreach ( $websites as $website_id ) {
 		}
 	}
 
-	if ( isset( $staging ) ) {
-		$results[] = $site . '-staging';
-		return;
-	}
-	if ( isset( $all ) ) {
+	if ( in_array( "production", $targets ) ) {
 		$results[] = $site;
-		$results[] = $site . '-staging';
-		return;
+		continue;
 	}
 
-	if ($site != "") {
+	if ( in_array( "staging", $targets ) ) {
+		$results[] = $site . '-staging';
+		continue;
+	}
+	if ( in_array( "all", $targets ) ) {
 		$results[] = $site;
+		if ( isset( $address_staging ) ) {
+			$results[] = $site . '-staging';
+		}
+		continue;
 	}
 
 }

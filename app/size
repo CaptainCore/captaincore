@@ -71,12 +71,12 @@ if [ ${#arguments[*]} -gt 0 ]; then
   run_command ${arguments[*]}
 fi
 
-if [[ $all == "true" ]]; then
-  # Runs on all sites
-  run_command ${websites[@]}
+# Runs on targeted sites
+if [ ${#targets[*]} -gt 0 ]; then
+  run_command $(captaincore site list ${targets[*]/targets=/@} --captain_id=$captain_id)
 fi
 
 # Error if no sites specifed
-if [[ $all != "true" ]] && [ ${#arguments[*]} -eq 0 ]; then
-  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
+if [ ${#targets[*]} -eq 0 ] && [ ${#arguments[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use a target @all, @production or @staging."
 fi

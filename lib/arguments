@@ -15,9 +15,16 @@ COLOR_NORMAL="\033[39m"
 for var in "$@"; do
 
   # If starts with "--" then assign to $flags array
-  if [[ $var == --* ]]; then
+  if [[ $var == "--"* ]]; then
     count=1+${#flags[*]}
     flags[$count]=$var
+    continue
+  fi
+
+  if [[ $var == "@"* ]]; then
+    # Remove @ from target
+    targets_current=$( echo $var | cut -c 2- )
+    targets[$count]="targets=$targets_current"
     continue
   fi
   

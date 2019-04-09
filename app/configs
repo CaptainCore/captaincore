@@ -22,7 +22,7 @@ if [[ "$action" == "fetch" ]]; then
 fi
 
 if [[ "$action" == "update-websites" ]]; then
-    php ${root_path}lib/local-scripts/configs.php update vars websites "$(captaincore site list --captain_id=$captain_id)" --captain_id=$captain_id
+    php ${root_path}lib/local-scripts/configs.php update vars websites "$(captaincore site list @all --captain_id=$captain_id)" --captain_id=$captain_id
 fi
 
 if [ ${#arguments[*]} -eq 0 ]; then

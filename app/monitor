@@ -55,9 +55,9 @@ run_command() {
     urls_to_check=${urls}
   fi
 
-  if [[ $all == "true" ]]; then
+  if [ ${#targets[*]} -gt 0 ]; then
     # Runs on all sites
-    urls=$(captaincore site list --field=home_url)
+    urls=$( captaincore site list ${targets[*]/targets=/@} --field=home_url )
     for url in ${urls[*]}; do
       urls_to_check+=( ${url}${page} )
     done
@@ -67,8 +67,8 @@ run_command() {
   orignal_urls_to_check=$urls_to_check
 
   # Error if no sites specifed
-  if [[ $all != "true" ]] && [ ${#arguments[*]} -eq 0 ] && [[ ${#urls} == 0 ]]; then
-    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
+  if [ ${#targets[*]} -eq 0 ] && [ ${#arguments[*]} -eq 0 ] && [[ ${#urls} == 0 ]]; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use @production."
     return 1
   fi
 

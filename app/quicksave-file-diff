@@ -52,11 +52,16 @@ run_command() {
 
 # See if any sites are specifed
 if [ ${#arguments[*]} -gt 0 ]; then
-  # Runs on specific sites
+  # Runs on specifed sites
   run_command ${arguments[*]}
 fi
 
+# Runs on targeted sites
+if [ ${#targets[*]} -gt 0 ]; then
+  run_command $(captaincore site list ${targets[*]/targets=/@} --captain_id=$captain_id)
+fi
+
 # Error if no sites specifed
-if [ ${#arguments[*]} -eq 0 ]; then
-  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
+if [ ${#targets[*]} -eq 0 ] && [ ${#arguments[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use a target @all, @production or @staging."
 fi
