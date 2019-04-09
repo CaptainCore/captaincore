@@ -203,15 +203,30 @@ EOM
 }
 EOM
 
-		## Store updated info in WordPress datastore
+		# Store updated info in WordPress datastore
 		cd ${root_path}data
-		wp post meta update $id plugins "${response_parsed[0]}"
-		wp post meta update $id themes "${response_parsed[1]}"
-		wp post meta update $id core ${response_parsed[2]}
-		wp post meta update $id home_url ${response_parsed[3]}
-		wp post meta update $id users << heredoc
+
+		if [[ $environment == "production" ]]; then
+			wp post meta update $id plugins "${response_parsed[0]}"
+			wp post meta update $id themes "${response_parsed[1]}"
+			wp post meta update $id core ${response_parsed[2]}
+			wp post meta update $id home_url ${response_parsed[3]}
+			wp post meta update $id users << heredoc
 ${response_parsed[4]}
 heredoc
+
+		fi
+
+		if [[ $environment == "staging" ]]; then
+			wp post meta update $id plugins_staging "${response_parsed[0]}"
+			wp post meta update $id themes_staging "${response_parsed[1]}"
+			wp post meta update $id core_staging ${response_parsed[2]}
+			wp post meta update $id home_url_staging ${response_parsed[3]}
+			wp post meta update $id users_staging << heredoc
+${response_parsed[4]}
+heredoc
+
+		fi
 
 		if [[ "$skip_remote" != "true" ]]; then
 
