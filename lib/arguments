@@ -17,7 +17,16 @@ for var in "$@"; do
   # If starts with "--" then assign to $flags array
   if [[ $var == "--"* ]]; then
     count=1+${#flags[*]}
-    flags[$count]=$var
+    processed_var=$var
+
+    # If contains a value then wrap in quotes
+    if [[ $var == *"="* ]]; then
+      flag_value=`echo $var | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
+      flag_name=`echo $var | perl -n -e '/(.+?)=.+/&& print $1'`  # extract name
+      processed_var=${flag_name}=\"${flag_value}\"
+    fi
+
+    flags[$count]=$processed_var
     continue
   fi
 
@@ -42,8 +51,8 @@ for i in "${!flags[@]}"; do
 
   # Defines variables for flags with data
   if [[ $flag_name == *"="* ]]; then
-    flag_value=`echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
-    flag_name=`echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1'` # extract name
+    flag_value=`echo $flag_name | perl -n -e '/.+?=\"(.+)\"/&& print $1'` # extract value
+    flag_name=`echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1'`      # extract name
     flag_name=${flag_name//-/_}
     declare "$flag_name"="$flag_value" # assigns to $flag_flagname
     continue
