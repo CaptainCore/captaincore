@@ -47,7 +47,7 @@ run_command() {
     while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain_id=$captain_id)"
 
     # Return error if domain not found
-    if [[ "$domain" == "" ]]; then
+    if [[ "$domain" == "" ]] || [[ "$site" == "" ]] || [[ "$provider" == "" ]]; then
       echo "Can't locate website for site $site"
       return 1
     fi
