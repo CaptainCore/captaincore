@@ -145,7 +145,7 @@ Monitor check all sites
 
 Run WordPress theme/plugin updates on production sites which have been marked for automatic updates
 
-`captaincore update @production,updates-on`
+`captaincore update @production.updates-on`
 
 Launch site. Will change default Kinsta/WP Engine urls to real domain name and drop search engine privacy.
 

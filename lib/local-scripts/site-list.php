@@ -22,7 +22,7 @@ if ( !isset( $targets ) ) {
 }
 
 // Process sites to target
-$targets = explode(",",$targets);
+$targets = explode(".",$targets);
 
 $arguments = array(
 	'author'		 => $captain_id,

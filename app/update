@@ -9,7 +9,7 @@
 #   One or more sites to update.
 #
 #   [@<target>]
-#    Updates targeted sites. Use `captaincore update @production,updates-on` to target production sites marked for automatic updates.
+#   Target groups of sites like @all @production or @staging. Use `captaincore update @production.updates-on` to target production sites marked for automatic updates.
 #
 #   [--exclude-themes=<themes>]
 #   Passed onto `wp theme update --exclude=<theme-names>`
