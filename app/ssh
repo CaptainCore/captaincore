@@ -145,7 +145,7 @@ run_command() {
 }
 
 # Runs on targeted sites
-if [ ${#targets[*]} -gt 0 ] && [[ $command != "" ]] || [[ $script != "" ]]; then
+if [ ${#targets[*]} -gt 0 ] && ( [[ $command != "" ]] || [[ $script != "" ]] ); then
   run_command $(captaincore site list ${targets[*]/targets=/@} --captain_id=$captain_id)
   exit 1
 fi
