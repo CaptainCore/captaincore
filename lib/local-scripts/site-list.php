@@ -185,6 +185,10 @@ foreach ( $websites as $website_id ) {
 		if ( isset( $debug ) ) {
 			$site = "$site|DEBUG|". get_the_title( $website_id );
 		}
+		if ( $site !=  "" ) {
+			$results[] = $site;
+		}
+		continue;
 	}
 
 	if ( in_array( "production", $targets ) ) {
@@ -193,12 +197,15 @@ foreach ( $websites as $website_id ) {
 	}
 
 	if ( in_array( "staging", $targets ) ) {
-		$results[] = $site . '-staging';
+		// Only add if staging exists
+		if ( isset( $address_staging ) && $address_staging != "" ) {
+			$results[] = $site . '-staging';
+		}
 		continue;
 	}
 	if ( in_array( "all", $targets ) ) {
 		$results[] = $site;
-		if ( isset( $address_staging ) ) {
+		if ( isset( $address_staging ) && $address_staging != "" ) {
 			$results[] = $site . '-staging';
 		}
 		continue;
