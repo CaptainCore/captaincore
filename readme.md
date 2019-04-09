@@ -67,7 +67,7 @@ Removes a site from CaptainCore CLI.
 
 Backups one or more sites.
 
-`captaincore backup [<site>...] [--all] [--use-direct] [--skip-remote] [--skip-db] [--with-staging]`
+`captaincore backup [<site>...] [@<target>] [--use-direct] [--skip-remote] [--skip-db] [--with-staging]`
 
 Get details about a site.
 
@@ -75,7 +75,7 @@ Get details about a site.
 
 Creates [Quicksave (plugins/themes)](https://anchor.host/introducing-quicksaves-with-rollbacks/) of website
 
-`captaincore quicksave [<site>...] [--all] [--force] [--debug]`
+`captaincore quicksave [<site>...] [@<target>] [--force] [--debug]`
 
 Rollback from a Quicksave (theme/plugin)
 
@@ -87,11 +87,11 @@ Login to WordPress using links
 
 SSH wrapper
 
-`captaincore ssh <site> [--command=<commands>] [--script=<name|file>] [--<script-argument-name>=<script-argument-value>]`
+`captaincore ssh [<site>..] [@<target>] [--command=<commands>] [--script=<name|file>] [--<script-argument-name>=<script-argument-value>]`
 
 Snapshots one or more sites.
 
-`captaincore snapshot [<site>...] [--all] [--email=<email>] [--skip-remote] [--delete-after-snapshot]`
+`captaincore snapshot [<site>...] [@<target>] [--email=<email>] [--skip-remote] [--delete-after-snapshot]`
 
 Shows last 12 months of stats from WordPress.com API.
 
@@ -99,11 +99,11 @@ Shows last 12 months of stats from WordPress.com API.
 
 Updates themes/plugins on WordPress sites
 
-`captaincore update [<site>...] [--all] [--exclude-themes=<themes>] [--exclude-plugins=<plugins>] [--<field>=<value>]`
+`captaincore update [<site>...] [@<target>] [--exclude-themes=<themes>] [--exclude-plugins=<plugins>] [--<field>=<value>]`
 
 List sites
 
-`captaincore site list [--all] [--staging] [--updates-enabled] [--filter=<theme|plugin|core>] [--filter-name=<name>] [--filter-version=<version>] [--filter-status=<active|inactive|dropin|must-use>] [--field=<field>]`
+`captaincore site list [@<target>] [--filter=<theme|plugin|core>] [--filter-name=<name>] [--filter-version=<version>] [--filter-status=<active|inactive|dropin|must-use>] [--field=<field>]`
 
 ## Real World Examples
 
@@ -129,15 +129,23 @@ done
 
 Backup all sites
 
-`captaincore backup --all`
+`captaincore backup @all`
+
+Backup production sites
+
+`captaincore backup @production`
 
 Generate quicksave for all sites
 
-`captaincore quicksave --all`
+`captaincore quicksave @all`
 
 Monitor check all sites
 
-`captaincore monitor --all`
+`captaincore monitor @all`
+
+Run WordPress theme/plugin updates on production sites which have been marked for automatic updates
+
+`captaincore update @production,updates-on`
 
 Launch site. Will change default Kinsta/WP Engine urls to real domain name and drop search engine privacy.
 
@@ -145,7 +153,7 @@ Launch site. Will change default Kinsta/WP Engine urls to real domain name and d
 
 Find and replace http to https urls
 
-`captaincore ssh <site-name> --script=applyhttps`
+`captaincore ssh <site-name> --script=apply-https`
 
 ## License
 This is free software under the terms of MIT the license (check the LICENSE file included in this package).

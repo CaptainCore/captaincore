@@ -6,10 +6,10 @@
 #   `captaincore snapshot`
 #
 #   [<site>...]
-#   One or more sites to snapshot.
+#   One or more sites.
 #
-#   [--all]
-#   Snapshots all sites.
+#   [@<target>]
+#   Target groups of sites like @all @production or @staging.
 #
 #   [--email=<email>]
 #   On completion, send email to

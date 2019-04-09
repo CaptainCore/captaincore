@@ -8,8 +8,8 @@
 #   [<site>...]
 #   One or more sites.
 #
-#   [--all]
-#   Sync website data for all sites.
+#   [@<target>]
+#   Sync website data for all sites with @all.
 #
 #   [--parallel=<number-of-checks>]
 #   Number of syncs at same time

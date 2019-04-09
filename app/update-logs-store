@@ -8,8 +8,8 @@
 #   [<site>...]
 #   One or more sites.
 #
-#   [--all]
-#   Stores update log data for all sites.
+#   [@<target>]
+#   Target groups of sites like @all @production or @staging.
 #
 
 # Load configuration

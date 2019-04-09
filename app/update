@@ -8,11 +8,8 @@
 #   [<site>...]
 #   One or more sites to update.
 #
-#   [--all]
-#    Updates all sites.
-#
-#   [--updates-enabled]
-#   Updates all sites marked for automatic updates
+#   [@<target>]
+#    Updates targeted sites. Use `captaincore update @production,updates-on` to target production sites marked for automatic updates.
 #
 #   [--exclude-themes=<themes>]
 #   Passed onto `wp theme update --exclude=<theme-names>`

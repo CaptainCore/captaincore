@@ -6,10 +6,10 @@
 #   `captaincore backup`
 #
 #   [<site>...]
-#   One or more sites to backup.
+#   One or more sites.
 #
-#   [--all]
-#   Backup all sites.
+#   [@<target>]
+#   Target groups of sites like @all @production or @staging.
 #
 #   [--use-direct]
 #   (Pull and Push) Directly from sftp to Rclone remote

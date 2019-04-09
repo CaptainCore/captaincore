@@ -6,10 +6,10 @@
 #   `captaincore size`
 #
 #   [<site>...]
-#   One or more sites to size.
+#   One or more sites.
 #
-#   [--all]
-#   Size all sites.
+#   [@<target>]
+#   Target groups of sites like @all @production or @staging.
 #
 #
 

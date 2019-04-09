@@ -13,7 +13,7 @@ foreach($args as $index => $arg) {
 
 }
 
-// Converts arguments --staging --all into $staging $all
+// Converts --arguments into $arguments
 parse_str( implode( '&', $args ) );
 
 if ( isset( $all ) ) {

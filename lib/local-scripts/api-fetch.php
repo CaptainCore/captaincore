@@ -1,6 +1,6 @@
 <?php
 
-// Converts arguments --staging --all --plugin=woocommerce --theme=sitename1 into $staging $all
+// Converts --arguments into $arguments
 parse_str( implode( '&', $args ) );
 
 $curl = curl_init( "$captaincore_gui/wp-json/captaincore/v1/client" );

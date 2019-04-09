@@ -6,10 +6,10 @@
 #   `captaincore quicksave`
 #
 #   [<site>...]
-#   One or more sites to update.
+#   One or more sites.
 #
-#   [--all]
-#   Quicksaves all sites.
+#   [@<target>]
+#   Target groups of sites like @all @production or @staging.
 #
 #   [--force]
 #   Force even if no changes were made.

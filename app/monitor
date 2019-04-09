@@ -8,8 +8,8 @@
 #   [<site>...]
 #   One or more sites to check.
 #
-#   [--all]
-#   Checks all sites.
+#   [@<target>]
+#   Target groups of sites like @all @production or @staging.
 #
 #   [--urls="<url1> <url2> <url3>"]
 #

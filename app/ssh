@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 
 #
-#   SSH wrapper (Supports Kinsta and WP Engine)
+#   SSH wrapper
 #
 #   `captaincore ssh`
 #
 #   [<site>...]
 #   One or more sites.
 #
-#   [--all]
-#   All sites.
+#   [@<target>]
+#   Target groups of sites like @all @production or @staging.
 #
 #   [--command=<commands>]
 #   Runs command over SSH

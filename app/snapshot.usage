@@ -1,1 +1,1 @@
-[<site>...] [--all] [--email=<email>] [--skip-remote] [--delete-after-snapshot]
+[<site>...] [@<target>] [--email=<email>] [--skip-remote] [--delete-after-snapshot]

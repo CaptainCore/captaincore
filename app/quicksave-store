@@ -6,10 +6,10 @@
 #   `captaincore quicksave-store`
 #
 #   [<site>...]
-#   One or more sites to update.
+#   One or more sites.
 #
-#   [--all]
-#   Stores quicksaves for all sites.
+#   [@<target>]
+#   Target groups of sites like @all @production or @staging.
 #
 #   [--debug]
 #   Debug mode

@@ -6,10 +6,10 @@
 #   `captaincore screenshot`
 #
 #   [<site>...]
-#   One or more sites to check.
+#   One or more sites.
 #
-#   [--all]
-#   Checks all sites.
+#   [@<target>]
+#   Target groups of sites like @all @production or @staging.
 #
 #   [--parallel=<number-of-checks>]
 #   Number of moniter checks to run at same time. Defaults to 5.

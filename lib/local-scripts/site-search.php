@@ -1,6 +1,6 @@
 <?php
 
-// Converts arguments --staging --all --plugin=woocommerce --plugin_status=active --theme=sitename1 into $staging $all
+// Converts --arguments into $arguments
 parse_str( str_replace( '-', '_', implode( '&', $args ) ) );
 
 $arguments = array(
