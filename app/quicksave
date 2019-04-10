@@ -75,8 +75,8 @@ run_command() {
       	fi
 
 		# captures FTP errors in $ftp_output and file listing to log file
-		ftp_output=$( { rclone lsd sftp-$site:$home_directory ; } 2>&1 )
-		ftp_search_for_wordpress=`echo "$ftp_output" | perl -wnE'say for /wp-admin/g'`
+		ftp_output=$( { rclone lsd sftp-$site:$home_directory; } 2>&1 )
+		ftp_search_for_wordpress=$( echo "$ftp_output" | perl -wnE'say for /wp-admin/g' )
 
 		# Handle FTP errors
 		if [[ $ftp_search_for_wordpress != "wp-admin" ]]; then
@@ -120,7 +120,15 @@ run_command() {
 
 		# Nasty bash hack in order to grab all of the details from one single SSH tunnel (WP Engine connection is slow)
 		response=$(captaincore ssh $site --script=fetch-site-data --captain_id=$captain_id)
+
 		IFS=$'\n' read -rd '' -a response_parsed <<<"$response"
+		
+		# If only 1 line returned then skip due to error
+		if [[ "${#response_parsed[@]}" == "1" ]]; then
+			echo "Bad response from SSH. Skipping Quicksave. Response $response"
+			continue
+		fi
+
 		echo ${response_parsed[0]} > $path/$site_path/quicksave/versions/plugins.json
 		echo ${response_parsed[1]} > $path/$site_path/quicksave/versions/themes.json
 		echo ${response_parsed[2]} > $path/$site_path/quicksave/versions/core.json
