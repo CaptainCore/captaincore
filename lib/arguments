@@ -21,8 +21,10 @@ for var in "$@"; do
 
     # If contains a value then wrap in quotes
     if [[ $var == *"="* ]]; then
-      flag_value=`echo $var | perl -n -e '/.+?=(.+)/&& print $1'` # extract value
-      flag_name=`echo $var | perl -n -e '/(.+?)=.+/&& print $1'`  # extract name
+      flag_value=$( echo $var | perl -n -e '/.+?=(.+)/&& print $1' ) # extract value
+      flag_name=$( echo $var | perl -n -e '/(.+?)=.+/&& print $1' )  # extract name
+      flag_value="${flag_value%\"}" # Remove first double quote if found
+      flag_value="${flag_value#\"}" # Remove last double quote if found
       processed_var=${flag_name}=\"${flag_value}\"
     fi
 
@@ -47,13 +49,15 @@ done
 for i in "${!flags[@]}"; do
 
   # Replace "-" with "_" and remove leading "--"
-  flag_name=`echo ${flags[$i]} | cut -c 3-`
+  flag_name=$( echo ${flags[$i]} | cut -c 3- )
 
   # Defines variables for flags with data
   if [[ $flag_name == *"="* ]]; then
-    flag_value=`echo $flag_name | perl -n -e '/.+?=\"(.+)\"/&& print $1'` # extract value
-    flag_name=`echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1'`      # extract name
+    flag_value=$( echo $flag_name | perl -n -e '/.+?=\"(.+)\"/&& print $1' ) # extract value
+    flag_name=$( echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1' )      # extract name
     flag_name=${flag_name//-/_}
+    flag_value="${flag_value%\"}" # Remove first double quote if found
+    flag_value="${flag_value#\"}" # Remove last double quote if found
     declare "$flag_name"="$flag_value" # assigns to $flag_flagname
     continue
   fi

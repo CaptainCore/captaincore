@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+
+#
+#   SSH connection to single site
+#
+#   `captaincore ssh-runner <site>`
+#
+#   [--command=<commands>]
+#   Runs command over SSH
+#
+#   [--script=<name|script>] [--<script-argument-name>=<script-argument-value>]
+#   Runs script over SSH
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}lib/arguments
+
+run_command() {
+  
+	site=$1
+
+	# Extract environment
+	if [[ "$site" == *"-staging"* ]]; then
+		environment=staging
+	else
+		environment=production
+	fi
+
+	# Load site configs
+	while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
+
+    if [[ "$address" == "" && "$captaincore_master" != "" ]]; then
+      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Site $website not found."
+      exit
+    fi
+
+    if [[ "$protocol" != "sftp" ]]; then
+      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} SSH not supported (Protocol is $protocol)."
+      exit
+    fi
+
+    if [[ "$provider" == "kinsta" && "$address" == "" ]]; then
+      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Missing Kinsta site."
+      exit
+    fi
+
+    if [[ "$provider" == "wpengine" && "$environment" == "staging" ]]; then
+      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Missing WP Engine site."
+      exit
+    fi
+
+    # If website on Kinsta then prepare their format
+    if [[ "$provider" == "kinsta" ]]; then
+
+      # Kinsta's command prep
+      commandprep="cd public/ &&"
+
+      # Kinsta ssh address format
+      remoteserver="-oStrictHostKeyChecking=no $username@$address -p $port"
+
+      if [[ "$use_staging" == "true" ]]; then
+        remoteserver="-oStrictHostKeyChecking=no $username_staging@$address_staging -p $port_staging"
+      fi
+
+    fi
+
+    # If website on WP Engine then prepare their format
+    if [[ "$provider" == "wpengine" ]]; then
+
+      # WP Engine's command prep
+      commandprep="rm ~/.wp-cli/config.yml; cd sites/* &&"
+
+      # WP Engine ssh address format
+      remoteserver="-oStrictHostKeyChecking=no ${wpe_ssh_user}+${site}@${site}.ssh.wpengine.net"
+
+      if [[ "$use_staging" == "true" ]]; then
+        remoteserver="-oStrictHostKeyChecking=no ${wpe_ssh_user}+${site_staging}@${site_staging}.ssh.wpengine.net"
+      fi
+
+    fi
+
+    if [[ "$remoteserver" == "" ]]; then
+      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} $domain website host provider not recognized."
+      exit
+    fi
+
+    if [[ "$commandprep" == "" ]]; then
+      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} $domain website host provider not recognized."
+      exit
+
+    fi
+
+    # Runs ssh with script
+    if [ -n "$script" ]; then
+      # Check for file
+      if [ ! -f "$script" ]; then
+        # Not found so attempt to run a local script
+        script=${root_path}lib/remote-scripts/$script
+      fi
+      # Pass all arguments found after --script=<script> argument into remote script
+      echo "$commandprep bash -s -- --site=$site ${flags[@]}"
+      ssh $remoteserver "$commandprep bash -s -- --site=$site ${flags[@]}" < $script
+      exit
+    fi
+
+    # Runs ssh with command
+    if [ -n "$command" ]; then
+      ssh $remoteserver "$commandprep $command"
+      #echo "ssh $remoteserver $commandprep $command"
+      exit
+    fi
+
+    if [[ "$direct" == "true" ]]; then
+      ssh -T $remoteserver
+      exit
+    fi
+
+    # Runs ssh
+    ssh $remoteserver
+
+}
+
+# See if any sites are specifed
+if [ ${#arguments[*]} -gt 0 ]; then
+  # Runs on specifed sites
+  run_command ${arguments[*]}
+fi

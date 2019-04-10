@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 #
-#   SSH wrapper
+#   SSH connection to one or more sites
 #
 #   `captaincore ssh`
 #
@@ -11,10 +11,13 @@
 #   [@<target>]
 #   Target groups of sites like @all @production or @staging.
 #
+#   [--parallel=<number>]
+#   Number of SSH connections at same time
+#
 #   [--command=<commands>]
 #   Runs command over SSH
 #
-#   [--script=<name|script>] [--<script-argument-name>=<script-argument-value>]
+#   [--script=<name|script>] [--<script-argument-name>=<script-argument-value>...]
 #   Runs script over SSH
 #
 
@@ -23,122 +26,15 @@ root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_
 source ${root_path}lib/arguments
 
 run_command() {
-  
-  for website in "$@"; do
 
-    # Extract environment
-    if [[ "$website" == *"-staging"* ]]; then
-      environment=staging
-    else
-      environment=production
-    fi
+	websites=$@
 
-    # Load site configs
-    while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain_id=$captain_id)"
+	# Assign default parallel if needed
+  if [[ $parallel == "" ]]; then
+    parallel=3
+  fi
 
-    if [[ "$address" == "" && "$captaincore_master" != "" ]]; then
-      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Site $website not found."
-      continue
-    fi
-
-    if [[ "$protocol" != "sftp" ]]; then
-      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} SSH not supported (Protocol is $protocol)."
-      continue
-    fi
-
-    if [[ "$provider" == "kinsta" && "$address" == "" ]]; then
-      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Missing Kinsta site."
-      continue
-    fi
-
-    if [[ "$provider" == "wpengine" && "$environment" == "staging" ]]; then
-      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Missing WP Engine site."
-      continue
-    fi
-
-    # If website on Kinsta then prepare their format
-    if [[ "$provider" == "kinsta" ]]; then
-
-      # Kinsta's command prep
-      commandprep="cd public/ &&"
-
-      # Kinsta ssh address format
-      remoteserver="-oStrictHostKeyChecking=no $username@$address -p $port"
-
-      if [[ "$use_staging" == "true" ]]; then
-        remoteserver="-oStrictHostKeyChecking=no $username_staging@$address_staging -p $port_staging"
-      fi
-
-    fi
-
-    # If website on WP Engine then prepare their format
-    if [[ "$provider" == "wpengine" ]]; then
-
-      # WP Engine's command prep
-      commandprep="rm ~/.wp-cli/config.yml; cd sites/* &&"
-
-      # WP Engine ssh address format
-      remoteserver="-oStrictHostKeyChecking=no ${wpe_ssh_user}+${site}@${site}.ssh.wpengine.net"
-
-      if [[ "$use_staging" == "true" ]]; then
-        remoteserver="-oStrictHostKeyChecking=no ${wpe_ssh_user}+${site_staging}@${site_staging}.ssh.wpengine.net"
-      fi
-
-    fi
-
-    if [[ "$remoteserver" == "" ]]; then
-      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} $domain website host provider not recognized."
-      continue
-    fi
-
-    if [[ "$commandprep" == "" ]]; then
-      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} $domain website host provider not recognized."
-      continue
-
-    fi
-
-    # Runs ssh with script
-    if [ -n "$script" ]; then
-      # Check for file
-      if [ ! -f "$script" ]; then
-        # Not found so attempt to run a local script
-        script=${root_path}lib/remote-scripts/$script
-      fi
-      # Pass all arguments found after --script=<script> argument into remote script
-      ssh $remoteserver "$commandprep bash -s -- --site=$site ${flags[@]}" < $script
-      continue
-    fi
-
-    # Runs ssh with command
-    if [ -n "$command" ]; then
-      ssh $remoteserver "$commandprep $command"
-      continue
-    fi
-
-    if [[ "$direct" == "true" ]]; then
-      ssh -T $remoteserver
-      continue
-    fi
-
-    # Runs ssh
-    ssh $remoteserver
-
-    # Clear out variables
-    domain=''
-    username=''
-    password=''
-    address=''
-    protocol=''
-    port=''
-    home_directory=''
-    remoteserver=''
-    s3bucket=''
-    s3path=''
-    subsite=''
-    unset use_staging
-
-    let INDEX=${INDEX}+1
-  done
+  echo $websites | xargs -P $parallel -n 1 captaincore ssh-runner "${flags[@]}"
 
 }
 
