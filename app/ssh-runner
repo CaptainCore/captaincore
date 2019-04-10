@@ -99,7 +99,6 @@ run_command() {
         script=${root_path}lib/remote-scripts/$script
       fi
       # Pass all arguments found after --script=<script> argument into remote script
-      echo "$commandprep bash -s -- --site=$site ${flags[@]}"
       ssh $remoteserver "$commandprep bash -s -- --site=$site ${flags[@]}" < $script
       exit
     fi
@@ -107,7 +106,6 @@ run_command() {
     # Runs ssh with command
     if [ -n "$command" ]; then
       ssh $remoteserver "$commandprep $command"
-      #echo "ssh $remoteserver $commandprep $command"
       exit
     fi
 
