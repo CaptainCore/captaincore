@@ -230,21 +230,13 @@ if ( $command == "generate" ) {
 	// Update monitor.json
 	file_put_contents( $monitor_json, json_encode( $monitor_records, JSON_PRETTY_PRINT ) );
 
-	// if errors then generate html
+	// If errors then generate html
 	if ( count( $errors ) > 0 ) {
 
 		$html = '<strong>Errors</strong><br /><br />';
 
 		foreach ( $errors as $error ) {
 			$html .= trim( $error ) . "<br />\n";
-		};
-
-		if ( count( $known_errors ) > 0 ) {
-			$html .= '<br /><strong>Ongoing Errors</strong><br /><br />';
-		}
-
-		foreach ( $known_errors as $known_error ) {
-			$html .= trim( $known_error ) . "<br />\n";
 		};
 		
 		if ( count( $warnings ) > 0 ) {
@@ -255,17 +247,28 @@ if ( $command == "generate" ) {
 			$html .= trim( $warning ) . "<br />\n";
 		};
 
-		echo $html;
-
 	}
 
-	// if restored then generate html
+	// If restored then generate html
 	if ( count( $restored ) > 0 ) {
 
 		$html = '<strong>Restored</strong><br /><br />';
 
 		foreach ( $restored as $restore ) {
 			$html .= trim( $restore ) . "<br />\n";
+		};
+
+	}
+
+	// If errors or restored then append ongoing errors to the bottom then output html
+	if ( count( $errors ) > 0 || count( $restored ) > 0 ) {
+		
+		if ( count( $known_errors ) > 0 ) {
+			$html .= '<br /><strong>Ongoing Errors</strong><br /><br />';
+		}
+
+		foreach ( $known_errors as $known_error ) {
+			$html .= trim( $known_error ) . "<br />\n";
 		};
 
 		echo $html;
