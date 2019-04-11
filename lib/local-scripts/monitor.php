@@ -120,6 +120,7 @@ if ( $command == "generate" ) {
 	$log_errors   = process_log();
 	$time_now     = date( "U" );
 	$errors       = array();
+	$known_errors = array();
 	$restored     = array();
 	$warnings     = array();
 
@@ -183,6 +184,7 @@ if ( $command == "generate" ) {
 
 		// Check if notifications count is exceeded, skip this record (Beyond 24hrs)
 		if ( $record->notify_count >= count($notify_at) ) {
+			$known_errors[] = "Response code {$record->http_code} on {$record->url} since $time_ago\n";
 			continue;
 		}
 
@@ -197,6 +199,7 @@ if ( $command == "generate" ) {
 
 		// Check if "notify at" time is ready, otherwise skip this record
 		if ( $record->created_at > $notify_time_check ) {
+			$known_errors[] = "Response code {$record->http_code} on {$record->url} since $time_ago\n";
 			continue;
 		}
 
@@ -234,6 +237,14 @@ if ( $command == "generate" ) {
 
 		foreach ( $errors as $error ) {
 			$html .= trim( $error ) . "<br />\n";
+		};
+
+		if ( count( $known_errors ) > 0 ) {
+			$html .= '<br /><strong>Ongoing Errors</strong><br /><br />';
+		}
+
+		foreach ( $known_errors as $known_error ) {
+			$html .= trim( $known_error ) . "<br />\n";
 		};
 		
 		if ( count( $warnings ) > 0 ) {
