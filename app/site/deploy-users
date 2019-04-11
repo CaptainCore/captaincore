@@ -41,7 +41,7 @@ run_command() {
 
     wp_cli_commands=$( captaincore site fetch-default-users ${site}-${environment} --captain_id=$captain_id )
 
-    captaincore ssh ${site}-${environment} --direct << EOF
+    captaincore ssh-runner ${site}-${environment} --direct << EOF
 $command_prep
 $wp_cli_commands
 EOF
