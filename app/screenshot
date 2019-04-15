@@ -46,8 +46,8 @@ run_command() {
     while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain_id=$captain_id)"
     
     if [[ "$home_url" != "" ]]; then
-      mkdir -p $site_path/${site}_${site_id}/${environment}/screenshots/
-      urls_to_check+=( $site_path/${site}_${site_id}/${environment}/screenshots/,${home_url} )
+      mkdir -p $path/${site}_${site_id}/${environment}/screenshots/
+      urls_to_check+=( $path/${site}_${site_id}/${environment}/screenshots/,${home_url} )
     fi
 
   done
