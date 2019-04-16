@@ -28,6 +28,8 @@ run_command() {
     parallel=3
   fi
 
+  captaincore screenshot $@
+
   # Generate random auth
   auth=''; for count in {0..6}; do auth+=$(printf "%x" $(($RANDOM%16)) ); done;
 

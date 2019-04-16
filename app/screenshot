@@ -24,6 +24,7 @@ source ${root_path}lib/arguments
 
 run_command() {
 
+  # Format: Screenshot folder,HTTP url to check,Remote Send
   urls_to_check=()
 
   # Assign default parallel if needed
@@ -47,7 +48,7 @@ run_command() {
     
     if [[ "$home_url" != "" ]]; then
       mkdir -p $path/${site}_${site_id}/${environment}/screenshots/
-      urls_to_check+=( $path/${site}_${site_id}/${environment}/screenshots/,${home_url} )
+      urls_to_check+=( $path/${site}_${site_id}/${environment}/screenshots/,${home_url},$rclone_screenshots/${site}_${site_id}/${environment}/ )
     fi
 
   done

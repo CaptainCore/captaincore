@@ -102,6 +102,7 @@ rclone_archive={$configuration->remotes->rclone_archive}
 rclone_backup={$configuration->remotes->rclone_backup}
 rclone_logs={$configuration->remotes->rclone_logs}
 rclone_snapshot={$configuration->remotes->rclone_snapshot}
+rclone_screenshots={$configuration->remotes->rclone_screenshots}
 captaincore_branding_name={$configuration->vars->captaincore_branding_name}
 captaincore_branding_title={$configuration->vars->captaincore_branding_title}
 captaincore_branding_author={$configuration->vars->captaincore_branding_author}
