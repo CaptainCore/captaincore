@@ -86,7 +86,10 @@ run_command() {
 
   cd ${root_path}data
 
-  for attempt in $(seq 1 $retry); do 
+  for attempt in $(seq 1 $retry); do
+
+    # Wait before retrying failures
+    sleep 10s
 
     # Run checks in parallel. Collect the results in log file.
     ( echo $urls_to_check | xargs -P $parallel -n 1 captaincore monitor-check ) 2>&1 | tee $log_file
