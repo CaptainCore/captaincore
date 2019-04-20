@@ -44,6 +44,12 @@ if [ ${#targets[*]} -gt 0 ] && ( [[ $command != "" ]] || [[ $script != "" ]] ); 
   exit 1
 fi
 
+# Connects to SSH directly
+if [ ${#targets[*]} -eq 0 ] && [ ${#arguments[*]} -gt 0 ] && [ ${#flags[@]} -eq 1 ]; then
+  captaincore ssh-runner ${arguments[*]} captain_id=$captain_id
+  exit 1
+fi
+
 # Runs on specific sites
 if [ ${#targets[*]} -eq 0 ] && [ ${#arguments[*]} -gt 0 ]; then
   run_command ${arguments[*]}
