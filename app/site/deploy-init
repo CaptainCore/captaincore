@@ -5,6 +5,9 @@
 #
 #   `captaincore site deploy-init <site>`
 #
+#   [--skip-remote]
+#
+#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
@@ -72,12 +75,16 @@ run_command() {
 }
 EOF
 
+  if [[ $skip_remote != "true" ]]; then
+
     # Set permalink to 'Post name' format if not set
     captaincore ssh ${site} --script=rewrite-prep --captain_id=$captain_id
 
     # Deploy helper plugin
     captaincore ssh ${site} --script=deploy-helper --captain_id=$captain_id
     captaincore ssh ${site}-staging --script=deploy-helper --captain_id=$captain_id
+
+  fi
 
     # Clear out variables
     domain=''
