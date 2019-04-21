@@ -13,47 +13,34 @@ read -r -d '' build_mu_plugin << 'heredoc'
  * Plugin Name: CaptainCore Helper
  * Plugin URI: https://captaincore.io
  * Description: Collection of helper functions for CaptainCore
- * Version: 0.1.0
+ * Version: 0.2.0
  * Author: CaptainCore
  * Author URI: https://captaincore.io
  * Text Domain: captaincore-helper
  */
 
 /**
- * Registers Rest API endpoint for quick logins
+ * Registers AJAX callback for quick logins
  */
-function captaincore_register_login_rest_endpoint() {
-	// Custom endpoint for CaptainCore API
-	register_rest_route(
-		'captaincore/v1', '/login', array(
-			'methods'       => 'POST',
-			'callback'      => 'captaincore_login_func',
-			'show_in_index' => false
-		)
-	);
-}
-
-add_action( 'rest_api_init', 'captaincore_register_login_rest_endpoint' );
-
-function captaincore_login_func( WP_REST_Request $request ) {
+function captaincore_quick_login_action_callback() {
 
 	$post = json_decode( file_get_contents( 'php://input' ) );
 
 	// Error if token not valid
-	if ( $post->token != md5( AUTH_KEY ) ) {
-		// Create the response object
+	if ( ! isset( $post->token ) || $post->token != md5( AUTH_KEY ) ) {
 		return new WP_Error( 'token_invalid', 'Invalid Token', array( 'status' => 404 ) );
+		wp_die();
 	}
 
 	$count = 1;
 
-	$user = get_user_by( "login", $post->user_login );
+	$user   = get_user_by( 'login', $post->user_login );
 	$tokens = $new_tokens = array();
 
 	for ( $i = 0; $i < $count; $i++ ) {
-		$password = wp_generate_password();
-		$token = sha1( $password );
-		$tokens[] = $token;
+		$password     = wp_generate_password();
+		$token        = sha1( $password );
+		$tokens[]     = $token;
 		$new_tokens[] = $token;
 	}
 
@@ -63,12 +50,16 @@ function captaincore_login_func( WP_REST_Request $request ) {
 			'user_id'                 => $user->ID,
 			'captaincore_login_token' => $token,
 		);
-		$login_url = add_query_arg( $query_args, wp_login_url() );
+		$login_url  = add_query_arg( $query_args, wp_login_url() );
 	}
 
-	return $login_url;
+	echo $login_url;
+
+	wp_die();
 
 }
+
+add_action( 'wp_ajax_nopriv_captaincore_quick_login', 'captaincore_quick_login_action_callback' );
 
 /**
  * Login a request in as a user if the token is valid.
@@ -81,7 +72,7 @@ function captaincore_login_handle_token() {
 	}
 
 	if ( is_user_logged_in() ) {
-		$error = sprintf( __( 'Invalid one-time login token, but you are logged in as \'%s\'. <a href="%s">Go to the dashboard instead</a>?', 'captaincore-login' ), wp_get_current_user()->user_login, admin_url() );
+		$error = sprintf( __( 'Invalid one-time login token, but you are logged in as \'%1$s\'. <a href="%2$s">Go to the dashboard instead</a>?', 'captaincore-login' ), wp_get_current_user()->user_login, admin_url() );
 	} else {
 		$error = sprintf( __( 'Invalid one-time login token. <a href="%s">Try signing in instead</a>?', 'captaincore-login' ), wp_login_url() );
 	}
@@ -92,8 +83,8 @@ function captaincore_login_handle_token() {
 		wp_die( $error );
 	}
 
-	$tokens = get_user_meta( $user->ID, 'captaincore_login_token', true );
-	$tokens = is_string( $tokens ) ? array( $tokens ) : $tokens;
+	$tokens   = get_user_meta( $user->ID, 'captaincore_login_token', true );
+	$tokens   = is_string( $tokens ) ? array( $tokens ) : $tokens;
 	$is_valid = false;
 	foreach ( $tokens as $i => $token ) {
 		if ( hash_equals( $token, $_GET['captaincore_login_token'] ) ) {
