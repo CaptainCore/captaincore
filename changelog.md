@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.3] - 2019-04-22
+### Added
+- Command `ssh-runner` which adds parallelizing to `ssh`. 
+- Config `rclone_screenshots` for automatic upload of screenshots.
+- Flag `--skip-remote` to `site deploy-init`.
+
+### Changed
+- Replaced argument `--all` with a new flexible targeting argument using the @ symbol. To target use `@all`, `@production` or `@staging`. These can be combined to filter sites further by chaining other modifiers after the target. For example `@production.updates-on` will target production sites are marked for automatic updates and `@all.offload-on`will target all sites which have offload enabled.
+- Added an ongoing errors section to site monitor email notifications. 
+- Added environment support to `deploy-plugins` and configured plugins to activate. 
+- Added gallery and ngg folder to remote script`migrate`.
+- Added delay in `monitor` when retrying failed checks. Attempt to reduce false positives.
+
 ## [0.4.2] - 2019-04-08
 ## Added
 - Commands `site bare-add`, `site bare-delete` and `site bare-update` to handle site management from other CaptainCore servers. These are used from CaptainCore Dispatch to relay site changes to all servers.
