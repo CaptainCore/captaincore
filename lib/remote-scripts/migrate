@@ -120,7 +120,7 @@ run_command() {
   fi
 
   # Finds WordPress path
-  wordpresspath=$( find * -type d -name 'wp-content' -print -quit )
+  wordpresspath=$( find $(pwd) -type d -name 'wp-content' -print -quit )
 
   if [[ $wordpresspath == "" ]]; then
     echo "Can't find wp-content/ in backup. Migration cancelled.";
