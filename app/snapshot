@@ -138,7 +138,7 @@ run_command() {
       fi
 
       # Adds sync data to CaptainCore GUI
-      curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
+      curl ${curl_argument} --fail --silent --show-error --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
 "command":"snapshot",
 "site_id":"$site_id",
