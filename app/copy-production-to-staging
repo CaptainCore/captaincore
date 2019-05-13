@@ -35,7 +35,7 @@ run_command() {
     # Grab core version
     core_version=$( captaincore ssh $site --command="wp core version" )
 
-    captaincore ssh $site --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/ --exclude=wp-content/uploads/\* --exclude=wp-content/updraft/\*"
+    captaincore ssh $site --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip --test -q -r wp-content_$timestamp.zip wp-content/ --exclude=wp-content/uploads/\* --exclude=wp-content/updraft/\*"
 
     # Download production snapshot to staging site and import database
     captaincore ssh $site-staging --script=migrate --update-urls --url="http://$address/wp-content_$timestamp.zip"
@@ -50,7 +50,7 @@ run_command() {
     captaincore ssh $site-staging --command="wp core update --version=$core_version"
 
     # Sync uploads folders
-    rclone sync sftp-${site}:${home_directory}wp-content/uploads/ sftp-${site}-staging:${home_directory}wp-content/uploads/ -v
+    rclone sync sftp-${site}:${home_directory}wp-content/uploads/ sftp-${site}-staging:${home_directory}wp-content/uploads/ --stats-one-line --progress
 
     # Post completion to CaptainCore API
     if [[ $captaincore_dev == true ]]; then

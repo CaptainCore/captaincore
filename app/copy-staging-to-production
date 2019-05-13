@@ -35,7 +35,7 @@ run_command() {
     # Grab core version
     core_version=$( captaincore ssh $site-staging --command="wp core version" )
 
-    captaincore ssh $site-staging --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip -r wp-content_$timestamp.zip wp-content/ --exclude=wp-content/uploads/\* --exclude=wp-content/updraft/\*"
+    captaincore ssh $site-staging --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip --test -q -r wp-content_$timestamp.zip wp-content/ --exclude=wp-content/uploads/\* --exclude=wp-content/updraft/\*"
 
     staging_home_url=$( captaincore ssh $site-staging --command="wp option get home --skip-plugins --skip-themes" )
 

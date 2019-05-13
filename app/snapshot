@@ -68,7 +68,7 @@ run_command() {
 
     if [[ $delete_after_snapshot == true ]]; then
       cd $path/
-      zip -r $site-$environment-$timedate.zip ${site}_${site_id}/
+      zip --test -q -r $site-$environment-$timedate.zip ${site}_${site_id}/ && echo "Completed generating $site-$environment-$timedate.zip" || echo "Failed generating $site-$environment-$timedate.zip"
       mkdir -p ${site}_${site_id}-$timedate/${environment}/snapshots
       mv $site-$environment-$timedate.zip ${environment}/snapshots
       cd ${environment}/snapshots
@@ -89,26 +89,26 @@ run_command() {
           fi
 
           if [[ $option == "themes" ]]; then
-            zip -r $site-$environment-$timedate.zip $site-$environment-$timedate/wp-content/themes/
+            zip --test -q -r $site-$environment-$timedate.zip $site-$environment-$timedate/wp-content/themes/ && echo "Completed generating $site-$environment-$timedate.zip" || echo "Failed generating $site-$environment-$timedate.zip"
           fi
 
           if [[ $option == "plugins" ]]; then
-            zip -r $site-$environment-$timedate.zip $site-$environment-$timedate/wp-content/plugins/
+            zip --test -q -r $site-$environment-$timedate.zip $site-$environment-$timedate/wp-content/plugins/ && echo "Completed generating $site-$environment-$timedate.zip" || echo "Failed generating $site-$environment-$timedate.zip"
           fi
 
           if [[ $option == "uploads" ]]; then
-            zip -r $site-$environment-$timedate.zip $site-$environment-$timedate/wp-content/uploads/
+            zip --test -q -r $site-$environment-$timedate.zip $site-$environment-$timedate/wp-content/uploads/ && echo "Completed generating $site-$environment-$timedate.zip" || echo "Failed generating $site-$environment-$timedate.zip"
           fi
 
           if [[ $option == "everything-else" ]]; then
-            zip -r $site-$environment-$timedate.zip $site-$environment-$timedate/ --exclude=$site-$environment-$timedate/wp-content/mysql.sql --exclude=$site-$environment-$timedate/wp-content/themes/\* --exclude=$site-$environment-$timedate/wp-content/plugins/\* --exclude=$site-$environment-$timedate/wp-content/uploads/\* --exclude=$site-$environment-$timedate/_wpeprivate/\* --exclude=\*.git\* --exclude=$site-$environment-$timedate/wp-content/advanced-cache.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/mu-plugin.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$site-$environment-$timedate/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$site-$environment-$timedate/wp-content/mu-plugins/wpengine-common/\*
+            zip --test -q -r $site-$environment-$timedate.zip $site-$environment-$timedate/ --exclude=$site-$environment-$timedate/wp-content/mysql.sql --exclude=$site-$environment-$timedate/wp-content/themes/\* --exclude=$site-$environment-$timedate/wp-content/plugins/\* --exclude=$site-$environment-$timedate/wp-content/uploads/\* --exclude=$site-$environment-$timedate/_wpeprivate/\* --exclude=\*.git\* --exclude=$site-$environment-$timedate/wp-content/advanced-cache.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/mu-plugin.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$site-$environment-$timedate/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$site-$environment-$timedate/wp-content/mu-plugins/wpengine-common/\* && echo "Completed generating $site-$environment-$timedate.zip" || echo "Failed generating $site-$environment-$timedate.zip"
           fi
 
         done
 
       else 
         # Add everything to ZIP
-        zip -r $site-$environment-$timedate.zip $site-$environment-$timedate/ --exclude=$site-$environment-$timedate/_wpeprivate/\* --exclude=\*.git\* --exclude=$site-$environment-$timedate/wp-content/advanced-cache.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/mu-plugin.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$site-$environment-$timedate/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$site-$environment-$timedate/wp-content/mu-plugins/wpengine-common/\*
+        zip --test -q -r $site-$environment-$timedate.zip $site-$environment-$timedate/ --exclude=$site-$environment-$timedate/_wpeprivate/\* --exclude=\*.git\* --exclude=$site-$environment-$timedate/wp-content/advanced-cache.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/mu-plugin.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$site-$environment-$timedate/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$site-$environment-$timedate/wp-content/mu-plugins/wpengine-common/\*
       fi
       rm $site-$environment-$timedate  # remove directory shortcut
       mkdir -p ${environment}/snapshots

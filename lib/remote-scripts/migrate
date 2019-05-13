@@ -109,7 +109,7 @@ run_command() {
 
   if [[ "$backup_url" == *".zip"* ]]; then
     mv restore_$timedate.out restore_$timedate.zip
-    unzip -o restore_$timedate.zip -x "__MACOSX/*" -x "cgi-bin/*"
+    unzip -q -o restore_$timedate.zip -x "__MACOSX/*" -x "cgi-bin/*"
     rm restore_$timedate.zip
   fi
 

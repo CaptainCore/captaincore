@@ -184,11 +184,13 @@ EOF
     let INDEX=${INDEX}+1
   done
 
-  echo "$(date +'%Y-%m-%d %H:%M') Finishing queued remote backups"
-  echo "$(date +'%Y-%m-%d %H:%M') Finishing queued remote backups" >> $logs_path/backup-log.txt
-  ts -w
-  echo "$(date +'%Y-%m-%d %H:%M') Finished queued remote backups"
-  echo "$(date +'%Y-%m-%d %H:%M') Finished queued remote backups" >> $logs_path/backup-log.txt
+  if [[ $skip_remote != true ]]; then
+    echo "$(date +'%Y-%m-%d %H:%M') Finishing queued remote backups"
+    echo "$(date +'%Y-%m-%d %H:%M') Finishing queued remote backups" >> $logs_path/backup-log.txt
+    ts -w
+    echo "$(date +'%Y-%m-%d %H:%M') Finished queued remote backups"
+    echo "$(date +'%Y-%m-%d %H:%M') Finished queued remote backups" >> $logs_path/backup-log.txt
+  fi
 
   # End time tracking
   overalltimeend=$(date +"%s")
@@ -197,7 +199,7 @@ EOF
 
   # Generate logs
   cd $logs_path
-  tar -cvzf logs.tar.gz *
+  zip -q -r logs.zip . && echo "Completed generating logs.zip" || echo "Failed generating logs.zip"
 
   # Upload logs to Rclone
   rclone sync $logs/$backup_date/$backup_time-$auth $rclone_logs/$backup_date/$backup_time-$auth --exclude .DS_Store
