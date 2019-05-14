@@ -153,11 +153,8 @@ if ( $command == "update" ) {
 	file_put_contents( $json , json_encode( $config_data, JSON_PRETTY_PRINT ) );
 
 	$response = (object) [
-		"reponse" 	 => "Configurations have been updated.",
+		"response" 	 => "Configurations have been updated.",
 		"captain_id" => $captain_id,
-		$key 	   	 => array ( 
-			   $name => $value
-		)
 	];
 
 	echo json_encode( $response, JSON_PRETTY_PRINT );
