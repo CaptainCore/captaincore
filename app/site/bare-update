@@ -11,19 +11,34 @@
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source ${root_path}lib/arguments
 
-# Remove leading "--" from flags
-for i in "${!flags[@]}"; do
-	flags[$i]=`echo ${flags[$i]} | cut -c 3-`
-done
+run_command() {
 
-cd ${root_path}data
-wp eval-file ../lib/local-scripts/site-update.php site=$1 ${flags[@]}
+	# Remove leading "--" from flags
+	for i in "${!flags[@]}"; do
+		flags[$i]=`echo ${flags[$i]} | cut -c 3-`
+	done
 
-# Load site configs
-while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $1 --bash --captain_id=$captain_id)"
+	cd ${root_path}data
+	wp eval-file ../lib/local-scripts/site-update.php site=$1 ${flags[@]}
 
-# Generate rclone keys
-captaincore rclone-configs $site --captain_id=$captain_id
+	# Load site configs
+	while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $1 --bash --captain_id=$captain_id)"
 
-# Update configs
-captaincore configs update-websites --captain_id=$captain_id
+	# Generate rclone keys
+	captaincore rclone-configs $site --captain_id=$captain_id
+
+	# Update configs
+	captaincore configs update-websites --captain_id=$captain_id
+
+}
+
+# See if any sites are specifed
+if [ ${#arguments[*]} -eq 1 ]; then
+  # Runs on specifed sites
+  run_command ${arguments[*]}
+fi
+
+# Error if no sites specifed
+if [ ${#arguments[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a site."
+fi

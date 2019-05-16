@@ -32,4 +32,14 @@ run_command() {
 	captaincore configs update-websites --captain_id=$captain_id
 
 }
-run_command ${arguments[*]}
+
+# See if any sites are specifed
+if [ ${#arguments[*]} -eq 1 ]; then
+  # Runs on specifed sites
+  run_command ${arguments[*]}
+fi
+
+# Error if no sites specifed
+if [ ${#arguments[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a site."
+fi
