@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+
+#
+#   Deploy default plugins/themes/settings for website
+#
+#   `captaincore deploy-defaults`
+#
+#   [<site>...]
+#   One or more sites.
+#
+#   [@<target>]
+#   Target groups of sites like @all @production or @staging.
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}lib/arguments
+
+run_command() {
+
+	echo "Deploying defaults to $# sites"
+
+	for website in "$@"; do
+
+        captaincore site deploy-keys ${website} --captain_id=$captain_id
+        captaincore site deploy-keys ${website}-staging --captain_id=$captain_id
+        captaincore site deploy-users $website --captain_id=$captain_id
+        captaincore site deploy-plugins $website --captain_id=$captain_id
+
+	done
+
+}
+
+# See if any sites are specifed
+if [ ${#arguments[*]} -gt 0 ]; then
+  # Runs on specifed sites
+  run_command ${arguments[*]}
+fi
+
+# Runs on targeted sites
+if [ ${#targets[*]} -gt 0 ]; then
+  run_command $(captaincore site list ${targets[*]/targets=/@} --captain_id=$captain_id)
+fi
+
+# Error if no sites specifed
+if [ ${#targets[*]} -eq 0 ] && [ ${#arguments[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use a target @all, @production or @staging."
+fi
