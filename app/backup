@@ -106,7 +106,7 @@ run_command() {
 
       # Database backup (if remote server available)
       if [[ "$provider" == "kinsta" ]] || [[ "$provider" == "wpengine" ]]; then
-        captaincore ssh $site --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; chmod 600 wp-content/mysql.sql" --captain_id=$captain_id
+        captaincore ssh $site --command="wp db export --skip-plugins --skip-themes --add-drop-table --default-character-set=utf8mb4 - > wp-content/mysql.sql; chmod 600 wp-content/mysql.sql" --captain_id=$captain_id
       fi
 
     fi
