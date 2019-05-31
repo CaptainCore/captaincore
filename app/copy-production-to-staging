@@ -33,21 +33,21 @@ run_command() {
     timestamp=$(date +%s)
 
     # Grab core version
-    core_version=$( captaincore ssh $site --command="wp core version" )
+    core_version=$( captaincore ssh $site --command="wp core version --skip-plugins --skip-themes" --captain_id=$captain_id )
 
-    captaincore ssh $site --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip --test -q -r wp-content_$timestamp.zip wp-content/ --exclude=wp-content/uploads/\* --exclude=wp-content/updraft/\*"
+    captaincore ssh $site --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip --test -q -r wp-content_$timestamp.zip . --exclude=wp-content/wp-includes/\* --exclude=wp-content/wp-admin/\* --exclude=wp-content/uploads/\* --exclude=wp-content/updraft/\*" --captain_id=$captain_id
 
     # Download production snapshot to staging site and import database
-    captaincore ssh $site-staging --script=migrate --update-urls --url="http://$address/wp-content_$timestamp.zip"
+    captaincore ssh $site-staging --script=migrate --url="http://$address/wp-content_$timestamp.zip" --update-urls --captain_id=$captain_id
 
     # Remove from production_to_staging_kinsta
-    captaincore ssh $site --command="rm -f wp-content_$timestamp.zip"
+    captaincore ssh $site --command="rm -f wp-content_$timestamp.zip" --captain_id=$captain_id
 
     # Enable search privacy and disable email on staging site
-    captaincore ssh $site-staging --command="wp option update blog_public 0 --skip-plugins --skip-themes; wp plugin install log-emails --activate --skip-plugins --skip-themes; wp plugin deactivate wp-rocket sendgrid-email-delivery-simplified mailgun login-recaptcha --skip-plugins --skip-themes"
+    captaincore ssh $site-staging --command="wp option update blog_public 0 --skip-plugins --skip-themes; wp plugin install log-emails --activate --skip-plugins --skip-themes; wp plugin deactivate wp-rocket sendgrid-email-delivery-simplified mailgun login-recaptcha --skip-plugins --skip-themes" --captain_id=$captain_id
 
     # Install matching core version
-    captaincore ssh $site-staging --command="wp core update --version=$core_version"
+    captaincore ssh $site-staging --command="wp core update --version=$core_version --skip-plugins --skip-themes" --captain_id=$captain_id
 
     # Sync uploads folders
     rclone sync sftp-${site}:${home_directory}wp-content/uploads/ sftp-${site}-staging:${home_directory}wp-content/uploads/ --stats-one-line --progress
