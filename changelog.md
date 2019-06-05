@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.4] - 2019-06-04
+#### Added
+- Command `deploy-defaults` for bulk deploying default plugins/users.
+
+### Changed
+- Reduced feedback are various commands. This helps keeps command output streaming to the websocket running smoothly.
+- Various fixes in `copy-production-to-staging`, `copy-staging-to-production` and script `migrate`. Will properly handle `captain_id`. Fix paths for table_prefix checks. 
+- Script `migrate` now automatically selects most recent modified .sql file for import.
+
 ## [0.4.3] - 2019-04-22
 ### Added
 - Command `ssh-runner` which adds parallelizing to `ssh`. 
