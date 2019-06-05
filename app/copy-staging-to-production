@@ -49,7 +49,7 @@ run_command() {
     captaincore ssh $site --command="wp core update --version=$core_version --skip-plugins --skip-themes" --captain_id=$captain_id
 
     # Sync uploads folders
-    rclone sync sftp-${site}-staging:${home_directory}wp-content/uploads/ sftp-${site}:${home_directory}wp-content/uploads/ -v
+    rclone sync sftp-${site}-staging:${home_directory}wp-content/uploads/ sftp-${site}:${home_directory}wp-content/uploads/ --stats-one-line --progress
 
     # Post completion to CaptainCore API
     if [[ $captaincore_dev == true ]]; then
