@@ -3,8 +3,9 @@
 
 $command  = $argv[1];
 $log_file = $argv[2];
-if ( isset( $argv[3] ) ) {
-	$urls_checked = $argv[3];
+$monitor_json = $argv[3];
+if ( isset( $argv[4] ) ) {
+	$urls_checked = $argv[4];
 	$urls_checked = explode( ' ', $urls_checked );
 }
 
@@ -118,7 +119,6 @@ if ( $command == 'process' ) {
 if ( $command == 'generate' ) {
 
 	$notify_at    = array( '1 hour', '4 hour', '24 hour' );
-	$monitor_json = dirname( __FILE__, 3 ) . '/data/monitor.json';
 	$log_errors   = process_log();
 	$time_now     = date( 'U' );
 	$errors       = array();
@@ -205,6 +205,7 @@ if ( $command == 'generate' ) {
 
 		// Check if "notify at" time is ready, otherwise skip this record
 		if ( $record->created_at > $notify_time_check ) {
+			$time_ago       = time_elapsed_string( '@' . $record->created_at );
 			$known_errors[] = "Response code {$record->http_code} on {$record->url} since $time_ago\n";
 			continue;
 		}

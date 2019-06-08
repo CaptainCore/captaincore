@@ -82,6 +82,10 @@ run_command() {
 
   # Define log file format
   log_file=$logs/${backup_date}_${backup_time}_$auth.txt
+
+  # Define monitor.json location
+  monitor_file="$path/monitor.json"
+
   echo "logging to $log_file"
 
   cd ${root_path}data
@@ -95,7 +99,7 @@ run_command() {
     ( echo $urls_to_check | xargs -P $parallel -n 1 captaincore monitor-check ) 2>&1 | tee $log_file
 
     # Have local PHP handle error count
-    error_count=$(php ${root_path}lib/local-scripts/monitor.php check $log_file)
+    error_count=$(php ${root_path}lib/local-scripts/monitor.php check $log_file $monitor_file)
 
     # If no errors then skip the rest of the attempts.
     if [[ $error_count == "0" ]]; then
@@ -108,7 +112,7 @@ run_command() {
       echo "Attempt #${attempt} found $error_count errors. Checking those URLs again.";
 
       # Fetch urls with errors for another another check
-      urls_to_check=$(php ${root_path}lib/local-scripts/monitor.php process $log_file)
+      urls_to_check=$(php ${root_path}lib/local-scripts/monitor.php process $log_file $monitor_file)
 
       # Empty space for formating
       echo "" >> $log_file
@@ -122,7 +126,7 @@ run_command() {
   done
 
   # Build emails
-  email_content=$(php ${root_path}lib/local-scripts/monitor.php generate $log_file "$orignal_urls_to_check")
+  email_content=$(php ${root_path}lib/local-scripts/monitor.php generate $log_file $monitor_file "$orignal_urls_to_check")
 
   if [[ $email_content != "" ]]; then
 
