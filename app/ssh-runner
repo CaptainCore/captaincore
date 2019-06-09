@@ -72,10 +72,10 @@ run_command() {
       commandprep="rm ~/.wp-cli/config.yml; cd sites/* &&"
 
       # WP Engine ssh address format
-      remoteserver="-oStrictHostKeyChecking=no ${wpe_ssh_user}+${site}@${site}.ssh.wpengine.net"
+      remoteserver="-oStrictHostKeyChecking=no ${site}@${site}.ssh.wpengine.net"
 
       if [[ "$use_staging" == "true" ]]; then
-        remoteserver="-oStrictHostKeyChecking=no ${wpe_ssh_user}+${site_staging}@${site_staging}.ssh.wpengine.net"
+        remoteserver="-oStrictHostKeyChecking=no ${site_staging}@${site_staging}.ssh.wpengine.net"
       fi
 
     fi
