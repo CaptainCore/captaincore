@@ -31,7 +31,7 @@ run_command() {
 	while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
 
     if [[ "$address" == "" && "$captaincore_master" != "" ]]; then
-      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Site $website not found."
+      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Site $site not found."
       exit
     fi
 

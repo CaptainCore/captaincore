@@ -20,6 +20,9 @@
 #   [--script=<name|script>] [--<script-argument-name>=<script-argument-value>...]
 #   Runs script over SSH
 #
+#   [--debug]
+#   Extra reporting for debug purposes
+#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
@@ -41,18 +44,27 @@ run_command() {
 # Runs on targeted sites
 if [ ${#targets[*]} -gt 0 ] && ( [[ $command != "" ]] || [[ $script != "" ]] ); then
   run_command $(captaincore site list ${targets[*]/targets=/@} --captain_id=$captain_id)
+  if [[ $debug == "true" ]]; then
+    echo "run_command $(captaincore site list ${targets[*]/targets=/@} --captain_id=$captain_id)"
+  fi
   exit 1
 fi
 
 # Connects to SSH directly
 if [ ${#targets[*]} -eq 0 ] && [ ${#arguments[*]} -gt 0 ] && [ ${#flags[@]} -eq 1 ]; then
-  captaincore ssh-runner ${arguments[*]} captain_id=$captain_id
+  captaincore ssh-runner ${arguments[*]} --captain_id=$captain_id
+  if [[ $debug == "true" ]]; then
+    echo "captaincore ssh-runner ${arguments[*]} --captain_id=$captain_id"
+  fi
   exit 1
 fi
 
 # Runs on specific sites
 if [ ${#targets[*]} -eq 0 ] && [ ${#arguments[*]} -gt 0 ]; then
   run_command ${arguments[*]}
+  if [[ $debug == "true" ]]; then
+    echo "run_command ${arguments[*]}"
+  fi
   exit 1
 fi
 
