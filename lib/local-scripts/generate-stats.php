@@ -27,7 +27,7 @@ $site_details = json_decode( shell_exec( "captaincore site get $site --captain_i
 // Determines environment
 if ( strpos($site, '-staging') !== false ) {
     $environment = "staging";
-    $site_name = shell_exec( "captaincore ssh $site --command=\"wp option get home --skip-plugins --skip-themes\"" );
+    $site_name = shell_exec( "captaincore ssh $site --command=\"wp option get home --skip-plugins --skip-themes\" --captain_id=$captain_id" );
     $site_name = str_replace( "http://", "", $site_name );
     $site_name = trim ( str_replace( "https://", "", $site_name ) );
 } else {
