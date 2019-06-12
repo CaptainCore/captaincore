@@ -35,6 +35,11 @@ if ( strpos($site, '-staging') !== false ) {
     $site_name = $site_details->domain;
 }
 
+// If site name missing then do not proceed
+if ( $site_name == "" ) {
+    return;
+}
+
 $json = $_SERVER['HOME'] . "/.captaincore-cli/config.json";
 $config_data = json_decode ( file_get_contents( $json ) );
 $system = $config_data[0]->system;

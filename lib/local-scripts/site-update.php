@@ -32,6 +32,14 @@ if ( strpos( $site, '@' ) !== false ) {
 	$provider = $split[1];
 }
 
+// Detect if Fathom code is empty
+if ( $fathom == '[{"code":"","domain":""}]' ) {
+	$fathom = "";
+}
+if ( $staging_fathom == '[{"code":"","domain":""}]' ) {
+	$staging_fathom = "";
+}
+
 $arguments = array(
 	'author'    	 => $captain_id,
 	'post_type'      => 'captcore_website',
@@ -88,6 +96,7 @@ if ( $found_site ) {
 			'protocol_staging'                => $staging_protocol,
 			'port_staging'                    => $staging_port,
 			'home_directory_staging'          => $staging_home_directory,
+			'fathom_staging'                  => $staging_fathom,
 			'database_username_staging'       => $staging_database_username,
 			'database_password_staging'       => $staging_database_password,
 			'updates_enabled_staging'         => $staging_updates_enabled,
@@ -144,6 +153,7 @@ if ( $found_site ) {
 			'protocol_staging'                => $staging_protocol,
 			'port_staging'                    => $staging_port,
 			'home_directory_staging'          => $staging_home_directory,
+			'fathom_staging'                  => $staging_fathom,
 			'database_username_staging'       => $staging_database_username,
 			'database_password_staging'       => $staging_database_password,
 			'updates_enabled_staging'         => $updates_enabled,
