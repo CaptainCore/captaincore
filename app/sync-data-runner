@@ -86,13 +86,14 @@ heredoc
 
 	fi
 
-# Build json for quicksave
+# Build json
 read -r -d '' data << heredoc
 {
 "command":"sync-data",
 "environment":"$environment",
 "site_id":"$site_id",
 "token":"$token",
+"fathom":$fathom,
 "home_url":"$home_url",
 "core":"$core",
 "themes":$themes,

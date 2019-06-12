@@ -26,6 +26,15 @@ captaincore site deploy-init $site --captain_id=$captain_id
 echo "load custom configs into wp-config.php and .htaccess"
 echo "Setting up token"
 
+# Generate new Fathom code if needed
+if [[ $captaincore_tracker != "" ]] && [[ $fathom == "" ]]; then
+
+  # Generate new Fathom tracking code, if needed
+  captaincore site generate-stats ${site}-production --captain_id=$captain_id
+  captaincore site generate-stats ${site}-staging --captain_id=$captain_id
+
+fi
+
 if [[ $skip_deployment != true ]]; then
 
   # loads users

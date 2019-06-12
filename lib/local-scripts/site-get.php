@@ -66,7 +66,6 @@ foreach ( $site_ids as $site_id ) {
 	$site         = get_post_meta( $site_id, "site", true );
 	$id           = get_post_meta( $site_id, "site_id", true );
 	$provider     = get_post_meta( $site_id, "provider", true );
-	$fathom       = get_post_meta( $site_id, "fathom", true );
 	$preloadusers = get_post_meta( $site_id, "preloadusers", true );
 	$status       = get_post_meta( $site_id, "status", true );
 
@@ -79,6 +78,7 @@ foreach ( $site_ids as $site_id ) {
 		$home_directory          = get_post_meta( $site_id, "home_directory", true );
 		$database_username       = get_post_meta( $site_id, "database_username", true );
 		$database_password       = get_post_meta( $site_id, "database_password", true );
+		$fathom                  = get_post_meta( $site_id, "fathom", true );
 		$offload_enabled         = get_post_meta( $site_id, "offload_enabled", true );
 		$offload_provider        = get_post_meta( $site_id, "offload_provider", true );
 		$offload_access_key      = get_post_meta( $site_id, "offload_access_key", true );
@@ -100,6 +100,7 @@ foreach ( $site_ids as $site_id ) {
 		$home_directory          = get_post_meta( $site_id, "home_directory_staging", true );
 		$database_username       = get_post_meta( $site_id, "database_username_staging", true );
 		$database_password       = get_post_meta( $site_id, "database_password_staging", true );
+		$fathom                  = get_post_meta( $site_id, "fathom_staging", true );
 		$offload_enabled         = get_post_meta( $site_id, "offload_enabled_staging", true );
 		$offload_provider        = get_post_meta( $site_id, "offload_provider_staging", true );
 		$offload_access_key      = get_post_meta( $site_id, "offload_access_key_staging", true );

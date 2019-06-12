@@ -16,6 +16,14 @@ source ${root_path}lib/arguments
 run_command() {
 
   site=$1
+
+  # Extract environment
+	if [[ "$site" == *"-staging"* ]]; then
+		environment=staging
+	else
+		environment=production
+	fi
+
   code=$( echo $2 | sed "s/'//g" )
   
   # Replace all double quotes " with single quotes ' and remove outer single quotes
@@ -42,7 +50,13 @@ run_command() {
 
   # Store updated info in WordPress datastore
 	cd ${root_path}data
-	wp --quiet post meta update $id fathom $code
+  if [[ "$environment" == "production" ]]; then 
+	  wp --quiet post meta update $id fathom $code
+  fi
+  if [[ "$environment" == "staging" ]]; then 
+    wp --quiet post meta update $id fathom_staging $code
+  fi
+
 
 }
 run_command ${arguments[*]}
