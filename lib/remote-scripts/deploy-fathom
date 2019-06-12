@@ -45,9 +45,14 @@ for arg in "$@"; do
 
 done
 
+fathom_arguments=$( echo $fathom_arguments | base64 --decode )
+while read -r line; do
+    declare $line
+done <<< "$fathom_arguments"
+
 read -r -d '' php_code << heredoc
-\$ids = "$id";
-\$ids = json_decode(str_replace("'",'"',\$ids));
+\$ids = '$id';
+\$ids = json_decode(\$ids);
 if( is_array(\$ids) ) { 
   echo count( \$ids ); 
 }
@@ -56,8 +61,8 @@ heredoc
 tracker_count=$( php -r "$php_code" )
 
 read -r -d '' php_code << heredoc
-\$ids = "$id";
-\$ids = json_decode(str_replace("'",'"',\$ids));
+\$ids = '$id';
+\$ids = json_decode(\$ids);
 echo \$ids[0]->code;
 heredoc
 
@@ -106,8 +111,8 @@ heredoc
 else
 
 read -r -d '' php_code << heredoc
-\$ids = "$id";
-\$ids = json_decode(str_replace("'",'"',\$ids));
+\$ids = '$id';
+\$ids = json_decode(\$ids);
 echo '\$fathom_site_ids = array(';
 echo "\n";
 foreach (\$ids as \$id) { 

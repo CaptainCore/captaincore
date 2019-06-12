@@ -8,6 +8,9 @@
 #   For multisite networks mutiple tracking codes can be WordPress passed in the following JSON format
 #   '[{"domain":"site123.com","code":"ABCDE"},{"domain":"site346.com","code":"ABCDF"}]'
 #
+#   [--debug]
+#   Debug mode
+#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
@@ -25,16 +28,13 @@ run_command() {
 	fi
 
   code=$( echo $2 | sed "s/'//g" )
-  
-  # Replace all double quotes " with single quotes ' and remove outer single quotes
-  id=$( echo $2 | sed "s/'//g" | sed "s/\"/\\'/g" )
 
   if [[ $site == "" ]]; then
     echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a site."
     return 1
   fi
 
-  if [[ $id == "" ]]; then
+  if [[ $code == "" ]]; then
     echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a fathom site id."
     return 1
   fi
@@ -43,7 +43,16 @@ run_command() {
     tracker=$captaincore_tracker
   fi
 
-  captaincore ssh $site --script=deploy-fathom --tracker=$tracker --id="$id" --branding_author="$captaincore_branding_author" --branding_author_uri="$captaincore_branding_author_uri" --branding_slug=$captaincore_branding_slug --captain_id=$captain_id
+  if [[ "$debug" == "true" ]]; then
+    echo "captaincore ssh $site --script=deploy-fathom --tracker=$tracker --id=\"$id\" --branding_author=\"$captaincore_branding_author\" --branding_author_uri=\"$captaincore_branding_author_uri\" --branding_slug=$captaincore_branding_slug --captain_id=$captain_id"
+    return 1
+  fi
+
+  # Workaround inconstancy when passing JSON as an argument with WPE. Use Base64 to preserve line breaks through SSH as argument.
+  fathom_arguments="tracker=$tracker\n id=$code\n branding_author=$captaincore_branding_author\n branding_author_uri=$captaincore_branding_author_uri\n branding_slug=$captaincore_branding_slug"
+  fathom_arguments=$( echo -e $fathom_arguments | base64 )
+
+  captaincore ssh $site --script=deploy-fathom --fathom_arguments="$fathom_arguments" --captain_id=$captain_id
     
   # Load site configs
 	while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
