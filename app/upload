@@ -51,9 +51,9 @@ if ! [ -z "$domain" ]; then
 		echo "Uploading..."
 		if [ -n "$2" ]; then
 			if [[ "$public" == "true" ]]; then
-		  	scp -o StrictHostKeyChecking=no -P 22 "$2" $wpe_ssh_user+$1@$1.ssh.wpengine.net:sites/$1/
+		  	scp -o StrictHostKeyChecking=no -P 22 "$2" $1@$1.ssh.wpengine.net:sites/$1/
 			else
-				scp -o StrictHostKeyChecking=no -P 22 "$2" $wpe_ssh_user+$1@$1.ssh.wpengine.net:sites/$1/_wpeprivate/
+				scp -o StrictHostKeyChecking=no -P 22 "$2" $1@$1.ssh.wpengine.net:sites/$1/_wpeprivate/
 			fi
 		else
 		  echo 'Missing argument. Ex: captaincore upload sitename1 "~/Download/migration.zip'
@@ -65,9 +65,9 @@ else ## not recognized so attempt WP Engine's format
 
 	if [ -n "$2" ]; then
 		if [[ "$public" == "true" ]]; then
-			scp -o StrictHostKeyChecking=no -P 22 $2 $wpe_ssh_user+$1@$1.ssh.wpengine.net:sites/$1/
+			scp -o StrictHostKeyChecking=no -P 22 $2 $1@$1.ssh.wpengine.net:sites/$1/
 		else
-	  	scp -o StrictHostKeyChecking=no -P 22 $2 $wpe_ssh_user+$1@$1.ssh.wpengine.net:sites/$1/_wpeprivate/
+	  	scp -o StrictHostKeyChecking=no -P 22 $2 $1@$1.ssh.wpengine.net:sites/$1/_wpeprivate/
 		fi
 	else
 	  echo 'Missing argument. Ex: captaincore upload sitename1 "~/Download/migration.zip'

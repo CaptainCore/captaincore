@@ -117,7 +117,6 @@ captaincore_api={$configuration->vars->captaincore_api}
 captaincore_admin_email={$configuration->vars->captaincore_admin_email}
 captaincore_admin_user={$configuration->vars->captaincore_admin_user}
 websites={$configuration->vars->websites}
-wpe_ssh_user={$configuration->vars->wpe_ssh_user}
 heredoc;
 
 	echo $bash;
