@@ -150,9 +150,16 @@ run_command() {
       # Add site to Remote log file
       # Grabs last 6 lines of output from remote transfer to log file
       ts sh -c "echo \"Finished remote backup $site (${INDEX}/$#)\" >> $logs_path/backup-remote.txt && tail -6 $logs_path/site-$site-remote.txt >> $logs_path/backup-remote.txt"
+ 
+    fi
 
       # Views for yearly stats
       visits=$( captaincore stats $site --captain_id=$captain_id )
+
+      # Store updated info in WordPress datastore
+      cd ${root_path}data
+      wp post meta update $id storage "$storage"
+      wp post meta update $id visits "$visits"
 
       # Post folder size bytes and yearly visits to ACF fields
       curl --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
@@ -165,7 +172,6 @@ run_command() {
 "token":"$token"
 }
 EOF
-    fi
 
     ### Clear out variables
     domain=''

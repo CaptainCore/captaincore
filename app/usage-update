@@ -41,6 +41,11 @@ run_command() {
         # Views for yearly stats
         visits=$( captaincore stats $site )
 
+        # Store updated info in WordPress datastore
+		    cd ${root_path}data
+        wp post meta update $id storage "$storage"
+        wp post meta update $id visits "$visits"
+
 				# Debug API request
 				if [[ "$debug" == "true" ]]; then
 					read -r -d '' VAR << EOM
