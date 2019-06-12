@@ -86,6 +86,10 @@ heredoc
 
 	fi
 
+	if [[ "$fathom" == "" ]]; then 
+		fathom='""'
+	fi
+
 # Build json
 read -r -d '' data << heredoc
 {
