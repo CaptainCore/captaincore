@@ -36,7 +36,7 @@ if ( strpos($site, '-staging') !== false ) {
 }
 
 // If site name missing then do not proceed
-if ( $site_name == "" ) {
+if ( $site_name == "" || strpos($site_name, ':') !== false ) {
     return;
 }
 
