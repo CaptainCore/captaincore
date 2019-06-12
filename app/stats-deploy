@@ -44,13 +44,22 @@ run_command() {
   fi
 
   if [[ "$debug" == "true" ]]; then
-    echo "captaincore ssh $site --script=deploy-fathom --tracker=$tracker --id=\"$id\" --branding_author=\"$captaincore_branding_author\" --branding_author_uri=\"$captaincore_branding_author_uri\" --branding_slug=$captaincore_branding_slug --captain_id=$captain_id"
+    echo "captaincore ssh $site --script=deploy-fathom --tracker=$tracker --id=\"$code\" --branding_author=\"$captaincore_branding_author\" --branding_author_uri=\"$captaincore_branding_author_uri\" --branding_slug=$captaincore_branding_slug --captain_id=$captain_id"
     return 1
   fi
 
   # Workaround inconstancy when passing JSON as an argument with WPE. Use Base64 to preserve line breaks through SSH as argument.
   fathom_arguments="tracker=$tracker\n id=$code\n branding_author=$captaincore_branding_author\n branding_author_uri=$captaincore_branding_author_uri\n branding_slug=$captaincore_branding_slug"
-  fathom_arguments=$( echo -e $fathom_arguments | base64 )
+
+  read -r -d '' php_code << heredoc
+\$arguments = <<<PHPHEREDOC
+$fathom_arguments
+PHPHEREDOC;
+
+echo base64_encode( \$arguments );
+heredoc
+
+  fathom_arguments=$( php -r "$php_code" )
 
   captaincore ssh $site --script=deploy-fathom --fathom_arguments="$fathom_arguments" --captain_id=$captain_id
     
