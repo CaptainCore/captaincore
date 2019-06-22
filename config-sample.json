@@ -41,7 +41,6 @@
             "captaincore_api": "https:\/\/mysite.com\/wp-json\/captaincore\/v1\/api",
             "captaincore_admin_email": "notify@mysite.com",
             "captaincore_admin_user": "username",
-            "wpe_ssh_user": "email@captaincore.io",
             "websites": "site1 site2 site3"
         }
     }
