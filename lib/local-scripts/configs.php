@@ -39,12 +39,20 @@ $json = $_SERVER['HOME'] . "/.captaincore-cli/config.json";
 $config_data = json_decode ( file_get_contents( $json ) );
 $system = $config_data[0]->system;
 
+$manifest_path = $system->path;
+if ( $system->captaincore_fleet == "true" ) {
+	$manifest_path = "{$manifest_path}/{$captain_id}";
+}
+
 foreach($config_data as $config) {
 	if ( isset( $config->captain_id ) and $config->captain_id == $captain_id ) {
 		$configuration = $config;
 		break;
 	}
 }
+
+$configuration->vars->manifest = json_decode ( file_get_contents ( $manifest_path . "/manifest.json" ) );
+
 
 if ( $command == "fetch" ) {
 
