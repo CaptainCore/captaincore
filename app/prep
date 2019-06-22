@@ -30,8 +30,8 @@ echo "Setting up token"
 if [[ $captaincore_tracker != "" ]] && [[ $fathom == "" ]]; then
 
   # Generate new Fathom tracking code, if needed
-  captaincore site generate-stats ${site}-production --captain_id=$captain_id
-  captaincore site generate-stats ${site}-staging --captain_id=$captain_id
+  captaincore site stats-generate ${site}-production --captain_id=$captain_id
+  captaincore site stats-generate ${site}-staging --captain_id=$captain_id
 
 fi
 

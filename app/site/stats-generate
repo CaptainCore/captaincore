@@ -3,7 +3,7 @@
 #
 #   Generates Fathom Tracker
 #
-#   `captaincore generate-stats <site>>`
+#   `captaincore stats-generate <site>>`
 #
 
 # Load configuration
@@ -12,4 +12,4 @@ source ${root_path}lib/arguments
 
 cd ${root_path}data
 
-wp eval-file ${root_path}lib/local-scripts/generate-stats.php site=$1 captain_id=$captain_id
+wp eval-file ${root_path}lib/local-scripts/stats-generate.php site=$1 captain_id=$captain_id
