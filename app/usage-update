@@ -39,7 +39,7 @@ run_command() {
         fi
 
         # Views for yearly stats
-        visits=$( captaincore stats $site )
+        visits=$( captaincore stats $site --captain_id=$captain_id )
 
         # Store updated info in WordPress datastore
 		    cd ${root_path}data
