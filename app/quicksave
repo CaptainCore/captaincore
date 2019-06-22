@@ -239,7 +239,7 @@ heredoc
 		if [[ "$skip_remote" != "true" ]]; then
 
 			# Backup Quicksave to remote
-			ts rclone sync $path/$site_path/quicksave/ $rclone_backup/$site_path/quicksave/ -v --exclude .DS_Store --fast-list --transfers=16 --log-file="$logs_path/site-$site-remote.txt"
+			rclone sync $path/$site_path/quicksave/ $rclone_backup/$site_path/quicksave/ -v --exclude .DS_Store --fast-list --transfers=16 --no-update-modtime --log-file="$logs_path/site-$site-remote.txt"
 
 		fi
 
