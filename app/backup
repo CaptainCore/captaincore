@@ -86,7 +86,7 @@ run_command() {
     if [[ $rclone_remote_lookup == false ]]; then
       echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $site" >> $logs_path/backup-log.txt
       echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $site"
-      captaincore rclone-configs $site
+      captaincore rclone-configs $site --captain_id=$captain_id
     fi
 
     # Captures FTP errors in $ftp_output and file listing to log file
@@ -158,8 +158,14 @@ run_command() {
 
       # Store updated info in WordPress datastore
       cd ${root_path}data
-      wp post meta update $id storage "$storage"
-      wp post meta update $id visits "$visits"
+      if [[ "$environment" == "production" ]]; then
+        wp post meta update $id storage "$storage"
+        wp post meta update $id visits "$visits"
+      fi
+      if [[ "$environment" == "staging" ]]; then
+        wp post meta update $id storage_staging "$storage"
+        wp post meta update $id visits_staging "$visits"
+      fi
 
       # Post folder size bytes and yearly visits to ACF fields
       curl --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
