@@ -58,19 +58,36 @@ $arguments = array(
 );
 
 $websites = get_posts( $arguments );
+$quicksave_storage = 0;
+$quicksave_count = 0;
+$total_site_storage = 0;
 $total_storage = 0; 
 
 foreach( $websites as $website ) {
-	$storage = get_post_meta( $website, "storage", true );
-	if ( $storage == "" ) {
-		continue;
+	$site_storage     = get_post_meta( $website, "storage", true );
+	$quicksaves_usage = json_decode( get_post_meta( $website, "quicksaves_usage", true ) );
+
+	if ( $site_storage == "" ) { 
+		$site_storage = 0; 
 	}
-	$total_storage = $total_storage + $storage;
+	if ( $quicksaves_usage == "" ) {
+		$quicksaves_usage = json_decode( '{"count":"0","storage":"0"}' );
+	}
+	$quicksave_count = $quicksave_count + $quicksaves_usage->count;
+	$quicksave_storage = $quicksave_storage + $quicksaves_usage->storage;
+	$total_site_storage = $total_site_storage + $site_storage;
+	$total_storage = $total_storage + $site_storage + $quicksaves_usage->storage;
 }
 
 $manifest = array(
-	'sites'      => count( $websites ),
-	'quicksaves' => 0,
+	'sites'      => array( 
+		'count'   => count( $websites ),
+		'storage' => $total_site_storage
+	),
+	'quicksaves' => array(
+		'count'   => $quicksave_count,
+		'storage' => $quicksave_storage
+	),
 	'storage'    => $total_storage
 );
 

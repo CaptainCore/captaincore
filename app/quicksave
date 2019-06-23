@@ -211,6 +211,21 @@ EOM
 }
 EOM
 
+		# Generate quicksave usage stats
+		quicksave_count=$( git rev-list --all --count )
+		
+		# Folder size in bytes without apparent-size flag
+		if [[ "$OSTYPE" == "linux-gnu" ]]; then	
+			quicksave_storage=$( du -s --block-size=1 . )
+			quicksave_storage=$( echo $quicksave_storage | cut -d' ' -f 1 )
+		fi
+
+		# Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
+		if [[ "$OSTYPE" == "darwin"* ]]; then
+			quicksave_storage=$( find . -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}' )
+		fi
+		quicksaves_usage="{\"count\":\"${quicksave_count}\",\"storage\":\"${quicksave_storage}\"}"
+
 		# Store updated info in WordPress datastore
 		cd ${root_path}data
 
@@ -219,6 +234,7 @@ EOM
 			wp post meta update $id themes "${response_parsed[1]}"
 			wp post meta update $id core ${response_parsed[2]}
 			wp post meta update $id home_url ${response_parsed[3]}
+			wp post meta update $id quicksaves_usage "$quicksaves_usage"
 			wp post meta update $id users << heredoc
 ${response_parsed[4]}
 heredoc
@@ -230,6 +246,7 @@ heredoc
 			wp post meta update $id themes_staging "${response_parsed[1]}"
 			wp post meta update $id core_staging ${response_parsed[2]}
 			wp post meta update $id home_url_staging ${response_parsed[3]}
+			wp post meta update $id quicksaves_usage_staging $quicksaves_usage
 			wp post meta update $id users_staging << heredoc
 ${response_parsed[4]}
 heredoc
@@ -256,8 +273,6 @@ heredoc
 	# End logging
 	echo "$(date +'%Y-%m-%d %H:%M') Finished generating quicksaves" >> $logs_path/quicksave.log
 	echo "$(date +'%Y-%m-%d %H:%M') Finished generating quicksaves"
-	echo "$(date +'%Y-%m-%d %H:%M') Finishing queued remote backups"
-	ts -w
 
 }
 
