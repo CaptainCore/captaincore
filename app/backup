@@ -159,11 +159,11 @@ run_command() {
       # Store updated info in WordPress datastore
       cd ${root_path}data
       if [[ "$environment" == "production" ]]; then
-        wp post meta update $id storage "$storage"
+        wp post meta update $id storage "$folder_size"
         wp post meta update $id visits "$visits"
       fi
       if [[ "$environment" == "staging" ]]; then
-        wp post meta update $id storage_staging "$storage"
+        wp post meta update $id storage_staging "$folder_size"
         wp post meta update $id visits_staging "$visits"
       fi
 
