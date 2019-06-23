@@ -48,6 +48,7 @@ run_command() {
 
         if [ ! -d "$path/$site_path/quicksave/" ]; then
             echo "Skipping $site. Folder not found: $path/$site_path/quicksave/."
+            continue
         fi
 
 		cd $path/$site_path/quicksave/
