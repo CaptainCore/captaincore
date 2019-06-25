@@ -46,8 +46,11 @@ run_command() {
       # Load site configs
       while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain_id=$captain_id)"
 
+      # Define Rclone site name
+      rclone_site_name=${captain_id}-${site}-${environment}
+
       # captures FTP errors in $ftp_output and file listing to log file
-      ftp_output=$( { rclone lsd sftp-$site:$home_directory ; } 2>&1 )
+      ftp_output=$( { rclone lsd sftp-$rclone_site_name:$home_directory ; } 2>&1 )
       ftp_search_for_wordpress=`echo "$ftp_output" | perl -wnE'say for /wp-admin/g'`
 
       # Handle FTP errors

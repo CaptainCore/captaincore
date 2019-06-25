@@ -52,6 +52,9 @@ run_command() {
       return 1
     fi
 
+    # Define Rclone site name
+    rclone_site_name=${captain_id}-${site}-${environment}
+
     if [[ "$site" == *"-staging" ]]; then
       site=${site//-staging/}
       use_staging=true
@@ -59,7 +62,7 @@ run_command() {
 
     if [[ "$skip_backup" != "true" ]]; then
       # Generate fresh backup
-      captaincore backup $site --skip-remote --captain_id=$captain_id
+      captaincore backup $website --skip-remote --captain_id=$captain_id
     fi
 
     # Generates snapshot archive
@@ -106,10 +109,13 @@ run_command() {
 
         done
 
-      else 
+      fi
+
+      if [[ "$filter" == "" ]]; then
         # Add everything to ZIP
         zip --test -q -r $site-$environment-$timedate.zip $site-$environment-$timedate/ --exclude=$site-$environment-$timedate/_wpeprivate/\* --exclude=\*.git\* --exclude=$site-$environment-$timedate/wp-content/advanced-cache.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/mu-plugin.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$site-$environment-$timedate/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$site-$environment-$timedate/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$site-$environment-$timedate/wp-content/mu-plugins/wpengine-common/\*
       fi
+      
       rm $site-$environment-$timedate  # remove directory shortcut
       mkdir -p ${environment}/snapshots
       mv $site-$environment-$timedate.zip ${environment}/snapshots
@@ -157,8 +163,8 @@ EOF
       echo "Removing files after snapshot"
 
       # Removed from rclone
-      rclone config delete sftp-$site
-      rclone config delete sftp-$site-staging
+      rclone config delete sftp-${rclone_site_name}-production
+      rclone config delete sftp-${rclone_site_name}-staging
 
       # Removes directory from backup server
       rm -rf $path/${site}_${site_id}/

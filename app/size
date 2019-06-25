@@ -22,7 +22,6 @@ run_command() {
   INDEX=1
   for site in "$@"; do
 
-
     # Load site configs
     while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
 
@@ -31,12 +30,16 @@ run_command() {
       return
     fi
 
+    # Define Rclone site name
+    rclone_site_name=${captain_id}-${site}
+
     if [ "$home_directory" != "" ]; then
       home_directory="${home_directory}/"
     fi
+  
     json="["
-    size_production=$(rclone size sftp-$site:$home_directory --json)
-    size_staging=$(rclone size sftp-$site-staging:$home_directory --json)
+    size_production=$(rclone size sftp-${rclone_site_name}-production:$home_directory --json)
+    size_staging=$(rclone size sftp-${rclone_site_name}-staging:$home_directory --json)
     json+="{\"name\":\"$site\","${size_production:1:${#size_production}}
     if [[ "$size_staging" != "" ]]; then
       json+=","

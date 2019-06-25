@@ -45,6 +45,9 @@ run_command() {
   # Load site info
   while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
 
+  # Define Rclone site name
+  rclone_site_name=${captain_id}-${site}-${environment}
+
   if [[ "$plugin" != "" ]]; then
 
     echo "Rolling back plugin $plugin"
@@ -80,7 +83,7 @@ run_command() {
 		if [[ "$home_directory" != "" ]]; then
 			home_directory="${home_directory}/"
 		fi
-		rclone copyto ~/Tmp/restore/$commit/$file sftp-$site:${homdir}wp-content/$file
+		rclone copyto ~/Tmp/restore/$commit/$file sftp-$rclone_site_name:${homdir}wp-content/$file
 		rm -rf ~/Tmp/restore/$commit/
 
 	fi

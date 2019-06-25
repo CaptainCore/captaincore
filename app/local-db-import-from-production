@@ -16,6 +16,13 @@ run_command() {
   INDEX=1
   for website in "$@"; do
 
+  	# Extract environment
+		if [[ "$website" == *"-staging"* ]]; then
+			environment=staging
+		else
+			environment=production
+		fi
+
     # Load site configs
     while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain_id=$captain_id)"
 
@@ -24,11 +31,14 @@ run_command() {
 			continue
 		fi
 
+    # Define Rclone site name
+		rclone_site_name=${captain_id}-${site}-${environment}
+
     # Make database backup on production
     captaincore ssh $website --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql"
 
     # Sync production to local directory
-    rclone copy sftp-$website:${home_directory}/wp-content/mysql.sql wp-content/ --verbose=1
+    rclone copy sftp-$rclone_site_name:${home_directory}/wp-content/mysql.sql wp-content/ --verbose=1
 
     # Import database locally
     wp db import wp-content/mysql.sql --skip-plugins --skip-themes

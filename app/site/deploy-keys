@@ -13,18 +13,23 @@ run_command() {
 
   website=$1
 
+  # Extract environment
+  if [[ "$website" == *"-staging"* ]]; then
+    environment=staging
+  else
+    environment=production
+  fi
+
   # Load site vars
   while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain_id=$captain_id)"
 
+  # Define Rclone site name
+  rclone_site_name=${captain_id}-${site}-${environment}
+
   if [[ $provider == "kinsta" ]]; then
 
-    # Extract environment
-    if [[ "$website" == *"-staging"* ]]; then
-      environment="-staging"
-    fi
-
     # Check for authorized_keys using rclone's JSON
-    check_for_keys=$( rclone lsjson sftp-${site}${environment}:.ssh/authorized_keys --no-modtime )
+    check_for_keys=$( rclone lsjson sftp-${rclone_site_name}:.ssh/authorized_keys --no-modtime )
 
     # PHP script to read JSON value
     read -r -d '' php_code << heredoc
@@ -43,21 +48,21 @@ heredoc
 
   # No authorized_keys found, generate new one
   if [[ "$found_authorized_keys" != "authorized_keys" ]]; then
-    echo local_public_key | rclone rcat sftp-${site}${environment}:.ssh/authorized_keys
+    echo local_public_key | rclone rcat sftp-${rclone_site_name}:.ssh/authorized_keys
   fi
 
   # Exmaine existing authorized_keys file
   if [[ "$found_authorized_keys" == "authorized_keys" ]]; then
 
     # Fetch current authorized_keys
-    authorized_keys=$( rclone cat sftp-${site}${environment}:.ssh/authorized_keys )
+    authorized_keys=$( rclone cat sftp-${rclone_site_name}:.ssh/authorized_keys )
 
     # Check if key is already added
     if [ -z "${authorized_keys##*$local_public_key*}" ]; then
       echo "Key already added."
     else 
       echo "Adding key."
-      printf "$authorized_keys\n$local_public_key\n" | rclone rcat sftp-${site}${environment}:.ssh/authorized_keys
+      printf "$authorized_keys\n$local_public_key\n" | rclone rcat sftp-${rclone_site_name}:.ssh/authorized_keys
     fi
 
   fi

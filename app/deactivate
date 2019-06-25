@@ -94,22 +94,32 @@ run_command() {
 
 	for website in "${arguments[*]}"; do
 
-    # Load site configs
+		# Extract environment
+		if [[ "$website" == *"-staging"* ]]; then
+			environment=staging
+		else
+			environment=production
+		fi
+
+    	# Load site configs
 		while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain_id=$captain_id)"
 
-    if [[ $domain == "" ]]; then
+		if [[ $domain == "" ]]; then
 			echo "Domain not found"
-      continue
+			continue
 		fi
+
+		# Define Rclone site name
+		rclone_site_name=${captain_id}-${site}-${environment}
 
 		if [[ "$home_directory" != "" ]]; then
 			home_directory="${home_directory}/"
 		fi
 
-    # Upload deactivation plugin to mu-plugins
-    rclone copyto ~/Tmp/captaincore_deactivated_${timestamp}.php sftp-$site:${home_directory}wp-content/mu-plugins/captaincore_deactivated.php
+		# Upload deactivation plugin to mu-plugins
+		rclone copyto ~/Tmp/captaincore_deactivated_${timestamp}.php sftp-${rclone_site_name}:${home_directory}wp-content/mu-plugins/captaincore_deactivated.php
 
-    echo "deactivated $domain"
+		echo "deactivated $domain"
 
 	done
 
