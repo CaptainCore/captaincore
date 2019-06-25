@@ -54,7 +54,13 @@ run_command() {
     # Extract environment
     if [[ "$site" == *"-staging"* ]]; then
       environment=staging
-    else
+    fi
+
+    if [[ "$site" == *"-production"* ]]; then
+      environment=production
+    fi
+
+    if [[ "$site" != *"-"* ]]; then
       environment=production
     fi
 
@@ -72,13 +78,20 @@ run_command() {
       home_directory="${home_directory}/"
     fi
 
+    site_name=$site
+
+    # Adjust path if fleet mode enabled
+    if [[ "$captaincore_fleet" == "true" ]]; then 
+      site_name=${captain_id}-${site}
+    fi
+
     # Lookup rclone
     remotes=$( rclone listremotes )
 
     # Check for rclone remote
     rclone_remote_lookup=false
     for item in ${remotes[@]}; do
-      if [[ sftp-$site: == "$item" ]]; then
+      if [[ sftp-${site_name}: == "$item" ]]; then
         rclone_remote_lookup=true
       fi
     done
@@ -90,7 +103,7 @@ run_command() {
     fi
 
     # Captures FTP errors in $ftp_output and file listing to log file
-    ftp_output=$( { rclone lsd sftp-$site:$home_directory ; } 2>&1 )
+    ftp_output=$( { rclone lsd sftp-${site_name}:$home_directory ; } 2>&1 )
     ftp_search_for_wordpress=$( echo "$ftp_output" | perl -wnE'say for /wp-admin/g' )
 
     # Handle FTP errors
@@ -112,7 +125,7 @@ run_command() {
     fi
 
     # Backup site locally
-    rclone sync sftp-$site:$home_directory $path/${site}_${site_id}/${environment}/backup/ --exclude .DS_Store --exclude *timthumb.txt --exclude /wp-content/uploads_from_s3/ --verbose=1 --log-file="$logs_path/site-$site.txt"
+    rclone sync sftp-${site_name}:$home_directory $path/${site}_${site_id}/${environment}/backup/ --exclude .DS_Store --exclude *timthumb.txt --exclude /wp-content/uploads_from_s3/ --verbose=1 --log-file="$logs_path/site-$site.txt"
     echo "" >> $logs_path/site-$site.txt
     tail $logs_path/site-$site.txt >> $logs_path/backup-local.txt
 

@@ -23,9 +23,16 @@ run_command() {
     return
   fi
 
+  site_name=$site
+
+  # Adjust path if fleet mode enabled
+  if [[ "$captaincore_fleet" == "true" ]]; then 
+    site_name=${captain_id}-${site}
+  fi
+
   # Remove if already found
-  rclone config delete sftp-$site
-  rclone config delete sftp-$site-staging
+  rclone config delete sftp-${site_name}-production
+  rclone config delete sftp-${site_name}-staging
 
   echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $site"
 
@@ -34,12 +41,12 @@ run_command() {
 
   # Add new WordPress site to Rclone
   rclone_pass=$(rclone obscure $password)
-  rclone config create sftp-$site $protocol host $address user $username port $port pass $rclone_pass
+  rclone config create sftp-${site_name}-production $protocol host $address user $username port $port pass $rclone_pass
 
   if [[ "$password_staging" != "" ]]; then
     while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get ${site}-staging --bash --captain_id=$captain_id)"
     rclone_pass=$(rclone obscure $password_staging)
-    rclone config create sftp-${site}-staging $protocol host $address user $username port $port pass $rclone_pass
+    rclone config create sftp-${site_name}-staging $protocol host $address user $username port $port pass $rclone_pass
   fi
 
 }
