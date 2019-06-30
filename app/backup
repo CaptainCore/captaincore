@@ -206,11 +206,8 @@ EOF
   done
 
   if [[ $skip_remote != true ]]; then
-    echo "$(date +'%Y-%m-%d %H:%M') Finishing queued remote backups"
-    echo "$(date +'%Y-%m-%d %H:%M') Finishing queued remote backups" >> $logs_path/backup-log.txt
-    ts -w
-    echo "$(date +'%Y-%m-%d %H:%M') Finished queued remote backups"
-    echo "$(date +'%Y-%m-%d %H:%M') Finished queued remote backups" >> $logs_path/backup-log.txt
+    echo "$(date +'%Y-%m-%d %H:%M') Finished remote backups"
+    echo "$(date +'%Y-%m-%d %H:%M') Finished remote backups" >> $logs_path/backup-log.txt
   fi
 
   # End time tracking
