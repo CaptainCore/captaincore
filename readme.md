@@ -52,6 +52,12 @@ Many commands also support targeting many sites. To target use `@all`, `@product
 
 This allows for flexible repeat process. For example updating themes/plugins on production sites every week with `captaincore update @production.updates-on` and then monthly on staging sites with `captaincore update @staging.updates-on`.
 
+### Fleet mode
+
+With fleet mode enabled a single CaptainCore instance can support sites for many different GUIs (or known as captains). Each captain only has ability to run commands on their respective sites. Internally this works by passing `--captain_id=<captain_id>` onto each `captaincore <command>`. Commands run without a `--captain_id` will default to ID 1. 
+
+Any command can be run across the entire fleet using `--fleet`. For example running `captaincore backup @production --fleet` will loop through all CaptainIDs. For a fleet with 3 CaptainIDs that command will run `captaincore backup @production --captain_id=1`, `captaincore backup @production --captain_id=2` and `captaincore backup @production --captain_id=3`.
+
 ## Commands
 
 Shows help
