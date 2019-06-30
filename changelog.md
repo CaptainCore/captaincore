@@ -1,7 +1,23 @@
 # Changelog
 
+## [0.4.5] - 2019-06-29
+### Added
+- Command `stats-generate`. Integrates with Fathom instance for automatic setup
+- Command `manifest-generate`. Generates manifest which tracks CaptainCore usage stats in manifest.json. In fleet mode this is generated per captain.
+- Commmand `quicksave-usage-update`. Generates usage info (count and storage) for quicksaves.
+- Local script `manifest-generate.php`
+- Config `captaincore_tracker_user` and `captaincore_tracker_pass` for integration with Fathom instance
+- Environment support to `stats-deploy` 
+- Fleet mode support to `rclone-configs`
+
+### Changed
+- Added fleet mode support to `monitor`
+- Improved `backup` to use rclone site name with fleet mode support
+- Improved local usage stats storage
+- Improved argument compatibility with remote script `deploy-fathom` and command `stats-deploy`
+
 ## [0.4.4] - 2019-06-04
-#### Added
+### Added
 - Command `deploy-defaults` for bulk deploying default plugins/users.
 
 ### Changed
