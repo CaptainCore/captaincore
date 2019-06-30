@@ -18,6 +18,9 @@
 #   Runs command over SSH
 #
 #   [--script=<name|script>] [--<script-argument-name>=<script-argument-value>...]
+#   Runs user-defined recipe
+#
+#   [--recipe=<recipe_id>
 #   Runs script over SSH
 #
 #   [--debug]
@@ -36,13 +39,12 @@ run_command() {
   if [[ $parallel == "" ]]; then
     parallel=3
   fi
-
   echo $websites | xargs -P $parallel -n 1 captaincore ssh-runner "${flags[@]}"
 
 }
 
 # Runs on targeted sites
-if [ ${#targets[*]} -gt 0 ] && ( [[ $command != "" ]] || [[ $script != "" ]] ); then
+if [ ${#targets[*]} -gt 0 ] && ( [[ $command != "" ]] || [[ $script != "" ]] || [[ $recipe != "" ]] ); then
   run_command $(captaincore site list ${targets[*]/targets=/@} --captain_id=$captain_id)
   if [[ $debug == "true" ]]; then
     echo "run_command $(captaincore site list ${targets[*]/targets=/@} --captain_id=$captain_id)"
@@ -76,6 +78,6 @@ fi
 
 # Error if no sites specifed
 if [ ${#targets[*]} -gt 0 ] && [ ${#arguments[*]} -eq 0 ]; then
-  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify at least one --command or --script when using @target."
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify at least one `--command`, `--script` or `--recipe` when using @target."
   exit 1
 fi

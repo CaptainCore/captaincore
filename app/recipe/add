@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+
+#
+#   Adds a recipe to CaptainCore CLI.
+#
+#   `captaincore recipe add <recipe>`
+#
+#   --id=<id> --name=<name>
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}lib/arguments
+
+run_command() {
+
+     read -r -d '' php_code << heredoc
+\$arguments = <<<PHPHEREDOC
+$1
+PHPHEREDOC;
+
+echo base64_decode( \$arguments );
+heredoc
+
+    recipe=$( php -r "$php_code" )
+    echo -n "$recipe" > "$path_recipes/${captain_id}-${id}.sh"
+
+}
+
+# See if any sites are specifed
+if [ ${#arguments[*]} -eq 1 ]; then
+  # Runs on specifed sites
+  run_command ${arguments[*]}
+fi
+
+# Error if no sites specifed
+if [ ${#arguments[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a recipe."
+fi

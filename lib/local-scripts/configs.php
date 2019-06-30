@@ -97,6 +97,7 @@ captaincore_master_port={$system->captaincore_master_port}
 logs={$system->logs}
 path={$system->path}
 path_tmp={$system->path_tmp}
+path_recipes={$system->path_recipes}
 rclone_cli_backup={$system->rclone_cli_backup}
 local_wp_db_pw={$system->local_wp_db_pw}
 path_scripts={$system->path_scripts}

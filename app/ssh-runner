@@ -11,6 +11,9 @@
 #   [--script=<name|script>] [--<script-argument-name>=<script-argument-value>]
 #   Runs script over SSH
 #
+#   [--recipe=<recipe_id>
+#   Runs script over SSH
+#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
@@ -89,6 +92,17 @@ run_command() {
       echo -e "${COLOR_RED}Error:${COLOR_NORMAL} $domain website host provider not recognized."
       exit
 
+    fi
+
+    # Runs ssh with recipe
+    if [[ "$recipe" != "" ]]; then
+      recipe_file="$path_recipes/${captain_id}-${recipe}.sh"
+      # Check for file
+      if [ -f "$recipe_file" ]; then
+        # Pass all arguments found after --script=<script> argument into remote script
+        ssh $remoteserver "$commandprep bash -s -- --site=$site ${flags[@]}" < $recipe_file
+      fi
+      exit
     fi
 
     # Runs ssh with script
