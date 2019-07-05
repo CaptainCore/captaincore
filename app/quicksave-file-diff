@@ -5,6 +5,9 @@
 #
 #   `captaincore quicksave-file-diff <site> --hash=<git_hash> --file=<file>`
 #
+#   [--html]
+#   HTML converted output
+#
 #   Example: captaincore quicksave-file-diff sitename 4c43c16ae40f384e93573133282bb86a46d040fd versions/plugins.json
 #
 
@@ -44,7 +47,21 @@ run_command() {
 
 		git_hash_previous=${git_commits[ $(( $current_index + 1 )) ]}
 		git_diff=$( git diff $git_hash_previous $hash -- $file )
-		echo "$git_diff"
+		if [[ $html == "true" ]]; then
+
+		read -r -d '' php_code << heredoc
+\$git_diff = <<<PHPHEREDOC
+$git_diff
+PHPHEREDOC;
+
+echo htmlentities( \$git_diff );
+heredoc
+
+			php -r "$php_code"
+
+		else
+			echo "$git_diff"
+		fi
 
 	done
 
