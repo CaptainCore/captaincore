@@ -49,7 +49,8 @@ run_command() {
 		git_diff=$( git diff $git_hash_previous $hash -- $file )
 		if [[ $html == "true" ]]; then
 
-		read -r -d '' php_code << heredoc
+			read -r -d '' php_code << heredoc
+<?php
 \$git_diff = <<<PHPHEREDOC
 $git_diff
 PHPHEREDOC;
@@ -57,7 +58,8 @@ PHPHEREDOC;
 echo htmlentities( \$git_diff );
 heredoc
 
-			php -r "$php_code"
+			echo -n "$php_code" > $path_tmp/${captain_id}-${hash}.php
+			php $path_tmp/${captain_id}-${hash}.php
 
 		else
 			echo "$git_diff"
