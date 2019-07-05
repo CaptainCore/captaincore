@@ -51,6 +51,7 @@ run_command() {
 
 			read -r -d '' php_code << heredoc
 <?php
+error_reporting(0);
 \$git_diff = <<<PHPHEREDOC
 $git_diff
 PHPHEREDOC;
