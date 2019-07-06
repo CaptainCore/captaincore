@@ -76,8 +76,8 @@ if [[ $fleet == "true" ]] && [[ $captain_id == "true" ]]; then
     exit 3
 fi
 if [[ $fleet == "true" ]] && [[ $captain_id != "true" ]]; then
-    for captain_id in $(php $ROOT_DIR/lib/local-scripts/configs.php fetch-captain_ids); do 
-	   "$CMD_FILE" "${CMD_ARGS[@]%--fleet*}" "--captain_id=$captain_id"
+    for captain_id in $(php $ROOT_DIR/lib/local-scripts/configs.php fetch-captain_ids); do
+	   "$CMD_FILE" "${CMD_ARGS[@]/--fleet/--captain_id=$captain_id}"
     done
     exit 3
 fi
