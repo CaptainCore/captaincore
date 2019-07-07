@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+
+#
+#   Runs custom bash script or WP-CLI commands on a site.
+#
+#   `captaincore run <site> <code>`
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}lib/arguments
+
+# Generate recipe
+if [[ "$1" != "" ]] && [[ "$2" != "" ]]; then 
+
+  timestamp=$( date +'%Y-%m-%d' )
+  recipe_file=$path_recipes/${captain_id}-${timestamp}-${2:0:8}.sh
+  recipe_name=${timestamp}-${2:0:8}
+  read -r -d '' php_code << heredoc
+\$code = <<<PHPHEREDOC
+$2
+PHPHEREDOC;
+
+echo base64_decode( \$code );
+heredoc
+
+  code=$( php -r "$php_code" )
+  echo -n "$code" > "${recipe_file}"
+
+fi
+
+run_command() {
+
+  site=$1
+
+  # Extract environment
+  if [[ "$site" == *"-staging"* ]]; then
+    environment=staging
+  fi
+
+  if [[ "$site" == *"-production"* ]]; then
+    environment=production
+  fi
+
+  if [[ "$site" != *"-"* ]]; then
+    environment=production
+  fi
+
+  # Load site configs
+  while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
+
+  # Site found, start the backup
+  if [[ $domain == "" ]]; then
+    echo "Error: $site missing domain."
+    continue
+  fi
+
+  captaincore ssh ${site}-${environment} --recipe=$recipe_name --captain_id=$captain_id
+
+}
+
+# See if any sites are specifed
+if [ ${#arguments[*]} -eq 2 ]; then
+  # Runs on specifed sites
+  run_command $1
+fi
+
+# Error if no sites specifed
+if [ ${#arguments[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a recipe."
+fi
