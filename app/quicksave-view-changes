@@ -30,6 +30,11 @@ run_command() {
 			return 1
 		fi
 
+		if [ ! -d "$path/${site}_${site_id}/${environment}/quicksave/" ]; then
+			echo -e "Error: Unable to locate Quicksave."
+			return
+		fi
+
 		cd $path/${site}_${site_id}/${environment}/quicksave/
 		git_show=`git show $hash --name-status --format=`
 		echo "$git_show"

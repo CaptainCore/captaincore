@@ -34,6 +34,11 @@ run_command() {
 		  return 1
 		fi
 
+		if [ ! -d "$path/${site}_${site_id}/${environment}/quicksave/" ]; then
+			echo -e "Error: Unable to locate Quicksave."
+			return
+		fi
+
 		cd $path/${site}_${site_id}/${environment}/quicksave/
 
 		# capture all git commit into array
