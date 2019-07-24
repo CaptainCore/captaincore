@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0] - 2019-07-24
+### Added
+- Command `recipe add`
+- Command `run`
+- Command `site fetch-settings`
+- Command `site deploy-settings`
+- Argument `--recipe=<recipe_id>` to `ssh` command.
+- Argument `--html` to `quicksave-file-diff` command for safe HTML output.
+- Config `path_recipes`
+
+### Changed
+- Fix bug where certain password wouldn't add correctely to Rclone.
+- Fix bug when running `--fleet`.
+
 ## [0.4.5] - 2019-06-29
 ### Added
 - Command `stats-generate`. Integrates with Fathom instance for automatic setup
