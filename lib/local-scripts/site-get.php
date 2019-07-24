@@ -57,7 +57,7 @@ $site_ids = get_posts( $arguments );
 // Bash output
 foreach ( $site_ids as $site_id ) {
 
-	// Bail if enviroment not set
+	// Bail if environment not set
 	if ( ! $environment == "production" or ! $environment == "staging" ) {
 		return;
 	}

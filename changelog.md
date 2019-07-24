@@ -4,7 +4,7 @@
 ### Added
 - Command `stats-generate`. Integrates with Fathom instance for automatic setup
 - Command `manifest-generate`. Generates manifest which tracks CaptainCore usage stats in manifest.json. In fleet mode this is generated per captain.
-- Commmand `quicksave-usage-update`. Generates usage info (count and storage) for quicksaves.
+- Command `quicksave-usage-update`. Generates usage info (count and storage) for quicksaves.
 - Local script `manifest-generate.php`
 - Config `captaincore_tracker_user` and `captaincore_tracker_pass` for integration with Fathom instance
 - Environment support to `stats-deploy` 
