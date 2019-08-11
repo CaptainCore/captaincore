@@ -32,7 +32,7 @@ run_command() {
     parallel=4
   fi
 
-  echo "Preparing to take snapshots"
+  echo "Preparing to take screenshots"
 
   for website in "$@"; do
 
