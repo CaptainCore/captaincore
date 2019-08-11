@@ -26,6 +26,12 @@
 #   [--delete-after-snapshot]
 #   Deletes local and remote copies of site
 #
+#   [--notes=<notes>]
+#   Add description for the snapshot
+#
+#   [--user_id=<user_id>]
+#   Tracks who made the snapshot
+#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
@@ -66,7 +72,7 @@ run_command() {
     fi
 
     # Generates snapshot archive
-    timedate=$(date +'%Y-%m-%d-%H%M%S')
+    timedate="$(date +'%Y-%m-%d-%H-%M-%S')-$( php -r 'echo bin2hex(openssl_random_pseudo_bytes( 32 ));' )"
     cd $path/${site}_${site_id}/
 
     if [[ $delete_after_snapshot == true ]]; then
@@ -138,6 +144,24 @@ run_command() {
       # Moves snapshot to Backblaze archive folder
       rclone move $site-$environment-$timedate.zip $rclone_snapshot/${site}_${site_id}/
 
+      if [[ "$debug" == "true" ]]; then
+			read -r -d '' VAR << EOM
+{
+"command":"snapshot",
+"user_id":"$user_id",
+"site_id":"$site_id",
+"environment":"$environment",
+"storage":"$snapshot_size",
+"archive":"${site}-${environment}-${timedate}.zip",
+"email":"$email",
+"notes":"$notes",
+"token":"$token"
+}
+EOM
+			echo $VAR
+			continue
+		fi
+
       # Post snapshot to ACF field
       if [[ "$captaincore_dev" == true ]]; then
         curl_argument="-k"
@@ -147,11 +171,13 @@ run_command() {
       curl ${curl_argument} --fail --silent --show-error --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
 "command":"snapshot",
+"user_id":"$user_id",
 "site_id":"$site_id",
 "environment":"$environment",
 "storage":"$snapshot_size",
 "archive":"${site}-${environment}-${timedate}.zip",
 "email":"$email",
+"notes":"$notes",
 "token":"$token"
 }
 EOF
