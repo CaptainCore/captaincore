@@ -3,12 +3,16 @@
 #
 #   Monitor check on a single valid HTTP url.
 #
-#   `captaincore monitor-check <site>`
+#   `captaincore monitor-check <url>`
+#
+#   [--debug]
+#   Extra info for troubleshooting
 #
 
 # Vars
 user_agent="captaincore/1.0 (CaptainCore Health Check by CaptainCore.io)"
 url=$1
+flag=$2
 
 run_command() {
 
@@ -43,6 +47,11 @@ run_command() {
 EOM
 
 	echo $json_output
+
+  if [[ "$flag" == "--debug" ]]; then
+      echo "Raw response"
+      echo "$response"
+  fi
 
 }
 
