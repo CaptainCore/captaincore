@@ -1,0 +1,10 @@
+# get the wp-config.php variables
+DBNAME=$(grep DB_NAME wp-config.php | awk -F "'" '{print $4}')
+DBUSER=$(grep DB_USER wp-config.php | awk -F "'" '{print $4}')
+DBPASS=$(grep DB_PASS wp-config.php | awk -F "'" '{print $4}')
+
+# Perform DB backup with [emoji support](https://anchor.host/wp-cli-database-backups-with-emojis/) and [speed](https://guides.wp-bullet.com/how-to-export-large-wordpress-databases-and-speed-up-the-process/)
+mysqldump -u ${DBUSER} -p${DBPASS} --default-character-set=utf8mb4 --add-drop-table --single-transaction --quick --lock-tables=false ${DBNAME} > wp-content/mysql.sql
+
+# Make it safe
+chmod 600 wp-content/mysql.sql
