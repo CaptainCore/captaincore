@@ -1,0 +1,71 @@
+#! /usr/bin/env php
+<?php
+#
+#   Generates WP-CLI commands based on an API call to CaptainCore GUI containing ids of recipes
+#
+#   captaincore site fetch-default-recipes <site>
+#
+
+if (isset($argv)) {
+    parse_str(implode('&', array_slice($argv, 1)), $_GET);
+}
+
+$captain_id   = $_GET['--captain_id'];
+$site         = $argv[1];
+$site_details = json_decode( shell_exec( "captaincore site get $site --format=json --captain_id=$captain_id" ) );
+
+// Loads CLI configs
+$json = $_SERVER['HOME'] . '/.captaincore-cli/config.json';
+
+if ( ! file_exists( $json ) ) {
+	return;
+}
+
+$config_data = json_decode ( file_get_contents( $json ) );
+$system = $config_data[0]->system;
+
+foreach($config_data as $config) {
+	if ( isset( $config->captain_id ) and $config->captain_id == $captain_id ) {
+		$configuration = $config;
+		break;
+	}
+}
+
+$recipe_ids = array();
+
+// Fetches from CLI configs
+$captaincore_gui = $configuration->vars->captaincore_gui;
+$token           = shell_exec( "captaincore site fetch-token $site --captain_id=$captain_id" );
+
+$customers = explode(",", $site_details->preloadusers );
+
+foreach ( $customers as $customer ) {
+
+    $url = "$captaincore_gui/wp-json/wp/v2/captcore_customer/$customer/?token=$token";
+
+    $curl = curl_init( $url );
+    curl_setopt( $curl, CURLOPT_SSL_VERIFYHOST, 0 );
+    curl_setopt( $curl, CURLOPT_SSL_VERIFYPEER, 0 );
+    curl_setopt( $curl, CURLOPT_RETURNTRANSFER, 1);
+
+    $response = curl_exec( $curl );
+    $response = json_decode( $response, true );
+    $default_recipes = $response["default_recipes"];
+
+    // Verify is array otherwise skip
+    if ( ! is_array($default_recipes) ) {
+        continue;
+    }
+
+    foreach ($default_recipes as $default_recipe) {
+        if ( ! in_array( $default_recipe, $recipe_ids ) ) {
+            $recipe_ids[] = $default_recipe;
+        }
+    }
+
+}
+
+$results = implode( " ", $recipe_ids );
+
+// Output WP-CLI commands
+echo $results;
