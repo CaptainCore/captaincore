@@ -24,7 +24,7 @@ run_command() {
     let INDEX=${INDEX}+1
   
     # Load site configs
-    while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
+    while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
 
     ## Return error if domain not found
     if [[ "$domain" == "" ]] || [[ "$site" == "" ]] || [[ "$provider" == "" ]]; then

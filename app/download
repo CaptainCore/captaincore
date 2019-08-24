@@ -13,7 +13,7 @@ source ${root_path}lib/arguments
 site=$1
 
 # Load site configs
-while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
+while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
 
 # Site found
 if ! [ -z "$domain" ]; then

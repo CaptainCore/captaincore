@@ -21,7 +21,7 @@ login=$2
 run_command() {
 
 	# Load site configs
-	while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
+	while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
 
 	if [[ $site == "" ]]; then
 		echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a site."

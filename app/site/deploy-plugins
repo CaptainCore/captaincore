@@ -22,7 +22,7 @@ run_command() {
     fi
 
     # Load site configs
-    while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
+    while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
 
     # Pulls standard set of plugins from https://<captaincore_gui>/wp-json/captaincore/v1/client	
     plugins=$(captaincore get config-from-api --field=preinstall_plugins --captain_id=$captain_id)
