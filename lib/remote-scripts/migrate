@@ -115,7 +115,7 @@ run_command() {
 
   if [[ "$backup_url" == *".tar"* ]]; then
     mv restore_$timedate.out restore_$timedate.tar
-    tar xvzf restore_$timedate.tar
+    tar xzf restore_$timedate.tar
     rm restore_$timedate.tar
   fi
 
