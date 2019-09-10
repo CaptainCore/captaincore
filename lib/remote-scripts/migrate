@@ -103,7 +103,7 @@ run_command() {
 
   if [[ "$backup_url" == *".gz"* ]]; then
     mv restore_$timedate.out restore_$timedate.gz
-    tar xvzf restore_$timedate.gz
+    tar xzf restore_$timedate.gz
     rm restore_$timedate.gz
   fi
 
