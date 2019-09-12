@@ -37,21 +37,14 @@ fi
 
 if [[ $skip_deployment != true ]]; then
 
-  # loads users
-  captaincore site deploy-users $site --captain_id=$captain_id
-  echo "Deploy Default Users"
-
-  # install plugins
-  captaincore site deploy-plugins $site --captain_id=$captain_id
-  echo "Deploy Default Plugins"
-
-  # Deploy  Recipes
-  captaincore site deploy-recipes $site --captain_id=$captain_id
-  echo "Deploy Default Recipes"
-
-  # Deploy Settings
-  captaincore site deploy-settings $site --captain_id=$captain_id
   echo "Deploy Default Settings (admin_user and timezone_string)"
+  captaincore site deploy-settings $site --captain_id=$captain_id
+
+  echo "Deploy Default Recipes"
+  captaincore site deploy-recipes $site --captain_id=$captain_id
+
+  echo "Deploy Default Users"
+  captaincore site deploy-users $site --captain_id=$captain_id
 
 fi
 
