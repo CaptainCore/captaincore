@@ -14,6 +14,9 @@
 #   [--recipe=<recipe_id>
 #   Runs script over SSH
 #
+#   [--debug]
+#   Outputs SSH command for debug purposes
+#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
@@ -57,13 +60,17 @@ run_command() {
     if [[ "$provider" == "kinsta" ]]; then
 
       # Kinsta's command prep
-      commandprep="cd public/ &&"
-
-      # Kinsta ssh address format
-      remoteserver="-oStrictHostKeyChecking=no $username@$address -p $port"
+      command_prep="cd public/ &&"
+      remote_options="-oStrictHostKeyChecking=no -oPreferredAuthentications=publickey"
+      
+      if [[ $key != "" ]]; then
+         remote_options="$remote_options -i $path_keys/${captain_id}/${key}"
+      fi
+      
+      remote_server="$remote_options $username@$address -p $port"
 
       if [[ "$use_staging" == "true" ]]; then
-        remoteserver="-oStrictHostKeyChecking=no $username_staging@$address_staging -p $port_staging"
+        remote_server="$remote_options $username_staging@$address_staging -p $port_staging"
       fi
 
     fi
@@ -72,23 +79,28 @@ run_command() {
     if [[ "$provider" == "wpengine" ]]; then
 
       # WP Engine's command prep
-      commandprep="rm ~/.wp-cli/config.yml; cd sites/* &&"
+      command_prep="rm ~/.wp-cli/config.yml; cd sites/* &&"
+      remote_options="-oStrictHostKeyChecking=no -oPreferredAuthentications=publickey"
+
+      if [[ $key != "" ]]; then
+         remote_options="$remote_options -i $path_keys/${captain_id}/${key}"
+      fi
 
       # WP Engine ssh address format
-      remoteserver="-oStrictHostKeyChecking=no ${site}@${site}.ssh.wpengine.net"
+      remote_server="$remote_options ${site}@${site}.ssh.wpengine.net"
 
       if [[ "$use_staging" == "true" ]]; then
-        remoteserver="-oStrictHostKeyChecking=no ${site_staging}@${site_staging}.ssh.wpengine.net"
+        remote_server="$remote_options ${site_staging}@${site_staging}.ssh.wpengine.net"
       fi
 
     fi
 
-    if [[ "$remoteserver" == "" ]]; then
+    if [[ "$remote_server" == "" ]]; then
       echo -e "${COLOR_RED}Error:${COLOR_NORMAL} $domain website host provider not recognized."
       exit
     fi
 
-    if [[ "$commandprep" == "" ]]; then
+    if [[ "$command_prep" == "" ]]; then
       echo -e "${COLOR_RED}Error:${COLOR_NORMAL} $domain website host provider not recognized."
       exit
 
@@ -100,7 +112,7 @@ run_command() {
       # Check for file
       if [ -f "$recipe_file" ]; then
         # Pass all arguments found after --script=<script> argument into remote script
-        ssh $remoteserver "$commandprep bash -s -- --site=$site ${flags[@]}" < $recipe_file
+        ssh $remote_server "$command_prep bash -s -- --site=$site ${flags[@]}" < $recipe_file
       fi
       exit
     fi
@@ -113,23 +125,27 @@ run_command() {
         script=${root_path}lib/remote-scripts/$script
       fi
       # Pass all arguments found after --script=<script> argument into remote script
-      ssh $remoteserver "$commandprep bash -s -- --site=$site ${flags[@]}" < $script
+      ssh $remote_server "$command_prep bash -s -- --site=$site ${flags[@]}" < $script
       exit
     fi
 
     # Runs ssh with command
     if [ -n "$command" ]; then
-      ssh $remoteserver "$commandprep $command"
+      ssh $remote_server "$command_prep $command"
       exit
     fi
 
     if [[ "$direct" == "true" ]]; then
-      ssh -T $remoteserver
+      ssh -T $remote_server
       exit
     fi
 
+    if [[ "$debug" == "true" ]]; then
+      echo "ssh $remote_server"
+    fi
+
     # Runs ssh
-    ssh $remoteserver
+    ssh $remote_server
 
 }
 

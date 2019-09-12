@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
 #
-#   Add a recipe to CaptainCore CLI.
+#   Add a SSH Key to CaptainCore CLI.
 #
-#   `captaincore recipe add <recipe>`
+#   `captaincore keys add <ssh-key>`
 #
 #   --id=<id>
 #
@@ -22,8 +22,13 @@ PHPHEREDOC;
 echo base64_decode( \$arguments );
 heredoc
 
-    recipe=$( php -r "$php_code" )
-    echo -n "$recipe" > "$path_recipes/${captain_id}-${id}.sh"
+    ssh_key=$( php -r "$php_code" )
+    mkdir -p "$path_keys/${captain_id}/"
+    echo -n "$ssh_key" > "$path_keys/${captain_id}/${id}"
+    chmod 600 "$path_keys/${captain_id}/${id}"
+
+    # Fetch and return fingerprint of newly added key
+    ssh-keygen -E md5 -lf "$path_keys/${captain_id}/${id}" | perl -n -e '/.+?:([^ ]+)/&& print $1'
 
 }
 
@@ -35,5 +40,5 @@ fi
 
 # Error if no sites specifed
 if [ ${#arguments[*]} -eq 0 ]; then
-  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a recipe."
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a SSH key."
 fi

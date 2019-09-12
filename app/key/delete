@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+
+#
+#   Delete a SSH Key to CaptainCore CLI.
+#
+#   `captaincore keys delete`
+#
+#   --id=<id>
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}lib/arguments
+
+run_command() {
+    rm "$path_keys/${captain_id}/${id}"
+}
+
+# See if any sites are specifed
+if [ ${#arguments[*]} -eq 0 ]; then
+  # Runs on specifed sites
+  run_command
+fi
+
+# Error if no sites specifed
+if [ ${#arguments[*]} -gt 1 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify an --id=<id>."
+fi

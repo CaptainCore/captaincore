@@ -66,6 +66,7 @@ foreach ( $site_ids as $site_id ) {
 	$site         = get_post_meta( $site_id, "site", true );
 	$id           = get_post_meta( $site_id, "site_id", true );
 	$provider     = get_post_meta( $site_id, "provider", true );
+	$key          = get_post_meta( $site_id, "key", true );
 	$preloadusers = get_post_meta( $site_id, "preloadusers", true );
 	$status       = get_post_meta( $site_id, "status", true );
 
@@ -117,8 +118,9 @@ foreach ( $site_ids as $site_id ) {
 		"ID"                      => $site_id,
 		"site_id"                 => $id,
 		"site"                    => $site,
-		"status"				  => $status,
+		"status"                  => $status,
 		"provider"                => $provider,
+		"key"                     => $key,
 		"preloadusers"            => $preloadusers,
 		"home_url"                => $home_url,
 		"domain"                  => $title,
@@ -145,6 +147,7 @@ foreach ( $site_ids as $site_id ) {
 	$bash = "id=$site_id
 site_id=$id
 domain=$title
+key=$key
 fathom=$fathom
 site=$site
 site_status=$status
