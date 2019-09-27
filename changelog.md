@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.6.0] - 2019-09-27
+### Added
+- SSH key management with commands `key add` and `key delete`.
+- Command `site deploy-receipes`
+- Command `site fetch-default-receipes`
+- Arguments`--notes` and `--user_id` to `snapshot` command.
+- Argument `--debug` to `monitor-check` command.
+- Argument `--debug` to `ssh-runner` command.
+
+### Changed
+- SSH connections now hard fail with bad SSH key. Previously they timed out asking for a password.
+- Fix bug with argument `--html` with `quicksave-file-diff`
+- Improved pulling in site details
+- Removed `site fetch-default-plugins` and `site deploy-plugins` as they are no longer needed.
+
 ## [0.5.0] - 2019-07-24
 ### Added
 - Command `recipe add`
@@ -11,7 +26,7 @@
 - Config `path_recipes`
 
 ### Changed
-- Fix bug where certain password wouldn't add correctely to Rclone.
+- Fix bug where certain password wouldn't add correctly to Rclone.
 - Fix bug when running `--fleet`.
 
 ## [0.4.5] - 2019-06-29
