@@ -25,7 +25,7 @@ source ${root_path}lib/arguments
 run_command() {
 
   # Format: Screenshot folder,HTTP url to check,Remote Send
-  urls_to_check=()
+  urls_to_check=""
 
   # Assign default parallel if needed
   if [[ $parallel == "" ]]; then
@@ -48,15 +48,13 @@ run_command() {
     
     if [[ "$home_url" != "" ]]; then
       mkdir -p $path/${site}_${site_id}/${environment}/screenshots/
-      urls_to_check+=( $path/${site}_${site_id}/${environment}/screenshots/,${home_url},$rclone_screenshots/${site}_${site_id}/${environment}/ )
+      urls_to_check+="\"$path/${site}_${site_id}/${environment}/screenshots/,${home_url},${rclone_screenshots}${site}_${site_id}/${environment}/\"\n"
     fi
 
   done
 
-  urls_to_check=${urls_to_check[@]}
-
   # Run checks in parallel. Collect the results in log file.
-  ( echo $urls_to_check | xargs -P $parallel -n 1 captaincore screenshot-runner ) 2>&1 | tee $log_file
+  ( echo -e $urls_to_check | xargs -P $parallel -n 1 captaincore screenshot-runner ) 2>&1 | tee $log_file
 
 }
 
