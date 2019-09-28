@@ -18,11 +18,8 @@ remote=$( echo "$arguments" | head -n 3 | tail -n 1 )
 
 run_command() {
   
-  if [ -f gowitness.db ]; then
-    rm gowitness.db
-  fi
   echo "Generating screenshot for $url"
-  bash_output=$( ( gowitness single --url="$url" --log-format=json --timeout=60 --destination="$path" ) 2>&1 | cat )
+  bash_output=$( ( gowitness single --url="$url" --log-format=json --timeout=60 --disable-db --destination="$path" ) 2>&1 | cat )
 
   # PHP script to parse and base64
   read -r -d '' php_code << heredoc
