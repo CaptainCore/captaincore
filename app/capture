@@ -11,14 +11,8 @@
 #   [@<target>]
 #   Target groups of sites like @all @production or @staging.
 #
-#   [--retry=<number-of-retries>]
-#   Number of retries for failures. Defaults to 3.
-#
-#   [--parallel=<number-of-checks>]
-#   Number of monitor checks to run at same time. Defaults to 15.
-#
-#   [--page=<page-url>]
-#   Check a specific page. Example `--page=/wp-admin/`. Defaults to home page.
+#   [--pages=<page>,<page>,<page>...]
+#   Overrides pages to check. Defaults to site's `capture_pages` configuration.
 #
 
 # Load configuration
