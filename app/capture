@@ -27,6 +27,18 @@ source ${root_path}lib/arguments
 
 user_agent="captaincore/1.0 (CaptainCore Capture by CaptainCore.io)"
 
+urlencode() {
+    local _length="${#1}"
+    for (( _offset = 0 ; _offset < _length ; _offset++ )); do
+        _print_offset="${1:_offset:1}"
+        case "${_print_offset}" in
+            [a-zA-Z0-9.~_-]) printf "${_print_offset}" ;;
+            ' ') printf + ;;
+            *) printf '%%%X' "'${_print_offset}" ;;
+        esac
+    done
+}
+
 run_command() {
 
 	INDEX=0
@@ -48,6 +60,11 @@ run_command() {
 		# Return error if domain not found
 		if [[ "$domain" == "" ]] || [[ "$site" == "" ]] || [[ "$provider" == "" ]]; then
 			echo "Can't locate website for $site"
+			continue
+		fi
+
+		if [[ "$home_url" == "" ]]; then 
+			echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Site $domain is missing home_url. Recommend running sync-data first."
 			continue
 		fi
 
@@ -125,26 +142,10 @@ run_command() {
             if [[ "$check_status_again" == "A"* || "$check_status_again" == "R"*  ]]; then
                 captured_pages="${captured_pages}${page},"
                 mkdir -p ".screenshots/"
-                bash_output=$( ( gowitness single --timeout=60 --disable-db --log-format=json --destination ".screenshots/" --url "${home_url}${page}" ) 2>&1 | cat )
-                
-                # PHP script to parse
-                read -r -d '' php_code << heredoc
-\$raw = <<< EOT
-$bash_output
-EOT;
-\$array = explode("\n", \$raw );
-foreach( \$array as \$line ) {
-    \$json = json_decode( \$line );
-    if ( \$json->msg == "Screenshot taken" ) {
-        echo \$json->destination;
-    }
-}
-heredoc
-            new_screenshot=$( php -r "$php_code" )
-                if [[ -f "$new_screenshot" ]]; then
-                    mv "$new_screenshot" ".screenshots/${page//\//#}_working.png"
-                    #convert ".screenshots/working_${file_name}.png" -resize 1800 ".screenshots/working_${file_name}.png"
-                fi
+                query="url=$( urlencode "${home_url}${page}" )&full_page=true&viewport_width=1280&user_agent=$( urlencode "$user_agent" )&format=jpg&pixel_ratio=2"
+                screenshots_cloud_token=$( printf '%s' "$query" | openssl sha1 -hmac "$screenshots_cloud_api_secret" | sed 's/^.* //' )
+                echo "https://api.screenshots.cloud/v1/screenshot/$screenshots_cloud_api_key/$screenshots_cloud_token/?$query"
+                curl "https://api.screenshots.cloud/v1/screenshot/$screenshots_cloud_api_key/$screenshots_cloud_token/?$query" > ".screenshots/${page//\//#}_working.jpg"
             fi
 
         done
@@ -172,7 +173,7 @@ heredoc
 		files_changed=$( git show $git_commit --name-status --format= )
 
 		# Organize new screenshots. Rename all files working_* to ${date}_${git_commit_short}_
-		for image in $( ls .screenshots/*_working.png ); do
+		for image in $( ls .screenshots/*_working.jpg ); do
 			new_ending="_${created_at}_${git_commit_short}"
 			new_image_name=${image/_working/$new_ending}
 			mv "$image" "$new_image_name"
