@@ -51,7 +51,9 @@ foreach($config_data as $config) {
 	}
 }
 
-$configuration->vars->manifest = json_decode ( file_get_contents ( $manifest_path . "/manifest.json" ) );
+if ( file_exists($manifest_path . "/manifest.json") ) {
+	$configuration->vars->manifest = json_decode ( file_get_contents ( $manifest_path . "/manifest.json" ) );
+}
 
 
 if ( $command == "fetch" ) {
@@ -89,47 +91,38 @@ if ( $command == "fetch" ) {
 		return;
 	}
 
-$bash = <<< heredoc
-captaincore_fleet={$system->captaincore_fleet}
-captaincore_dev={$system->captaincore_dev}
-captaincore_master={$system->captaincore_master}
-captaincore_master_port={$system->captaincore_master_port}
-logs={$system->logs}
-path={$system->path}
-path_tmp={$system->path_tmp}
-path_keys={$system->path_keys}
-path_recipes={$system->path_recipes}
-rclone_cli_backup={$system->rclone_cli_backup}
-local_wp_db_pw={$system->local_wp_db_pw}
-path_scripts={$system->path_scripts}
-access_key={$configuration->keys->access_key}
-token={$configuration->keys->token}
-auth={$configuration->keys->auth}
-WPCOM_API_KEY={$configuration->keys->WPCOM_API_KEY}
-GF_LICENSE_KEY={$configuration->keys->GF_LICENSE_KEY}
-ACF_PRO_KEY={$configuration->keys->ACF_PRO_KEY}
-rclone_archive={$configuration->remotes->rclone_archive}
-rclone_backup={$configuration->remotes->rclone_backup}
-rclone_logs={$configuration->remotes->rclone_logs}
-rclone_snapshot={$configuration->remotes->rclone_snapshot}
-rclone_screenshots={$configuration->remotes->rclone_screenshots}
-captaincore_branding_name={$configuration->vars->captaincore_branding_name}
-captaincore_branding_title={$configuration->vars->captaincore_branding_title}
-captaincore_branding_author={$configuration->vars->captaincore_branding_author}
-captaincore_branding_author_uri={$configuration->vars->captaincore_branding_author_uri}
-captaincore_branding_slug={$configuration->vars->captaincore_branding_slug}
-captaincore_server={$configuration->vars->captaincore_server}
-captaincore_tracker={$configuration->vars->captaincore_tracker}
-captaincore_tracker_user={$configuration->vars->captaincore_tracker_user}
-captaincore_tracker_pass={$configuration->vars->captaincore_tracker_pass}
-captaincore_gui={$configuration->vars->captaincore_gui}
-captaincore_api={$configuration->vars->captaincore_api}
-captaincore_admin_email={$configuration->vars->captaincore_admin_email}
-captaincore_admin_user={$configuration->vars->captaincore_admin_user}
-websites={$configuration->vars->websites}
-heredoc;
+	$output = "";
 
-	echo $bash;
+	foreach ($system as $key => $value) {
+		if ( is_array($value) ) {
+			continue;
+		}
+		$output .= "{$key}={$value}\n";
+	}
+
+	foreach ($configuration as $config) {
+		if ( ! is_object ( $config ) ) {
+			continue;
+		}
+
+		foreach ($config as $key => $value) {
+			if ( is_object($key) ) {
+				continue;
+			}
+			if ( is_object($value) ) {
+				continue;
+			}
+			if ( is_array($key) ) {
+				continue;
+			}
+			if ( is_array($value) ) {
+				continue;
+			}
+			$output .= "{$key}={$value}\n";
+		}
+	}
+	
+	echo $output;
 
 }
 
