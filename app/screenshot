@@ -12,7 +12,7 @@
 #   Target groups of sites like @all @production or @staging.
 #
 #   [--parallel=<number-of-checks>]
-#   Number of moniter checks to run at same time. Defaults to 5.
+#   Number of monitor checks to run at same time. Defaults to 5.
 #
 #   [--page=<page-url>]
 #   Check a specific page. Example `--page=/wp-admin/`. Defaults to home page.
