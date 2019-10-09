@@ -1,0 +1,258 @@
+#!/usr/bin/env bash
+
+#
+#   Captures website's pages visually over time based on html changes.
+#
+#   `captaincore capture`
+#
+#   [<site>...]
+#   One or more sites to check.
+#
+#   [@<target>]
+#   Target groups of sites like @all @production or @staging.
+#
+#   [--retry=<number-of-retries>]
+#   Number of retries for failures. Defaults to 3.
+#
+#   [--parallel=<number-of-checks>]
+#   Number of monitor checks to run at same time. Defaults to 15.
+#
+#   [--page=<page-url>]
+#   Check a specific page. Example `--page=/wp-admin/`. Defaults to home page.
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}lib/arguments
+
+user_agent="captaincore/1.0 (CaptainCore Capture by CaptainCore.io)"
+
+run_command() {
+
+	INDEX=0
+
+	for website in "$@"; do
+
+    	let INDEX=${INDEX}+1
+
+		# Extract environment
+		if [[ "$website" == *"-staging"* ]]; then
+			environment=staging
+		else
+			environment=production
+		fi
+		
+		# Load site configs
+		while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain_id=$captain_id)"
+
+		# Return error if domain not found
+		if [[ "$domain" == "" ]] || [[ "$site" == "" ]] || [[ "$provider" == "" ]]; then
+			echo "Can't locate website for $site"
+			continue
+		fi
+
+		if [[ "$pages" != "" ]]; then
+			echo "Overidding default page selection."
+			capture_pages=$pages
+		fi
+
+		if [[ "$capture_pages" == "" ]]; then
+			capture_pages="/"
+		fi
+
+        echo "Capturing site ${INDEX}/$# for pages $capture_pages"
+
+		# Define site path
+		site_path=${site}_${site_id}/${environment}
+		remote_site_path=${site}_${site_id}/${environment}/captures
+
+		if [[ "$captaincore_fleet" == "true" ]]; then 
+			remote_site_path=${captain_id}/${remote_site_path}
+		fi
+
+		if [[ "$environment" == "staging" ]]; then
+        	site=${site}-staging
+      	fi
+
+		# Append trailing slash if home_directory exist
+		if [ "$home_directory" != "" ]; then
+			home_directory="${home_directory}/"
+		fi
+
+		echo "$(date +'%Y-%m-%d %H:%M') Begin capture for $site (${INDEX}/$#)"
+
+		# Fetch new 
+
+		# Current timestamp
+		timedate=$(date +%Y-%m-%d_%H-%M-%S)
+
+		# Prepare git repo
+		mkdir -p $path/$site_path/captures/
+
+		cd $path/$site_path/captures/
+
+		# Create new git repo if needed
+		if [ ! -d ".git" ]; then
+		  git init
+          echo "/.screenshots" > .gitignore
+		fi
+
+        # Remove current captures
+        rm *.capture
+
+        # Create array of pages to capture
+        IFS=',';pages=($capture_pages);unset IFS;
+
+        captured_pages=""
+
+        # Loop through and capture
+        for i in `seq 1 ${#pages[@]}`; do
+            selected=$( expr $i - 1 )
+            page=${pages[$selected]}
+            file_name="${page//\//#}.capture"
+            echo "Capturing ${home_url}${page} to ${page//\//#}.capture"
+            curl -L --max-time 30 --compressed --silent "${home_url}${page}" > "$file_name"
+
+            # Continue if no changes found
+            check_status=$( git status "$file_name" -s )
+            if [[ "$check_status" == "" ]]; then
+                continue
+            fi
+
+            git add "$file_name"
+
+            check_status_again=$( git status "$file_name" -s )
+            if [[ "$check_status_again" == "A"* || "$check_status_again" == "R"*  ]]; then
+                captured_pages="${captured_pages}${page},"
+                mkdir -p ".screenshots/"
+                bash_output=$( ( gowitness single --timeout=60 --disable-db --log-format=json --destination ".screenshots/" --url "${home_url}${page}" ) 2>&1 | cat )
+                
+                # PHP script to parse
+                read -r -d '' php_code << heredoc
+\$raw = <<< EOT
+$bash_output
+EOT;
+\$array = explode("\n", \$raw );
+foreach( \$array as \$line ) {
+    \$json = json_decode( \$line );
+    if ( \$json->msg == "Screenshot taken" ) {
+        echo \$json->destination;
+    }
+}
+heredoc
+            new_screenshot=$( php -r "$php_code" )
+                if [[ -f "$new_screenshot" ]]; then
+                    mv "$new_screenshot" ".screenshots/${page//\//#}_working.png"
+                    #convert ".screenshots/working_${file_name}.png" -resize 1800 ".screenshots/working_${file_name}.png"
+                fi
+            fi
+
+        done
+
+		# Add all files to git repo
+		git add -A
+
+		# Current git status
+		git_status=$(git status -s)
+
+		if [[ "$git_status" == "" && "$force" != "true" ]]; then
+			# Skip capture as nothing changed
+			echo "No changes found."
+			continue
+		fi
+
+		# New commit    
+		git_commit=$(git commit -m "Captured at $timedate")
+
+		# Save git hash
+		git_commit=$(git log -n 1 --pretty=format:"%H")  # Get hash of last commit (commit hash)
+		git_commit_short=$(git log -n 1 --pretty=format:"%h")
+		git_status=$(git show $git_commit --shortstat --format=)
+		created_at=$(git show -s --pretty=format:"%ct" $git_commit) # Get date of last commit (UNIX timestamp)
+		files_changed=$( git show $git_commit --name-status --format= )
+
+		# Organize new screenshots. Rename all files working_* to ${date}_${git_commit_short}_
+		for image in $( ls .screenshots/*_working.png ); do
+			new_ending="_${created_at}_${git_commit_short}"
+			new_image_name=${image/_working/$new_ending}
+			mv "$image" "$new_image_name"
+		done
+
+		# Copy to remove storage 
+		rclone move .screenshots/ ${rclone_upload}${remote_site_path}/ --fast-list --transfers=32 --no-update-modtime --progress
+
+		# Build json for capture
+		read -r -d '' capture << EOM
+{
+"git_commit":"$git_commit",
+"capture_pages":"$capture_pages",
+"captured_pages":"${captured_pages%?}",
+"created_at":"$created_at"
+}
+EOM
+
+		echo "Git hash $git_commit"
+
+		if [[ "$debug" == "true" ]]; then
+			read -r -d '' VAR << EOM
+{
+	"command": "new-capture",
+	"site_id":"$site_id",
+	"environment":"$environment",
+	"data": $capture,
+	"token":"$token"
+}
+EOM
+			echo $VAR
+			continue
+		fi
+
+		# Adds capture to CaptainCore
+		if [[ "$captaincore_dev" == true ]]; then
+			curl_argument="-k"
+		fi
+
+		# Adds capture to CaptainCore
+		curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOM
+{
+	"command": "new-capture",
+	"site_id":"$site_id",
+	"environment":"$environment",
+	"data": $capture,
+	"token":"$token"
+}
+EOM
+
+		# Generate capture usage stats
+		capture_count=$( git rev-list --all --count )
+
+		# Clear out variables
+		site=''
+		domain=''
+		home_directory=''
+		subsite=''
+		response=''
+		response_parsed=''
+
+	done
+
+	# End logging
+	echo "$(date +'%Y-%m-%d %H:%M') Finished capture"
+
+}
+
+# See if any sites are specifed
+if [ ${#arguments[*]} -gt 0 ]; then
+  # Runs on specifed sites
+  run_command ${arguments[*]}
+fi
+
+# Runs on targeted sites
+if [ ${#targets[*]} -gt 0 ]; then
+  run_command $(captaincore site list ${targets[*]/targets=/@} --captain_id=$captain_id)
+fi
+
+# Error if no sites specifed
+if [ ${#targets[*]} -eq 0 ] && [ ${#arguments[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use a target @all, @production or @staging."
+fi
