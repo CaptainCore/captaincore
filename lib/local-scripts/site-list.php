@@ -212,5 +212,6 @@ foreach ( $websites as $website_id ) {
 	}
 
 }
-
+$results = array_unique( $results, SORT_REGULAR );
+asort($results);
 echo implode( ' ', $results );
