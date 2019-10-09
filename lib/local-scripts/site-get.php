@@ -79,6 +79,7 @@ foreach ( $site_ids as $site_id ) {
 		$home_directory          = get_post_meta( $site_id, "home_directory", true );
 		$database_username       = get_post_meta( $site_id, "database_username", true );
 		$database_password       = get_post_meta( $site_id, "database_password", true );
+		$capture_pages           = get_post_meta( $site_id, "capture_pages", true );
 		$fathom                  = get_post_meta( $site_id, "fathom", true );
 		$offload_enabled         = get_post_meta( $site_id, "offload_enabled", true );
 		$offload_provider        = get_post_meta( $site_id, "offload_provider", true );
@@ -101,6 +102,7 @@ foreach ( $site_ids as $site_id ) {
 		$home_directory          = get_post_meta( $site_id, "home_directory_staging", true );
 		$database_username       = get_post_meta( $site_id, "database_username_staging", true );
 		$database_password       = get_post_meta( $site_id, "database_password_staging", true );
+		$capture_pages           = get_post_meta( $site_id, "capture_pages_staging", true );
 		$fathom                  = get_post_meta( $site_id, "fathom_staging", true );
 		$offload_enabled         = get_post_meta( $site_id, "offload_enabled_staging", true );
 		$offload_provider        = get_post_meta( $site_id, "offload_provider_staging", true );
@@ -125,6 +127,7 @@ foreach ( $site_ids as $site_id ) {
 		"home_url"                => $home_url,
 		"domain"                  => $title,
 		"fathom"                  => $fathom,
+		"capture_pages"           => $capture_pages,
 		'address'                 => $address,
 		'username'                => $username,
 		'password'                => $password,
@@ -144,11 +147,17 @@ foreach ( $site_ids as $site_id ) {
 		'offload_path'            => $offload_path,
 	);
 
+	if ( $format == 'bash' and $capture_pages != "" ) {
+		// Return as CSV
+		$capture_pages = implode(",", array_column( json_decode( $capture_pages ), "page" ) );
+	}
+
 	$bash = "id=$site_id
 site_id=$id
 domain=$title
 key=$key
 fathom=$fathom
+capture_pages=$capture_pages
 site=$site
 site_status=$status
 provider=$provider
