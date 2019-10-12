@@ -136,7 +136,7 @@ run_command() {
             if [[ "$check_status_again" == "A"* || "$check_status_again" == "R"*  ]]; then
                 captured_pages="${captured_pages}${page},"
                 mkdir -p ".screenshots/"
-                query="url=$( urlencode "${home_url}${page}" )&full_page=true&viewport_width=1280&user_agent=$( urlencode "$user_agent" )&format=jpg&pixel_ratio=2"
+                query="url=$( urlencode "${home_url}${page}" )&full_page=true&viewport_width=1280&force=true&user_agent=$( urlencode "$user_agent" )&format=jpg&pixel_ratio=2"
                 screenshots_cloud_token=$( printf '%s' "$query" | openssl sha1 -hmac "$screenshots_cloud_api_secret" | sed 's/^.* //' )
                 echo "https://api.screenshots.cloud/v1/screenshot/$screenshots_cloud_api_key/$screenshots_cloud_token/?$query"
                 curl "https://api.screenshots.cloud/v1/screenshot/$screenshots_cloud_api_key/$screenshots_cloud_token/?$query" > ".screenshots/${page//\//#}_working.jpg"
