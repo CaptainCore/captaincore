@@ -133,7 +133,7 @@ run_command() {
             git add "$file_name"
 
             check_status_again=$( git status "$file_name" -s )
-            if [[ "$check_status_again" == "A"* || "$check_status_again" == "R"*  ]]; then
+            if [[ "$check_status_again" == "A"* || "$check_status_again" == "M"* || "$check_status_again" == "R"*  ]]; then
                 captured_pages="${captured_pages}${page},"
                 mkdir -p ".screenshots/"
                 query="url=$( urlencode "${home_url}${page}" )&full_page=true&viewport_width=1280&force=true&user_agent=$( urlencode "$user_agent" )&format=jpg&pixel_ratio=2"
@@ -157,7 +157,7 @@ run_command() {
 		fi
 
 		# New commit    
-		git_commit=$(git commit -m "Captured at $timedate")
+		git commit -m "Captured at $timedate"
 
 		# Save git hash
 		git_commit=$(git log -n 1 --pretty=format:"%H")  # Get hash of last commit (commit hash)
