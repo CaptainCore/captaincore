@@ -7,7 +7,7 @@ foreach($args as $index => $arg) {
 		$key = str_replace('-', '_', substr( $arg , 0, $split ) );
 		$value = substr( $arg , $split, strlen( $arg ) );
 
-		// Removes unnessary bash quotes
+		// Removes unnecessary bash quotes
 		$value = trim( $value,'"' ); 				// Remove last quote 
 		$value = str_replace( '="', '=', $value );  // Remove quote right after equals
 
@@ -31,7 +31,7 @@ $arguments = array(
 		'relation' => 'and',
 		array(
 			'key'     => 'status', // name of custom field
-			'value'   => 'active', // matches exaclty "123", not just 123. This prevents a match for "1234"
+			'value'   => 'active', // matches exactly "123", not just 123. This prevents a match for "1234"
 			'compare' => '=',
 		),
 		array(

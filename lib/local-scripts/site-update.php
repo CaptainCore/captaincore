@@ -7,7 +7,7 @@ foreach($args as $index => $arg) {
 		$key = str_replace('-', '_', substr( $arg , 0, $split ) );
 		$value = substr( $arg , $split, strlen( $arg ) );
 
-		// Removes unnessary bash quotes
+		// Removes unnecessary bash quotes
 		$value = trim( $value,'"' ); 				// Remove last quote 
 		$value = str_replace( '="', '=', $value );  // Remove quote right after equals
 

@@ -21,12 +21,12 @@ foreach ( $quicksaves as $quicksave_id ) {
 			'relation' => 'AND',
 			array(
 				'key'     => 'git_commit', // name of custom field
-				'value'   => $git_commmit, // matches exaclty "123", not just 123. This prevents a match for "1234"
+				'value'   => $git_commmit, // matches exactly "123", not just 123. This prevents a match for "1234"
 				'compare' => '=',
 			),
 			array(
 				'key'     => 'website', // name of custom field
-				'value'   => '"' . $website[0] . '"', // matches exaclty "123", not just 123. This prevents a match for "1234"
+				'value'   => '"' . $website[0] . '"', // matches exactly "123", not just 123. This prevents a match for "1234"
 				'compare' => 'LIKE',
 			),
 		),
