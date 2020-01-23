@@ -79,13 +79,13 @@ run_command() {
 
 			# Exclude themes or plugins if marked for exclusion
 			if [[ $updates_exclude_themes != "" ]] && [[ $updates_exclude_plugins != "" ]]; then
-				json_output=$(captaincore ssh $site --script=update --exclude_plugins=$updates_exclude_plugins --exclude_themes=$updates_exclude_themes --all --format=json --captain_id=$captain_id)
+				json_output=$(captaincore ssh $site --script=update --exclude_plugins=$updates_exclude_plugins --exclude_themes=$updates_exclude_themes --all --format=json --provider=$provider --captain_id=$captain_id)
 			elif [[ $updates_exclude_themes != "" ]]; then
-				json_output=$(captaincore ssh $site --script=update --exclude_themes=$updates_exclude_themes --all --format=json --captain_id=$captain_id)
+				json_output=$(captaincore ssh $site --script=update --exclude_themes=$updates_exclude_themes --all --format=json --provider=$provider --captain_id=$captain_id)
 			elif [[ $updates_exclude_plugins != "" ]]; then
-				json_output=$(captaincore ssh $site --script=update --exclude_plugins=$updates_exclude_plugins --all --format=json --captain_id=$captain_id)
+				json_output=$(captaincore ssh $site --script=update --exclude_plugins=$updates_exclude_plugins --all --format=json --provider=$provider --captain_id=$captain_id)
 			else
-				json_output=$(captaincore ssh $site --script=update --all --format=json --captain_id=$captain_id)
+				json_output=$(captaincore ssh $site --script=update --all --format=json --provider=$provider --captain_id=$captain_id)
 			fi
 
 			# If json output detected then parse updates

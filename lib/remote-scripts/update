@@ -24,7 +24,7 @@ for arg in "$@"; do
 
   # Add to flags array
   count=1+${#flags[*]}
-  if [[ "$arg" != "--script"* ]] && [[ "$arg" != *"--exclude_plugins"* ]] && [[ "$arg" != "--exclude_themes"* ]] && [[ "$arg" != "--site"* ]] && [[ "$arg" != "--captain_id"* ]]; then
+  if [[ "$arg" != "--script"* ]] && [[ "$arg" != *"--exclude_plugins"* ]] && [[ "$arg" != "--exclude_themes"* ]] && [[ "$arg" != "--site"* ]] && [[ "$arg" != "--provider"* ]] && [[ "$arg" != "--captain_id"* ]]; then
     # Remove first and last quote if found
     arg_for_flag="${arg%\"}"
     arg_for_flag="${arg_for_flag/=\"/=}"
@@ -84,6 +84,11 @@ run_command() {
     wp plugin update ${flags[@]} --require="$private/require-wp-admin.php"
   else
   	wp plugin update ${flags[@]} --require="$private/require-wp-admin.php" --exclude=$exclude_plugins
+  fi
+  
+  silent=$( wp cache flush )
+  if [[ $provider == "kinsta" ]]; then
+    silent=$( wp kinsta cache purge )
   fi
 
 }
