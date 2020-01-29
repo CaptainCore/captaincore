@@ -24,104 +24,20 @@ run_command() {
 	# Load site configs
 	while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
 
-	# Environment
-	if [[ $environment == "staging" ]]; then
-		site=${site}-staging
-	fi
-
 	# Skip if not compatible
 	if [[ $protocol != "sftp" ]] || [[ $site == "" ]]; then
 		echo "Error: Can't SSH to $site";
 		return 1
 	fi
 
-	# Nasty bash hack in order to grab all of the details from one single SSH tunnel (WP Engine connection is slow)
-	response=$(captaincore ssh $site --script=fetch-site-data --captain_id=$captain_id)
+	# Remove leading "--" from flags
+	for i in "${!flags[@]}"; do
+		flags[$i]=`echo ${flags[$i]} | cut -c 3-`
+	done
 
-	if [[ $response == *"website host provider not recognized" ]] || [[ $reponse == *"Error: SSH not supported"* ]]; then
-		echo "Error: Can't SSH to $site";
-		return 1
-	fi
 
-	if [[ "$response" == "" ]]; then
-		echo "Error: Reponse from $site is empty.";
-		return 1
-	fi
-
-	IFS=$'\n' read -rd '' -a response_parsed <<<"$response"
-
-	plugins=${response_parsed[0]}
-	themes=${response_parsed[1]}
-	core=${response_parsed[2]}
-	home_url=${response_parsed[3]}
-	users=${response_parsed[4]}
-	subsite_count=${response_parsed[5]}
-
-	# Store updated info in WordPress datastore
 	cd ${root_path}data
-
-	if [[ $environment == "production" ]]; then
-
-		wp --quiet post meta update $id core $core
-		wp --quiet post meta update $id home_url $home_url
-		wp --quiet post meta update $id plugins "$plugins"
-		wp --quiet post meta update $id themes "$themes"
-		wp --quiet post meta update $id subsite_count "$subsite_count"
-		wp --quiet post meta update $id users << heredoc
-$users
-heredoc
-
-	fi
-
-	if [[ $environment == "staging" ]]; then
-
-		wp --quiet post meta update $id core_staging $core
-		wp --quiet post meta update $id home_url_staging $home_url
-		wp --quiet post meta update $id plugins_staging "$plugins"
-		wp --quiet post meta update $id themes_staging "$themes"
-		wp --quiet post meta update $id subsite_count_staging "$subsite_count"
-		wp --quiet post meta update $id users_staging << heredoc
-$users
-heredoc
-
-	fi
-
-	if [[ "$fathom" == "" ]]; then 
-		fathom='""'
-	fi
-
-# Build json
-read -r -d '' data << heredoc
-{
-"command":"sync-data",
-"environment":"$environment",
-"site_id":"$site_id",
-"token":"$token",
-"fathom":$fathom,
-"home_url":"$home_url",
-"core":"$core",
-"themes":$themes,
-"plugins":$plugins,
-"subsite_count":"$subsite_count",
-"users":$users
-}
-heredoc
-
-	if [[ "$debug" == "true" ]]; then
-		echo $data
-		return 1
-	fi
-
-	if [[ "$captaincore_dev" == true ]]; then
-		curl_argument="-k"
-	fi
-
-	# Adds sync data to CaptainCore GUI
-	curl ${curl_argument} --silent --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << heredoc
-$data
-heredoc
-
-	echo ""
+	wp eval-file ../lib/local-scripts/site-sync-data.php site=$site environment=$environment ${flags[@]}
 
 }
 

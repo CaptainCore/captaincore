@@ -26,142 +26,93 @@ if ( $format == "" ) {
 	$format = "json";
 }
 
-// WP_Query arguments
-$arguments = array(
-	'author'    	 => $captain_id,
-	'post_type'      => array( 'captcore_website' ),
-	'posts_per_page' => '1',
-	'fields'         => 'ids',
-	'meta_query'     => array(
-		'relation' => 'AND',
-		array(
-			'key'     => 'site',
-			'value'   => $site,
-			'compare' => '=',
-		),
-	),
-);
-
-// If provider specified
+$lookup  = ( new CaptainCore\Sites )->where( [ "site" => $site ] );
 if ( $provider ) {
-	$arguments['meta_query'][] = array(
-		'key'     => 'provider',
-		'value'   => $provider,
-		'compare' => '=',
-	);
+	$lookup  = ( new CaptainCore\Sites )->where( [ "site" => $site, "provider" => $provider ] );
 }
 
-// The Query
-$site_ids = get_posts( $arguments );
+// Error if site not found
+if ( count( $lookup ) == 0 ) {
+	return "";
+}
 
-// Bash output
-foreach ( $site_ids as $site_id ) {
+// Fetch site
+$site    = ( new CaptainCore\Site( $lookup[0]->site_id ) )->get();
 
-	// Bail if environment not set
-	if ( ! $environment == "production" or ! $environment == "staging" ) {
-		return;
-	}
+// Set environment if not defined
+if ( $environment == "" ) {
+	$environment = "Production";
+}
 
-	$title        = get_the_title( $site_id );
-	$site         = get_post_meta( $site_id, "site", true );
-	$id           = get_post_meta( $site_id, "site_id", true );
-	$provider     = get_post_meta( $site_id, "provider", true );
-	$key          = get_post_meta( $site_id, "key", true );
-	$preloadusers = get_post_meta( $site_id, "preloadusers", true );
-	$status       = get_post_meta( $site_id, "status", true );
+$environment_key = array_search( ucfirst($environment), array_column( $site->environments, 'environment' ) );
 
-	if ( $environment == "production" ) {
-		$address                 = get_post_meta( $site_id, "address", true );
-		$username                = get_post_meta( $site_id, "username", true );
-		$password                = get_post_meta( $site_id, "password", true );
-		$protocol                = get_post_meta( $site_id, "protocol", true );
-		$port                    = get_post_meta( $site_id, "port", true );
-		$home_directory          = get_post_meta( $site_id, "home_directory", true );
-		$database_username       = get_post_meta( $site_id, "database_username", true );
-		$database_password       = get_post_meta( $site_id, "database_password", true );
-		$capture_pages           = get_post_meta( $site_id, "capture_pages", true );
-		$fathom                  = get_post_meta( $site_id, "fathom", true );
-		$offload_enabled         = get_post_meta( $site_id, "offload_enabled", true );
-		$offload_provider        = get_post_meta( $site_id, "offload_provider", true );
-		$offload_access_key      = get_post_meta( $site_id, "offload_access_key", true );
-		$offload_secret_key      = get_post_meta( $site_id, "offload_secret_key", true );
-		$offload_bucket          = get_post_meta( $site_id, "offload_bucket", true );
-		$offload_path            = get_post_meta( $site_id, "offload_path", true );
-		$home_url                = get_post_meta( $site_id, "home_url", true );
-		$updates_enabled         = get_post_meta( $site_id, "updates_enabled", true );
-		$updates_exclude_themes  = get_post_meta( $site_id, "updates_exclude_themes", true );
-		$updates_exclude_plugins = get_post_meta( $site_id, "updates_exclude_plugins", true );
-	}
+$address                 = $site->environments[$environment_key]->address;
+$username                = $site->environments[$environment_key]->username;
+$password                = $site->environments[$environment_key]->password;
+$protocol                = $site->environments[$environment_key]->protocol;
+$port                    = $site->environments[$environment_key]->port;
+$home_directory          = $site->environments[$environment_key]->home_directory;
+$database_username       = $site->environments[$environment_key]->database_username;
+$database_password       = $site->environments[$environment_key]->database_password;
+$capture_pages           = $site->environments[$environment_key]->capture_pages;
+$fathom                  = $site->environments[$environment_key]->fathom;
+$offload_enabled         = $site->environments[$environment_key]->offload_enabled;
+$offload_provider        = $site->environments[$environment_key]->offload_provider;
+$offload_access_key      = $site->environments[$environment_key]->offload_access_key;
+$offload_secret_key      = $site->environments[$environment_key]->offload_secret_key;
+$offload_bucket          = $site->environments[$environment_key]->offload_bucket;
+$offload_path            = $site->environments[$environment_key]->offload_path;
+$home_url                = $site->environments[$environment_key]->home_url;
+$updates_enabled         = $site->environments[$environment_key]->updates_enabled;
+$updates_exclude_themes  = $site->environments[$environment_key]->updates_exclude_themes;
+$updates_exclude_plugins = $site->environments[$environment_key]->updates_exclude_plugins;
 
-	if ( $environment == "staging" ) {
-		$address                 = get_post_meta( $site_id, "address_staging", true );
-		$username                = get_post_meta( $site_id, "username_staging", true );
-		$password                = get_post_meta( $site_id, "password_staging", true );
-		$protocol                = get_post_meta( $site_id, "protocol_staging", true );
-		$port                    = get_post_meta( $site_id, "port_staging", true );
-		$home_directory          = get_post_meta( $site_id, "home_directory_staging", true );
-		$database_username       = get_post_meta( $site_id, "database_username_staging", true );
-		$database_password       = get_post_meta( $site_id, "database_password_staging", true );
-		$capture_pages           = get_post_meta( $site_id, "capture_pages_staging", true );
-		$fathom                  = get_post_meta( $site_id, "fathom_staging", true );
-		$offload_enabled         = get_post_meta( $site_id, "offload_enabled_staging", true );
-		$offload_provider        = get_post_meta( $site_id, "offload_provider_staging", true );
-		$offload_access_key      = get_post_meta( $site_id, "offload_access_key_staging", true );
-		$offload_secret_key      = get_post_meta( $site_id, "offload_secret_key_staging", true );
-		$offload_bucket          = get_post_meta( $site_id, "offload_bucket_staging", true );
-		$offload_path            = get_post_meta( $site_id, "offload_path_staging", true );
-		$home_url                = get_post_meta( $site_id, "home_url_staging", true );
-		$updates_enabled         = get_post_meta( $site_id, "updates_enabled_staging", true );
-		$updates_exclude_themes  = get_post_meta( $site_id, "updates_exclude_themes_staging", true );
-		$updates_exclude_plugins = get_post_meta( $site_id, "updates_exclude_plugins_staging", true );
-	}
+$array = [
+	"site_id"                 => $site->site_id,
+	"site"                    => $site->site,
+	"status"                  => $site->status,
+	"provider"                => $site->provider,
+	"key"                     => $site->key,
+	"domain"                  => $site->name,
+	"home_url"                => $home_url,
+	"defaults"                => json_encode( $site->account["defaults"] ),
+	"fathom"                  => json_encode( $fathom ),
+	"capture_pages"           => $capture_pages,
+	'address'                 => $address,
+	'username'                => $username,
+	'password'                => $password,
+	'protocol'                => $protocol,
+	'port'                    => $port,
+	'home_directory'          => $home_directory,
+	'database_username'       => $database_username,
+	'database_password'       => $database_password,
+	'updates_enabled'         => $updates_enabled,
+	'updates_exclude_themes'  => $updates_exclude_themes,
+	'updates_exclude_plugins' => $updates_exclude_plugins,
+	'offload_enabled'         => $offload_enabled,
+	'offload_provider'        => $offload_provider,
+	'offload_access_key'      => $offload_access_key,
+	'offload_secret_key'      => $offload_secret_key,
+	'offload_bucket'          => $offload_bucket,
+	'offload_path'            => $offload_path,
+];
 
-	$array = array(
-		"ID"                      => $site_id,
-		"site_id"                 => $id,
-		"site"                    => $site,
-		"status"                  => $status,
-		"provider"                => $provider,
-		"key"                     => $key,
-		"preloadusers"            => $preloadusers,
-		"home_url"                => $home_url,
-		"domain"                  => $title,
-		"fathom"                  => $fathom,
-		"capture_pages"           => $capture_pages,
-		'address'                 => $address,
-		'username'                => $username,
-		'password'                => $password,
-		'protocol'                => $protocol,
-		'port'                    => $port,
-		'home_directory'          => $home_directory,
-		'database_username'       => $database_username,
-		'database_password'       => $database_password,
-		'updates_enabled'         => $updates_enabled,
-		'updates_exclude_themes'  => $updates_exclude_themes,
-		'updates_exclude_plugins' => $updates_exclude_plugins,
-		'offload_enabled'         => $offload_enabled,
-		'offload_provider'        => $offload_provider,
-		'offload_access_key'      => $offload_access_key,
-		'offload_secret_key'      => $offload_secret_key,
-		'offload_bucket'          => $offload_bucket,
-		'offload_path'            => $offload_path,
-	);
+if ( $format == 'bash' and $capture_pages != "" ) {
+	// Return as CSV
+	$capture_pages = implode(",", array_column( json_decode( $capture_pages ), "page" ) );
+}
 
-	if ( $format == 'bash' and $capture_pages != "" ) {
-		// Return as CSV
-		$capture_pages = implode(",", array_column( json_decode( $capture_pages ), "page" ) );
-	}
+$default_users = json_encode ( $site->account["defaults"]->users );
 
-	$bash = "id=$site_id
-site_id=$id
-domain=$title
-key=$key
+$bash = "site_id={$site->site_id}
+domain={$site->name}
+key={$site->key}
 fathom=$fathom
 capture_pages=$capture_pages
-site=$site
-site_status=$status
-provider=$provider
-preloadusers=$preloadusers
+site={$site->site}
+status={$site->status}
+provider={$site->provider}
+default_users=$default_users
 home_url=$home_url
 address=$address
 username=$username
@@ -180,7 +131,6 @@ offload_secret_key=$offload_secret_key
 offload_bucket=$offload_bucket
 offload_path=$offload_path";
 
-}
 if ( $field ) {
 	echo $array[$field];
 	return true;
@@ -188,8 +138,8 @@ if ( $field ) {
 
 if ( $format == 'bash' ) {
 	echo $bash;
-} 
+}
 
 if ( $format == 'json' ) {
-	echo json_encode($array, JSON_PRETTY_PRINT);
+	echo json_encode( $array, JSON_PRETTY_PRINT );
 }

@@ -23,13 +23,8 @@ fi
 
 # Assume WP-CLI output may contain whitespaces and remove.
 echo ${plugins} | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
-echo ""
 echo ${themes} | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
-echo ""
 echo ${core} | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
-echo ""
 echo ${home_url} | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
-echo ""
 echo ${users} | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
-echo ""
 echo ${subsite_count} | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'

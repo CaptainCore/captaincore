@@ -37,59 +37,36 @@ if ( $system->captaincore_fleet == "true" ) {
 	$manifest_path = "{$manifest_path}/{$captain_id}";
 }
 
-$arguments = array(
-	'author'		 => $captain_id,
-	'post_type'      => 'captcore_website',
-	'posts_per_page' => '-1',
-	'fields'         => 'ids',
-	'meta_query'     => array(
-		'relation' => 'AND',
-		array(
-			'key'     => 'status', // name of custom field
-			'value'   => 'active', // matches exactly "123", not just 123. This prevents a match for "1234"
-			'compare' => '=',
-		),
-		array(
-			'key'     => 'site', // name of custom field
-			'value'   => '',
-			'compare' => '!=',
-		),
-	),
-);
-
-$websites = get_posts( $arguments );
-$quicksave_storage = 0;
-$quicksave_count = 0;
+$sites              = ( new CaptainCore\Sites )->list_details();
+$quicksave_storage  = 0;
+$quicksave_count    = 0;
 $total_site_storage = 0;
-$total_storage = 0; 
+$total_storage      = 0; 
 
-foreach( $websites as $website ) {
-	$site_storage     = get_post_meta( $website, "storage", true );
-	$quicksaves_usage = json_decode( get_post_meta( $website, "quicksaves_usage", true ) );
-
-	if ( $site_storage == "" ) { 
-		$site_storage = 0; 
+foreach( $sites as $site ) {
+	if ( $site->storage_raw == "" ) { 
+		$site->storage_raw = 0; 
 	}
-	if ( $quicksaves_usage == "" ) {
-		$quicksaves_usage = json_decode( '{"count":"0","storage":"0"}' );
+	if ( $site->quicksaves_usage == "" ) {
+		$site->quicksaves_usage = [];
 	}
-	$quicksave_count = $quicksave_count + $quicksaves_usage->count;
-	$quicksave_storage = $quicksave_storage + $quicksaves_usage->storage;
-	$total_site_storage = $total_site_storage + $site_storage;
-	$total_storage = $total_storage + $site_storage + $quicksaves_usage->storage;
+	$quicksave_count    = $quicksave_count + array_sum( array_column ( $site->quicksaves_usage, "count" ) );
+	$quicksave_storage  = $quicksave_storage + array_sum( array_column ( $site->quicksaves_usage, "storage" ) );
+	$total_site_storage = $total_site_storage + $site->storage_raw;
+	$total_storage      = $total_storage + $site->storage_raw + array_sum( array_column ( $site->quicksaves_usage, "storage" ) );
 }
 
-$manifest = array(
-	'sites'      => array( 
-		'count'   => count( $websites ),
+$manifest = [
+	'sites'      => [
+		'count'   => count( $sites ),
 		'storage' => $total_site_storage
-	),
-	'quicksaves' => array(
+	],
+	'quicksaves' => [
 		'count'   => $quicksave_count,
 		'storage' => $quicksave_storage
-	),
+	],
 	'storage'    => $total_storage
-);
+];
 
 $results = json_encode( $manifest, JSON_PRETTY_PRINT );
 echo $results;

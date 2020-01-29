@@ -47,6 +47,11 @@ add_action( 'pre_get_posts', function( $q ) {
 
 EOF
 wp plugin install wp-force-login --activate
+wp plugin delete hello-dolly
+git clone git@github.com:CaptainCore/captaincore.git wp-content/plugins/captaincore
+cd wp-content/plugins/captaincore
+git submodule update --init
+wp plugin activate captaincore
 
 ## DB import
 #captaincore ssh <site> --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql"

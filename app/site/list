@@ -5,9 +5,8 @@
 #
 #   `captaincore site list`
 #
-#   [@<target>] [--provider=<provider>]  [--filter=<theme|plugin|core>] [--filter-name=<name>] [--filter-version=<version>] [--filter-status=<active|inactive|dropin|must-use>] [--field=<field>]
+#   [@<target>] [--provider=<provider>]  [--filter=<themes|plugins|core>] [--filter-name=<name>] [--filter-version=<version>] [--filter-status=<active|inactive|dropin|must-use>] [--field=<field>]
 #
-
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
@@ -19,5 +18,4 @@ for i in "${!flags[@]}"; do
 done
 
 cd ${root_path}data
-
 wp eval-file ${root_path}lib/local-scripts/site-list.php ${targets[@]} ${flags[@]}

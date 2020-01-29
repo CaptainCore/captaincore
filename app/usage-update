@@ -27,75 +27,32 @@ run_command() {
       while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain_id=$captain_id)"
 
       # Site found, start the backup
-      if ! [ -z "$domain" ]; then
-
-        if [[ "$OSTYPE" == "linux-gnu" ]]; then
-          # Begin folder size in bytes without apparent-size flag
-          folder_size=`du -s --block-size=1 $path/${site}_${site_id}/${environment}/backup/`
-          folder_size=`echo $folder_size | cut -d' ' -f 1`
-        elif [[ "$OSTYPE" == "darwin"* ]]; then
-          # Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
-          folder_size=`find $path/${site}_${site_id}/${environment}/backup/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
-        fi
-
-        # Views for yearly stats
-        visits=$( captaincore stats $site --captain_id=$captain_id )
-
-        # Store updated info in WordPress datastore
-		    cd ${root_path}data
-        if [[ "$environment" == "production" ]]; then
-          wp post meta update $id storage "$folder_size"
-          wp post meta update $id visits "$visits"
-        fi
-        if [[ "$environment" == "staging" ]]; then
-          wp post meta update $id storage_staging "$folder_size"
-          wp post meta update $id visits_staging "$visits"
-        fi
-
-				# Debug API request
-				if [[ "$debug" == "true" ]]; then
-					read -r -d '' VAR << EOM
-					{
-						"command":"usage-update",
-            "environment":"$environment",
-						"site_id":"$site_id",
-						"storage":"$folder_size",
-						"token":"$token",
-						"visits":"$visits"
-					}
-EOM
-					echo $VAR
-					continue
-				fi
-
-        # Post folder size bytes and yearly visits to ACF fields
-        curl --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
-{
-	"command":"usage-update",
-  "environment":"$environment",
-	"site_id":"$site_id",
-	"storage":"$folder_size",
-	"token":"$token",
-	"visits":"$visits"
-}
-EOF
-        echo "Generated $domain"
+      if [ -z "$domain" ]; then
+        continue
       fi
 
-      ### Clear out variables
-      domain=''
-      username=''
-      password=''
-      address=''
-      protocol=''
-      port=''
-      home_directory=''
-      remoteserver=''
-      s3bucket=''
-      s3path=''
-      subsite=''
+      if [[ "$OSTYPE" == "linux-gnu" ]]; then
+        # Begin folder size in bytes without apparent-size flag
+        folder_size=`du -s --block-size=1 $path/${site}_${site_id}/${environment}/backup/`
+        folder_size=`echo $folder_size | cut -d' ' -f 1`
+      elif [[ "$OSTYPE" == "darwin"* ]]; then
+        # Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
+        folder_size=`find $path/${site}_${site_id}/${environment}/backup/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
+      fi
 
-      let INDEX=${INDEX}+1
+      # Views for yearly stats
+      visits=$( captaincore stats $site --captain_id=$captain_id )
+
+      # Remove leading "--" from flags
+      for i in "${!flags[@]}"; do
+        flags[$i]=`echo ${flags[$i]} | cut -c 3-`
+      done
+
+      # Store updated info in WordPress datastore
+      cd ${root_path}data
+      wp eval-file ../lib/local-scripts/site-update-usage.php site=$site environment=$environment storage=$folder_size visits=$visits ${flags[@]}
+
+    let INDEX=${INDEX}+1
     done
 
 }

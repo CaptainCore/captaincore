@@ -29,23 +29,6 @@ run_command() {
 
 	echo "Generating quicksaves for $# sites"
 
-	# Generate random auth
-	auth=''; for count in {0..6}; do auth+=$(printf "%x" $(($RANDOM%16)) ); done;
-
-	# Begin time tracking
-	overalltimebegin=$(date +"%s")
-	backup_date=$(date +'%Y-%m-%d')
-	backup_time=$(date +'%H-%M')
-
-	# Define log file format
-	logs_path=$logs/$backup_date/$backup_time-$auth
-
-	# Generate log folder
-	mkdir -p $logs_path
-
-	# Begin logging
-	echo "$(date +'%Y-%m-%d %H:%M') Begin generating quicksaves" > $logs_path/quicksave.log
-
 	INDEX=0
 
 	for website in "$@"; do
@@ -74,17 +57,13 @@ run_command() {
 		# Define site path
 		site_path=${site}_${site_id}/${environment}
 
-		if [[ "$environment" == "staging" ]]; then
-        	site=${site}-staging
-      	fi
-
 		# captures FTP errors in $ftp_output and file listing to log file
 		ftp_output=$( { rclone lsd sftp-$rclone_site_name:$home_directory; } 2>&1 )
 		ftp_search_for_wordpress=$( echo "$ftp_output" | perl -wnE'say for /wp-admin/g' )
 
 		# Handle FTP errors
 		if [[ $ftp_search_for_wordpress != "wp-admin" ]]; then
-			echo "Can't locate WordPress for $site"
+			echo "Can't locate WordPress for ${site}-${environment}"
 			continue
 		fi
 
@@ -93,17 +72,12 @@ run_command() {
 			home_directory="${home_directory}/"
 		fi
 
-		echo "$(date +'%Y-%m-%d %H:%M') Begin quicksave for $site (${INDEX}/$#)" >> $logs_path/quicksave.log
-		echo "$(date +'%Y-%m-%d %H:%M') Begin quicksave for $site (${INDEX}/$#)"
+		echo "$(date +'%Y-%m-%d %H:%M') Begin quicksave for ${site}-${environment} (${INDEX}/$#)"
 
 		# Updates themes/plugins before Quicksave (Selective backup site locally)
-		rclone sync sftp-$rclone_site_name:${home_directory}wp-content/themes/ $path/$site_path/backup/wp-content/themes/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site.txt"
-		rclone sync sftp-$rclone_site_name:${home_directory}wp-content/mu-plugins/ $path/$site_path/backup/wp-content/mu-plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site.txt"
-		rclone sync sftp-$rclone_site_name:${home_directory}wp-content/plugins/ $path/$site_path/backup/wp-content/plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site.txt"
-		echo "" >> $logs_path/site-$site.txt
-
-		# Current timestamp
-		timedate=$(date +%Y-%m-%d_%H-%M-%S)
+		rclone sync sftp-$rclone_site_name:${home_directory}wp-content/themes/ $path/$site_path/backup/wp-content/themes/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1
+		rclone sync sftp-$rclone_site_name:${home_directory}wp-content/mu-plugins/ $path/$site_path/backup/wp-content/mu-plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1
+		rclone sync sftp-$rclone_site_name:${home_directory}wp-content/plugins/ $path/$site_path/backup/wp-content/plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1
 
 		# Sync to git repo
 		mkdir -p $path/$site_path/quicksave/mu-plugins
@@ -122,160 +96,21 @@ run_command() {
 		rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ $path/$site_path/backup/wp-content/plugins/ $path/$site_path/quicksave/plugins
 		rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ $path/$site_path/backup/wp-content/themes/ $path/$site_path/quicksave/themes
 
-		# Nasty bash hack in order to grab all of the details from one single SSH tunnel (WP Engine connection is slow)
-		response=$(captaincore ssh $site --script=fetch-site-data --captain_id=$captain_id)
+		# Remove leading "--" from flags
+		for i in "${!flags[@]}"; do
+			flags[$i]=`echo ${flags[$i]} | cut -c 3-`
+		done
 
-		IFS=$'\n' read -rd '' -a response_parsed <<<"$response"
-		
-		# If only 1 line returned then skip due to error
-		if [[ "${#response_parsed[@]}" == "1" ]]; then
-			echo "Bad response from SSH. Skipping Quicksave. Response $response"
-			continue
-		fi
-
-		echo ${response_parsed[0]} > $path/$site_path/quicksave/versions/plugins.json
-		echo ${response_parsed[1]} > $path/$site_path/quicksave/versions/themes.json
-		echo ${response_parsed[2]} > $path/$site_path/quicksave/versions/core.json
-
-		home_url=${response_parsed[3]}
-		users=${response_parsed[4]}
-
-		# Add all files to git repo
-		git add -A
-
-		# Current git status
-		git_status=$(git status -s)
-
-		if [[ "$git_status" == "" && "$force" != "true" ]]; then
-			# Skip quicksave as nothing changed
-			echo "Quicksave skipped as nothing changed"
-			continue
-		fi
-
-		# New commit
-		git_commit=$(git commit -m "quicksave on $timedate")
-
-		# Save git hash
-		git_commit=$(git log -n 1 --pretty=format:"%H")  # Get hash of last commit (commit hash)
-		git_status=$(git show $git_commit --shortstat --format=)
-		core=$(git show ${git_commit}:versions/core.json)
-		themes=$(git show ${git_commit}:versions/themes.json)
-		plugins=$(git show ${git_commit}:versions/plugins.json)
-		date=$(git show -s --pretty=format:"%ct" $git_commit) # Get date of last commit (UNIX timestamp)
-
-		# Build json for quicksave
-		read -r -d '' quicksave << EOM
-[{
-"git_commit":"$git_commit",
-"git_status":"$git_status",
-"date":"$date",
-"core":"$core",
-"themes":$themes,
-"plugins":$plugins
-}]
-EOM
-
-		echo "Git hash $git_commit"
-
-		if [[ "$debug" == "true" ]]; then
-			read -r -d '' VAR << EOM
-{
-	"command": "import-quicksaves",
-	"site_id":"$site_id",
-	"environment":"$environment",
-	"data": $quicksave,
-	"home_url":"$home_url",
-	"themes":$themes,
-	"plugins":$plugins,
-	"users":$users,
-	"token":"$token"
-}
-EOM
-			echo $VAR
-			continue
-		fi
-
-		# Adds quicksave to CaptainCore GUI
-		if [[ "$captaincore_dev" == true ]]; then
-			curl_argument="-k"
-		fi
-
-		# Adds quicksave to CaptainCore GUI
-		curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOM
-{
-	"command": "import-quicksaves",
-	"site_id":"$site_id",
-	"environment":"$environment",
-	"data": $quicksave,
-	"home_url":"$home_url",
-	"themes":$themes,
-	"plugins":$plugins,
-	"users":$users,
-	"token":"$token"
-}
-EOM
-
-		# Generate quicksave usage stats
-		quicksave_count=$( git rev-list --all --count )
-		
-		# Folder size in bytes without apparent-size flag
-		if [[ "$OSTYPE" == "linux-gnu" ]]; then	
-			quicksave_storage=$( du -s --block-size=1 . )
-			quicksave_storage=$( echo $quicksave_storage | cut -d' ' -f 1 )
-		fi
-
-		# Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
-		if [[ "$OSTYPE" == "darwin"* ]]; then
-			quicksave_storage=$( find . -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}' )
-		fi
-		quicksaves_usage="{\"count\":\"${quicksave_count}\",\"storage\":\"${quicksave_storage}\"}"
-
-		# Store updated info in WordPress datastore
 		cd ${root_path}data
 
-		if [[ $environment == "production" ]]; then
-			wp post meta update $id plugins "${response_parsed[0]}"
-			wp post meta update $id themes "${response_parsed[1]}"
-			wp post meta update $id core ${response_parsed[2]}
-			wp post meta update $id home_url ${response_parsed[3]}
-			wp post meta update $id quicksaves_usage "$quicksaves_usage"
-			wp post meta update $id users << heredoc
-${response_parsed[4]}
-heredoc
+		# Sync data
+		wp eval-file ../lib/local-scripts/site-sync-data.php site=$site environment=$environment ${flags[@]}
+		
+		# Add new quicksave
+		wp eval-file ../lib/local-scripts/quicksave-add.php site=$site environment=$environment ${flags[@]}
 
-		fi
+ 	done
 
-		if [[ $environment == "staging" ]]; then
-			wp post meta update $id plugins_staging "${response_parsed[0]}"
-			wp post meta update $id themes_staging "${response_parsed[1]}"
-			wp post meta update $id core_staging ${response_parsed[2]}
-			wp post meta update $id home_url_staging ${response_parsed[3]}
-			wp post meta update $id quicksaves_usage_staging $quicksaves_usage
-			wp post meta update $id users_staging << heredoc
-${response_parsed[4]}
-heredoc
-
-		fi
-
-		if [[ "$skip_remote" != "true" ]]; then
-
-			# Backup Quicksave to remote
-			rclone sync $path/$site_path/quicksave/ $rclone_backup/$site_path/quicksave/ -v --exclude .DS_Store --fast-list --transfers=32 --no-update-modtime --log-file="$logs_path/site-$site-remote.txt"
-
-		fi
-
-		# Clear out variables
-		site=''
-		domain=''
-		home_directory=''
-		subsite=''
-		response=''
-		response_parsed=''
-
-	done
-
-	# End logging
-	echo "$(date +'%Y-%m-%d %H:%M') Finished generating quicksaves" >> $logs_path/quicksave.log
 	echo "$(date +'%Y-%m-%d %H:%M') Finished generating quicksaves"
 
 }

@@ -165,16 +165,14 @@ run_command() {
       # Views for yearly stats
       visits=$( captaincore stats $site --captain_id=$captain_id )
 
+      # Remove leading "--" from flags
+      for i in "${!flags[@]}"; do
+        flags[$i]=`echo ${flags[$i]} | cut -c 3-`
+      done
+
       # Store updated info in WordPress datastore
       cd ${root_path}data
-      if [[ "$environment" == "production" ]]; then
-        wp post meta update $id storage "$folder_size"
-        wp post meta update $id visits "$visits"
-      fi
-      if [[ "$environment" == "staging" ]]; then
-        wp post meta update $id storage_staging "$folder_size"
-        wp post meta update $id visits_staging "$visits"
-      fi
+      wp eval-file ../lib/local-scripts/site-update-usage.php site=$site environment=$environment storage=$folder_size visits=$visits ${flags[@]}
 
       if [[ "$captaincore_dev" == true ]]; then
         curl_argument="-k"

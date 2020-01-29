@@ -80,3 +80,6 @@ done <<< "$(php ${root_path}lib/local-scripts/configs.php fetch --captain_id=$ca
 if [[ "$captaincore_fleet" == "true" ]]; then 
   path=${path}/${captain_id}
 fi
+
+# Pass Captain ID as environment variable
+export CAPTAIN_ID=$captain_id

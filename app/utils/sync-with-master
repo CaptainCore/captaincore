@@ -28,8 +28,8 @@ run_command() {
 
   fi
 
-  remote_site_ids=( $( ssh $captaincore_master -p $captaincore_master_port "captaincore site list --field=ids" ) )
-  local_site_ids=( $( captaincore site list --field=ids ) )
+  remote_site_ids=( $( ssh $captaincore_master -p $captaincore_master_port "captaincore site list --field=site_id" ) )
+  local_site_ids=( $( captaincore site list --field=site_id ) )
 
   site_ids_to_sync=()
   for i in "${remote_site_ids[@]}"; do

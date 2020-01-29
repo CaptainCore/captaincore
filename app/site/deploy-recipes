@@ -24,10 +24,10 @@ run_command() {
     # Load site configs
     while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
 
-    recipes=($( captaincore site fetch-default-recipes ${site}-${environment} --captain_id=$captain_id ))
-    for recipe in ${recipes[@]}; do
-        echo "Deploying recipe #${recipe}"
-        captaincore ssh ${site}-${environment} --recipe=$recipe --captain_id=$captain_id
+		recipes=($( wp eval-file ../lib/local-scripts/site-fetch-default-recipes.php site=$site ${flags[@]} ))
+    for recipe_id in ${recipes[@]}; do
+        echo "Deploying recipe #${recipe_id}"
+        captaincore ssh ${site}-${environment} --recipe=$recipe_id --captain_id=$captain_id
     done
 
   done

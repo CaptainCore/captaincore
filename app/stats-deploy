@@ -62,19 +62,14 @@ heredoc
   fathom_arguments=$( php -r "$php_code" )
 
   captaincore ssh $site --script=deploy-fathom --fathom_arguments="$fathom_arguments" --captain_id=$captain_id
-    
+
   # Load site configs
-	while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
+  while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
+
+  cd ${root_path}data
 
   # Store updated info in WordPress datastore
-	cd ${root_path}data
-  if [[ "$environment" == "production" ]]; then 
-	  wp --quiet post meta update $id fathom $code
-  fi
-  if [[ "$environment" == "staging" ]]; then 
-    wp --quiet post meta update $id fathom_staging $code
-  fi
-
+  wp eval-file ../lib/local-scripts/site-update-fathom.php site=$site environment=$environment code=$2
 
 }
 run_command ${arguments[*]}

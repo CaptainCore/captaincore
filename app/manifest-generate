@@ -12,4 +12,4 @@ source ${root_path}lib/arguments
 
 cd ${root_path}data
 
-wp eval-file ${root_path}lib/local-scripts/manifest-generate.php captain_id=$captain_id
+wp eval-file ${root_path}lib/local-scripts/manifest-generate.php captain_id=$captain_id --user=1

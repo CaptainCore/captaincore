@@ -14,16 +14,13 @@ source ${root_path}lib/arguments
 
 run_command() {
 
-     read -r -d '' php_code << heredoc
-\$arguments = <<<PHPHEREDOC
-$1
-PHPHEREDOC;
+	# Remove leading "--" from flags
+	for i in "${!flags[@]}"; do
+		flags[$i]=`echo ${flags[$i]} | cut -c 3-`
+	done
 
-echo base64_decode( \$arguments );
-heredoc
-
-    recipe=$( php -r "$php_code" )
-    echo -n "$recipe" > "$path_recipes/${captain_id}-${id}.sh"
+	cd ${root_path}data
+	wp eval-file ../lib/local-scripts/recipe-add.php recipe=$1 ${flags[@]}
 
 }
 

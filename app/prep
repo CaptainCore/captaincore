@@ -9,6 +9,7 @@
 #   Skip users and plugin deployment
 #
 
+# Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source ${root_path}lib/arguments
 
@@ -48,7 +49,7 @@ if [[ $skip_deployment != true ]]; then
 
 fi
 
-captaincore sync-data $site --captain_id=$captain_id
+captaincore sync-data ${site}-production --captain_id=$captain_id
 captaincore sync-data ${site}-staging --captain_id=$captain_id
 
 # Update configs

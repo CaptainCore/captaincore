@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 #
-#   Captures website's pages visually over time based on html changes.
+#   Captures website's pages visually over time based on quicksaves and html changes.
 #
 #   `captaincore capture`
 #

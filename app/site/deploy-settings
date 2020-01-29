@@ -38,8 +38,8 @@ run_command() {
       command_prep="rm ~/.wp-cli/config.yml; cd sites/* &&"
 
     fi
-
-    wp_cli_commands=$( captaincore site fetch-settings ${site}-${environment} --captain_id=$captain_id )
+    
+    wp_cli_commands=$( wp eval-file ../lib/local-scripts/site-fetch-default-settings.php site=$site ${flags[@]} )
 
     captaincore ssh-runner ${site}-${environment} --direct << EOF
 $command_prep

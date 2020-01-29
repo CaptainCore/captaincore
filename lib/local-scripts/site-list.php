@@ -27,191 +27,82 @@ if ( !isset( $targets ) ) {
 }
 
 // Process sites to target
-$targets = explode(".",$targets);
-
-$arguments = array(
-	'author'		 => $captain_id,
-	'post_type'      => 'captcore_website',
-	'posts_per_page' => '-1',
-	'fields'         => 'ids',
-	'meta_query'     => array(
-		'relation' => 'AND',
-		array(
-			'key'     => 'status', // name of custom field
-			'value'   => 'active', // matches exaclty "123", not just 123. This prevents a match for "1234"
-			'compare' => '=',
-		),
-		array(
-			'key'     => 'site', // name of custom field
-			'value'   => '',
-			'compare' => '!=',
-		),
-	),
-);
-
-if ( $provider ) {
-
-	$arguments['meta_query'][] = array(
-		'key'     => 'provider', // name of custom field
-		'value'   => $provider,
-		'compare' => '=',
-	);
-
+$targets       = explode( ".", $targets );
+$minor_targets = [];
+if ( in_array( "production", $targets ) ) {
+	$environment = "Production";
 }
-
-if ( $filter ) {
-
-	if ( $filter and $filter_version and $filter_status and $filter_name ) {
-
-		$pattern   = '{"name":"'.$filter_name.'","title":"[^"]*","status":"'.$filter_status.'","version":"'.$filter_version.'"}';
-		$arguments['meta_query'][] = array(
-			'key'     => $filter .'s', // name of custom field
-			'value'   => $pattern,
-			'compare' => 'REGEXP',
-		);
-
-	} elseif ( $filter and $filter_status and $filter_name ) {
-
-		$pattern   = '{"name":"'.$filter_name.'","title":"[^"]*","status":"'.$filter_status.'","version":"[^"]*"}';
-		$arguments['meta_query'][] = array(
-			'key'     => $filter .'s', // name of custom field
-			'value'   => $pattern,
-			'compare' => 'REGEXP',
-		);
-
-	} elseif ( $filter and $filter_version and $filter_name ) {
-
-		$pattern   = '{"name":"'.$filter_name.'","title":"[^"]*","status":"[^"]*","version":"'.$filter_version.'"}';
-		$arguments['meta_query'][] = array(
-			'key'     => $filter .'s', // name of custom field
-			'value'   => $pattern,
-			'compare' => 'REGEXP',
-		);
-
-	} elseif ( $filter and $filter_name ) {
-
-		if ( $filter == "core" ) {
-			$filter_key = "core";
-		} else {
-			// Pluralize
-			$filter_key = $filter . "s";
-		}
-
-		$arguments['meta_query'][] = array(
-			'key'     => $filter_key, // name of custom field
-			'value'   => '"name":"' . $filter_name . '"', // matches exaclty "123", not just 123. This prevents a match for "1234"
-			'compare' => 'like',
-		);
-
-	} elseif ( $filter and $filter_version ) {
-		$arguments['meta_query']['relation'] = 'OR';
-		$pattern   = '{"name":"[^"]*","title":"[^"]*","status":"[^"]*","version":"'.$filter_version.'"}';
-		$arguments['meta_query'][] = array(
-			'key'     => 'plugins', // name of custom field
-			'value'   => $pattern,
-			'compare' => 'REGEXP',
-		);
-		$arguments['meta_query'][] = array(
-			'key'     => 'themes', // name of custom field
-			'value'   => $pattern,
-			'compare' => 'REGEXP',
-		);
-		$arguments['meta_query'][] = array(
-			'key'     => 'core', // name of custom field
-			'value'   => $filter_version, // matches exaclty "123", not just 123. This prevents a match for "1234"
-			'compare' => 'like',
-		);
-	}
-
+if ( in_array( "staging", $targets ) ) {
+	$environment = "Staging";
 }
-
+if ( in_array( "all", $targets ) ) {
+	$environment = "all";
+}
 if ( in_array("updates-on", $targets ) ) {
-
-	$arguments['meta_query'][] = array(
-		'key'     => "updates_enabled", // name of custom field
-		'value'   => '1',
-		'compare' => '=',
-	);
-
+	$minor_targets[] = "updates-on";
 }
-
 if ( in_array("updates-off", $targets ) ) {
-
-	$arguments['meta_query'][] = array(
-		'key'     => "updates_enabled", // name of custom field
-		'value'   => '0',
-		'compare' => '=',
-	);
-
+	$minor_targets[] = "updates-off";
 }
-
 if ( in_array("offload-on", $targets ) ) {
-
-	$arguments['meta_query'][] = array(
-		'key'     => "offload_enabled", // name of custom field
-		'value'   => '1',
-		'compare' => '=',
-	);
-
+	$minor_targets[] = "offload-on";
 }
-
 if ( in_array("offload-off", $targets ) ) {
-
-	$arguments['meta_query'][] = array(
-		'key'     => "offload_enabled", // name of custom field
-		'value'   => '0',
-		'compare' => '=',
-	);
-
+	$minor_targets[] = "offload-off";
+}
+if ( ! empty( $filter ) && $filter != "core" && $filter != "plugins" && $filter != "themes" ) {
+	echo 'Error: `--filter` can only be set to core, themes or plugins.';
+	return;
 }
 
-$websites = get_posts( $arguments );
+$results  = [];
+$sites = ( new CaptainCore\Sites )->fetch_sites_matching( [ 
+	"filter" => [
+		"type"    => $filter,
+		"name"    => $filter_name,
+		"version" => $filter_version,
+		"status"  => $filter_status,
+	],
+	"environment" => $environment,
+	"provider"    => $provider,
+	"field"       => $field,
+	"targets"     => $minor_targets,
+] );
 
-$results = array();
-
-foreach ( $websites as $website_id ) {
-
-	$site = get_post_meta( $website_id, 'site', true );
-	$address_staging = get_post_meta( $website_id, 'address_staging', true );
-
-	if ( $field ) {
-		if ( $field == 'ids' ) {
-			$site = $website_id;
-		} elseif ( $field == 'domain' ) {
-			$site = get_the_title( $website_id );
-		} else {
-			$site = get_post_meta( $website_id, $field, true );
-		}
-		if ( isset( $debug ) ) {
-			$site = "$site|DEBUG|". get_the_title( $website_id );
-		}
-		if ( $site !=  "" ) {
-			$results[] = $site;
-		}
-		continue;
-	}
-
-	if ( in_array( "production", $targets ) ) {
-		$results[] = $site;
-		continue;
-	}
-
-	if ( in_array( "staging", $targets ) ) {
-		// Only add if staging exists
-		if ( isset( $address_staging ) && $address_staging != "" ) {
-			$results[] = $site . '-staging';
-		}
-		continue;
-	}
-	if ( in_array( "all", $targets ) ) {
-		$results[] = $site;
-		if ( isset( $address_staging ) && $address_staging != "" ) {
-			$results[] = $site . '-staging';
-		}
-		continue;
-	}
-
+if ( ! is_array( $sites ) ) {
+	return;
 }
+
+foreach ($sites as $site) {
+	$environment = strtolower ( $site->environment );
+	$to_add      = "{$site->site}-{$environment}";
+	if ( ! empty( $field ) ) {
+		$to_add = $site->{$field};
+	}
+	if ( empty( $to_add ) ) {
+		continue;
+	}
+	$results[]   = $to_add;
+}
+
+
+// Return results
+if ( $field ) {
+	if ( $field == 'ids' ) {
+		$site = $site->site_id;
+	} elseif ( $field == 'domain' ) {
+		$site = $site->name;
+	} else {
+		$site = $site->{$field};
+	}
+	if ( isset( $debug ) ) {
+		$site = "$site|DEBUG|{$site->name}";
+	}
+	if ( $site !=  "" ) {
+		$results[] = $site;
+	}
+}
+
 $results = array_unique( $results, SORT_REGULAR );
 asort($results);
 echo implode( ' ', $results );
