@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.7.0] - 2020-01-29
+### Added
+- [CaptainCore WordPress plugin](https://github.com/CaptainCore/captaincore) to CLI's private WordPress data storage.
+- Command `captaincore site update-field <site> <field> <value>`
+- Command `captaincore captain db-create`
+- Argument `--skip-screenshot` to `sync-data` command.
+- Argument `--debug` to `screenshot` command.
+- Config `rclone_upload` and `rclone_upload_uri`. Defines public bucket to use for capture images.
+- Local script `site-update-field.php`
+- Local scripts `site-fetch-default-recipes.php`, `site-fetch-default-settings.php` and `site-fetch-default-users.php` as replacement for commands `site fetch-default-recipes`, `site fetch-default-settings` and `site fetch-default-users`
+
+### Changed
+- CaptainCore CLI's private WordPress data structure has been significant improved. The CLI now uses the same data structure as the CaptainCore WordPress plugin v0.10.
+- Commands `captaincore site list` and `captaincore site get` to work with new data format.
+- Argument `--field=ids` changed to `--field=site_id` on `captaincore site list`
+- Improved `captaincore update` with built in cache clearing.
+- Improved `screenshot` with new gowitness argument `--disable-db`
+- Improved local script `configs.php`. Now pulls in keys and values pairs dynamically.
+- Fix bug with `screenshot` when folder names contain spaces.
+- Updated local scripts `site-get.php`, `site-list.php`, `site-add.php` to use new data storage.
+- Command `captaincore capture` run automatically after a new quicksave.
+
 ## [0.6.0] - 2019-09-27
 ### Added
 - SSH key management with commands `key add` and `key delete`.
