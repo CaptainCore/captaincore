@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+
+#
+#   Generates new database storage for current Captain ID
+#
+#   `captaincore captain db-create`
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}lib/arguments
+
+run_command() {
+
+	cd ${root_path}data
+
+	# Generate local WordPress site to store site info
+	check=$( wp db create )
+    if [[ "$check" == "" ]]; then
+        echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Database storage aleady created for Captain ID $captain_id"
+        return
+    fi
+	random=$( php -r 'echo bin2hex(openssl_random_pseudo_bytes( 4 ));' )
+	wp core install --url=https://${random}.captaincore --admin_user=${random}_captaincore_cli --admin_email=support@${random}.captaincore --title="CaptainCore CLI"
+	wp option update timezone_string America/New_York
+	wp option update blog_public 0
+	wp plugin delete hello-dolly
+	wp plugin activate captaincore
+	wp eval "CaptainCore\DB::upgrade();"
+
+}
+run_command
