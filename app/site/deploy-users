@@ -38,6 +38,11 @@ run_command() {
       command_prep="rm ~/.wp-cli/config.yml; cd sites/* &&"
 
     fi
+
+    # Remove leading "--" from flags
+    for i in "${!flags[@]}"; do
+      flags[$i]=`echo ${flags[$i]} | cut -c 3-`
+    done
     
     # Fetch default users
 		wp_cli_commands=$( wp eval-file ../lib/local-scripts/site-fetch-default-users.php site=$site ${flags[@]} )
