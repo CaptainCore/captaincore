@@ -113,9 +113,16 @@ run_command() {
 
     if [[ $skip_db != true ]] && [[ $wordpress_not_found != true ]]; then
 
-      # Database backup (if remote server available)
+      # Database backup if remote server supports
       if [[ "$provider" == "kinsta" ]] || [[ "$provider" == "wpengine" ]]; then
         captaincore ssh $site --script="db-backup" --captain_id=$captain_id
+      fi
+
+      if [[ "$provider" == "wpengine" ]]; then
+        rclone sync sftp-${rclone_site_name}:_wpeprivate/database-backup.sql $path/${site}_${site_id}/${environment}/backup/
+      fi
+      if [[ "$provider" == "kinsta" ]]; then
+        rclone sync sftp-${rclone_site_name}:private/database-backup.sql $path/${site}_${site_id}/${environment}/backup/
       fi
 
     fi
