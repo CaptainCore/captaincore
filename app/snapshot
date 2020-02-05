@@ -80,9 +80,6 @@ run_command() {
     if [[ $delete_after_snapshot == true ]]; then
       cd $path/
       zip --test -q -r $snapshot_name ${site}_${site_id}/ && echo "Completed generating $snapshot_name" || echo "Failed generating $snapshot_name"
-      mkdir -p ${site}_${site_id}-$timedate/${environment}/snapshots
-      mv $snapshot_name ${environment}/snapshots
-      cd ${environment}/snapshots
     fi
 
     if [[ $delete_after_snapshot != true ]]; then
@@ -112,7 +109,7 @@ run_command() {
           fi
 
           if [[ $option == "everything-else" ]]; then
-            zip --test -q -r $snapshot_name $snapshot_path/ --exclude=$snapshot_path/wp-content/mysql.sql --exclude=$snapshot_path/wp-content/themes/\* --exclude=$snapshot_path/wp-content/plugins/\* --exclude=$snapshot_path/wp-content/uploads/\* --exclude=$snapshot_path/_wpeprivate/\* --exclude=\*.git\* --exclude=$snapshot_path/wp-content/advanced-cache.php --exclude=$snapshot_path/wp-content/mu-plugins/mu-plugin.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$snapshot_path/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$snapshot_path/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$snapshot_path/wp-content/mu-plugins/wpengine-common/\* && echo "Completed generating $snapshot_name" || echo "Failed generating $snapshot_name"
+            zip --test -q -r $snapshot_name $snapshot_path/ --exclude=$snapshot_path/database-backup.sql --exclude=$snapshot_path/wp-content/themes/\* --exclude=$snapshot_path/wp-content/plugins/\* --exclude=$snapshot_path/wp-content/uploads/\* --exclude=$snapshot_path/_wpeprivate/\* --exclude=\*.git\* --exclude=$snapshot_path/wp-content/advanced-cache.php --exclude=$snapshot_path/wp-content/mu-plugins/mu-plugin.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$snapshot_path/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$snapshot_path/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$snapshot_path/wp-content/mu-plugins/wpengine-common/\* && echo "Completed generating $snapshot_name" || echo "Failed generating $snapshot_name"
           fi
 
         done
@@ -120,7 +117,6 @@ run_command() {
       fi
 
       if [[ "$filter" == "" ]]; then
-      
         # Add everything to ZIP
         zip --test -q -r $snapshot_name $snapshot_path/ --exclude=$snapshot_path/_wpeprivate/\* --exclude=\*.git\* --exclude=$snapshot_path/wp-content/advanced-cache.php --exclude=$snapshot_path/wp-content/mu-plugins/mu-plugin.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$snapshot_path/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$snapshot_path/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$snapshot_path/wp-content/mu-plugins/wpengine-common/\*
       fi
