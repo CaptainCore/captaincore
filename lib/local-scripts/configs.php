@@ -55,8 +55,8 @@ foreach($config_data as $config) {
 	}
 }
 
-if ( file_exists( "{$path}/manifest.json" ) ) {
-	$configuration->vars->manifest = json_decode ( file_get_contents ( "{$path}/manifest.json" ) );
+if ( file_exists( "{$system->path}/manifest.json" ) ) {
+	$configuration->vars->manifest = json_decode ( file_get_contents ( "{$system->path}/manifest.json" ) );
 }
 
 
