@@ -41,8 +41,6 @@ if ( $updates_exclude_themes != "" && $updates_exclude_plugins != "" ) {
     $response = shell_exec( "captaincore ssh {$site->site}-{$environment} --script=update --all --format=json --provider={$site->provider} --captain_id=$captain_id" );
 }
 
-echo "captaincore ssh {$site->site}-{$environment} --script=update --all --format=json --provider={$site->provider} --captain_id=$captain_id";
-
 // Loads CLI configs
 $json = "{$_SERVER['HOME']}/.captaincore-cli/config.json";
 
