@@ -73,94 +73,16 @@ run_command() {
 			# Generate log folder
 			mkdir -p $logs_path
 
-      if [[ "$environment" == "staging" ]]; then
-        site=${site}-staging
-      fi
+      # Remove leading "--" from flags
+      for i in "${!flags[@]}"; do
+        flags[$i]=`echo ${flags[$i]} | cut -c 3-`
+      done
 
-			# Exclude themes or plugins if marked for exclusion
-			if [[ $updates_exclude_themes != "" ]] && [[ $updates_exclude_plugins != "" ]]; then
-				json_output=$(captaincore ssh $site --script=update --exclude_plugins=$updates_exclude_plugins --exclude_themes=$updates_exclude_themes --all --format=json --provider=$provider --captain_id=$captain_id)
-			elif [[ $updates_exclude_themes != "" ]]; then
-				json_output=$(captaincore ssh $site --script=update --exclude_themes=$updates_exclude_themes --all --format=json --provider=$provider --captain_id=$captain_id)
-			elif [[ $updates_exclude_plugins != "" ]]; then
-				json_output=$(captaincore ssh $site --script=update --exclude_plugins=$updates_exclude_plugins --all --format=json --provider=$provider --captain_id=$captain_id)
-			else
-				json_output=$(captaincore ssh $site --script=update --all --format=json --provider=$provider --captain_id=$captain_id)
-			fi
+      cd ${root_path}data
 
-			# If json output detected then parse updates
-			if [[ "$json_output" = *"[{"* ]]; then
+      # Run site updates
+      wp eval-file ../lib/local-scripts/site-run-updates.php site=$site environment=$environment ${flags[@]}
 
-				IFS=$'\n' read -rd '' -a response_parsed <<<"$json_output"
-				echo "theme updates ${response_parsed[0]}"
-				echo "plugin updates ${response_parsed[1]}"
-
-				if [[ "$captaincore_dev" == true ]]; then
-					curl_argument="-k "
-				fi
-
-				# Generate theme json if themes updated
-				if [[ "${response_parsed[0]}" = *"[{"* ]]; then
-
-					echo "Writing theme updates to file"
-					date=$(date +'%Y-%m-%d-%H%M%S')
-					file="${logs_path}/${date}-themes.json"
-					echo ${response_parsed[0]} > $file
-					json="[{\"date\":\"$date\",\"type\":\"theme\",\"updates\":$(cat $file)}]";
-
-					# Adds sync data to CaptainCore GUI
-					curl ${curl_argument}--request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
-{
-"command":"import-update-log",
-"environment":"$environment",
-"site_id":"$site_id",
-"token":"$token",
-"data":$json
-}
-EOF
-
-			  fi
-
-				# Generate plugin json if plugins updated
-				if [[ "${response_parsed[1]}" = *"[{"* ]]; then
-					echo "Writing plugin updates to file"
-					date=$(date +'%Y-%m-%d-%H%M%S')
-					file="${logs_path}/${date}-plugins.json"
-					echo ${response_parsed[1]} > $file
-					json="[{\"date\":\"$date\",\"type\":\"plugin\",\"updates\":$(cat $file)}]";
-
-					# Adds sync data to CaptainCore GUI
-					curl ${curl_argument}--request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
-{
-"command":"import-update-log",
-"environment":"$environment",
-"site_id":"$site_id",
-"token":"$token",
-"data":$json
-}
-EOF
-
-      		fi
-
-      	fi
-
-      # Clear out variables
-			exclude_themes=''
-			exclude_plugins=''
-      domain=''
-      site=''
-      username=''
-      password=''
-      address=''
-      protocol=''
-      port=''
-      home_directory=''
-      remoteserver=''
-      s3bucket=''
-      s3path=''
-      subsite=''
-
-      let INDEX=${INDEX}+1
     done
 
     echo "$(date +'%Y-%m-%d %H:%M') Updates finished"
