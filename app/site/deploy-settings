@@ -43,6 +43,8 @@ run_command() {
     for i in "${!flags[@]}"; do
       flags[$i]=`echo ${flags[$i]} | cut -c 3-`
     done
+
+    cd ${root_path}data;
     
     wp_cli_commands=$( wp eval-file ../lib/local-scripts/site-fetch-default-settings.php site=$site ${flags[@]} )
 
