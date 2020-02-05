@@ -39,15 +39,6 @@ $json        = $_SERVER['HOME'] . "/.captaincore-cli/config.json";
 $config_data = json_decode ( file_get_contents( $json ) );
 $system      = $config_data[0]->system;
 
-# Adjust path if fleet mode enabled
-if ( $system->captaincore_fleet == "true" ) {
-	$system->path            = "{$system->path}/${captain_id}";
-	$system->rclone_archive  = "{$system->rclone_archive}/${captain_id}";
-	$system->rclone_backup   = "{$system->rclone_backup}/{$captain_id}";
-	$system->rclone_logs     = "{$system->rclone_logs}/{$captain_id}";
-	$system->rclone_snapshot = "{$system->rclone_snapshot}/{$captain_id}";
-}
-
 foreach($config_data as $config) {
 	if ( isset( $config->captain_id ) and $config->captain_id == $captain_id ) {
 		$configuration = $config;
@@ -55,8 +46,8 @@ foreach($config_data as $config) {
 	}
 }
 
-if ( file_exists( "{$system->path}/manifest.json" ) ) {
-	$configuration->vars->manifest = json_decode ( file_get_contents ( "{$system->path}/manifest.json" ) );
+if ( file_exists( "{$system->path}/${captain_id}/manifest.json" ) ) {
+	$configuration->vars->manifest = json_decode ( file_get_contents ( "{$system->path}/${captain_id}/manifest.json" ) );
 }
 
 
@@ -70,6 +61,15 @@ if ( $command == "fetch" ) {
 	if ( ! isset( $configuration ) ) {
 		echo "Error: Captain not found.";
 		return;
+	}
+
+	# Adjust path if fleet mode enabled
+	if ( $system->captaincore_fleet == "true" ) {
+		$system->path            = "{$system->path}/${captain_id}";
+		$system->rclone_archive  = "{$system->rclone_archive}/${captain_id}";
+		$system->rclone_backup   = "{$system->rclone_backup}/{$captain_id}";
+		$system->rclone_logs     = "{$system->rclone_logs}/{$captain_id}";
+		$system->rclone_snapshot = "{$system->rclone_snapshot}/{$captain_id}";
 	}
 
 	if ( isset($argv[2]) and isset($argv[3]) ) {
