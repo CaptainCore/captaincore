@@ -148,6 +148,7 @@ run_command() {
       echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $site to remote (${INDEX}/$#)" >> $logs_path/backup-log.txt
       echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $site to remote (${INDEX}/$#)"
       rclone sync $path/${site}_${site_id}/${environment}/backup/ $rclone_backup/${site}_${site_id}/${environment}/backup/ -v --exclude-from="${root_path}lib/excludes" --fast-list --transfers=32 --no-update-modtime --log-file="$logs_path/site-$site-remote.txt"
+      rclone copy $path/${site}_${site_id}/${environment}/backup/database-backup.sql $rclone_backup/${site}_${site_id}/${environment}/backup/ --fast-list --no-update-modtime
 
       # Add site to Remote log file
       # Grabs last 6 lines of output from remote transfer to log file
