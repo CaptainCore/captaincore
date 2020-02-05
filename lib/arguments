@@ -76,10 +76,5 @@ while read config; do
   declare "$config"
 done <<< "$(php ${root_path}lib/local-scripts/configs.php fetch --captain_id=$captain_id)"
 
-# Adjust path if fleet mode enabled
-if [[ "$captaincore_fleet" == "true" ]]; then 
-  path=${path}/${captain_id}
-fi
-
 # Pass Captain ID as environment variable
 export CAPTAIN_ID=$captain_id
