@@ -159,4 +159,4 @@ if ( $key ) {
 ( new CaptainCore\Sites )->update( [ "details" => json_encode( $details ) ], [ "site_id" => $site->site_id ] );
 
 # Generate capture
-shell_exec( "captaincore capture {$site->name}-{$env} --captain_id=$captain_id" );
+shell_exec( "captaincore capture {$site->site}-{$env} --captain_id=$captain_id" );
