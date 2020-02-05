@@ -128,7 +128,7 @@ run_command() {
     fi
 
     # Backup site locally
-    rclone sync sftp-${rclone_site_name}:$home_directory $path/${site}_${site_id}/${environment}/backup/ --exclude .DS_Store --exclude *timthumb.txt --exclude /wp-content/uploads_from_s3/ --verbose=1 --log-file="$logs_path/site-$site.txt"
+    rclone sync sftp-${rclone_site_name}:$home_directory $path/${site}_${site_id}/${environment}/backup/ --exclude-from="${root_path}lib/excludes" --verbose=1 --log-file="$logs_path/site-$site.txt"
     echo "" >> $logs_path/site-$site.txt
     tail $logs_path/site-$site.txt >> $logs_path/backup-local.txt
 
@@ -147,12 +147,11 @@ run_command() {
       # Incremental backup upload to Remote
       echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $site to remote (${INDEX}/$#)" >> $logs_path/backup-log.txt
       echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $site to remote (${INDEX}/$#)"
-      rclone sync $path/${site}_${site_id}/${environment}/backup/ $rclone_backup/${site}_${site_id}/${environment}/backup/ -v --exclude .DS_Store --fast-list --transfers=32 --no-update-modtime --log-file="$logs_path/site-$site-remote.txt"
+      rclone sync $path/${site}_${site_id}/${environment}/backup/ $rclone_backup/${site}_${site_id}/${environment}/backup/ -v --exclude-from="${root_path}lib/excludes" --fast-list --transfers=32 --no-update-modtime --log-file="$logs_path/site-$site-remote.txt"
 
       # Add site to Remote log file
       # Grabs last 6 lines of output from remote transfer to log file
       sh -c "echo \"Finished remote backup $site (${INDEX}/$#)\" >> $logs_path/backup-remote.txt && tail -6 $logs_path/site-$site-remote.txt >> $logs_path/backup-remote.txt"
- 
     fi
 
       # Views for yearly stats
