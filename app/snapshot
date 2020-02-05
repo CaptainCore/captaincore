@@ -96,7 +96,7 @@ run_command() {
         for option in ${filters[@]}; do
 
           if [[ $option == "database" ]]; then
-            zip -r $snapshot_name $snapshot_path/wp-content/mysql.sql
+            zip -r $snapshot_name $snapshot_path/database-backup.sql
           fi
 
           if [[ $option == "themes" ]]; then
@@ -165,25 +165,15 @@ EOM
 			continue
 		fi
 
-      # Post snapshot to ACF field
-      if [[ "$captaincore_dev" == true ]]; then
-        curl_argument="-k"
-      fi
+      # Remove leading "--" from flags
+      for i in "${!flags[@]}"; do
+        flags[$i]=`echo ${flags[$i]} | cut -c 3-`
+      done
 
-      # Adds sync data to CaptainCore GUI
-      curl ${curl_argument} --fail --silent --show-error --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
-{
-"command":"snapshot",
-"user_id":"$user_id",
-"site_id":"$site_id",
-"environment":"$environment",
-"storage":"$snapshot_size",
-"archive":"${site}-${environment}-${timedate}.zip",
-"email":"$email",
-"notes":"$notes",
-"token":"$token"
-}
-EOF
+      cd ${root_path}data
+
+      # Add new snapshot
+      wp eval-file ../lib/local-scripts/snapshot-add.php site_id=$site_id environment=$environment user_id=$user_id storage=$snapshot_size archive="${site}-${environment}-${timedate}.zip" email=$email notes="$notes" ${flags[@]}
 
     fi
 
