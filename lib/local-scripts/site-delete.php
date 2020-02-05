@@ -44,7 +44,7 @@ $site = ( new CaptainCore\Sites )->get( $site_id );
 
 if ( $site ) {
 	// Make final snapshot then remove local files
-	$output = shell_exec( "captaincore snapshot $site --delete-after-snapshot --email=$captaincore_admin_email --captain_id=$captain_id" );
+	$output = shell_exec( "captaincore snapshot {$site->site} --delete-after-snapshot --email=$captaincore_admin_email --captain_id=$captain_id" );
 
 	// Mark for delection
 	( new CaptainCore\Site( $site_id, true ) )->delete();
