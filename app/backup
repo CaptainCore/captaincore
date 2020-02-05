@@ -125,32 +125,18 @@ run_command() {
     echo "" >> $logs_path/site-$site.txt
     tail $logs_path/site-$site.txt >> $logs_path/backup-local.txt
 
-    # Backup S3 uploads if needed
-    if [ -n "$s3bucket" ]; then
-
-      echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $site (S3) to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
-      echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $site (S3) to local (${INDEX}/$#)"
-      rclone sync s3-$site:$s3bucket/$s3path $path/${site}_${site_id}/${environment}/backup/wp-content/uploads_from_s3/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1 --log-file="$logs_path/site-$site-s3.txt"
-
-    fi
-
     if [[ "$OSTYPE" == "linux-gnu" ]]; then
-
       # Begin folder size in bytes without apparent-size flag
       folder_size=$( du -s --block-size=1 $path/${site}_${site_id}/${environment}/backup/ )
       folder_size=$( echo $folder_size | cut -d' ' -f 1 )
-
     fi
 
     if [[ "$OSTYPE" == "darwin"* ]]; then
-
       # Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
       folder_size=$( find $path/${site}_${site_id}/${environment}/backup/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}' )
-
     fi
 
     if [[ $skip_remote != true ]]; then
-
       # Incremental backup upload to Remote
       echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $site to remote (${INDEX}/$#)" >> $logs_path/backup-log.txt
       echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $site to remote (${INDEX}/$#)"
