@@ -31,13 +31,19 @@ if ( count( $lookup ) == 0 ) {
 $site           = ( new CaptainCore\Sites )->get( $lookup[0]->site_id );
 $environment_id = ( new CaptainCore\Site( $site->site_id ) )->fetch_environment_id( $environment );
 
-if ( $updates_exclude_themes != "" && $updates_exclude_plugins != "" ) {
-    $response = shell_exec( "captaincore ssh {$site->site}-{$environment} --script=update --exclude_plugins=$updates_exclude_plugins --exclude_themes=$updates_exclude_themes --all --format=json --provider={$site->provider} --captain_id=$captain_id" );
-} elseif ( $updates_exclude_themes != "" ) {
-    $response = shell_exec( "captaincore ssh {$site->site}-{$environment} --script=update --exclude_themes=$updates_exclude_themes --all --format=json --provider={$site->provider} --captain_id=$captain_id" );
-} elseif ( $updates_exclude_plugins != "" ) {
-    $response = shell_exec( "captaincore ssh {$site->site}-{$environment} --script=update --exclude_plugins=$updates_exclude_plugins --all --format=json --provider={$site->provider} --captain_id=$captain_id" );
-} else {
+foreach( [ "once" ] as $run ) {
+    if ( $updates_exclude_themes != "" && $updates_exclude_plugins != "" ) {
+        $response = shell_exec( "captaincore ssh {$site->site}-{$environment} --script=update --exclude_plugins=$updates_exclude_plugins --exclude_themes=$updates_exclude_themes --all --format=json --provider={$site->provider} --captain_id=$captain_id" );
+        continue;
+    }
+    if ( $updates_exclude_themes != "" ) {
+        $response = shell_exec( "captaincore ssh {$site->site}-{$environment} --script=update --exclude_themes=$updates_exclude_themes --all --format=json --provider={$site->provider} --captain_id=$captain_id" );
+        continue;
+    }
+    if ( $updates_exclude_plugins != "" ) {
+        $response = shell_exec( "captaincore ssh {$site->site}-{$environment} --script=update --exclude_plugins=$updates_exclude_plugins --all --format=json --provider={$site->provider} --captain_id=$captain_id" );
+        continue;
+    }
     $response = shell_exec( "captaincore ssh {$site->site}-{$environment} --script=update --all --format=json --provider={$site->provider} --captain_id=$captain_id" );
 }
 

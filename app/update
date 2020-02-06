@@ -76,15 +76,9 @@ run_command() {
 
       # run updates
       echo "$(date +'%Y-%m-%d %H:%M') Begin updates on $site (${INDEX}/$#)"
-
-      # Define log file format
-			logs_path=$path/${site}_${site_id}/${environment}/updates/
-
-			# Generate log folder
-			mkdir -p $logs_path
-
+      
       # Run site updates
-      wp eval-file ../lib/local-scripts/site-run-updates.php site=$site environment=$environment ${flags[@]}
+      wp eval-file ../lib/local-scripts/site-run-updates.php site=$site environment=$environment updates_enabled=$updates_enabled updates_exclude_themes=$updates_exclude_themes updates_exclude_plugins=$updates_exclude_plugins ${flags[@]}
 
     done
 

@@ -104,6 +104,13 @@ if ( $format == 'bash' and $capture_pages != "" ) {
 
 $default_users = json_encode ( $site->account["defaults"]->users );
 
+if ( is_array( $updates_exclude_themes ) ) {
+	$updates_exclude_themes = implode( ",", $updates_exclude_themes );
+}
+if ( is_array( $updates_exclude_plugins ) ) {
+	$updates_exclude_plugins = implode( ",", $updates_exclude_plugins );
+}
+
 $bash = "site_id={$site->site_id}
 domain={$site->name}
 key={$site->key}
