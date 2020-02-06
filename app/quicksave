@@ -93,8 +93,8 @@ run_command() {
 		fi
 
 		rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" $path/$site_path/backup/wp-content/mu-plugins/ $path/$site_path/quicksave/mu-plugins
-		rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ $path/$site_path/backup/wp-content/plugins/ $path/$site_path/quicksave/plugins
-		rsync -a --delete --exclude=.git --exclude=".cache*"--exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude=cache/ $path/$site_path/backup/wp-content/themes/ $path/$site_path/quicksave/themes
+		rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" $path/$site_path/backup/wp-content/plugins/ $path/$site_path/quicksave/plugins
+		rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" $path/$site_path/backup/wp-content/themes/ $path/$site_path/quicksave/themes
 
 		# Remove leading "--" from flags
 		for i in "${!flags[@]}"; do
