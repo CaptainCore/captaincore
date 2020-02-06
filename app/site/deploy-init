@@ -68,8 +68,12 @@ run_command() {
     # Generate token
     token_key=$(captaincore site fetch-token $site --captain_id=$captain_id)
 
-    # Assign token and backup link
-    curl --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
+    if [[ "$captaincore_dev" == true ]]; then
+      curl_argument="-k"
+    fi
+
+    # Assign token
+    curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
 	"command":"token",
 	"site_id":"$site_id",
