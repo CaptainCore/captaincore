@@ -80,9 +80,9 @@ run_command() {
 		echo "$(date +'%Y-%m-%d %H:%M') Begin quicksave for ${site}-${environment} (${INDEX}/$#)"
 
 		# Updates themes/plugins before Quicksave (Selective backup site locally)
-		rclone sync sftp-$rclone_site_name:${home_directory}wp-content/themes/ $path/$site_path/backup/wp-content/themes/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1
-		rclone sync sftp-$rclone_site_name:${home_directory}wp-content/mu-plugins/ $path/$site_path/backup/wp-content/mu-plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1
-		rclone sync sftp-$rclone_site_name:${home_directory}wp-content/plugins/ $path/$site_path/backup/wp-content/plugins/ --exclude .DS_Store --exclude *timthumb.txt --verbose=1
+		rclone sync sftp-$rclone_site_name:${home_directory}wp-content/themes/ $path/$site_path/backup/wp-content/themes/ --exclude .DS_Store --exclude *timthumb.txt
+		rclone sync sftp-$rclone_site_name:${home_directory}wp-content/mu-plugins/ $path/$site_path/backup/wp-content/mu-plugins/ --exclude .DS_Store --exclude *timthumb.txt
+		rclone sync sftp-$rclone_site_name:${home_directory}wp-content/plugins/ $path/$site_path/backup/wp-content/plugins/ --exclude .DS_Store --exclude *timthumb.txt
 
 		# Sync to git repo
 		mkdir -p $path/$site_path/quicksave/mu-plugins
