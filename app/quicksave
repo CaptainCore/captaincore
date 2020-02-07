@@ -25,6 +25,11 @@
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 source ${root_path}lib/arguments
 
+# Remove leading "--" from flags
+for i in "${!flags[@]}"; do
+	flags[$i]=`echo ${flags[$i]} | cut -c 3-`
+done
+
 run_command() {
 
 	echo "Generating quicksaves for $# sites"
@@ -95,11 +100,6 @@ run_command() {
 		rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" $path/$site_path/backup/wp-content/mu-plugins/ $path/$site_path/quicksave/mu-plugins
 		rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" $path/$site_path/backup/wp-content/plugins/ $path/$site_path/quicksave/plugins
 		rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" $path/$site_path/backup/wp-content/themes/ $path/$site_path/quicksave/themes
-
-		# Remove leading "--" from flags
-		for i in "${!flags[@]}"; do
-			flags[$i]=`echo ${flags[$i]} | cut -c 3-`
-		done
 
 		cd ${root_path}data
 
