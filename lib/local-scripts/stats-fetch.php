@@ -61,7 +61,7 @@ if ( count($fathom) > 0 ) {
         $sites = json_decode( $response['body'] )->Data;
 
         // Save the API response so we don't have to call again until tomorrow.
-        set_transient( 'captaincore_fathom_sites', $sites, HOUR_IN_SECONDS );
+        set_transient( "captaincore_fathom_sites_{$captain_id}", $sites, HOUR_IN_SECONDS );
 
     }
 
