@@ -1,0 +1,3 @@
+echo "Resetting file and folder permissions to defaults"
+find . -type d -exec chmod 755 {} \;
+find . -type f -exec chmod 644 {} \;
