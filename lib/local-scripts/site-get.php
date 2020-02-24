@@ -26,9 +26,9 @@ if ( $format == "" ) {
 	$format = "json";
 }
 
-$lookup  = ( new CaptainCore\Sites )->where( [ "site" => $site ] );
+$lookup  = ( new CaptainCore\Sites )->where( [ "site" => $site, "status" => "active" ] );
 if ( $provider ) {
-	$lookup  = ( new CaptainCore\Sites )->where( [ "site" => $site, "provider" => $provider ] );
+	$lookup  = ( new CaptainCore\Sites )->where( [ "site" => $site, "provider" => $provider, "status" => "active" ] );
 }
 
 // Error if site not found
