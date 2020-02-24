@@ -62,8 +62,12 @@ if ( is_wp_error( $response ) ) {
     return "Something went wrong: $error_message";
 }
 
-//echo $response['body'];
 $results = json_decode( $response['body'] );
+
+if ( $debug !== null ) {
+    echo json_encode( $results, JSON_PRETTY_PRINT );
+    return;
+}
 
 $site         = $results->site;
 $site_check   = ( new CaptainCore\Sites )->get( $site->site_id );
