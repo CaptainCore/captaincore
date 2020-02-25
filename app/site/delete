@@ -13,6 +13,7 @@ source ${root_path}lib/arguments
 run_command() {
 
 	site=$1
+
 	cd ${root_path}data
 
 	# Requires <site>
@@ -20,6 +21,16 @@ run_command() {
 		echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one a site."
 		return 1
 	fi
+
+	verify=$( captaincore site get $site --captain_id=$captain_id )
+
+	if [[ "$verify" == "" ]]; then
+		echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Site '$site' not found in CaptainCore."
+		return 1
+	fi
+
+	# Final snapshot then remove site related files
+	captaincore snapshot $site --delete-after-snapshot --email=$captaincore_admin_email --captain_id=$captain_id
 
 	# Load site configs
 	while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"

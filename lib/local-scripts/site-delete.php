@@ -21,32 +21,10 @@ foreach($args as $index => $arg) {
 // Converts --arguments into $arguments
 parse_str( implode( '&', $args ) );
 
-// Loads CLI configs
-$json = $_SERVER['HOME'] . '/.captaincore-cli/config.json';
-
-if ( ! file_exists( $file ) ) {
-	return;
-}
-
-$config_data = json_decode ( file_get_contents( $json ) );
-
-foreach($config_data as $config) {
-	if ( isset( $config->captain_id ) and $config->captain_id == $captain_id ) {
-		$configuration = $config;
-		break;
-	}
-}
-
-// Fetch from CLI configs
-$captaincore_admin_email = $configuration->vars->captaincore_admin_email;
-
 $site = ( new CaptainCore\Sites )->get( $site_id );
 
 if ( $site ) {
-	// Make final snapshot then remove local files
-	$output = shell_exec( "nohup captaincore snapshot {$site->site} --delete-after-snapshot --email=$captaincore_admin_email --captain_id=$captain_id >/dev/null 2>&1 &" );
-
-	// Mark for delection
+	// Mark site inactive
 	( new CaptainCore\Site( $site_id, true ) )->delete();
 }
 
