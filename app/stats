@@ -20,7 +20,7 @@ run_command() {
     fi
 
     cd ${root_path}data
-    wp eval-file ../lib/local-scripts/stats-fetch.php $site captain_id=$captain_id
+    wp eval-file ../lib/local-scripts/site-stats-fetch.php site=$site captain_id=$captain_id
 
 }
 run_command ${arguments[*]}

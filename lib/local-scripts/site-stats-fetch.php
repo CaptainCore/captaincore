@@ -1,34 +1,82 @@
 <?php
 
+// Replaces dashes in keys with underscores
+foreach($args as $index => $arg) {
+	$split = strpos($arg, "=");
+	if ( $split ) {
+		$key = str_replace('-', '_', substr( $arg , 0, $split ) );
+		$value = substr( $arg , $split, strlen( $arg ) );
+
+		// Removes unnecessary bash quotes
+		$value = trim( $value,'"' ); 				// Remove last quote 
+		$value = str_replace( '="', '=', $value );  // Remove quote right after equals
+
+		$args[$index] = $key.$value;
+	} else {
+		$args[$index] = str_replace('-', '_', $arg);
+	}
+
+}
+
 // Converts --arguments into $arguments
 parse_str( implode( '&', $args ) );
 
-$site = $args[0];
-$site_details = json_decode( shell_exec( "captaincore site get $site --captain_id=$captain_id" ) );
-$configuration = json_decode( shell_exec( "captaincore configs fetch vars --captain_id=$captain_id" ) );
-
 // Determines environment
 if ( strpos($site, '-staging') !== false ) {
+    $site        = str_replace( "-staging", "", $site );
     $environment = "staging";
-    $site_name = $site_details->home_url;
-    $site_name = str_replace( "http://", "", $site_name );
-    $site_name = trim ( str_replace( "https://", "", $site_name ) );
 } else {
+    $site        = str_replace( "-production", "", $site );
     $environment = "production";
-    $site_name = $site_details->domain;
 }
 
-$fathom = json_decode( $site_details->fathom );
+$lookup = ( new CaptainCore\Sites )->where( [ "site" => $site ] );
+
+// Error if site not found
+if ( count( $lookup ) == 0 ) {
+	echo "Error: Site '$site' not found.";
+	return;
+}
+
+// Fetch site
+$site           = ( new CaptainCore\Sites )->get( $lookup[0]->site_id );
+$environment_id = ( new CaptainCore\Site( $site->site_id ) )->fetch_environment_id( $environment );
+$environment    = ( new CaptainCore\Environments )->get( $environment_id );
+
+// Loads CLI configs
+$json = "{$_SERVER['HOME']}/.captaincore-cli/config.json";
+
+if ( ! file_exists( $json ) ) {
+	echo "Error: Configuration file not found.";
+	return;
+}
+
+$config_data = json_decode ( file_get_contents( $json ) );
+foreach($config_data as $config) {
+	if ( isset( $config->captain_id ) and $config->captain_id == $captain_id ) {
+		$configuration = $config;
+		break;
+	}
+}
+
+$fathom = json_decode( $environment->fathom );
+
+if ( is_array( $fathom ) ) {
+    if ( is_string( $fathom[0]->code ) ) {
+        $fathom = $fathom[0]->code;
+    } else {
+        $fathom = $fathom[0];
+    }
+}
 
 // If Fathom found then fetch stats
-if ( count($fathom) > 0 ) {
+if ( $fathom != "" ) {
     
-    $fathom_instance = "https://{$configuration->captaincore_tracker}";
-
-    $login_details = array(
-            'email'    => $configuration->captaincore_tracker_user, 
-            'password' => $configuration->captaincore_tracker_pass
-    );
+    $fathom_instance = "https://{$configuration->vars->captaincore_tracker}";
+    $login_details   = [
+        'email'    => $configuration->vars->captaincore_tracker_user, 
+        'password' => $configuration->vars->captaincore_tracker_pass
+    ];
 
     // Load sites from transient
     $auth = get_transient( "captaincore_fathom_auth_{$captain_id}" );
@@ -37,11 +85,11 @@ if ( count($fathom) > 0 ) {
     if ( empty( $auth ) ) {
 
         // Authenticate to Fathom instance
-        $auth = wp_remote_post( "$fathom_instance/api/session", array( 
+        $auth = wp_remote_post( "$fathom_instance/api/session", [ 
             'method'  => 'POST',
-            'headers' => array( 'Content-Type' => 'application/json; charset=utf-8' ),
+            'headers' => [ 'Content-Type' => 'application/json; charset=utf-8' ],
             'body'    => json_encode( $login_details )
-        ) );
+         ] );
 
         // Save the API response so we don't have to call again until tomorrow.
         set_transient( "captaincore_fathom_auth_{$captain_id}", $auth, HOUR_IN_SECONDS );
@@ -55,10 +103,8 @@ if ( count($fathom) > 0 ) {
     if ( empty( $sites ) ) {
 
         // Fetch Sites
-        $response = wp_remote_get( "$fathom_instance/api/sites", array( 
-            'cookies' => $auth['cookies']
-        ) );
-        $sites = json_decode( $response['body'] )->Data;
+        $response = wp_remote_get( "$fathom_instance/api/sites", [ 'cookies' => $auth['cookies'] ] );
+        $sites    = json_decode( $response['body'] )->Data;
 
         // Save the API response so we don't have to call again until tomorrow.
         set_transient( "captaincore_fathom_sites_{$captain_id}", $sites, HOUR_IN_SECONDS );
@@ -66,14 +112,12 @@ if ( count($fathom) > 0 ) {
     }
 
     foreach( $sites as $s ) {
-        if ( $s->name == $site_name ) {
+        if ( $s->trackingId == $fathom ) {
             // Fetch 12 months of stats from today
-            $before = strtotime( "now" );
-            $after  = strtotime( "-12 months" );
-            $response = wp_remote_get( "$fathom_instance/api/sites/{$s->id}/stats/site?before=$before&after=$after", array(
-                'cookies' => $auth['cookies']
-            ) );
-            $stats = json_decode( $response['body'] )->Data;
+            $before   = strtotime( "now" );
+            $after    = strtotime( "-12 months" );
+            $response = wp_remote_get( "$fathom_instance/api/sites/{$s->id}/stats/site?before=$before&after=$after", [ 'cookies' => $auth['cookies'] ] );
+            $stats    = json_decode( $response['body'] )->Data;
         }
     }
 
@@ -93,8 +137,7 @@ if ( count($fathom) > 0 ) {
 }
 
 // Attempt to fetch from WordPress.com
-if ( count($fathom) == 0 ) {
-
+if ( $fathom == "" ) {
 
     // Connects to WordPress.com and pulls blog ids
     $keys = json_decode( shell_exec( "captaincore configs fetch keys --captain_id=$captain_id" ) );
@@ -109,7 +152,7 @@ if ( count($fathom) == 0 ) {
 
         // Pull stats from WordPress API
         $curl = curl_init( "https://public-api.wordpress.com/rest/v1/sites/{$site_details->domain}/stats/visits?unit=month&quantity=12" );
-        curl_setopt( $curl, CURLOPT_HTTPHEADER, array( 'Authorization: Bearer ' . $access_key ) );
+        curl_setopt( $curl, CURLOPT_HTTPHEADER, [ 'Authorization: Bearer ' . $access_key ] );
         curl_setopt( $curl, CURLOPT_RETURNTRANSFER, 1 );
         $response = curl_exec( $curl );
         $stats    = json_decode( $response, true );
@@ -118,7 +161,7 @@ if ( count($fathom) == 0 ) {
             // Attempt to load www version
             // Pull stats from WordPress API
             $curl = curl_init( "https://public-api.wordpress.com/rest/v1/sites/www.{$site_details->domain}/stats/visits?unit=month&quantity=12" );
-            curl_setopt( $curl, CURLOPT_HTTPHEADER, array( 'Authorization: Bearer ' . $access_key ) );
+            curl_setopt( $curl, CURLOPT_HTTPHEADER, [ 'Authorization: Bearer ' . $access_key ] );
             curl_setopt( $curl, CURLOPT_RETURNTRANSFER, 1 );
             $response = curl_exec( $curl );
             $stats    = json_decode( $response, true );
