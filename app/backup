@@ -155,33 +155,7 @@ run_command() {
       sh -c "echo \"Finished remote backup $site (${INDEX}/$#)\" >> $logs_path/backup-remote.txt && tail -6 $logs_path/site-$site-remote.txt >> $logs_path/backup-remote.txt"
     fi
 
-      # Views for yearly stats
-      visits=$( captaincore stats $site --captain_id=$captain_id )
-
-      # Remove leading "--" from flags
-      for i in "${!flags[@]}"; do
-        flags[$i]=`echo ${flags[$i]} | cut -c 3-`
-      done
-
-      # Store updated info in WordPress datastore
-      cd ${root_path}data
-      wp eval-file ../lib/local-scripts/site-update-usage.php site=$site environment=$environment storage=$folder_size visits=$visits ${flags[@]}
-
-      if [[ "$captaincore_dev" == true ]]; then
-        curl_argument="-k"
-      fi
-
-      # Post folder size bytes and yearly visits to ACF fields
-      curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
-{
-"command":"usage-update",
-"site_id":"$site_id",
-"environment":"$environment",
-"storage":"$folder_size",
-"visits":"$visits",
-"token":"$token"
-}
-EOF
+    captaincore usage-update ${site}-${environment} --captain_id=$captain_id
 
     ### Clear out variables
     domain=''
