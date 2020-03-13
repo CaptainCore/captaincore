@@ -15,21 +15,23 @@ source ${root_path}lib/arguments
 
 run_command() {
 
+	site_id=$1
+
 	# Remove leading "--" from flags
 	for i in "${!flags[@]}"; do
 		flags[$i]=`echo ${flags[$i]} | cut -c 3-`
 	done
 
 	cd ${root_path}data
-	wp eval-file ../lib/local-scripts/site-sync.php site_id=$1 ${flags[@]}
+	wp eval-file ../lib/local-scripts/site-sync.php site_id=$site_id ${flags[@]}
 
 	if [ "$update_extras" ]; then
 
 		# Generate rclone keys
-		captaincore rclone-configs $site --captain_id=$captain_id
+		captaincore rclone-configs $site_id --captain_id=$captain_id
 
 		# Prepare site
-		captaincore prep $site --captain_id=$captain_id
+		captaincore prep $site_id --skip-deployment --captain_id=$captain_id
 
 	fi
 
