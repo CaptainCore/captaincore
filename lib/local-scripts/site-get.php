@@ -25,10 +25,16 @@ parse_str( implode( '&', $args ) );
 if ( $format == "" ) {
 	$format = "json";
 }
-
-$lookup  = ( new CaptainCore\Sites )->where( [ "site" => $site, "status" => "active" ] );
-if ( $provider ) {
-	$lookup  = ( new CaptainCore\Sites )->where( [ "site" => $site, "provider" => $provider, "status" => "active" ] );
+foreach( [ "once" ] as $run ) {
+	if ( $provider ) {
+		$lookup = ( new CaptainCore\Sites )->where( [ "site" => $site, "provider" => $provider, "status" => "active" ] );
+		continue;
+	}
+	if ( ctype_digit( $site ) ) {
+		$lookup = ( new CaptainCore\Sites )->where( [ "site_id" => $site, "status" => "active" ] );
+		continue;
+	}
+	$lookup = ( new CaptainCore\Sites )->where( [ "site" => $site, "status" => "active" ] );
 }
 
 // Error if site not found
