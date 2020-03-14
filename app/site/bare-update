@@ -25,7 +25,7 @@ run_command() {
 	while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $1 --bash --captain_id=$captain_id)"
 
 	# Generate rclone keys
-	captaincore rclone-configs $site --captain_id=$captain_id
+	captaincore site rclone-configs $site --captain_id=$captain_id
 
 	# Update configs
 	captaincore configs update-websites --captain_id=$captain_id

@@ -28,10 +28,10 @@ run_command() {
 	if [ "$update_extras" ]; then
 
 		# Generate rclone keys
-		captaincore rclone-configs $site_id --captain_id=$captain_id
+		captaincore site rclone-configs $site_id --captain_id=$captain_id
 
 		# Prepare site
-		captaincore prep $site_id --skip-deployment --captain_id=$captain_id
+		captaincore site prepare $site_id --skip-deployment --captain_id=$captain_id
 
 	fi
 

@@ -3,7 +3,7 @@
 #
 #   Generates rclone configs based on site credentials
 #
-#   `captaincore rclone-configs <site>`
+#   `captaincore site rclone-configs <site>`
 #
 
 # Load configuration
