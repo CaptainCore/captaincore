@@ -45,10 +45,11 @@ for arg in "$@"; do
 
 done
 
-plugins=($plugins)
+plugins=( $plugins )
 
 cd wp-content/plugins
 
 for plugin in ${plugins[@]}; do
+  rm ${plugin}.zip
 	zip -r ${plugin}.zip $plugin
 done
