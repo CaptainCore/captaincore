@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.8.0] - 2020-03-14
+### Added
+- Remote script `reset-permissions`
+- Command `snapshot-fetch-download-link`
+- Command `site sync` as replacement for `site add` and `site update`
+- Argument `--skip-extras` to `site update`
+- File `lib/excludes` which defines list of files to exclude from backups.
+- Local script `site-run-updates.php` which handles WordPress updates from `captaincore update`
+
+### Changed
+- Command `snapshot` with new data format.
+- Improved fleet mode configs within local script `configs.php`.
+- Improved `site get`. Will now accept <site-id> in addition to <site-name>.
+- Improved `site delete`. Will now be triggered to run in the background.
+- Improved `captaincore backup`. WordPress core files are ignored. Database backups now directed to private folder and named `database-backup.sql`.
+- Fix bug with remote script `plugins-zip`
+- Renamed `captaincore prep` to `captaincore site prepare`
+- Renamed `captaincore rclone-configs` to `captaincore site rclone-configs`
+- Removed legacy s3 support from `captaincore backup`
+- Removed commands `site update-field`, `site add` and `site update`
+- Removed local scripts`site-update.php` and `site-update-field.php`
+
 ## [0.7.0] - 2020-01-29
 ### Added
 - [CaptainCore WordPress plugin](https://github.com/CaptainCore/captaincore) to CLI's private WordPress data storage.
