@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+
+#
+#   Syncs account details to CaptainCore CLI.
+#
+#   `captaincore account sync <account_id>`
+#    
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}lib/arguments
+
+run_command() {
+
+	account_id=$1
+
+	# Remove leading "--" from flags
+	for i in "${!flags[@]}"; do
+		flags[$i]=`echo ${flags[$i]} | cut -c 3-`
+	done
+
+	cd ${root_path}data
+	wp eval-file ../lib/local-scripts/account-sync.php account_id=$account_id ${flags[@]}
+
+}
+
+# See if any sites are specifed
+if [ ${#arguments[*]} -eq 1 ]; then
+  # Runs on specifed sites
+  run_command ${arguments[*]}
+fi
+
+# Error if no sites specifed
+if [ ${#arguments[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify an account."
+fi
