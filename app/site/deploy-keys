@@ -51,7 +51,7 @@ heredoc
     echo local_public_key | rclone rcat sftp-${rclone_site_name}:.ssh/authorized_keys
   fi
 
-  # Exmaine existing authorized_keys file
+  # Examine existing authorized_keys file
   if [[ "$found_authorized_keys" == "authorized_keys" ]]; then
 
     # Fetch current authorized_keys

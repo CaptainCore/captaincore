@@ -22,8 +22,6 @@ run_command() {
 
 	for website in "$@"; do
 
-        captaincore site deploy-keys ${website} --captain_id=$captain_id
-        captaincore site deploy-keys ${website}-staging --captain_id=$captain_id
         captaincore site deploy-users $website --captain_id=$captain_id
         captaincore site deploy-recipes $website --captain_id=$captain_id
 
