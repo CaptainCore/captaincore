@@ -85,7 +85,9 @@ run_command() {
   else
   	wp plugin update ${flags[@]} --require="$private/require-wp-admin.php" --exclude=$exclude_plugins
   fi
-  
+  if $( wp plugin is-installed woocommerce ); then 
+    silent=$( wp wc update  2>&1 )
+  fi
   silent=$( wp cache flush )
   if [[ $provider == "kinsta" ]]; then
     silent=$( wp kinsta cache purge )
