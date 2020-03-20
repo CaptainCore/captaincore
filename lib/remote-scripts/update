@@ -85,8 +85,18 @@ run_command() {
   else
   	wp plugin update ${flags[@]} --require="$private/require-wp-admin.php" --exclude=$exclude_plugins
   fi
+  # Handle WooCommerce database updates if installed
   if $( wp plugin is-installed woocommerce ); then 
-    silent=$( wp wc update  2>&1 )
+    silent=$( wp wc update 2>&1 )
+    # Handle WooCommerce database updates on multisite if installed
+    if $( wp core is-installed --network ); then 
+      for site_id in $( wp site list --field=blog_id ); do
+        site_url=$( wp site list --field=url --blog_id=${site_id} )
+        if $( wp plugin is-active woocommerce --url=$site_url ); then
+            silent=$( wp wc update --url=${site_url} 2>&1 )
+        fi
+      done
+    fi
   fi
   silent=$( wp cache flush )
   if [[ $provider == "kinsta" ]]; then
