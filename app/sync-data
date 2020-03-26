@@ -31,8 +31,8 @@ run_command() {
     parallel=3
   fi
 
-  if [[ "$skip_screenshot" != "true" ]]; then
-    captaincore screenshot $@ --captain_id=$captain_id
+  if [[ "$skip_screenshot" == "true" ]]; then
+    flags="--skip-screenshot"
   fi
 
   # Generate random auth
@@ -45,7 +45,7 @@ run_command() {
   # Define log file format
   log_file=$logs/${log_date}_${log_time}_$auth.txt
 
-  ( echo $websites | xargs -P $parallel -n 1 captaincore sync-data-runner --captain_id=$captain_id ) 2>&1 | tee $log_file
+  ( echo $websites | xargs -P $parallel -n 1 captaincore sync-data-runner $flags --captain_id=$captain_id ) 2>&1 | tee $log_file
 
 }
 

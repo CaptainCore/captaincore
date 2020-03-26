@@ -35,10 +35,12 @@ run_command() {
 		flags[$i]=`echo ${flags[$i]} | cut -c 3-`
 	done
 
-
 	cd ${root_path}data
 	wp eval-file ../lib/local-scripts/site-sync-data.php site=$site environment=$environment ${flags[@]}
 
+	if [[ "$skip_screenshot" != "true" ]]; then
+    	captaincore screenshot ${site}-${environment} --captain_id=$captain_id
+	fi
 }
 
 # See if any sites are specifed
