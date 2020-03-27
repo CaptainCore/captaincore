@@ -31,7 +31,10 @@ run_command() {
 		captaincore site rclone-configs $site_id --captain_id=$captain_id
 
 		# Prepare site
-		captaincore site prepare $site_id --skip-deployment --captain_id=$captain_id
+		captaincore site prepare $site_id --captain_id=$captain_id
+
+		# Deploy global defaults
+		captaincore site deploy-defaults $site_id --global-only
 
 	fi
 

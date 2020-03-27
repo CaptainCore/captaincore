@@ -5,9 +5,6 @@
 #
 #   `captaincore site prepare <site>`
 #
-#   [--skip-deployment]
-#   Skip users and plugin deployment
-#
 
 # Load configuration
 root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
@@ -33,19 +30,6 @@ if [[ $captaincore_tracker != "" ]] && [[ $fathom == "" ]]; then
   # Generate new Fathom tracking code, if needed
   captaincore site stats-generate ${site}-production --captain_id=$captain_id
   captaincore site stats-generate ${site}-staging --captain_id=$captain_id
-
-fi
-
-if [[ $skip_deployment != true ]]; then
-
-  echo "Deploy Default Settings (admin_user and timezone_string)"
-  captaincore site deploy-settings $site --captain_id=$captain_id
-
-  echo "Deploy Default Recipes"
-  captaincore site deploy-recipes $site --captain_id=$captain_id
-
-  echo "Deploy Default Users"
-  captaincore site deploy-users $site --captain_id=$captain_id
 
 fi
 
