@@ -8,6 +8,8 @@
 #   [<site>...]
 #   One or more sites.
 #
+#   [--global-only]
+#
 #   [@<target>]
 #   Target groups of sites like @all @production or @staging.
 #
@@ -20,10 +22,29 @@ run_command() {
 
 	echo "Deploying defaults to $# sites"
 
-	for website in "$@"; do
+  # Remove leading "--" from flags
+  for i in "${!flags[@]}"; do
+    flags[$i]=`echo ${flags[$i]} | cut -c 3-`
+  done
 
-        captaincore site deploy-users $website --captain_id=$captain_id
-        captaincore site deploy-recipes $website --captain_id=$captain_id
+  cd ${root_path}data;
+
+	for site in "$@"; do
+
+    # Extract environment
+    if [[ "$site" == *"-staging"* ]]; then
+      environment=staging
+    fi
+
+    if [[ "$site" == *"-production"* ]]; then
+      environment=production
+    fi
+
+    if [[ "$site" != *"-"* ]]; then
+      environment=production
+    fi
+
+    wp eval-file ../lib/local-scripts/site-deploy-defaults.php site=$site environment=$environment ${flags[@]} 
 
 	done
 
