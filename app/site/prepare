@@ -19,10 +19,51 @@ while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; dec
 captaincore site deploy-keys ${site}-production --captain_id=$captain_id
 captaincore site deploy-keys ${site}-staging --captain_id=$captain_id
 
-# load custom configs into wp-config.php and .htaccess, setups up token
-captaincore site deploy-init $site --captain_id=$captain_id
-echo "load custom configs into wp-config.php and .htaccess"
-echo "Setting up token"
+# Define Rclone site name
+rclone_site_name=${captain_id}-${site}-${environment}
+
+# Captures FTP errors in $ftp_output and file listing to log file
+ftp_output=$( { rclone lsd sftp-$rclone_site_name:$home_directory ; } 2>&1 )
+ftp_search_for_wordpress=$( echo "$ftp_output" | perl -wnE'say for /wp-admin/g' )
+
+# Handle FTP errors
+if [[ $ftp_search_for_wordpress != "wp-admin" ]]; then
+  echo "Error: $site missing WordPress."
+  return 1
+fi
+
+# Append trailing slash if home_directory exist
+if [ "$home_directory" != "" ]; then
+  home_directory="${home_directory}/"
+fi
+
+# Pull down wp-config.php
+rclone copy sftp-$rclone_site_name:${home_directory}wp-config.php $path/${site}_${site_id}/${environment}/backup/
+
+# Generate token
+token_key=$(captaincore site fetch-token $site --captain_id=$captain_id)
+
+if [[ "$captaincore_dev" == true ]]; then
+  curl_argument="-k"
+fi
+
+# Assign token
+curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
+{
+	"command":"token",
+	"site_id":"$site_id",
+	"token_key":"$token_key",
+	"token":"$token"
+}
+EOF
+
+# Set permalink to 'Post name' format if not set
+captaincore ssh ${site}-production --script=rewrite-prep --captain_id=$captain_id
+captaincore ssh ${site}-staging --script=rewrite-prep --captain_id=$captain_id
+
+# Deploy helper plugin
+captaincore ssh ${site}-production --script=deploy-helper --captain_id=$captain_id
+captaincore ssh ${site}-staging --script=deploy-helper --captain_id=$captain_id
 
 # Generate new Fathom code if needed
 if [[ $captaincore_tracker != "" ]] && [[ $fathom == "" ]]; then
