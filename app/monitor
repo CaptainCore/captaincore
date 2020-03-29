@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 #
-#   Monitor check
+#   Monitor check one or more sites.
 #
 #   `captaincore monitor`
 #

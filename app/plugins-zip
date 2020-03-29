@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 #
-#   Generates zip files for plugins for deployment purposes
+#   Generates plugin zips on a single site.
 #
 #   `captaincore plugins-zip <site> <plugin>...`
 #

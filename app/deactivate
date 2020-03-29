@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 #
-#   Deploys custom deactivate mu-plugin to batch of sites
+#   Deploys custom deactivate mu-plugin on one or more sites.
 #
 #   `captaincore deactivate`
 #

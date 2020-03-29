@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 #
-#   Stores update logs to CaptainCore API
+#   Sends theme and plugin update logs to CaptainCore API.
 #
 #   `captaincore update-log-import`
 #

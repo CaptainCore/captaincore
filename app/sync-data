@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 #
-#   Sync website data
+#   Sync website data for one or more sites.
 #
 #   `captaincore sync-data`
 #

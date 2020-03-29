@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 #
-#   Monitor check
+#   Takes screenshot of one or more sites
 #
 #   `captaincore screenshot`
 #

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 #
-#   Generates usage stats (Storage and Views) for CaptainCore GUI
+#   Generates usage stats for one or more sites.
 #
 #   `captaincore usage-update <site>...`
 #

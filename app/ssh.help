@@ -1,7 +1,1 @@
-Kinsta and WP Engine SSH wrapper
-
-Connects to individual site over SSH
-captaincore ssh sitename
-
-Runs command over SSH
-captaincore ssh sitename "wp plugins list"
+SSH connection to one or more sites.

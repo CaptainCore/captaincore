@@ -3,7 +3,7 @@
 #
 #   Generates Fathom Tracker
 #
-#   `captaincore stats-generate <site>>`
+#   `captaincore stats-generate <site>`
 #
 
 # Load configuration

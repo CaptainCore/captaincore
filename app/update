@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 #
-#   Updates themes/plugins on WordPress sites
+#   Runs themes, plugins and core updates on one or more sites.
 #
 #   `captaincore update`
 #

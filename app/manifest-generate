@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 #
-#   Generates Manifest
+#   Generates manifest.json file.
 #
 #   `captaincore generate-manifest`
 #

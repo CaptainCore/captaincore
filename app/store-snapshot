@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 #
-#   Store zip to rclone remote for cold storage
+#   Moves zip to rclone remote for cold storage.
 #
 #   `captaincore store-snapshot <url|file>`
 #
