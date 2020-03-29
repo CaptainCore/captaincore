@@ -3,7 +3,7 @@
 #
 #   Fetch download link for snapshot
 #
-#   `captaincore snapshot-fetch-download-link <snapshot-id>`
+#   `captaincore snapshot-fetch-link <snapshot-id>`
 #
 
 # Load configuration
