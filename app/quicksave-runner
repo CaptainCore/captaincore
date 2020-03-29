@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 #
-#   Creates Quicksave (plugins/themes) of single site
+#   Generates quicksave for plugins and themes changes for a single site.
 #
 #   `captaincore quicksave-runner <site>`
 #

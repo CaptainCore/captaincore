@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 #
-#   Grabs file diff between Quicksaves
+#   Shows file diff between Quicksaves.
 #
 #   `captaincore quicksave-file-diff <site> --hash=<git_hash> --file=<file>`
 #

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 #
-#   Rollback from a Quicksave (theme/plugin)
+#   Rollback theme, plugin or file from a Quicksave on a site.
 #
 #   `captaincore rollback <site> <commit>`
 #

@@ -3,7 +3,7 @@
 #
 #   Grabs Quicksave git commit status log
 #
-#   `captaincore quicksave-view-changes <site> --hash=<git_hash>`
+#   `captaincore view-changes <site> --hash=<git_hash>`
 #
 
 # Load configuration
