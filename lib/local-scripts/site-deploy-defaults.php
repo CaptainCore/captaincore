@@ -113,7 +113,7 @@ $recipe_ids             = array_unique( $recipe_ids );
 $timestamp              = date('Y-m-d-h-m-s');
 $token                  = bin2hex( openssl_random_pseudo_bytes( 16 ) );
 $deployment_script_file = "$path_tmp/{$captain_id}-{$timestamp}-{$token}.sh";
-echo "Generating deployment script\n";
+
 file_put_contents( $deployment_script_file, $deployment_script );
 
 if ( isset( $debug ) ) {
@@ -123,10 +123,11 @@ if ( isset( $debug ) ) {
     }
     exit;
 }
-
-shell_exec( "captaincore ssh ${site}-${environment} --script=$deployment_script_file --captain_id=$captain_id" );
+echo "Deploying default configurations\n";
+echo shell_exec( "captaincore ssh ${site}-${environment} --script=$deployment_script_file --captain_id=$captain_id" );
 
 foreach ( $recipe_ids as $recipe_id ) {
-    echo "Deploying recipe #${recipe_id}\n";
-    shell_exec( "captaincore ssh ${site}-${environment} --recipe=$recipe_id --captain_id=$captain_id" );
+    $recipe = ( new CaptainCore\Recipes )->get( $recipe_id );
+    echo "Deploying recipe '{$recipe->title}'\n";
+    echo shell_exec( "captaincore ssh ${site}-${environment} --recipe=$recipe_id --captain_id=$captain_id" );
 }
