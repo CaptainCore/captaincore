@@ -20,6 +20,8 @@ while [[ -d "$HELP_FILE" && $HELP_ARG_START -le $# ]]; do
   HELP_ARG_START=$(($HELP_ARG_START+1))
 done
 
+max_length=0
+
 # If we've got a directory's helpfile to show, then print out the list of
 # commands in that directory along with its help content.
 if [[ -d "$HELP_FILE" ]]; then
@@ -33,27 +35,48 @@ if [[ -d "$HELP_FILE" ]]; then
   fi
 
   echo ""
-  echo -e "${COLOR_MAGENTA}Commands${COLOR_NORMAL}"
-  echo ""
+  echo -e "${COLOR_MAGENTA}Available Commands:${COLOR_NORMAL}"
 
-  for file in $HELP_FILE/*; do
+  files=$( ls $HELP_FILE --group-directories-first )
+
+  for file in $files; do
     cmd=`basename "$file"`
+    if [ "${#cmd}" -gt "$max_length" ]; then
+      max_length=${#cmd}
+    fi
+  done
+
+  for file in $files; do
+    cmd=`basename "$file"`
+    file="$HELP_FILE$file"
+    spacer=""
+    adjusted_spaces=$(( $max_length - ${#cmd} ))
+    for space in $( seq $adjusted_spaces ); do
+      spacer="$spacer "
+    done
+    parent_cmd=${@:2:$(($HELP_ARG_START-1))}
+    if [[ "$parent_cmd" != "" ]]; then
+      parent_cmd=" $parent_cmd"
+    fi
 
     # Don't show hidden files as available commands
-    if [[ "$cmd" != .* && "$cmd" != *.php &&"$cmd" != *.sh && "$cmd" != *.usage && "$cmd" != *.help ]]; then
-      echo -en "${COLOR_GREEN}$CLI_ENTRYPOINT ${COLOR_CYAN}${@:2:$(($HELP_ARG_START-1))} $cmd ${COLOR_NORMAL}"
+    if [[ "$cmd" != .* && "$cmd" != *.php && "$cmd" != *.sh && "$cmd" != *.usage && "$cmd" != *.help ]]; then
+      echo -en " ${COLOR_GREEN}${parent_cmd} $cmd ${COLOR_NORMAL}$spacer"
 
-      if [[ -f "$file.usage" ]]; then
-        bcli_trim_whitespace "$(cat "$file.usage")"
+      if [[ -f "$file.help" ]]; then
+        bcli_trim_whitespace "$(cat "$file.help")"
         echo ""
       elif [[ -d "$file" ]]; then
-        echo -e "${COLOR_MAGENTA}...${COLOR_NORMAL}"
+        echo -e "${COLOR_MAGENTA}Subcommand${COLOR_NORMAL}"
       else
         echo ""
       fi
     fi
   done
 
+  echo ""
+  echo 'Use "captaincore <command> --help" for more information about a command.'
+  echo 'Use "captaincore <subcommand>" to see a list of commands.'
   exit 0
 fi
 
