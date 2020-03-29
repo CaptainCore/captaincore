@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 #
-#   Grabs Quicksave git commit status log
+#   Shows file changes between Quicksaves.
 #
 #   `captaincore view-changes <site> --hash=<git_hash>`
 #
