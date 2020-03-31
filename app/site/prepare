@@ -19,17 +19,30 @@ while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; dec
 captaincore site deploy-keys ${site}-production --captain_id=$captain_id
 captaincore site deploy-keys ${site}-staging --captain_id=$captain_id
 
+# Extract environment
+if [[ "$site" == *"-staging"* ]]; then
+  environment=staging
+fi
+
+if [[ "$site" == *"-production"* ]]; then
+  environment=production
+fi
+
+if [[ "$site" != *"-"* ]]; then
+  environment=production
+fi
+
 # Define Rclone site name
-rclone_site_name=${captain_id}-${site}-${environment}
+rclone_site_name="sftp-${captain_id}-${site}-${environment}"
 
 # Captures FTP errors in $ftp_output and file listing to log file
-ftp_output=$( { rclone lsd sftp-$rclone_site_name:$home_directory ; } 2>&1 )
+ftp_output=$( { rclone lsd $rclone_site_name:$home_directory ; } 2>&1 )
 ftp_search_for_wordpress=$( echo "$ftp_output" | perl -wnE'say for /wp-admin/g' )
 
 # Handle FTP errors
 if [[ $ftp_search_for_wordpress != "wp-admin" ]]; then
   echo "Error: $site missing WordPress."
-  return 1
+  exit
 fi
 
 # Append trailing slash if home_directory exist
@@ -38,7 +51,7 @@ if [ "$home_directory" != "" ]; then
 fi
 
 # Pull down wp-config.php
-rclone copy sftp-$rclone_site_name:${home_directory}wp-config.php $path/${site}_${site_id}/${environment}/backup/
+rclone copy $rclone_site_name:${home_directory}wp-config.php $path/${site}_${site_id}/${environment}/backup/
 
 # Generate token
 token_key=$(captaincore site fetch-token $site --captain_id=$captain_id)
