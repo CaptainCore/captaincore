@@ -29,20 +29,17 @@ run_command() {
 
   cd ${root_path}data;
 
-	for site in "$@"; do
+	for website in "$@"; do
 
-    # Extract environment
-    if [[ "$site" == *"-staging"* ]]; then
-      environment=staging
+   # Extract environment
+    if [[ "$website" == *"-staging"* ]]; then
+        environment=staging
+    else
+        environment=production
     fi
-
-    if [[ "$site" == *"-production"* ]]; then
-      environment=production
-    fi
-
-    if [[ "$site" != *"-"* ]]; then
-      environment=production
-    fi
+    
+    # Load site configs
+    while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain_id=$captain_id)"
 
     wp eval-file ../lib/local-scripts/site-deploy-defaults.php site=$site environment=$environment ${flags[@]} 
 
