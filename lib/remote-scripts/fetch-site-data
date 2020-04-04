@@ -12,7 +12,7 @@
 #   line 6: subsite count
 #
 
-plugins=$( wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version 
+plugins=$( wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version )
 themes=$(wp theme list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version )
 core=$( wp core version --skip-themes --skip-plugins --skip-packages )
 home_url=$( wp option get home --skip-themes --skip-plugins --skip-packages )
