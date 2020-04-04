@@ -12,13 +12,13 @@
 #   line 6: subsite count
 #
 
-plugins=$(wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version)
-themes=$(wp theme list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version)
-core=$(wp core version --skip-themes --skip-plugins --skip-packages)
-home_url=$(wp option get home --skip-themes --skip-plugins --skip-packages)
-users=$(wp user list --format=json)
-if $(wp core is-installed --network --skip-themes --skip-plugins --skip-packages); then
-    subsite_count=$(wp site list --format=count --skip-themes --skip-plugins --skip-packages)
+plugins=$( wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version 
+themes=$(wp theme list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version )
+core=$( wp core version --skip-themes --skip-plugins --skip-packages )
+home_url=$( wp option get home --skip-themes --skip-plugins --skip-packages )
+users=$( wp user list --format=json --skip-themes --skip-plugins --skip-packages )
+if $( wp core is-installed --network --skip-themes --skip-plugins --skip-packages ); then
+    subsite_count=$( wp site list --format=count --skip-themes --skip-plugins --skip-packages )
 fi
 
 # Assume WP-CLI output may contain whitespaces and remove.
