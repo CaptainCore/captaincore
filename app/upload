@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+
+#
+#   Uploads file to site over ssh
+#
+#   `captaincore upload <site> <file>`
+#
+#   [--public]
+#   Uploads to public. Defaults to private folder.
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}lib/arguments
+
+website=$1
+if [[ "$website" == *"-staging" ]]; then
+  website=${website//-staging/}
+  use_staging=true
+fi
+
+# Load site configs
+while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain_id=$captain_id)"
+
+# Site found, start the backup
+if ! [ -z "$domain" ]; then
+
+  ## If website on Kinsta then connect SSH using their format
+  if [[ "$provider" == "kinsta" ]]; then
+
+		if [ -n "$2" ]; then
+			if [[ "$use_staging" != "true" ]]; then
+				if [[ "$public" == "true" ]]; then
+					scp -o StrictHostKeyChecking=no -P $port $2 $username@$address:public/
+				else
+					scp -o StrictHostKeyChecking=no -P $port $2 $username@$address:private/
+				fi
+	    else
+				if [[ "$public" == "true" ]]; then
+					scp -o StrictHostKeyChecking=no -P $port_staging $2 $username_staging@$address_staging:public/
+				else
+					scp -o StrictHostKeyChecking=no -P $port_staging $2 $username_staging@$address_staging:private/
+				fi
+	    fi
+
+		else
+			echo 'Missing argument. Ex: captaincore upload sitename1 "~/Download/migration.zip'
+		fi
+
+  else ## If not Kinsta then try connecting using WP Engine's format
+		echo "Uploading..."
+		if [ -n "$2" ]; then
+			if [[ "$public" == "true" ]]; then
+		  	scp -o StrictHostKeyChecking=no -P 22 "$2" $1@$1.ssh.wpengine.net:sites/$1/
+			else
+				scp -o StrictHostKeyChecking=no -P 22 "$2" $1@$1.ssh.wpengine.net:sites/$1/_wpeprivate/
+			fi
+		else
+		  echo 'Missing argument. Ex: captaincore upload sitename1 "~/Download/migration.zip'
+		fi
+
+  fi
+
+else ## not recognized so attempt WP Engine's format
+
+	if [ -n "$2" ]; then
+		if [[ "$public" == "true" ]]; then
+			scp -o StrictHostKeyChecking=no -P 22 $2 $1@$1.ssh.wpengine.net:sites/$1/
+		else
+	  	scp -o StrictHostKeyChecking=no -P 22 $2 $1@$1.ssh.wpengine.net:sites/$1/_wpeprivate/
+		fi
+	else
+	  echo 'Missing argument. Ex: captaincore upload sitename1 "~/Download/migration.zip'
+	fi
+
+fi
