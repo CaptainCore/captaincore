@@ -78,11 +78,11 @@ unset( $site->shared_with );
 if ( empty( $site_check ) ) {
     // Insert new site
     ( new CaptainCore\Sites )->insert( (array) $site );
-    echo "Added site #{$site->site_id}";
+    echo "Added site #{$site->site_id}\n";
 } else {
     // update new site
     ( new CaptainCore\Sites )->update( (array) $site, [ "site_id" => $site->site_id ] );
-    echo "Updating site #{$site->site_id}";
+    echo "Updating site #{$site->site_id}\n";
 }
 foreach ( $environments as $environment ) {
     $environment_id    = $environment->environment_id;
