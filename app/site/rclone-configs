@@ -41,7 +41,8 @@ run_command() {
     quiet=$( rclone config create sftp-${site_name}-production $protocol host $address user $username port $port key_file $ssh_file )
     staging_check=$(captaincore site get ${site}-staging --field=address --captain_id=$captain_id)
     if [[ "$staging_check" != "" ]]; then
-      while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get ${site}-staging --bash --captain_id=$captain_id)"
+      # Load site vars
+      while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get ${site}-staging --bash --captain_id=$captain_id)"
       echo "Generating rclone configs for ${site}-staging with SSH key"
       quiet=$( rclone config create sftp-${site_name}-staging $protocol host $address user $username port $port key_file $ssh_file )
     fi
