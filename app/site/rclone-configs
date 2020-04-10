@@ -34,16 +34,16 @@ run_command() {
   rclone config delete sftp-${site_name}-production
   rclone config delete sftp-${site_name}-staging
 
-  echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $site"
-
   # If using SSH key then generate using those
   if [[ "$key" != "" ]]; then
     ssh_file="$path_keys/${captain_id}/${key}"
-    rclone config create sftp-${site_name}-production $protocol host $address user $username port $port key_file $ssh_file
+    echo "Generating rclone configs for ${site}-production with SSH key"
+    quiet=$( rclone config create sftp-${site_name}-production $protocol host $address user $username port $port key_file $ssh_file )
     staging_check=$(captaincore site get ${site}-staging --field=address --captain_id=$captain_id)
     if [[ "$staging_check" != "" ]]; then
       while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get ${site}-staging --bash --captain_id=$captain_id)"
-      rclone config create sftp-${site_name}-staging $protocol host $address user $username port $port key_file $ssh_file
+      echo "Generating rclone configs for ${site}-staging with SSH key"
+      quiet=$( rclone config create sftp-${site_name}-staging $protocol host $address user $username port $port key_file $ssh_file )
     fi
     return
   fi
@@ -53,12 +53,14 @@ run_command() {
 
   # Add new WordPress site to Rclone
   rclone_pass=$(rclone obscure $password)
-  rclone config create sftp-${site_name}-production $protocol host $address user $username port $port pass -- $rclone_pass
+  echo "Generating rclone configs for ${site}-production with password"
+  quiet=$( rclone config create sftp-${site_name}-production $protocol host $address user $username port $port pass -- $rclone_pass )
 
   if [[ "$password_staging" != "" ]]; then
     while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get ${site}-staging --bash --captain_id=$captain_id)"
     rclone_pass=$(rclone obscure $password_staging)
-    rclone config create sftp-${site_name}-staging $protocol host $address user $username port $port pass -- $rclone_pass
+    echo "Generating rclone configs for ${site}-staging with password"
+    quiet=$( rclone config create sftp-${site_name}-staging $protocol host $address user $username port $port pass -- $rclone_pass )
   fi
 
 }
