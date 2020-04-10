@@ -55,7 +55,7 @@ run_command() {
     mkdir -p ~/Tmp/restore/$commit/
     git archive --format=zip $commit:plugins/$plugin/ > ~/Tmp/restore/$commit/$plugin.zip
     captaincore upload ${site}-${environment} ~/Tmp/restore/$commit/$plugin.zip --public
-    captaincore ssh ${site}-${environment} --command="wp plugin install $plugin.zip --force --skip-plugins --skip-themes --skip-packages; rm $plugin.zip"
+    captaincore ssh ${site}-${environment} --command="rm -rf wp-content/plugins/$plugin/; unzip $plugin.zip -d wp-content/plugins/$plugin/; rm $plugin.zip"
     rm -rf ~/Tmp/restore/$commit/
 
   fi
@@ -67,7 +67,7 @@ run_command() {
     mkdir -p ~/Tmp/restore/$commit/
     git archive --format=zip $commit:themes/$theme/ > ~/Tmp/restore/$commit/$theme.zip
     captaincore upload ${site}-${environment} ~/Tmp/restore/$commit/$theme.zip --public
-    captaincore ssh ${site}-${environment} --command="wp theme install $theme.zip --force --skip-plugins --skip-themes --skip-packages; rm $theme.zip"
+    captaincore ssh ${site}-${environment} --command="rm -rf wp-content/themes/$theme/; unzip $theme.zip -d wp-content/themes/$theme/; rm $theme.zip"
     rm -rf ~/Tmp/restore/$commit/
 
   fi
