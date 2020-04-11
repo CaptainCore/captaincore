@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.9.0] - 2020-04-11
+### Added
+- Command `account sync`
+- Command `default-sync`
+- Command `site deploy-defaults` as replacement for `site deploy-recipes`, `site deploy-settings` and `site deploy-users`
+- Local script `site-deploy-defaults.php` as replacement for `site-fetch-default-recipes.php`, `site-fetch-default-settings.php` and `site-fetch-default-users.php`
+
+### Changed
+- Moved quicksave commands under `captaincore site` for better organization
+- Improved `update` with support for handling WooCommerce database upgrades
+- Improved `site prepare` as replacement for `site deploy-init` and `site deploy-configs`
+- Command `site sync` will now trigger global defaults to deploy with argument `--update-extras`
+- Renamed command `view-changes` to `show-changes`
+- Removed unnecessary commands
+- Removed commands `site deploy-init`, `site deploy-configs`, `site deploy-recipes`, `site deploy-settings` and `site deploy-users`. Functionality combined and rolled into `site deploy-defaults` and `site prepare`
+- Removed command `login`. No longer needed as same functionality exists with deployed mu-plugin `captaincore-helper.php`
+- Removed argument `--skip-deployment` from command `site prepare`
+
 ## [0.8.0] - 2020-03-14
 ### Added
 - Remote script `reset-permissions`
