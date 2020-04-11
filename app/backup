@@ -108,14 +108,14 @@ run_command() {
     fi
 
     # Incremental backup locally with rclone
-    echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $site to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
-    echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup $site to local (${INDEX}/$#)"
+    echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup ${site}-${environment} to local (${INDEX}/$#)" >> $logs_path/backup-log.txt
+    echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup ${site}-${environment} to local (${INDEX}/$#)"
 
     if [[ $skip_db != true ]] && [[ $wordpress_not_found != true ]]; then
 
       # Database backup if remote server supports
       if [[ "$provider" == "kinsta" ]] || [[ "$provider" == "wpengine" ]]; then
-        captaincore ssh $site --script="db-backup" --captain_id=$captain_id
+        captaincore ssh ${site}-${environment} --script="db-backup" --captain_id=$captain_id
       fi
 
       if [[ "$provider" == "wpengine" ]]; then
