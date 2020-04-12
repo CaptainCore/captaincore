@@ -208,7 +208,7 @@ run_command() {
   # Grabs current privacy settings
   search_privacy=$( wp option get blog_public --skip-plugins --skip-themes )
 
-  echo "Resetting default file and folder permissions"
+  echo "Resetting file and folder permissions to defaults"
   find . -type d -exec chmod 755 {} \;
   find . -type f -exec chmod 644 {} \;
 
