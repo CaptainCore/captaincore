@@ -60,7 +60,7 @@ run_command() {
     if [[ "$provider" == "kinsta" ]]; then
 
       # Kinsta's command prep
-      command_prep="cd public/ &&"
+      command_prep="$environment_vars && cd public/ &&"
       remote_options="-oStrictHostKeyChecking=no -oPreferredAuthentications=publickey"
       
       if [[ $key != "" ]]; then
@@ -79,7 +79,7 @@ run_command() {
     if [[ "$provider" == "wpengine" ]]; then
 
       # WP Engine's command prep
-      command_prep="rm ~/.wp-cli/config.yml; cd sites/* &&"
+      command_prep="environment_vars && rm ~/.wp-cli/config.yml; cd sites/* &&"
       remote_options="-oStrictHostKeyChecking=no -oPreferredAuthentications=publickey"
 
       if [[ $key != "" ]]; then

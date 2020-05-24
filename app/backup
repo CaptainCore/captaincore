@@ -128,7 +128,12 @@ run_command() {
     fi
 
     # Backup site locally
-    rclone sync sftp-${rclone_site_name}:$home_directory $path/${site}_${site_id}/${environment}/backup/ --exclude-from="${root_path}lib/excludes" --verbose=1 --log-file="$logs_path/site-$site.txt"
+    if [[ "$alternative_wp_content" != "" ]]; then
+      echo "Backing up alternative wp-content location"
+      rclone sync sftp-${rclone_site_name}:$home_directory $path/${site}_${site_id}/${environment}/backup/ --exclude-from="${root_path}lib/excludes" --filter="+ $alternative_wp_content/**" --filter="- wp-content/**" --filter="- content/**" --verbose=1 --log-file="$logs_path/site-$site.txt" --dry-run
+    else
+      rclone sync sftp-${rclone_site_name}:$home_directory $path/${site}_${site_id}/${environment}/backup/ --exclude-from="${root_path}lib/excludes" --filter="- content/**" --verbose=1 --log-file="$logs_path/site-$site.txt"
+    fi
     echo "" >> $logs_path/site-$site.txt
     tail $logs_path/site-$site.txt >> $logs_path/backup-local.txt
 

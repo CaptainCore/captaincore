@@ -73,12 +73,23 @@ $updates_enabled         = $site->environments[$environment_key]->updates_enable
 $updates_exclude_themes  = $site->environments[$environment_key]->updates_exclude_themes;
 $updates_exclude_plugins = $site->environments[$environment_key]->updates_exclude_plugins;
 
+if ( is_array( $site->environment_vars ) ) { 
+	foreach ( $site->environment_vars as $item ) { 
+		$environment_vars = "{$environment_vars} {$item->key}='{$item->value}'";
+		if ( $item->key == "STACKED_ID" ) {
+			$alternative_wp_content = "content/{$item->value}";
+		}
+	}
+	$environment_vars = "export $environment_vars";
+}
+
 $array = [
 	"site_id"                 => $site->site_id,
 	"site"                    => $site->site,
 	"status"                  => $site->status,
 	"provider"                => $site->provider,
 	"key"                     => $site->key,
+	"environment_vars"        => $environment_vars,
 	"domain"                  => $site->name,
 	"home_url"                => $home_url,
 	"defaults"                => json_encode( $site->account["defaults"] ),
@@ -123,6 +134,8 @@ key={$site->key}
 fathom=$fathom
 capture_pages=$capture_pages
 site={$site->site}
+environment_vars={$environment_vars}
+alternative_wp_content={$alternative_wp_content}
 status={$site->status}
 provider={$site->provider}
 default_users=$default_users
