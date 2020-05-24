@@ -45,6 +45,10 @@ for arg in "$@"; do
 
 done
 
+if [[ "$wp_content" == "" ]]; then
+	wp_content="wp-content"
+fi
+
 fathom_arguments=$( echo $fathom_arguments | base64 --decode )
 while read -r line; do
     declare "$line"
@@ -177,5 +181,5 @@ heredoc
 
 fi
 
-echo "Generating 'wp-content/mu-plugins/${branding_slug}-stats.php'"
-echo "$build_mu_plugin" > wp-content/mu-plugins/${branding_slug}-stats.php
+echo "Generating '$wp_content/mu-plugins/${branding_slug}-stats.php'"
+echo "$build_mu_plugin" > $wp_content/mu-plugins/${branding_slug}-stats.php
