@@ -75,8 +75,8 @@ captaincore ssh ${site}-production --script=rewrite-prep --captain_id=$captain_i
 captaincore ssh ${site}-staging --script=rewrite-prep --captain_id=$captain_id
 
 # Deploy helper plugin
-captaincore ssh ${site}-production --script=deploy-helper --captain_id=$captain_id
-captaincore ssh ${site}-staging --script=deploy-helper --captain_id=$captain_id
+captaincore ssh ${site}-production --script=deploy-helper --wp_content=$wp_content --captain_id=$captain_id
+captaincore ssh ${site}-staging --script=deploy-helper --wp_content=$wp_content --captain_id=$captain_id
 
 # Generate new Fathom code if needed
 if [[ $captaincore_tracker != "" ]] && [[ $fathom == "" ]]; then

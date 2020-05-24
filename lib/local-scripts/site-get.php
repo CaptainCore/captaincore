@@ -72,12 +72,13 @@ $home_url                = $site->environments[$environment_key]->home_url;
 $updates_enabled         = $site->environments[$environment_key]->updates_enabled;
 $updates_exclude_themes  = $site->environments[$environment_key]->updates_exclude_themes;
 $updates_exclude_plugins = $site->environments[$environment_key]->updates_exclude_plugins;
+$wp_content              = "wp-content";
 
 if ( is_array( $site->environment_vars ) ) { 
 	foreach ( $site->environment_vars as $item ) { 
 		$environment_vars = "{$environment_vars} {$item->key}='{$item->value}'";
 		if ( $item->key == "STACKED_ID" ) {
-			$alternative_wp_content = "content/{$item->value}";
+			$wp_content = "content/{$item->value}";
 		}
 	}
 	$environment_vars = "export $environment_vars";
@@ -135,7 +136,7 @@ fathom=$fathom
 capture_pages=$capture_pages
 site={$site->site}
 environment_vars={$environment_vars}
-alternative_wp_content={$alternative_wp_content}
+wp_content={$wp_content}
 status={$site->status}
 provider={$site->provider}
 default_users=$default_users

@@ -44,7 +44,7 @@ run_command() {
   fi
 
   if [[ "$debug" == "true" ]]; then
-    echo "captaincore ssh $site --script=deploy-fathom --tracker=$tracker --id=\"$code\" --branding_author=\"$captaincore_branding_author\" --branding_author_uri=\"$captaincore_branding_author_uri\" --branding_slug=$captaincore_branding_slug --captain_id=$captain_id"
+    echo "captaincore ssh $site --script=deploy-fathom --wp_content=$wp_content --tracker=$tracker --id=\"$code\" --branding_author=\"$captaincore_branding_author\" --branding_author_uri=\"$captaincore_branding_author_uri\" --branding_slug=$captaincore_branding_slug --captain_id=$captain_id"
     return 1
   fi
 
@@ -61,7 +61,7 @@ heredoc
 
   fathom_arguments=$( php -r "$php_code" )
 
-  captaincore ssh $site --script=deploy-fathom --fathom_arguments="$fathom_arguments" --captain_id=$captain_id
+  captaincore ssh $site --script=deploy-fathom --wp_content=$wp_content --fathom_arguments="$fathom_arguments" --captain_id=$captain_id
 
   # Load site configs
   while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"

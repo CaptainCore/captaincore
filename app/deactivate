@@ -117,7 +117,7 @@ run_command() {
 		fi
 
 		# Upload deactivation plugin to mu-plugins
-		rclone copyto ~/Tmp/captaincore_deactivated_${timestamp}.php sftp-${rclone_site_name}:${home_directory}wp-content/mu-plugins/captaincore_deactivated.php
+		rclone copyto ~/Tmp/captaincore_deactivated_${timestamp}.php sftp-${rclone_site_name}:${home_directory}${wp_content}/mu-plugins/captaincore_deactivated.php
 
 		echo "deactivated $domain"
 

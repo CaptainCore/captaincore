@@ -55,7 +55,7 @@ run_command() {
     mkdir -p ~/Tmp/restore/$commit/
     git archive --format=zip $commit:plugins/$plugin/ > ~/Tmp/restore/$commit/$plugin.zip
     captaincore upload ${site}-${environment} ~/Tmp/restore/$commit/$plugin.zip --public --captain_id=$captain_id
-    captaincore ssh ${site}-${environment} --command="rm -rf wp-content/plugins/$plugin/; unzip $plugin.zip -d wp-content/plugins/$plugin/; rm $plugin.zip" --captain_id=$captain_id
+    captaincore ssh ${site}-${environment} --command="rm -rf ${wp_content}/plugins/$plugin/; unzip $plugin.zip -d ${wp_content}/plugins/$plugin/; rm $plugin.zip" --captain_id=$captain_id
     rm -rf ~/Tmp/restore/$commit/
 
   fi
@@ -67,7 +67,7 @@ run_command() {
     mkdir -p ~/Tmp/restore/$commit/
     git archive --format=zip $commit:themes/$theme/ > ~/Tmp/restore/$commit/$theme.zip
     captaincore upload ${site}-${environment} ~/Tmp/restore/$commit/$theme.zip --public --captain_id=$captain_id
-    captaincore ssh ${site}-${environment} --command="rm -rf wp-content/themes/$theme/; unzip $theme.zip -d wp-content/themes/$theme/; rm $theme.zip" --captain_id=$captain_id
+    captaincore ssh ${site}-${environment} --command="rm -rf ${wp_content}/themes/$theme/; unzip $theme.zip -d ${wp_content}/themes/$theme/; rm $theme.zip" --captain_id=$captain_id
     rm -rf ~/Tmp/restore/$commit/
 
   fi
@@ -83,7 +83,7 @@ run_command() {
 		if [[ "$home_directory" != "" ]]; then
 			home_directory="${home_directory}/"
 		fi
-		rclone copyto ~/Tmp/restore/$commit/$file sftp-$rclone_site_name:${homdir}wp-content/$file
+		rclone copyto ~/Tmp/restore/$commit/$file sftp-$rclone_site_name:${homdir}${wp_content}/$file
 		rm -rf ~/Tmp/restore/$commit/
 
 	fi
@@ -95,7 +95,7 @@ run_command() {
     mkdir -p ~/Tmp/restore/$commit/
     git archive --format=zip $commit: > ~/Tmp/restore/$commit/quicksave_${commit}_all.zip
     captaincore upload ${site}-${environment} ~/Tmp/restore/$commit/quicksave_${commit}_all.zip --public --captain_id=$captain_id
-    echo '<?php $upgrading = time(); ?>' | captaincore ssh ${site}-${environment} --command="cat > .maintenance; rm -rf wp-content/themes/; unzip -q -o quicksave_${commit}_all.zip 'themes/*' -d wp-content/; rm -rf wp-content/plugins/; unzip -q -o quicksave_${commit}_all.zip 'plugins/*' -d wp-content/; rm -rf wp-content/mu-plugins/; unzip -q -o quicksave_${commit}_all.zip 'mu-plugins/*' -d wp-content/; rm .maintenance" --captain_id=$captain_id
+    echo '<?php $upgrading = time(); ?>' | captaincore ssh ${site}-${environment} --command="cat > .maintenance; rm -rf ${wp_content}/themes/; unzip -q -o quicksave_${commit}_all.zip 'themes/*' -d ${wp_content}/; rm -rf ${wp_content}/plugins/; unzip -q -o quicksave_${commit}_all.zip 'plugins/*' -d ${wp_content}/; rm -rf ${wp_content}/mu-plugins/; unzip -q -o quicksave_${commit}_all.zip 'mu-plugins/*' -d ${wp_content}/; rm .maintenance" --captain_id=$captain_id
     rm -rf ~/Tmp/restore/$commit/
 
   fi
