@@ -171,8 +171,13 @@ run_command() {
 			new_ending="_${created_at}_${git_commit_short}"
 			new_image_name=${image/_working/$new_ending}
 			mv "$image" "$new_image_name"
+			# Generate home page thumbnails
+			if [[ "$new_image_name" == ".screenshots/#_"* ]]; then
+				convert $new_image_name -thumbnail 800 -gravity North -crop 800x500+0+0 ${new_image_name/.jpg/-thumb-800.jpg}
+				convert ${new_image_name/.jpg/-thumb-800.jpg} -thumbnail 100 ${new_image_name/.jpg/-thumb-100.jpg}
+			fi
 		done
-
+		
 		# Copy to remove storage 
 		rclone move .screenshots/ ${rclone_upload}${remote_site_path}/ --fast-list --transfers=32 --no-update-modtime --progress
 
