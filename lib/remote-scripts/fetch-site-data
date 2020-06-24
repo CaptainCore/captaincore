@@ -9,7 +9,10 @@
 #   line 3: core version
 #   line 4: home url
 #   line 5: user data
-#   line 6: subsite count
+#   line 6: database name
+#   line 7: database username
+#   line 8: database password
+#   line 9: subsite count
 #
 
 plugins=$( wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version )
@@ -17,6 +20,11 @@ themes=$(wp theme list --format=json --skip-themes --skip-plugins --skip-package
 core=$( wp core version --skip-themes --skip-plugins --skip-packages )
 home_url=$( wp option get home --skip-themes --skip-plugins --skip-packages )
 users=$( wp user list --format=json --skip-themes --skip-plugins --skip-packages )
+
+db_name=$( grep DB_NAME wp-config.php | awk -F "'" '{print $4}' )
+db_username=$( grep DB_USER wp-config.php | awk -F "'" '{print $4}' )
+db_password=$( grep DB_PASS wp-config.php | awk -F "'" '{print $4}' )
+
 if $( wp core is-installed --network --skip-themes --skip-plugins --skip-packages ); then
     subsite_count=$( wp site list --format=count --skip-themes --skip-plugins --skip-packages )
 fi
@@ -27,4 +35,7 @@ echo ${themes} | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
 echo ${core} | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
 echo ${home_url} | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
 echo ${users} | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+echo ${db_name}
+echo ${db_username}
+echo ${db_password}
 echo ${subsite_count} | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'

@@ -29,14 +29,17 @@ $environment_id = ( new CaptainCore\Site( $site_details->site_id ) )->fetch_envi
 $valid          = true;
 
 $environment_update = [
-    "environment_id" => $environment_id,
-    "plugins"        => $responses[0],
-    "themes"         => $responses[1],
-    "core"           => $responses[2],
-    "home_url"       => $responses[3],
-    "users"          => $responses[4],
-    "subsite_count"  => $responses[5],
-    "updated_at"     => date("Y-m-d H:i:s"),
+    "environment_id"    => $environment_id,
+    "plugins"           => $responses[0],
+    "themes"            => $responses[1],
+    "core"              => $responses[2],
+    "home_url"          => $responses[3],
+    "users"             => $responses[4],
+    "database_name"     => $responses[5],
+    "database_username" => $responses[6],
+    "database_password" => $responses[7],
+    "subsite_count"     => $responses[8],
+    "updated_at"        => date("Y-m-d H:i:s"),
 ];
 
 $plugins = json_decode( $responses[0] );
@@ -54,7 +57,7 @@ if ( ! $valid ) {
     return;
 }
 
-$json        = $_SERVER['HOME'] . "/.captaincore-cli/config.json";
+$json        = "{$_SERVER['HOME']}/.captaincore-cli/config.json";
 $config_data = json_decode ( file_get_contents( $json ) );
 $system      = $config_data[0]->system;
 
