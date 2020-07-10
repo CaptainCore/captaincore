@@ -111,7 +111,7 @@ $request = [
         "command" => "update-fathom",
         "site_id" => $site->site_id,
         "token"   => $configuration->keys->token,
-        "data"    => [ "fathom" => $tracking_code ],
+        "data"    => [ "fathom" => $tracking_code, "environment_id" => $environment_id ],
     ] ),
 ];
 
