@@ -56,10 +56,8 @@ if ( $environment_name == "staging" ) {
 
 // If site name missing then do not proceed
 if ( $site_name == "" || strpos($site_name, ':') !== false ) {
-    echo "Thou shall not pass";
     return;
 }
-
 
 $json        = $_SERVER['HOME'] . "/.captaincore-cli/config.json";
 $config_data = json_decode ( file_get_contents( $json ) );
@@ -124,4 +122,4 @@ $response = wp_remote_post( $configuration->vars->captaincore_api, $request );
 echo $response['body'];
 
 // Deploy tracker
-echo shell_exec( "captaincore stats-deploy {$site->site}-{$environment_name} '$tracking_code' --captain_id=$captain_id" );
+echo shell_exec( "captaincore stats-deploy {$site->site}-${environment_name} '$tracking_code' --captain_id=$captain_id" );
