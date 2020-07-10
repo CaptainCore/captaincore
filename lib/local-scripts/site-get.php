@@ -117,7 +117,15 @@ $array = [
 
 if ( $format == 'bash' and $capture_pages != "" ) {
 	// Return as CSV
-	$capture_pages = implode(",", array_column( json_decode( $capture_pages ), "page" ) );
+	$capture_pages = implode(",", array_column( $capture_pages, "page" ) );
+}
+
+if ( $format == 'bash' && is_array( $fathom ) ) {
+	if ( $fathom[0]->domain == "" || $fathom[0]->code == "" ) {
+		$fathom = "";
+	} else {
+		$fathom = json_encode( $fathom );
+	}
 }
 
 $default_users = json_encode ( $site->account["defaults"]->users );

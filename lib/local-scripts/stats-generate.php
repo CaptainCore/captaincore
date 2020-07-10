@@ -21,28 +21,49 @@ foreach($args as $index => $arg) {
 // Converts --arguments into $arguments
 parse_str( implode( '&', $args ) );
 
-// Fetch site details
-$site_details = json_decode( shell_exec( "captaincore site get $site --captain_id=$captain_id" ) );
-
 // Determines environment
 if ( strpos($site, '-staging') !== false ) {
-    $environment = "staging";
-    $site_name = shell_exec( "captaincore ssh $site --command=\"wp option get home --skip-plugins --skip-themes\" --captain_id=$captain_id" );
+    $site        = str_replace( "-staging", "", $site );
+    $environment_name = "staging";
+} else {
+    $site        = str_replace( "-production", "", $site );
+    $environment_name = "production";
+}
+
+$lookup = ( new CaptainCore\Sites )->where( [ "site" => $site ] );
+
+// Error if site not found
+if ( count( $lookup ) == 0 ) {
+	echo "Error: Site '$site' not found.";
+	return;
+}
+
+// Fetch site
+$site           = ( new CaptainCore\Sites )->get( $lookup[0]->site_id );
+$environment_id = ( new CaptainCore\Site( $site->site_id ) )->fetch_environment_id( $environment_name );
+$environment    = ( new CaptainCore\Environments )->get( $environment_id );
+
+// Fetch site name
+if ( $environment_name == "production" ) {
+    $site_name = $site->name;
+}
+if ( $environment_name == "staging" ) {
+    $site_name = shell_exec( "captaincore ssh {$site->site}-{$environment_name} --command=\"wp option get home --skip-plugins --skip-themes\" --captain_id=$captain_id" );
     $site_name = str_replace( "http://", "", $site_name );
     $site_name = trim ( str_replace( "https://", "", $site_name ) );
-} else {
-    $environment = "production";
-    $site_name = $site_details->domain;
 }
+
 
 // If site name missing then do not proceed
 if ( $site_name == "" || strpos($site_name, ':') !== false ) {
+    echo "Thou shall not pass";
     return;
 }
 
-$json = $_SERVER['HOME'] . "/.captaincore-cli/config.json";
+
+$json        = $_SERVER['HOME'] . "/.captaincore-cli/config.json";
 $config_data = json_decode ( file_get_contents( $json ) );
-$system = $config_data[0]->system;
+$system      = $config_data[0]->system;
 
 foreach($config_data as $config) {
 	if ( isset( $config->captain_id ) and $config->captain_id == $captain_id ) {
@@ -63,29 +84,44 @@ $login_details = array(
 );
 
 // Authenticate to Fathom
-$auth = wp_remote_post( "$fathom_instance/api/session", array( 
+$auth = wp_remote_post( "$fathom_instance/api/session", [
     'method'  => 'POST',
-    'headers' => array( 'Content-Type' => 'application/json; charset=utf-8' ),
+    'headers' => [ 'Content-Type' => 'application/json; charset=utf-8' ],
     'body'    => json_encode( $login_details )
-) );
+] );
 
 // Add a new site to Fathom
-$response = wp_remote_post( "$fathom_instance/api/sites", array( 
+$response = wp_remote_post( "$fathom_instance/api/sites", [
     'cookies' => $auth['cookies'] ,
-    'headers' => array( 'Content-Type' => 'application/json; charset=utf-8' ),
-    'body'    => json_encode( array ( 'name' => $site_name ) )
-) );
+    'headers' => [ 'Content-Type' => 'application/json; charset=utf-8' ],
+    'body'    => json_encode( [ 'name' => $site_name ] )
+] );
 
-$new_code = json_decode( $response['body'] )->Data;
+$new_code      = json_decode( $response['body'] )->Data;
 $tracking_code = "[{\"code\":\"{$new_code->trackingId}\",\"domain\":\"{$site_name}\"}]";
 
 // Store updated info in WordPress datastore
-if ( $environment == "production" ) {
-    echo shell_exec( "wp post meta update {$site_details->ID} fathom '$tracking_code'");
-}
-if ( $environment == "staging" ) {
-    echo shell_exec( "wp post meta update {$site_details->ID} fathom_staging '$tracking_code'");
+( new CaptainCore\Environments )->update( [ "fathom" => $tracking_code ], [ "environment_id" => $environment_id ] );
+
+// Prepare request to API
+$request = [
+    'method'  => 'POST',
+    'headers' => [ 'Content-Type' => 'application/json' ],
+    'body'    => json_encode( [ 
+        "command" => "update-fathom",
+        "site_id" => $site->site_id,
+        "token"   => $configuration->keys->token,
+        "data"    => [ "fathom" => $tracking_code ],
+    ] ),
+];
+
+if ( $system->captaincore_dev ) {
+    $request['sslverify'] = false;
 }
 
+// Post to CaptainCore API
+$response = wp_remote_post( $configuration->vars->captaincore_api, $request );
+echo $response['body'];
+
 // Deploy tracker
-echo shell_exec( "captaincore stats-deploy $site '$tracking_code' --captain_id=$captain_id" );
+echo shell_exec( "captaincore stats-deploy {$site->site}-{$environment_name} '$tracking_code' --captain_id=$captain_id" );
