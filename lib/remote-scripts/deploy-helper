@@ -56,7 +56,7 @@ read -r -d '' build_mu_plugin << 'heredoc'
  * Plugin Name: CaptainCore Helper
  * Plugin URI: https://captaincore.io
  * Description: Collection of helper functions for CaptainCore
- * Version: 0.2.1
+ * Version: 0.2.2
  * Author: CaptainCore
  * Author URI: https://captaincore.io
  * Text Domain: captaincore-helper
@@ -151,6 +151,17 @@ function captaincore_login_handle_token() {
 }
 
 add_action( 'init', 'captaincore_login_handle_token' );
+
+/**
+ * Remove site health widget from dashboard.
+ */
+function captaincore_remove_site_health_widget() {
+	global $wp_meta_boxes;
+	unset( $wp_meta_boxes['dashboard']['normal']['core']['dashboard_site_health'] );
+}
+
+add_action( 'wp_dashboard_setup', 'captaincore_remove_site_health_widget' );
+
 heredoc
 
 echo "Generating '$wp_content/mu-plugins/captaincore-helper.php'"
