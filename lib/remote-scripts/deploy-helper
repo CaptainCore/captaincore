@@ -46,7 +46,7 @@ for arg in "$@"; do
 done
 
 if [[ "$wp_content" == "" ]]; then
-	wp_content="wp-content"
+	wp_content=$( wp eval "echo WP_CONTENT_DIR;" --skip-themes --skip-plugins )
 fi
 
 # Generate must-use plugin
