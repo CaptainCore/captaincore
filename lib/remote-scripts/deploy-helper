@@ -49,6 +49,11 @@ if [[ "$wp_content" == "" ]]; then
 	wp_content=$( wp eval "echo WP_CONTENT_DIR;" --skip-themes --skip-plugins )
 fi
 
+if [[ "$wp_content" == "" ]]; then
+	echo -e "Error: Unable to locate wp-content/ within $PWD"
+	exit 1
+fi
+
 # Generate must-use plugin
 read -r -d '' build_mu_plugin << 'heredoc'
 <?php
