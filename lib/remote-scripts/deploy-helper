@@ -61,7 +61,7 @@ read -r -d '' build_mu_plugin << 'heredoc'
  * Plugin Name: CaptainCore Helper
  * Plugin URI: https://captaincore.io
  * Description: Collection of helper functions for CaptainCore
- * Version: 0.2.2
+ * Version: 0.2.3
  * Author: CaptainCore
  * Author URI: https://captaincore.io
  * Text Domain: captaincore-helper
@@ -166,6 +166,16 @@ function captaincore_remove_site_health_widget() {
 }
 
 add_action( 'wp_dashboard_setup', 'captaincore_remove_site_health_widget' );
+
+/**
+ * Disable auto-update email notifications for plugins.
+ */
+add_filter( 'auto_plugin_update_send_email', '__return_false' );
+
+/**
+ * Disable auto-update email notifications for themes.
+ */
+add_filter( 'auto_theme_update_send_email', '__return_false' );
 
 heredoc
 
