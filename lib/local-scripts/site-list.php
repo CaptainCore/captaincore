@@ -73,11 +73,19 @@ if ( ! is_array( $sites ) ) {
 	return;
 }
 
-foreach ($sites as $site) {
+foreach ( $sites as $site ) {
 	$environment = strtolower ( $site->environment );
 	$to_add      = "{$site->site}-{$environment}";
 	if ( ! empty( $field ) ) {
 		$to_add = $site->{$field};
+	}
+	if ( ! empty( $field ) && strpos( $field, ',' ) !== false ) {
+		$fields = explode( ",", $field );
+		$values = [];
+		foreach ( $fields as $item ) {
+			$values[] = $site->{$item};
+		}
+		$to_add = implode( ",", $values );
 	}
 	if ( empty( $to_add ) ) {
 		continue;
