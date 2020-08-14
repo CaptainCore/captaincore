@@ -57,7 +57,7 @@ run_command() {
 
   if [ ${#targets[*]} -gt 0 ]; then
     # Runs on all sites
-    urls=$( captaincore site list ${targets[*]/targets=/@} --field=home_url --captain_id=$captain_id )
+    urls=$( captaincore site list ${targets[*]/targets=/@} --field=home_url,site --captain_id=$captain_id )
     for url in ${urls[*]}; do
       urls_to_check+=( ${url}${page},${site} )
     done
