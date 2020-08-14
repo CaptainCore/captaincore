@@ -198,7 +198,7 @@ if ( $command == 'generate' ) {
 		// Check if notifications count is exceeded, skip this record (Beyond 24hrs)
 		if ( $record->notify_count >= count( $notify_at ) ) {
 			$time_ago       = time_elapsed_string( '@' . $record->created_at );
-			$known_errors[] = "Response code {$record->http_code} on {$record->url} since $time_ago\n";
+			$known_errors[] = "{$record->http_code} response on {$record->name} 🔗 {$record->url} ⌚ $time_ago\n";
 			continue;
 		}
 
