@@ -131,7 +131,7 @@ run_command() {
   done
 
   # Build emails
-  email_content=$(php ${root_path}lib/local-scripts/monitor.php generate $log_file $monitor_file "$orignal_urls_to_check")
+  email_content=$(php ${root_path}lib/local-scripts/monitor.php generate $log_file $monitor_file "$orignal_urls_to_check" $captain_id)
 
   if [[ $email_content != "" ]]; then
 

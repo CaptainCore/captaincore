@@ -12,6 +12,9 @@ if ( isset( $argv[4] ) ) {
 		$urls_checked[$key] = substr( $value, $position + 1 );
 	}
 }
+if ( isset( $argv[5] ) ) {
+	$captain_id = $argv[5];
+}
 
 function time_elapsed_string( $datetime, $full = false ) {
 	$now  = new DateTime();
@@ -201,8 +204,7 @@ if ( $command == 'generate' ) {
 
 		// WordPress 5.2 bug causing random redirect loops with Kinsta cache on home page. If 301 found then sent a Kinsta purge cache.
 		if ( $record->notify_count == 0 and $record->http_code == '301' ) {
-			$site_name = shell_exec( "captaincore site search {$record->url} --search-field=home_url" );
-			shell_exec( "captaincore ssh $site_name --command=\"wp kinsta cache purge\"" );
+			shell_exec( "captaincore ssh {$record->name} --command=\"wp kinsta cache purge\" --captain_id=$captain_id" );
 		}
 
 		if ( $record->notify_count == 0 ) {
