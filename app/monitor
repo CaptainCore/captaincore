@@ -58,8 +58,10 @@ run_command() {
   if [ ${#targets[*]} -gt 0 ]; then
     # Runs on all sites
     urls=$( captaincore site list ${targets[*]/targets=/@} --field=home_url,site --captain_id=$captain_id )
-    for url in ${urls[*]}; do
-      urls_to_check+=( ${url}${page},${site} )
+    for item in ${urls[*]}; do
+      url=${item%%,*}
+      site_name=${item##*,}
+      urls_to_check+=( ${url}${page},${site_name} )
     done
     urls_to_check=${urls_to_check[@]}
   fi
