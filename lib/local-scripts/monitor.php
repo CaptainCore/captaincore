@@ -60,6 +60,7 @@ function process_log( $action = '' ) {
 		$record = (object) [
 			'http_code'  => $json->http_code,
 			'url'        => $json->url,
+			'name'       => $json->name,
 			'html_valid' => $json->html_valid,
 		];
 
@@ -107,11 +108,15 @@ if ( $command == 'check' ) {
 // Process command: Feed in log file, outputs error urls and clean log file
 if ( $command == 'process' ) {
 
-	$errors = process_log( 'update' );
-	$urls   = array_column( $errors, 'url' );
+	$errors  = process_log( 'update' );
+	$urls    = array_column( $errors, 'url', 'name' );
+	$results = "";
 
-	// Return URLs with errors
-	echo implode( ' ', $urls );
+	// Return URLs,name with errors
+	foreach ( $urls as $key => $value ) {
+		$results = "$results $value,$key";
+	}
+	echo trim( $results );
 
 }
 
@@ -154,6 +159,7 @@ if ( $command == 'generate' ) {
 			// Add to $monitor_records
 			$monitor_records[] = (object) [
 				'url'          => $log_error->url,
+				'name'         => $log_error->name,
 				'http_code'    => $log_error->http_code,
 				'html_valid'   => $log_error->html_valid,
 				'check_count'  => 1,
@@ -207,7 +213,7 @@ if ( $command == 'generate' ) {
 		// Check if "notify at" time is ready, otherwise skip this record
 		if ( $record->created_at > $notify_time_check ) {
 			$time_ago       = time_elapsed_string( '@' . $record->created_at );
-			$known_errors[] = "Response code {$record->http_code} on {$record->url} since $time_ago\n";
+			$known_errors[] = "{$record->http_code} response on {$record->name} 🔗 {$record->url} ⌚ $time_ago\n";
 			continue;
 		}
 
@@ -215,19 +221,19 @@ if ( $command == 'generate' ) {
 		if ( $record->html_valid == 'false' ) {
 			$record->notify_count = $record->notify_count + 1;
 			$time_ago             = time_elapsed_string( '@' . $record->created_at );
-			$errors[]             = "Response code {$record->http_code} on {$record->url} html is invalid since $time_ago\n";
+			$errors[]             = "{$record->http_code} response on {$record->name} 🔗 {$record->url} html is invalid ⌚ $time_ago\n";
 			continue;
 		}
 
 		// Check for redirects
 		if ( $record->http_code == '301' ) {
-			$warnings[] = "Response code {$record->http_code} on {$record->url}\n";
+			$warnings[] = "{$record->http_code} response on {$record->name} 🔗 {$record->url}\n";
 			continue;
 		}
 
 		// Append error to errors for email purposes
 		$time_ago             = time_elapsed_string( '@' . $record->created_at );
-		$errors[]             = "Response code {$record->http_code} on {$record->url} since $time_ago\n";
+		$errors[]             = "{$record->http_code} response on {$record->name} 🔗 {$record->url} ⌚ $time_ago\n";
 		$record->notify_count = $record->notify_count + 1;
 
 	}

@@ -46,7 +46,7 @@ run_command() {
     # Runs on specific sites
     for site in ${arguments[*]}; do
       url=$( captaincore site get $site --field=home_url --captain_id=$captain_id )
-      urls_to_check+=( ${url}${page} )
+      urls_to_check+=( ${url}${page},${site} )
     done
     urls_to_check=${urls_to_check[@]}
   fi
@@ -59,7 +59,7 @@ run_command() {
     # Runs on all sites
     urls=$( captaincore site list ${targets[*]/targets=/@} --field=home_url --captain_id=$captain_id )
     for url in ${urls[*]}; do
-      urls_to_check+=( ${url}${page} )
+      urls_to_check+=( ${url}${page},${site} )
     done
     urls_to_check=${urls_to_check[@]}
   fi
