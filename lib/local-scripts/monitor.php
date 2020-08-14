@@ -7,6 +7,10 @@ $monitor_json = $argv[3];
 if ( isset( $argv[4] ) ) {
 	$urls_checked = $argv[4];
 	$urls_checked = explode( ' ', $urls_checked );
+	foreach ($urls_checked as $key => $value) {
+		$position           = strpos( $value, "," );
+		$urls_checked[$key] = substr( $value, $position + 1 );
+	}
 }
 
 function time_elapsed_string( $datetime, $full = false ) {
@@ -175,7 +179,7 @@ if ( $command == 'generate' ) {
 	foreach ( $monitor_records as $key => $record ) {
 
 		// If existing monitor record not in original check, just remove it.
-		if ( ! in_array( $record->url, $urls_checked ) and $record->notify_count != 0 ) {
+		if ( ! in_array( $record->name, $urls_checked ) and $record->notify_count != 0 ) {
 			unset( $monitor_records[ $key ] );
 			continue;
 		}
