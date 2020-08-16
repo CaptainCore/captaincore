@@ -56,8 +56,14 @@ foreach( [ "once" ] as $run ) {
     $details = json_decode( $environment->details );
 
     if ( isset( $results->audits->{'errors-in-console'}->details->items ) && ! empty( $results->audits->{'errors-in-console'}->details->items ) ) {
+        $environment_update = [
+            "environment_id" => $environment_id,
+            "details"        => json_encode( $details ),
+            "updated_at"     => date("Y-m-d H:i:s"),
+        ];
+        
         $details->console_errors = $results->audits->{'errors-in-console'}->details->items;
-        ( new CaptainCore\Environments )->update( [ "details" => json_encode( $details ) ], [ "environment_id" => $environment_id ] );
+        ( new CaptainCore\Environments )->update( $environment_update, [ "environment_id" => $environment_id ] );
         echo "Detected " . count( $details->console_errors ). " errors on $home_url\n";
         echo json_encode( $results->audits->{'errors-in-console'}->details->items, JSON_PRETTY_PRINT );
 
@@ -69,7 +75,7 @@ foreach( [ "once" ] as $run ) {
                 "command" => "sync-data",
                 "site_id" => $site->site_id,
                 "token"   => $configuration->keys->token,
-                "data"    => [ "environment_id" => $environment_id, "details" => json_encode( $details ) ],
+                "data"    => $environment_update,
             ] ),
         ];
 
@@ -97,7 +103,7 @@ foreach( [ "once" ] as $run ) {
                 "command" => "sync-data",
                 "site_id" => $site->site_id,
                 "token"   => $configuration->keys->token,
-                "data"    => [ "environment_id" => $environment_id, "details" => json_encode( $details ) ],
+                "data"    => [ "environment_id" => $environment_id, "details" => json_encode( $details ), "updated_at" => date("Y-m-d H:i:s") ],
             ] ),
         ];
 
