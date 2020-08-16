@@ -53,13 +53,41 @@ foreach( [ "once" ] as $run ) {
     }
 
     $results = json_decode( $results );
+    $details = json_decode( $environment->details );
 
-    if ( isset( $results->audits->{'errors-in-console'}->details->items ) &&  ! empty( $results->audits->{'errors-in-console'}->details->items ) ) {
-        $details = json_decode( $environment->details );
+    if ( isset( $results->audits->{'errors-in-console'}->details->items ) && ! empty( $results->audits->{'errors-in-console'}->details->items ) ) {
         $details->console_errors = $results->audits->{'errors-in-console'}->details->items;
         ( new CaptainCore\Environments )->update( [ "details" => json_encode( $details ) ], [ "environment_id" => $environment_id ] );
         echo "Detected " . count( $details->console_errors ). " errors on $home_url\n";
         echo json_encode( $results->audits->{'errors-in-console'}->details->items, JSON_PRETTY_PRINT );
+
+        // Prepare request to API
+        $request = [
+            'method'  => 'POST',
+            'headers' => [ 'Content-Type' => 'application/json' ],
+            'body'    => json_encode( [ 
+                "command" => "sync-data",
+                "site_id" => $site->site_id,
+                "token"   => $configuration->keys->token,
+                "data"    => [ "environment_id" => $environment_id, "details" => json_encode( $details ) ],
+            ] ),
+        ];
+
+        if ( $system->captaincore_dev ) {
+            $request['sslverify'] = false;
+        }
+
+        // Post to CaptainCore API
+        $response = wp_remote_post( $configuration->vars->captaincore_api, $request );
+        echo $response['body'];
+        continue;
+    }
+
+    // No errors, empty existing if needed
+    if ( ! empty( $details->console_errors ) ) {
+
+        // Remove errors
+        unset( $details->console_errors );
 
         // Prepare request to API
         $request = [
