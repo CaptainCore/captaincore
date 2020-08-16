@@ -72,7 +72,7 @@ foreach( [ "once" ] as $run ) {
             'method'  => 'POST',
             'headers' => [ 'Content-Type' => 'application/json' ],
             'body'    => json_encode( [ 
-                "command" => "sync-data",
+                "command" => "sync-scan-errors",
                 "site_id" => $site->site_id,
                 "token"   => $configuration->keys->token,
                 "data"    => $environment_update,
