@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+
+#
+#   Scans for Javascript errors on one or more sites.
+#
+#   `captaincore scan-errors`
+#
+#   [<site>...]
+#   One or more sites to update.
+#
+#   [@<target>]
+#   Target groups of sites like @all @production or @staging. Use `captaincore update @production.updates-on` to target production sites marked for automatic updates.
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}lib/arguments
+
+run_command() {
+    
+    # Remove leading "--" from flags
+    for i in "${!flags[@]}"; do
+      flags[$i]=`echo ${flags[$i]} | cut -c 3-`
+    done
+
+    cd ${root_path}data
+
+    echo "Scanning $# sites"
+    INDEX=0
+    for website in "$@"; do
+
+      let INDEX=${INDEX}+1
+
+      # Extract environment
+      if [[ "$website" == *"-staging"* ]]; then
+        environment=staging
+      else
+        environment=production
+      fi
+
+      # Load site configs
+      while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain_id=$captain_id)"
+
+      # Scans for errors
+      wp eval-file ../lib/local-scripts/site-scan-errors-in-console.php site=$site environment=$environment ${flags[@]}
+
+    done
+
+}
+
+# See if any sites are specifed
+if [ ${#arguments[*]} -gt 0 ]; then
+  # Runs on specifed sites
+  run_command ${arguments[*]}
+fi
+
+# Runs on targeted sites
+if [ ${#targets[*]} -gt 0 ]; then
+  run_command $(captaincore site list ${targets[*]/targets=/@} --captain_id=$captain_id)
+fi
+
+# Error if no sites specifed
+if [[ $all != "true" ]] && [[ $updates_enabled != "true" ]] && [ ${#arguments[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
+fi
