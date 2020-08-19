@@ -62,10 +62,13 @@ run_command() {
 
   echo "Search and replace ${site}.wpengine.com to $domain"
   wp search-replace "${site}.wpengine.com" "$domain" --all-tables --skip-plugins --skip-themes --report-changed-only
-  echo "Search and replace ${site}.kinsta.cloud to $domain"
-  wp search-replace "${site}.kinsta.cloud" "$domain" --all-tables --skip-plugins --skip-themes --report-changed-only
+
   echo "Search and replace ${site}.kinsta.com to $domain"
   wp search-replace "${site}.kinsta.com" "$domain" --all-tables --skip-plugins --skip-themes --report-changed-only
+  
+  echo "Search and replace ${site}.kinsta.cloud to $domain"
+  wp search-replace "${site}.kinsta.cloud" "$domain" --all-tables --skip-plugins --skip-themes --report-changed-only
+
   wp option update blog_public 1
   wp cache flush
 
