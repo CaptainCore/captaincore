@@ -61,7 +61,7 @@ read -r -d '' build_mu_plugin << 'heredoc'
  * Plugin Name: CaptainCore Helper
  * Plugin URI: https://captaincore.io
  * Description: Collection of helper functions for CaptainCore
- * Version: 0.2.3
+ * Version: 0.2.4
  * Author: CaptainCore
  * Author URI: https://captaincore.io
  * Text Domain: captaincore-helper
@@ -98,9 +98,13 @@ function captaincore_quick_login_action_callback() {
 			'user_id'                 => $user->ID,
 			'captaincore_login_token' => $token,
 		];
-		$home_url     = home_url();
-		$login_url    = trim( $home_url, "/" ) . "/wp-login.php";
-		$one_time_url = add_query_arg( $query_args, $login_url );
+		$login_page     = "wp-login.php";
+		if ( is_plugin_active( 'wps-hide-login/wps-hide-login.php' ) ) {
+			$login_page = get_option( 'whl_page' );
+		}
+		$home_url       = home_url();
+		$login_url      = trim( $home_url, "/" ) . "/$login_page";
+		$one_time_url   = add_query_arg( $query_args, $login_url );
 	}
 
 	echo $one_time_url;
@@ -149,7 +153,7 @@ function captaincore_login_handle_token() {
 	}
 
 	update_user_meta( $user->ID, 'captaincore_login_token', $tokens );
-	wp_set_auth_cookie( $user->ID, true, is_ssl() );
+	wp_set_auth_cookie( $user->ID, 1 );
 	wp_safe_redirect( admin_url() );
 	exit;
 
