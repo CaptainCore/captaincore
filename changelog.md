@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.10.0] - 2020-09-05
+### Added
+- Command `scan-errors`
+- Command `regenerate-thumbnails`
+- Shell environmental variables
+- Support for dynamic /wp-content/ location
+- Generate high quality home page thumbnails after running `capture`
+
+### Changed
+- Site monitor emails notifications now include site names and emojis 🔗 ⌚
+- Support custom /wp-content/ path in remote scripts `deploy-fathom` and `deploy-helper`
+- Improved remote script `apply-https` to handle more common url replacements.
+- CaptainCore Helper v0.2.4: WPS Hide Login plugin compatibility
+- CaptainCore Helper v0.2.3: Disable WordPress 5.5 auto-update email notifications for themes and plugins
+- CaptainCore Helper v0.2.2: Remove site health widget from dashboard
+- CaptainCore Helper v0.2.1: Improves compatiblity with custom login plugins
+- Replaced Gowitness screenshots with https://screenshots.cloud
+
 ## [0.9.0] - 2020-04-11
 ### Added
 - Command `account sync`
