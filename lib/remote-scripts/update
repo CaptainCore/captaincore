@@ -101,7 +101,7 @@ run_command() {
   # Handle Elementor database updates if installed
   if $( wp plugin is-installed elementor ); then 
     silent=$( wp elementor update db 2>&1 )
-    # Handle WooCommerce database updates on multisite if installed
+    # Handle Elementor database updates on multisite if installed
     if $( wp core is-installed --network ); then 
       silent=$( wp elementor update db --network 2>&1 )
     fi
