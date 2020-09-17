@@ -98,6 +98,19 @@ run_command() {
       done
     fi
   fi
+  # Handle Elementor database updates if installed
+  if $( wp plugin is-installed elementor ); then 
+    silent=$( wp elementor update db 2>&1 )
+    # Handle WooCommerce database updates on multisite if installed
+    if $( wp core is-installed --network ); then 
+      for site_id in $( wp site list --field=blog_id ); do
+        site_url=$( wp site list --field=url --blog_id=${site_id} )
+        if $( wp plugin is-active elementor --url=$site_url ); then
+            silent=$( wp elementor update db --url=${site_url} 2>&1 )
+        fi
+      done
+    fi
+  fi
   silent=$( wp cache flush )
   if [[ $provider == "kinsta" ]]; then
     silent=$( wp kinsta cache purge )
