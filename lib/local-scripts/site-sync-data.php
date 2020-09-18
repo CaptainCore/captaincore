@@ -39,6 +39,7 @@ $environment_update = [
     "database_username" => $responses[6],
     "database_password" => $responses[7],
     "subsite_count"     => $responses[8],
+    "token"             => $responses[9],
     "updated_at"        => date("Y-m-d H:i:s"),
 ];
 
