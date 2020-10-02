@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+
+#
+#   Fetches backups for a site
+#
+#   `captaincore site backup get <site> <backup-id>`
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}lib/arguments
+
+# See if any sites are specifed
+if [ ${#arguments[*]} -ne 2 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify <site> and <backup-id>."
+  exit 1
+fi
+
+site=$1
+backup_id=$2
+
+# Extract environment
+if [[ "$site" == *"-staging"* ]]; then
+    environment=staging
+fi
+
+if [[ "$site" == *"-production"* ]]; then
+    environment=production
+fi
+
+if [[ "$site" != *"-"* ]]; then
+    environment=production
+fi
+
+# Load site configs
+while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
+
+backup_items="$path/${site}_${site_id}/${environment}/backups/snapshot-$backup_id.json"
+
+if [ ! -f "$backup_items" ]; then
+    captaincore site backup get-generate $site-$environment $backup_id --captain_id=$captain_id
+fi
+
+cat $backup_items

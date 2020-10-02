@@ -149,15 +149,20 @@ run_command() {
     fi
 
     if [[ $skip_remote != true ]]; then
-      # Incremental backup upload to Remote
-      echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $site to remote (${INDEX}/$#)" >> $logs_path/backup-log.txt
-      echo "$(date +'%Y-%m-%d %H:%M') Queuing incremental backup $site to remote (${INDEX}/$#)"
-      rclone sync $path/${site}_${site_id}/${environment}/backup/ $rclone_backup/${site}_${site_id}/${environment}/backup/ -v --exclude-from="${root_path}lib/excludes" --fast-list --transfers=32 --no-update-modtime --log-file="$logs_path/site-$site-remote.txt"
-      rclone copy $path/${site}_${site_id}/${environment}/backup/database-backup.sql $rclone_backup/${site}_${site_id}/${environment}/backup/ --fast-list --no-update-modtime
+      # Incremental backup upload to Restic
+      echo "$(date +'%Y-%m-%d %H:%M') Storing $site to backup archive (${INDEX}/$#)" >> $logs_path/backup-log.txt
+      echo "$(date +'%Y-%m-%d %H:%M') Storing $site to backup archive (${INDEX}/$#)"
+      if [[ $( restic snapshots --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo ) == "" ]]; then
+        echo "Generating restic repo for $site"
+        restic init --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo
+      fi
+      cd $path/${site}_${site_id}/${environment}/backup/
+      restic backup . --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo
+      captaincore site backup list-generate ${site}-${environment} --captain_id=$captain_id
+      captaincore site backup get-generate ${site}-${environment} --captain_id=$captain_id
 
-      # Add site to Remote log file
       # Grabs last 6 lines of output from remote transfer to log file
-      sh -c "echo \"Finished remote backup $site (${INDEX}/$#)\" >> $logs_path/backup-remote.txt && tail -6 $logs_path/site-$site-remote.txt >> $logs_path/backup-remote.txt"
+      sh -c "echo \"Finished remote backup $site (${INDEX}/$#)\" >> $logs_path/backup-remote.txt
     fi
 
     captaincore usage-update ${site}-${environment} --captain_id=$captain_id
