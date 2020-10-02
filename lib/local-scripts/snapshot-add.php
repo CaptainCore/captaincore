@@ -21,7 +21,7 @@ foreach($args as $index => $arg) {
 // Converts --arguments into $arguments
 parse_str( implode( '&', $args ) );
 
-$site = ( new CaptainCore\Sites )->get( $site_id );
+$site           = ( new CaptainCore\Sites )->get( $site_id );
 $environment_id = ( new CaptainCore\Site( $site_id ) )->fetch_environment_id( $environment );
 
 if ( $user_id == "") {
@@ -84,3 +84,34 @@ if ( ! empty( $system->captaincore_dev ) ) {
 // Post to CaptainCore API
 $response = wp_remote_post( $configuration->vars->captaincore_api, $request );
 echo $response['body'];
+
+$environment             = ( new CaptainCore\Environments )->get( $environment_id );
+$details                 = json_decode( $environment->details );
+$details->snapshot_count = count ( ( new CaptainCore\Snapshots )->where( [ "environment_id" => $environment_id ] ) );
+
+$environment_update = [
+    "environment_id" => $environment_id,
+    "details"        => json_encode( $details ),
+    "updated_at"     => date("Y-m-d H:i:s"),
+];
+
+( new CaptainCore\Environments )->update( $environment_update, [ "environment_id" => $environment_id ] );
+
+// Prepare request to API
+$request = [
+    'method'  => 'POST',
+    'headers' => [ 'Content-Type' => 'application/json' ],
+    'body'    => json_encode( [ 
+        "command" => "sync-scan-errors",
+        "site_id" => $site_id,
+        "token"   => $configuration->keys->token,
+        "data"    => $environment_update,
+    ] ),
+];
+
+if ( $system->captaincore_dev ) {
+    $request['sslverify'] = false;
+}
+
+// Post to CaptainCore API
+$response = wp_remote_post( $configuration->vars->captaincore_api, $request );

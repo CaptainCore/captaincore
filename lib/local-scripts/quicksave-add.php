@@ -138,25 +138,39 @@ if ( $ostype == "Darwin" ) {
 	$quicksave_storage = trim ( shell_exec( "cd {$site_path}; find . -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'" ) );
 }
 
-$quicksaves_usage = [
+$environment              = ( new CaptainCore\Environments )->get( $environment_id );
+$details                  = json_decode( $environment->details );
+$details->quicksave_usage = [
 	"count"          => $quicksave_count,
 	"storage"        => $quicksave_storage,
-	"environment_id" => $environment_id,
 ];
 
-$details = json_decode( $site->details );
-if ( ! is_array( $details->quicksaves_usage ) ) {
-	$details->quicksaves_usage = [];
-}
-$key = array_search( $environment_id, $details->quicksaves_usage );
+$environment_update = [
+    "environment_id" => $environment_id,
+    "details"        => json_encode( $details ),
+    "updated_at"     => date("Y-m-d H:i:s"),
+];
 
-if ( $key ) {
-	$details->quicksaves_usage[$key] = $quicksaves_usage;
-} else {
-	$details->quicksaves_usage[] = $quicksaves_usage;
+( new CaptainCore\Environments )->update( $environment_update, [ "environment_id" => $environment_id ] );
+
+// Prepare request to API
+$request = [
+    'method'  => 'POST',
+    'headers' => [ 'Content-Type' => 'application/json' ],
+    'body'    => json_encode( [ 
+        "command" => "sync-scan-errors",
+        "site_id" => $site_id,
+        "token"   => $configuration->keys->token,
+        "data"    => $environment_update,
+    ] ),
+];
+
+if ( $system->captaincore_dev ) {
+    $request['sslverify'] = false;
 }
 
-( new CaptainCore\Sites )->update( [ "details" => json_encode( $details ) ], [ "site_id" => $site->site_id ] );
+// Post to CaptainCore API
+$response = wp_remote_post( $configuration->vars->captaincore_api, $request );
 
 # Generate capture
 shell_exec( "captaincore capture {$site->site}-{$env} --captain_id=$captain_id" );
