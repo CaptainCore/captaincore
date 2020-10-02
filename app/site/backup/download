@@ -88,8 +88,11 @@ read -r -d '' php_code << heredoc
 heredoc
 timestamp=$( php -r "$php_code" )
 rclone copy --files-from ${restore_path}/files_to_restore.txt ${restore_path}/$mount_name/ids/${backup_id:0:8}/ ${restore_path}/restore/ --transfers 32
-umount ${restore_path}/$mount_name/
+
+# Unmount Restic repo
+fusermount -u ${restore_path}/$mount_name/
 rmdir ${restore_path}/$mount_name/
+
 cd $restore_path
 zip -qr ${zip_name} restore/
 rm -rf ${restore_path}/restore/
