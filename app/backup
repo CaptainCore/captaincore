@@ -162,7 +162,7 @@ run_command() {
       captaincore site backup get-generate ${site}-${environment} --captain_id=$captain_id
 
       # Grabs last 6 lines of output from remote transfer to log file
-      sh -c "echo \"Finished remote backup $site (${INDEX}/$#)\" >> $logs_path/backup-remote.txt
+      sh -c "echo \"Finished remote backup $site (${INDEX}/$#)\" >> $logs_path/backup-remote.txt"
     fi
 
     captaincore usage-update ${site}-${environment} --captain_id=$captain_id
