@@ -157,7 +157,7 @@ run_command() {
         restic init --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo
       fi
       cd $path/${site}_${site_id}/${environment}/backup/
-      restic backup . --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo
+      restic backup . --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --exclude-file="${root_path}lib/restic-excludes"
       captaincore site backup list-generate ${site}-${environment} --captain_id=$captain_id
       captaincore site backup get-generate ${site}-${environment} --captain_id=$captain_id
 
