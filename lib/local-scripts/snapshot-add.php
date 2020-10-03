@@ -102,7 +102,7 @@ $request = [
     'method'  => 'POST',
     'headers' => [ 'Content-Type' => 'application/json' ],
     'body'    => json_encode( [ 
-        "command" => "sync-scan-errors",
+        "command" => "update-environment",
         "site_id" => $site_id,
         "token"   => $configuration->keys->token,
         "data"    => $environment_update,
