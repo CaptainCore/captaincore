@@ -2,6 +2,7 @@
 /database-backup.sql
 .DS_Store
 *timthumb.txt
+/wp-content/updraft/
 /wp-content/cache/
 /wp-content/uploads_from_s3/
 /wp-snapshots/
