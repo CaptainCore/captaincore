@@ -1,6 +1,10 @@
 # Excludes the following from backup repo
 .DS_Store
 *timthumb.txt
+debug.log
+error_log
+phperror_log
+wp-content/updraft/
 wp-content/cache/
 wp-content/uploads_from_s3/
 wp-snapshots/
