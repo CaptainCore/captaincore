@@ -152,12 +152,12 @@ run_command() {
       # Incremental backup upload to Restic
       echo "$(date +'%Y-%m-%d %H:%M') Storing $site to backup archive (${INDEX}/$#)" >> $logs_path/backup-log.txt
       echo "$(date +'%Y-%m-%d %H:%M') Storing $site to backup archive (${INDEX}/$#)"
-      if [[ $( restic snapshots --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo ) == "" ]]; then
+      if [[ $( restic snapshots --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file ${root_path}data/restic.key ) == "" ]]; then
         echo "Generating restic repo for $site"
-        restic init --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo
+        restic init --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file ${root_path}data/restic.key
       fi
       cd $path/${site}_${site_id}/${environment}/backup/
-      restic backup . --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --exclude-file="${root_path}lib/restic-excludes"
+      restic backup . --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --exclude-file="${root_path}lib/restic-excludes" --password-file ${root_path}data/restic.key
       captaincore site backup list-generate ${site}-${environment} --captain_id=$captain_id
       captaincore site backup get-generate ${site}-${environment} --captain_id=$captain_id
 

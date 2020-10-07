@@ -33,9 +33,9 @@ $config_data = json_decode ( file_get_contents( $json ) );
 $system      = $config_data[0]->system;
 
 if ( $system->captaincore_fleet == "true" ) {
-    $system->rclone_backup   = "{$system->rclone_backup}/{$captain_id}";
+    $system->rclone_backup = "{$system->rclone_backup}/{$captain_id}";
 }
-$command      = "restic ls -l $backup_id / --recursive --repo rclone:{$system->rclone_backup}/${site}_${site_id}/${environment}/restic-repo --json";
+$command      = "restic ls -l $backup_id / --recursive --repo rclone:{$system->rclone_backup}/${site}_${site_id}/${environment}/restic-repo --json --password-file {$_SERVER['HOME']}/.captaincore-cli/data/restic.key";
 $items        = shell_exec( $command );
 $items        = explode( PHP_EOL, $items );
 $folder_usage = [];
