@@ -42,7 +42,7 @@ if [[ "$backup_id" == "" ]] || [[ "$backup_id" == *"--"* ]]; then
     echo "Backup id not selected. Generating response for latest ID $backup_id"
 fi
 
-if [[ $( restic snapshots --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file {$_SERVER['HOME']}/.captaincore-cli/data/restic.key ) == "" ]]; then
+if [[ $( restic snapshots --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file="{$_SERVER['HOME']}/.captaincore-cli/data/restic.key" ) == "" ]]; then
     echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Backup repo not found."
     exit 1
 fi
