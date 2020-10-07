@@ -44,7 +44,8 @@ if ( $system->captaincore_fleet == "true" ) {
 }
 
 $command   = "restic snapshots --repo rclone:{$system->rclone_backup}/${site}_${site_id}/${environment}/restic-repo --json";
-$snapshots = json_decode ( shell_exec( $command ) );
+$response  = shell_exec( $command );
+$snapshots = json_decode ( $response );
 
 foreach ( $snapshots as $snapshot ) {
     unset( $snapshot->hostname );
@@ -54,6 +55,15 @@ foreach ( $snapshots as $snapshot ) {
     unset( $snapshot->gid );
 }
 echo json_encode( $snapshots, JSON_PRETTY_PRINT );
+
+if ( empty ( count( $snapshots ) ) ) {
+    $error = [
+        "response" => $response,
+        "command"  => $command,
+    ];
+    $error_file = "{$_SERVER['HOME']}/.captaincore-cli/data/snapshot-error.log";
+    file_put_contents( $error_file, json_encode( $error, JSON_PRETTY_PRINT ) );
+}
 
 $environment_id = ( new CaptainCore\Site( $site_id ) )->fetch_environment_id( $environment );
 $environment    = ( new CaptainCore\Environments )->get( $environment_id );
