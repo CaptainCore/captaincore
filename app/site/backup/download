@@ -46,8 +46,13 @@ zip_name="${site}_${environment}_${backup_id:0:8}_at_$timestamp.zip"
 mkdir -p "$restore_path"
 
 read -r -d '' php_code << heredoc
-\$tree_items = json_decode( base64_decode( file_get_contents ( "$payload_file" ) ) );
-file_put_contents ( "$restore_path/files_to_restore.txt", implode( PHP_EOL, \$tree_items ) );
+\$data        = json_decode( base64_decode( file_get_contents ( "$payload_file" ) ) );
+\$files       = \$data->files; 
+\$directories = \$data->directories;
+if ( ! empty( \$directories ) ) {
+    file_put_contents ( "$restore_path/directories_to_restore.txt", implode( PHP_EOL, \$directories ) );
+}
+file_put_contents ( "$restore_path/files_to_restore.txt", implode( PHP_EOL, \$files ) );
 heredoc
 
 php -r "$php_code"
@@ -88,6 +93,11 @@ read -r -d '' php_code << heredoc
 heredoc
 timestamp=$( php -r "$php_code" )
 rclone copy --files-from ${restore_path}/files_to_restore.txt ${restore_path}/$mount_name/ids/${backup_id:0:8}/ ${restore_path}/restore/ --transfers 32
+if [ -f "${restore_path}/directories_to_restore.txt" ]; then
+    while IFS= read -r line; do
+        rclone copy ${restore_path}/$mount_name/ids/${backup_id:0:8}${line} ${restore_path}/restore${line} --transfers 32
+    done < "${restore_path}/directories_to_restore.txt"
+fi
 
 # Unmount Restic repo
 fusermount -u ${restore_path}/$mount_name/
