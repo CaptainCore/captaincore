@@ -42,10 +42,10 @@ foreach($config_data as $config) {
 if ( $system->captaincore_fleet == "true" ) {
     $system->rclone_backup = "{$system->rclone_backup}/{$captain_id}";
 }
-
-$command   = "restic snapshots --repo rclone:{$system->rclone_backup}/${site}_${site_id}/${environment}/restic-repo --password-file=\"{$_SERVER['HOME']}/.captaincore-cli/data/restic.key\" --json";
-$response  = shell_exec( $command );
-$snapshots = json_decode ( $response );
+$restic_key = $_SERVER['HOME']. "/.captaincore-cli/data/restic.key";
+$command    = "restic snapshots --repo rclone:{$system->rclone_backup}/${site}_${site_id}/${environment}/restic-repo --password-file=${restic_key} --json";
+$response   = shell_exec( $command );
+$snapshots  = json_decode ( $response );
 
 foreach ( $snapshots as $snapshot ) {
     unset( $snapshot->hostname );
