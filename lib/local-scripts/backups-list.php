@@ -32,19 +32,15 @@ if ( ! file_exists( $json ) ) {
 $config_data = json_decode ( file_get_contents( $json ) );
 $system      = $config_data[0]->system;
 
-$json        = "{$_SERVER['HOME']}/.captaincore-cli/config.json";
-$config_data = json_decode ( file_get_contents( $json ) );
-$system      = $config_data[0]->system;
-
 foreach($config_data as $config) {
-	if ( isset( $config->captain_id ) and $config->captain_id == $captain_id ) {
+	if ( isset ( $config->captain_id ) and $config->captain_id == $captain_id ) {
 		$configuration = $config;
 		break;
 	}
 }
 
 if ( $system->captaincore_fleet == "true" ) {
-    $system->rclone_backup   = "{$system->rclone_backup}/{$captain_id}";
+    $system->rclone_backup = "{$system->rclone_backup}/{$captain_id}";
 }
 
 $command   = "restic snapshots --repo rclone:{$system->rclone_backup}/${site}_${site_id}/${environment}/restic-repo --json";
