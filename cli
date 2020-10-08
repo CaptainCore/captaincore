@@ -67,8 +67,25 @@ for arg in "${CMD_ARGS[@]}"; do
     if [[ "${arg}" == "--captain_id"* ]]; then
         captain_id=true
     fi
+    if [[ "${arg}" == "--progress"* ]]; then
+        progress=true
+    fi
     arg_i=$((arg_i+1))
 done
+
+# Track parent Process ID, ignore if already defined.
+if [[ "${CMD_ARGS[@]}" != *"--process_id="* ]]; then
+    CMD_ARGS+=(--process_id=$$)
+fi
+
+if [[ $captain_id == "" ]]; then
+    CMD_ARGS+=(--captain_id=1)
+fi
+
+if [[ $progress == "true" ]]; then
+    cmd="${@:1:$((CMD_ARG_START - 1))} ${CMD_ARGS[@]}"
+	$ROOT_DIR/lib/local-scripts/add-process.php "$cmd"
+fi
 
 # Run the command and capture its exit code for introspection
 if [[ $fleet == "true" ]] && [[ $captain_id == "true" ]]; then
@@ -76,16 +93,12 @@ if [[ $fleet == "true" ]] && [[ $captain_id == "true" ]]; then
     exit 3
 fi
 if [[ $fleet == "true" ]] && [[ $captain_id != "true" ]]; then
-    for captain_id in $(php $ROOT_DIR/lib/local-scripts/configs.php fetch-captain_ids); do
-	   "$CMD_FILE" "${CMD_ARGS[@]/--fleet/--captain_id=$captain_id}"
+    for id in $(php $ROOT_DIR/lib/local-scripts/configs.php fetch-captain_ids); do
+	   "$CMD_FILE" "${CMD_ARGS[@]/--fleet/--captain_id=$id}"
     done
     exit 3
 fi
-if [[ $fleet != "true" ]] && [[ $captain_id == "true" ]]; then
-	"$CMD_FILE" "${CMD_ARGS[@]}"
-fi
-if [[ $fleet != "true" ]] && [[ $captain_id == "" ]]; then
-    CMD_ARGS+=(--captain_id=1)
+if [[ $fleet != "true" ]]; then
 	"$CMD_FILE" "${CMD_ARGS[@]}"
 fi
 EXIT_CODE=$?
