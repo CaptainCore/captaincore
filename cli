@@ -78,7 +78,7 @@ if [[ "${CMD_ARGS[@]}" != *"--process_id="* ]]; then
     CMD_ARGS+=(--process_id=$$)
 fi
 
-if [[ $captain_id == "" ]]; then
+if [[ $captain_id == "" && $fleet != "true"  ]]; then
     CMD_ARGS+=(--captain_id=1)
 fi
 
