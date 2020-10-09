@@ -30,19 +30,23 @@ run_command() {
 	sites=$@
   count=( $sites )
 
-  echo ${#count[@]} > ${root_path}data/process-${process_id}-progress.log
+  # Start progress tracking
+  echo ${#count[@]} > ${path}/process-${process_id}-progress.log
 
-	# Assign default parallel if needed
 	if [[ $parallel == "" ]]; then
 		parallel=3
 	fi
 	echo $sites | xargs -P $parallel -n 1 captaincore backup-runner "${flags[@]}"
 
+  # End progress tracking
+  if [ -f "${path}/process-${process_id}-progress.log" ]; then
+    sleep 10 && rm "${path}/process-${process_id}-progress.log" &
+  fi
+
 }
 
-# See if any sites are specifed
+# Runs on specifed sites
 if [ ${#arguments[*]} -gt 0 ]; then
-  # Runs on specifed sites
   run_command ${arguments[*]}
 fi
 

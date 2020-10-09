@@ -124,7 +124,7 @@ run_command() {
 
     captaincore usage-update ${site}-${environment} --captain_id=$captain_id
 
-    echo -n "." >> ${root_path}data/process-${process_id}-progress.log
+    echo -n "." >> ${path}/process-${process_id}-progress.log
 
 }
 
