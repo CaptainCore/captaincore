@@ -50,27 +50,33 @@ done
 
 run_command() {
 
-	if [[ $site == "" ]]; then
-    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify --site=<site>."
-    exit 1
-  fi
-
-  if [[ $domain == "" ]]; then
+  if [[ "$domain" == "" ]]; then
     echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify --domain=<domain>."
     exit 1
   fi
 
-  echo "Search and replace ${site}.wpengine.com to $domain"
-  wp search-replace "${site}.wpengine.com" "$domain" --all-tables --skip-plugins --skip-themes --report-changed-only
+  current_domain=$( wp option get home --skip-plugins --skip-themes )
+  current_domain=${current_domain/http:\/\//}                 # removes https://
+  current_domain=${current_domain/https:\/\//}                # removes http://
+  current_domain=$( echo $current_domain | awk '{$1=$1};1' )  # Trims whitespace
 
-  echo "Search and replace ${site}.kinsta.com to $domain"
-  wp search-replace "${site}.kinsta.com" "$domain" --all-tables --skip-plugins --skip-themes --report-changed-only
-  
-  echo "Search and replace ${site}.kinsta.cloud to $domain"
-  wp search-replace "${site}.kinsta.cloud" "$domain" --all-tables --skip-plugins --skip-themes --report-changed-only
+  if [[ "$current_domain" == "" ]] || [[ "$current_domain" != *"."* ]]; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Could not find existing domain."
+    exit 1
+  fi
 
-  wp option update blog_public 1
+  echo "Search and replace //${current_domain} to //$domain"
+  wp search-replace "//${current_domain}" "//$domain" --all-tables --skip-plugins --skip-themes --report-changed-only
+
+  echo "Search and replace \/\/${current_domain} to \/\/$domain"
+  wp search-replace "\/\/${current_domain}" "\/\/$domain" --all-tables --skip-plugins --skip-themes --report-changed-only
+
+  wp option update blog_public 1 --skip-plugins --skip-themes
   wp cache flush
+
+  if [[ "$current_domain" == *"kinsta"* ]]; then
+    wp kinsta cache purge
+  fi
 
 }
 
