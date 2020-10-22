@@ -49,7 +49,7 @@ if [ ${#targets[*]} -gt 0 ] && ( [[ $command != "" ]] || [[ $script != "" ]] || 
   if [[ $debug == "true" ]]; then
     echo "run_command $(captaincore site list ${targets[*]/targets=/@} --captain_id=$captain_id)"
   fi
-  exit 1
+  exit
 fi
 
 # Connects to SSH directly
@@ -58,7 +58,7 @@ if [ ${#targets[*]} -eq 0 ] && [ ${#arguments[*]} -gt 0 ] && [ ${#flags[@]} -eq 
   if [[ $debug == "true" ]]; then
     echo "captaincore ssh-runner ${arguments[*]} --captain_id=$captain_id"
   fi
-  exit 1
+  exit
 fi
 
 # Runs on specific sites
@@ -67,13 +67,13 @@ if [ ${#targets[*]} -eq 0 ] && [ ${#arguments[*]} -gt 0 ]; then
   if [[ $debug == "true" ]]; then
     echo "run_command ${arguments[*]}"
   fi
-  exit 1
+  exit
 fi
 
 # Error if no sites specifed
 if [ ${#targets[*]} -eq 0 ]; then
   echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use a target @all, @production or @staging."
-  exit 1
+  exit
 fi
 
 # Error if no sites specifed
