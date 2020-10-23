@@ -4,7 +4,7 @@ CaptainCore CLI
 
 </h1>
 
-This is the command line application powering everything under the hood for CaptainCore. [CaptainCore](https://captaincore.io) is a WordPress management toolkit for geeky maintenance professionals. The CLI is built using [Bash CLI](https://github.com/SierraSoftworks/bash-cli) and manages WordPress sites via SSH & WP-CLI. For a GUI interface install the [CaptainCore](https://github.com/captaincore/captaincore-gui) WordPress plugin on any WordPress site and connect it to a CaptainCore instance.
+CaptainCore CLI is a command line application powering everything under the hood for [CaptainCore](https://captaincore.io). It's built using [Bash CLI](https://github.com/SierraSoftworks/bash-cli) and manages WordPress sites via SSH & WP-CLI. For a GUI interface install the [CaptainCore](https://github.com/captaincore/captaincore-gui) WordPress plugin on any WordPress site and connect it to a CaptainCore instance.
 
 [![emoji-log](https://cdn.rawgit.com/ahmadawais/stuff/ca97874/emoji-log/flat.svg)](https://github.com/ahmadawais/Emoji-Log/)
 
@@ -21,11 +21,11 @@ Eventually all of these steps will be wrapped into a single kickstart.sh script.
 
 - Download `git clone https://github.com/captaincore/captaincore-cli.git ~/.captaincore-cli/`
 - Install `captaincore` command globally by running `sudo ln -s ~/.captaincore-cli/cli /usr/local/bin/captaincore`
-- Download [latest rclone](https://rclone.org/downloads/) and install system wide by running `sudo ln -s ~/Download/rclone-v1.46-linux-amd64/rclone /usr/local/bin/rclone`
-- Run `rclone config` and add your [cloud storage providers](https://rclone.org/overview/). Recommend Backblaze B2 for backups/snapshots and Dropbox for log files as they require link sharing support.
-- Install PHP: `sudo apt-get install -y php7.0 php7.0-fpm php7.0-cli php7.0-common php7.0-mbstring php7.0-gd php7.0-intl php7.0-xml php7.0-mysql php7.0-mcrypt php7.0-zip`
+- Download [latest rclone](https://rclone.org/downloads/) and install system wide by running `curl https://rclone.org/install.sh | sudo bash`
+- Run `rclone config` and add your [cloud storage providers](https://rclone.org/overview/) which will be used for site backups, site thumbnails, quicksaves and snapshots. Recommend using Backblaze B2.
+- Install PHP: `sudo apt-get install -y php7.4 php7.4-fpm php7.4-cli php7.4-common php7.4-mbstring php7.4-gd php7.4-intl php7.4-xml php7.4-mysql php7.4-zip`
 - Install WP-CLI: [Refer to Offical Docs](https://make.wordpress.org/cli/handbook/installing/)
-- Install JSON package: `sudo npm install --global json`
+- Install inotifywait `sudo apt-get install -y inotify-tools`
 - Install MariaDB: `sudo apt-get install mariadb-server mariadb-client && sudo systemctl enable mysql.service && sudo systemctl start mysql.service && sudo mysql_secure_installation`
 - Copy MariaDB root password to `~/.captaincore-cli/config` as `local_wp_db_pw="<db-password>"`
 - Copy `config.sample` to `config` and configure `Local Paths`, `Remote Paths` and `Vars`
