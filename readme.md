@@ -4,12 +4,12 @@ CaptainCore CLI
 
 </h1>
 
-[CaptainCore](https://captaincore.io) is a powerful toolkit for managing WordPress sites via SSH & WP-CLI. Built using [Bash CLI](https://github.com/SierraSoftworks/bash-cli). Integrates with the [CaptainCore GUI (WordPress plugin)](https://github.com/captaincore/captaincore-gui).
+This is the command line application powering everything under the hood for CaptainCore. [CaptainCore](https://captaincore.io) is a WordPress management toolkit for geeky maintenance professionals. The CLI is built using [Bash CLI](https://github.com/SierraSoftworks/bash-cli) and manages WordPress sites via SSH & WP-CLI. For a GUI interface install the [CaptainCore](https://github.com/captaincore/captaincore-gui) WordPress plugin on any WordPress site and connect it to a CaptainCore instance.
 
 [![emoji-log](https://cdn.rawgit.com/ahmadawais/stuff/ca97874/emoji-log/flat.svg)](https://github.com/ahmadawais/Emoji-Log/)
 
 ## **Warning**
-This project is under active development and **not yet stable**. Things may break without notice. Only proceed if your wanting to spend time on the project. Sign up to receive project update at [captaincore.io](https://captaincore.io/).
+This project is under active development and **not yet stable**. Things may break without notice. Only proceed if your wanting to spend time on the projects. Sign up to receive project update at [captaincore.io](https://captaincore.io/).
 
 ## Getting started
 
