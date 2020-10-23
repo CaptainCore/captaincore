@@ -85,7 +85,32 @@ foreach( [ "once" ] as $run ) {
             $request['sslverify'] = false;
         }
 
-        // Post to CaptainCore API
+        $response = wp_remote_post( $configuration->vars->captaincore_api, $request );
+
+        $details  = json_decode( $site->details );
+        $details->console_errors = $results->audits->{'errors-in-console'}->details->items;
+        $site_update = [
+            "site_id" => $site->site_id,
+            "details" => json_encode( $details )
+        ];
+        ( new CaptainCore\Sites )->update( $site_update, [ "site_id" => $site->site_id ] );
+
+        // Prepare request to API
+        $request = [
+            'method'  => 'POST',
+            'headers' => [ 'Content-Type' => 'application/json' ],
+            'body'    => json_encode( [ 
+                "command" => "update-site",
+                "site_id" => $site->site_id,
+                "token"   => $configuration->keys->token,
+                "data"    => $site_update,
+            ] ),
+        ];
+
+        if ( $system->captaincore_dev ) {
+            $request['sslverify'] = false;
+        }
+
         $response = wp_remote_post( $configuration->vars->captaincore_api, $request );
         echo $response['body'];
         continue;
