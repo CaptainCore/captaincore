@@ -106,6 +106,10 @@ run_command() {
       silent=$( wp elementor update db --network 2>&1 )
     fi
   fi
+  # Handle redirection database updates if installed
+  if $( wp plugin is-installed redirection ); then 
+    silent=$( wp redirection database upgrade 2>&1 )
+  fi
   silent=$( wp cache flush )
   if [[ $provider == "kinsta" ]]; then
     silent=$( wp kinsta cache purge )
