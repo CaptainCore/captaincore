@@ -36,7 +36,8 @@ run_command() {
 		# Deploy global defaults
 		captaincore site deploy-defaults $site_id --global-only
 
-		captaincore quicksave ${site_id}-production
+		# Capture screenshot
+		captaincore capture ${site_id}-production
 
 	fi
 
