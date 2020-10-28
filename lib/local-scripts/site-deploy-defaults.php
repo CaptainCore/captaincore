@@ -80,11 +80,9 @@ foreach( [ "once" ] as $run ) {
 
 // Add account defaults
 if ( ! isset( $global_only ) ) {
-foreach ( $accounts as $account_id ) {
+foreach ( $accounts as $account ) {
 
-    $account  = ( new CaptainCore\Accounts )->get( $account_id );
-    $defaults = json_decode( $account->defaults );
-
+    $defaults           = json_decode( $account->defaults );
     $deployment_script .= "# Defaults for account: '{$account->name}'\n";
 
     if ( ! empty( $defaults->timezone ) ) {
