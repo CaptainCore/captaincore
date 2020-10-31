@@ -116,7 +116,7 @@ run_command() {
       # Check for file
       if [ -f "$recipe_file" ]; then
         # Pass all arguments found after --script=<script> argument into remote script
-        ssh $remote_server "$command_prep bash -s -- --site=$site ${flags[@]}" < $recipe_file
+        ssh $remote_server "$command_prep bash -s -- --site=$site ${flags[@]}" < $recipe_file || true
       fi
       exit
     fi
@@ -129,18 +129,18 @@ run_command() {
         script=${root_path}lib/remote-scripts/$script
       fi
       # Pass all arguments found after --script=<script> argument into remote script
-      ssh $remote_server "$command_prep bash -s -- --site=$site ${flags[@]}" < $script
+      ssh $remote_server "$command_prep bash -s -- --site=$site ${flags[@]}" < $script || true
       exit
     fi
 
     # Runs ssh with command
     if [ -n "$command" ]; then
-      ssh $remote_server "$command_prep $command"
+      ssh $remote_server "$command_prep $command" || true
       exit
     fi
 
     if [[ "$direct" == "true" ]]; then
-      ssh -T $remote_server
+      ssh -T $remote_server || true
       exit
     fi
 
