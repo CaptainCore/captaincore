@@ -190,7 +190,7 @@ if ( $command == 'generate' ) {
 		// Check if online and remove from monitor.json
 		if ( ! in_array( $record->url, array_column( $log_errors, 'url' ) ) ) {
 			$time_ago   = date( 'F j, Y, g:i a', $record->created_at );
-			$restored[] = "{$record->url} has been restored. Was offline since $time_ago\n";
+			$restored[] = "🟢 {$record->name} 🔗 {$record->url} offline since $time_ago\n";
 			unset( $monitor_records[ $key ] );
 			continue;
 		}
