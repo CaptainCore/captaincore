@@ -30,39 +30,26 @@ run_command() {
     site_name=${captain_id}-${site}
   fi
 
-  # Remove if already found
-  rclone config delete sftp-${site_name}-production
-  rclone config delete sftp-${site_name}-staging
+  environments=( $( captaincore site environment list $site --captain_id=$captain_id ) )
 
-  # If using SSH key then generate using those
-  if [[ "$key" != "" ]]; then
-    ssh_file="$path_keys/${captain_id}/${key}"
-    echo "Generating rclone configs for ${site}-production with SSH key"
-    quiet=$( rclone config create sftp-${site_name}-production $protocol host $address user $username port $port key_file $ssh_file )
-    staging_check=$(captaincore site get ${site}-staging --field=address --captain_id=$captain_id)
-    if [[ "$staging_check" != "" ]]; then
-      # Load site vars
-      while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get ${site}-staging --bash --captain_id=$captain_id)"
-      echo "Generating rclone configs for ${site}-staging with SSH key"
-      quiet=$( rclone config create sftp-${site_name}-staging $protocol host $address user $username port $port key_file $ssh_file )
+  for environment in ${environments[@]}; do
+
+    rclone config delete sftp-${site_name}-${environment}
+
+    if [[ "$key" != "" ]]; then
+      ssh_file="$path_keys/${captain_id}/${key}"
+      echo "Generating rclone configs for ${site}-${environment} with SSH key"
+      quiet=$( rclone config create sftp-${site_name}-${environment} $protocol host $address user $username port $port key_file $ssh_file )
     fi
-    return
-  fi
 
-  password=$(captaincore site get ${site} --field=password --captain_id=$captain_id)
-  password_staging=$(captaincore site get ${site}-staging --field=password --captain_id=$captain_id)
+    if [[ "$key" == "" ]]; then
+      password=$(captaincore site get ${site}-${environment} --field=password --captain_id=$captain_id)
+      rclone_pass=$(rclone obscure $password)
+      echo "Generating rclone configs for ${site}-${environment} with password"
+      quiet=$( rclone config create sftp-${site_name}-${environment} $protocol host $address user $username port $port pass -- $rclone_pass )
+    fi
 
-  # Add new WordPress site to Rclone
-  rclone_pass=$(rclone obscure $password)
-  echo "Generating rclone configs for ${site}-production with password"
-  quiet=$( rclone config create sftp-${site_name}-production $protocol host $address user $username port $port pass -- $rclone_pass )
-
-  if [[ "$password_staging" != "" ]]; then
-    while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get ${site}-staging --bash --captain_id=$captain_id)"
-    rclone_pass=$(rclone obscure $password_staging)
-    echo "Generating rclone configs for ${site}-staging with password"
-    quiet=$( rclone config create sftp-${site_name}-staging $protocol host $address user $username port $port pass -- $rclone_pass )
-  fi
+  done
 
 }
 run_command

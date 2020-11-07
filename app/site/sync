@@ -34,7 +34,7 @@ run_command() {
 		captaincore site prepare $site_id --captain_id=$captain_id
 
 		# Deploy global defaults
-		captaincore site deploy-defaults $site_id --global-only
+		captaincore site deploy-defaults ${site_id}-production--global-only
 
 		# Capture screenshot
 		captaincore capture ${site_id}-production

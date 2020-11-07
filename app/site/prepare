@@ -15,53 +15,43 @@ site=$1
 # Load site details
 while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
 
-# Deploy SSH keys
-captaincore site deploy-keys ${site}-production --captain_id=$captain_id
-captaincore site deploy-keys ${site}-staging --captain_id=$captain_id
+environments=( $( captaincore site environment list $site --captain_id=$captain_id ) )
 
-# Extract environment
-if [[ "$site" == *"-staging"* ]]; then
-  environment=staging
-fi
+for environment in ${environments[@]}; do
 
-if [[ "$site" == *"-production"* ]]; then
-  environment=production
-fi
+  # Deploy SSH keys
+  captaincore site deploy-keys ${site}-${environment} --captain_id=$captain_id
 
-if [[ "$site" != *"-"* ]]; then
-  environment=production
-fi
+  # Define Rclone site name
+  rclone_site_name="sftp-${captain_id}-${site}-${environment}"
 
-# Define Rclone site name
-rclone_site_name="sftp-${captain_id}-${site}-${environment}"
+  # Captures FTP errors in $ftp_output and file listing to log file
+  ftp_output=$( { rclone lsd $rclone_site_name:$home_directory ; } 2>&1 )
+  ftp_search_for_wordpress=$( echo "$ftp_output" | perl -wnE'say for /wp-admin/g' )
 
-# Captures FTP errors in $ftp_output and file listing to log file
-ftp_output=$( { rclone lsd $rclone_site_name:$home_directory ; } 2>&1 )
-ftp_search_for_wordpress=$( echo "$ftp_output" | perl -wnE'say for /wp-admin/g' )
+  # Handle FTP errors
+  if [[ $ftp_search_for_wordpress != "wp-admin" ]]; then
+    echo "Error: $site missing WordPress."
+    exit
+  fi
 
-# Handle FTP errors
-if [[ $ftp_search_for_wordpress != "wp-admin" ]]; then
-  echo "Error: $site missing WordPress."
-  exit
-fi
+  # Append trailing slash if home_directory exist
+  if [ "$home_directory" != "" ]; then
+    home_directory="${home_directory}/"
+  fi
 
-# Append trailing slash if home_directory exist
-if [ "$home_directory" != "" ]; then
-  home_directory="${home_directory}/"
-fi
+  # Pull down wp-config.php
+  rclone copy $rclone_site_name:${home_directory}wp-config.php $path/${site}_${site_id}/${environment}/backup/
 
-# Pull down wp-config.php
-rclone copy $rclone_site_name:${home_directory}wp-config.php $path/${site}_${site_id}/${environment}/backup/
+  # Generate token
+  token_key=$(captaincore site fetch-token $site-$environment --captain_id=$captain_id)
 
-# Generate token
-token_key=$(captaincore site fetch-token $site --captain_id=$captain_id)
+  if [[ "$captaincore_dev" == true ]]; then
+    curl_argument="-k"
+  fi
 
-if [[ "$captaincore_dev" == true ]]; then
-  curl_argument="-k"
-fi
-
-# Assign token
-curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
+  # Assign token
+  curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
 	"command":"token",
 	"site_id":"$site_id",
@@ -70,25 +60,21 @@ curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: 
 }
 EOF
 
-# Set permalink to 'Post name' format if not set
-captaincore ssh ${site}-production --script=rewrite-prep --captain_id=$captain_id
-captaincore ssh ${site}-staging --script=rewrite-prep --captain_id=$captain_id
+  # Set permalink to 'Post name' format if not set
+  captaincore ssh ${site}-${environment} --script=rewrite-prep --captain_id=$captain_id
 
-# Deploy helper plugin
-captaincore ssh ${site}-production --script=deploy-helper --wp_content=$wp_content --captain_id=$captain_id
-captaincore ssh ${site}-staging --script=deploy-helper --wp_content=$wp_content --captain_id=$captain_id
+  # Deploy helper plugin
+  captaincore ssh ${site}-${environment} --script=deploy-helper --wp_content=$wp_content --captain_id=$captain_id
 
-# Generate new Fathom code if needed
-if [[ $captaincore_tracker != "" ]] && [[ $fathom == "" ]]; then
+  # Generate new Fathom code if needed
+  if [[ $captaincore_tracker != "" ]] && [[ $fathom == "" ]]; then
+    # Generate new Fathom tracking code, if needed
+    captaincore site stats-generate ${site}-${environment} --captain_id=$captain_id
+  fi
 
-  # Generate new Fathom tracking code, if needed
-  captaincore site stats-generate ${site}-production --captain_id=$captain_id
-  captaincore site stats-generate ${site}-staging --captain_id=$captain_id
+  captaincore sync-data ${site}-${environment} --captain_id=$captain_id
 
-fi
-
-captaincore sync-data ${site}-production --captain_id=$captain_id
-captaincore sync-data ${site}-staging --captain_id=$captain_id
+done
 
 # Update configs
 captaincore configs update-websites --captain_id=$captain_id
