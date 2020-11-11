@@ -25,16 +25,16 @@ run_command() {
 	cd ${root_path}data
 	wp eval-file ../lib/local-scripts/site-sync.php site_id=$site_id ${flags[@]}
 
-	if [ "$update_extras" ]; then
+	# Generate rclone keys
+	captaincore site rclone-configs $site_id --captain_id=$captain_id
 
-		# Generate rclone keys
-		captaincore site rclone-configs $site_id --captain_id=$captain_id
+	if [ "$update_extras" ]; then
 
 		# Prepare site
 		captaincore site prepare $site_id --captain_id=$captain_id
 
 		# Deploy global defaults
-		captaincore site deploy-defaults ${site_id}-production--global-only
+		captaincore site deploy-defaults ${site_id}-production --global-only
 
 		# Capture screenshot
 		captaincore capture ${site_id}-production
