@@ -34,6 +34,8 @@ run_command() {
 
   for environment in ${environments[@]}; do
 
+    while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site-$environment --bash --captain_id=$captain_id)"
+
     rclone config delete sftp-${site_name}-${environment}
 
     if [[ "$key" != "" ]]; then
