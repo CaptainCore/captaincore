@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+
+#
+#   Bulk runs a command to many sites.
+#
+#   `captaincore bulk <command>`
+#
+#   [<site>...]
+#   One or more sites.
+#
+#   [@<target>]
+#   Target groups of sites like @all @production or @staging.
+#
+#   [--parallel=<number>]
+#   Number of sites to backup at same time
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}lib/arguments
+
+cmd=${arguments[1]}
+
+run_command() {
+
+    sites=$@
+    count=( $sites )
+
+    # Start progress tracking
+    if [[ $progress == "true" ]]; then
+        php ${root_path}lib/local-scripts/process-start.php ${process_id} ${#count[@]} "${path}/process-${process_id}-progress.log"
+    fi
+
+    if [[ $parallel == "" ]]; then
+        parallel=3
+    fi
+    
+    echo $sites | xargs -P $parallel -n 1 captaincore $cmd "${flags[@]}"
+
+    # End progress tracking
+    if [ -f "${path}/process-${process_id}-progress.log" ]; then
+        sleep 10 && rm "${path}/process-${process_id}-progress.log" &
+    fi
+
+}
+
+# Error if no sites specifed
+if [ ${#targets[*]} -eq 0 ] && [ ${#arguments[*]} -eq 1 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use a target @all, @production or @staging."
+  exit
+fi
+
+# Error if no sites specifed
+if [ ${#arguments[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify <command>."
+  exit
+fi
+
+# Runs on specifed sites
+if [ ${#arguments[*]} -gt 1 ]; then
+  unset 'arguments[1]'
+  run_command ${arguments[*]}
+fi
+
+# Runs on targeted sites
+if [ ${#targets[*]} -gt 0 ]; then
+  run_command $(captaincore site list ${targets[*]/targets=/@} --captain_id=$captain_id)
+fi
+
