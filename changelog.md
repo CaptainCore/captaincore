@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.11.0] - 2020-11-24
+### Added
+- Command `bulk` to provide standardized way of parallelizing commands.
+- Command `site environment list`
+- Commands `running get`, `running list` and `running listen`
+- Local scripts `process-add.php`, `process-remove.php`, `process-start.php` and `process-track.php`
+- Restic infused backups
+- Parallelizing to `captaincore backup`
+- Global argument `--progress`
+- Tracks process ID of parent CaptainCore command. Useful for following progress of bulk background commands.
+
+### Changed
+- Remove runner commands `backup-runner`, `ssh-runner` and `sync-data-runner`. Implemented new `bulk` command for running commands in parallel.
+- Handles Elementor database upgrades when running`update` script.
+- Improved `migrate` script. Better feedback and minor order correction when applying new table prefix.
+- Improved `launch` script to use the source domain and properly handle escaped URLs.
+- Improved site monitor notifications.
+- Command `cli update` now performs CaptainCore database upgrades.
+- Store `scan-errors` with site instead of environment.
+
 ## [0.10.0] - 2020-09-05
 ### Added
 - Command `scan-errors`
@@ -15,8 +35,8 @@
 - CaptainCore Helper v0.2.4: WPS Hide Login plugin compatibility
 - CaptainCore Helper v0.2.3: Disable WordPress 5.5 auto-update email notifications for themes and plugins
 - CaptainCore Helper v0.2.2: Remove site health widget from dashboard
-- CaptainCore Helper v0.2.1: Improves compatiblity with custom login plugins
-- Replaced Gowitness screenshots with https://screenshots.cloud
+- CaptainCore Helper v0.2.1: Improves compatibility with custom login plugins
+- Replaced Gowitness screenshots with [ScreenshotsCloud](https://screenshots.cloud)
 
 ## [0.9.0] - 2020-04-11
 ### Added
