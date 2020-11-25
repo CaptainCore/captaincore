@@ -1,18 +1,15 @@
 #!/usr/bin/env bash
 
 #
-#   Sync website data for one or more sites.
+#   Sync website data for a single site.
 #
-#   `captaincore sync-data`
+#   `captaincore sync-data <site>`
 #
 #   [<site>...]
 #   One or more sites.
 #
 #   [@<target>]
 #   Sync website data for all sites with @all.
-#
-#   [--parallel=<number-of-checks>]
-#   Number of syncs at same time
 #
 #   [--skip-screenshot]
 #   Skips screenshot
@@ -24,43 +21,53 @@ source ${root_path}lib/arguments
 
 run_command() {
 
-	websites=$@
+	site=$1
 
-	# Assign default parallel if needed
-  if [[ $parallel == "" ]]; then
-    parallel=3
+	# Extract environment
+	if [[ "$site" == *"-staging"* ]]; then
+		environment=staging
+	else
+		environment=production
+	fi
+
+	# Load site configs
+	while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
+
+	# Skip if not compatible
+	if [[ $protocol != "sftp" ]] || [[ $site == "" ]]; then
+		echo "Error: Can't SSH to $site";
+		return 1
+	fi
+
+	# Remove leading "--" from flags
+	for i in "${!flags[@]}"; do
+		flags[$i]=`echo ${flags[$i]} | cut -c 3-`
+	done
+
+	echo "$(date +'%Y-%m-%d %H:%M') Begin sync data ${site}-${environment}"
+
+	cd ${root_path}data
+	wp eval-file ../lib/local-scripts/site-sync-data.php site=$site environment=$environment ${flags[@]}
+
+  if [ -f "${path}/process-${process_id}-progress.log" ]; then
+    echo -n "." >> ${path}/process-${process_id}-progress.log
   fi
-
-  if [[ "$skip_screenshot" == "true" ]]; then
-    flags="--skip-screenshot"
-  fi
-
-  # Generate random auth
-  auth=''; for count in {0..6}; do auth+=$(printf "%x" $(($RANDOM%16)) ); done;
-
-  # Begin time tracking
-  log_date=$(date +'%Y-%m-%d')
-  log_time=$(date +'%H-%M')
-
-  # Define log file format
-  log_file=$logs/${log_date}_${log_time}_$auth.txt
-
-  ( echo $websites | xargs -P $parallel -n 1 captaincore sync-data-runner $flags --captain_id=$captain_id ) 2>&1 | tee $log_file
 
 }
 
-# See if any sites are specifed
-if [ ${#arguments[*]} -gt 0 ] && [[ $all != "true" ]]; then
-  # Runs on specific sites
+if [ ${#arguments[*]} -eq 0 ] && [ ${#targets[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use a target @all, @production or @staging."
+  exit
+fi
+
+if [ ${#arguments[*]} -eq 1 ] && [ ${#targets[*]} -eq 0 ]; then
   run_command ${arguments[*]}
 fi
 
-# Runs on targeted sites
-if [ ${#targets[*]} -gt 0 ]; then
-  run_command $(captaincore site list ${targets[*]/targets=/@} --captain_id=$captain_id)
+if [ ${#arguments[*]} -gt 1 ] && [ ${#targets[*]} -eq 0 ]; then
+  captaincore bulk sync-data ${arguments[*]} ${flags[@]}
 fi
 
-# Error if no sites specifed
-if [ ${#targets[*]} -eq 0 ] && [ ${#arguments[*]} -eq 0 ]; then
-  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use a target @all, @production or @staging."
+if [ ${#targets[*]} -gt 0 ] && [ ${#arguments[*]} -eq 0 ]; then
+  captaincore bulk sync-data ${targets[*]/targets=/@} ${flags[@]}
 fi

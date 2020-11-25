@@ -3,7 +3,7 @@
 #
 #   Generates quicksave for plugins and themes changes for one or more sites.
 #
-#   `captaincore quicksave`
+#   `captaincore quicksave <site>`
 #
 #   [<site>...]
 #   One or more sites.
@@ -30,28 +30,106 @@ source ${root_path}lib/arguments
 
 run_command() {
 
-	websites=$@
+    website=$@
 
-	# Assign default parallel if needed
-	if [[ $parallel == "" ]]; then
-		parallel=3
-	fi
-	echo $websites | xargs -P $parallel -n 1 captaincore quicksave-runner "${flags[@]}"
+    # Extract environment
+    if [[ "$website" == *"-staging"* ]]; then
+        environment=staging
+    else
+        environment=production
+    fi
+    
+    # Load site configs
+    while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain_id=$captain_id)"
+
+    # Return error if domain not found
+    if [[ "$domain" == "" ]] || [[ "$site" == "" ]] || [[ "$provider" == "" ]]; then
+        echo "Can't locate website for $site"
+        exit
+    fi
+
+    # Define Rclone site name
+    rclone_site_name=${captain_id}-${site}-${environment}
+    check_rclone=$( rclone config show sftp-$rclone_site_name )
+    if [[ "$check_rclone" != *"type = sftp"* ]]; then
+        echo "Rclone remote 'sftp-$rclone_site_name' not found."
+        exit
+    fi
+
+    # Define site path
+    site_path=${site}_${site_id}/${environment}
+
+    # captures FTP errors in $ftp_output and file listing to log file
+    ftp_output=$( { rclone lsd sftp-$rclone_site_name:$home_directory; } 2>&1 )
+    ftp_search_for_wordpress=$( echo "$ftp_output" | perl -wnE'say for /wp-admin/g' )
+
+    # Handle FTP errors
+    if [[ $ftp_search_for_wordpress != "wp-admin" ]]; then
+        echo "Can't locate WordPress for ${site}-${environment}"
+        exit
+    fi
+
+    # Append trailing slash if home_directory exist
+    if [ "$home_directory" != "" ]; then
+        home_directory="${home_directory}/"
+    fi
+
+    echo "$(date +'%Y-%m-%d %H:%M') Begin quicksave for ${site}-${environment}"
+
+    # Updates themes/plugins before Quicksave (Selective backup site locally)
+    rclone sync sftp-$rclone_site_name:${home_directory}${wp_content}/themes/ $path/$site_path/backup/${wp_content}/themes/ --exclude .DS_Store --exclude *timthumb.txt
+    rclone sync sftp-$rclone_site_name:${home_directory}${wp_content}/mu-plugins/ $path/$site_path/backup/${wp_content}/mu-plugins/ --exclude .DS_Store --exclude *timthumb.txt
+    rclone sync sftp-$rclone_site_name:${home_directory}${wp_content}/plugins/ $path/$site_path/backup/${wp_content}/plugins/ --exclude .DS_Store --exclude *timthumb.txt
+
+    # Sync to git repo
+    mkdir -p $path/$site_path/quicksave/mu-plugins
+    mkdir -p $path/$site_path/quicksave/plugins
+    mkdir -p $path/$site_path/quicksave/themes
+    mkdir -p $path/$site_path/quicksave/versions
+
+    cd $path/$site_path/quicksave/
+
+    # Create new git repo if needed
+    if [ ! -d ".git" ]; then
+        git init
+    fi
+
+    rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" $path/$site_path/backup/${wp_content}/mu-plugins/ $path/$site_path/quicksave/mu-plugins
+    rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" $path/$site_path/backup/${wp_content}/plugins/ $path/$site_path/quicksave/plugins
+    rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" $path/$site_path/backup/${wp_content}/themes/ $path/$site_path/quicksave/themes
+
+    cd ${root_path}data
+    
+    # Remove leading "--" from flags
+    for i in "${!flags[@]}"; do
+        flags[$i]=`echo ${flags[$i]} | cut -c 3-`
+    done
+
+    # Sync data
+    wp eval-file ../lib/local-scripts/site-sync-data.php site=$site environment=$environment ${flags[@]}
+    
+    # Add new quicksave
+    wp eval-file ../lib/local-scripts/quicksave-add.php site=$site environment=$environment ${flags[@]}
+
+	if [ -f "${path}/process-${process_id}-progress.log" ]; then
+      echo -n "." >> ${path}/process-${process_id}-progress.log
+    fi
 
 }
 
-# See if any sites are specifed
-if [ ${#arguments[*]} -gt 0 ]; then
-  # Runs on specifed sites
+if [ ${#arguments[*]} -eq 0 ] && [ ${#targets[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use a target @all, @production or @staging."
+  exit
+fi
+
+if [ ${#arguments[*]} -eq 1 ] && [ ${#targets[*]} -eq 0 ]; then
   run_command ${arguments[*]}
 fi
 
-# Runs on targeted sites
-if [ ${#targets[*]} -gt 0 ]; then
-  run_command $(captaincore site list ${targets[*]/targets=/@} --captain_id=$captain_id)
+if [ ${#arguments[*]} -gt 1 ] && [ ${#targets[*]} -eq 0 ]; then
+  captaincore bulk quicksave ${arguments[*]} ${flags[@]}
 fi
 
-# Error if no sites specifed
-if [ ${#targets[*]} -eq 0 ] && [ ${#arguments[*]} -eq 0 ]; then
-  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use a target @all, @production or @staging."
+if [ ${#targets[*]} -gt 0 ] && [ ${#arguments[*]} -eq 0 ]; then
+  captaincore bulk quicksave ${targets[*]/targets=/@} ${flags[@]}
 fi
