@@ -77,7 +77,7 @@ $wp_content              = "wp-content";
 if ( is_array( $site->environment_vars ) ) { 
 	foreach ( $site->environment_vars as $item ) { 
 		$environment_vars = "{$environment_vars} {$item->key}='{$item->value}'";
-		if ( $item->key == "STACKED_ID" ) {
+		if ( $item->key == "STACKED_ID" || $item->key == "STACKED_SITE_ID" ) {
 			$wp_content = "content/{$item->value}";
 		}
 	}
