@@ -76,6 +76,7 @@ done
 # Track parent Process ID, ignore if already defined.
 if [[ "${CMD_ARGS[@]}" != *"--process_id="* ]]; then
     CMD_ARGS+=(--process_id=$$)
+    parent_process=true
 fi
 
 if [[ $captain_id == "" && $fleet != "true"  ]]; then
@@ -84,7 +85,7 @@ fi
 
 if [[ $progress == "true" ]]; then
     cmd="${@:1:$((CMD_ARG_START - 1))} ${CMD_ARGS[@]}"
-	$ROOT_DIR/lib/local-scripts/add-process.php "$cmd"
+	$ROOT_DIR/lib/local-scripts/process-add.php "$cmd"
 fi
 
 # Run the command and capture its exit code for introspection
@@ -102,6 +103,10 @@ if [[ $fleet != "true" ]]; then
 	"$CMD_FILE" "${CMD_ARGS[@]}"
 fi
 EXIT_CODE=$?
+
+if [[ $progress == "true" ]] && [[ $parent_process == "true" ]]; then
+	$ROOT_DIR/lib/local-scripts/process-remove.php "$cmd"
+fi
 
 # If the command exited with an exit code of 3 (our "show help" code)
 # then show the help documentation for the command.
