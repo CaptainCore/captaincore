@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+#
+#   Fetch running processes
+#
+#   `captaincore running list`
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}lib/arguments
+
+if [ ${#arguments[*]} -ne 0 ]; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Unexpected arguments passed to `captaincore running list`."
+    exit
+fi
+
+php ${root_path}lib/local-scripts/process-list.php "${path}/running.json"

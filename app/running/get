@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+
+#
+#   Fetch running processes
+#
+#   `captaincore running get <process-id>`
+#
+
+# Load configuration
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
+source ${root_path}lib/arguments
+
+if [ ${#arguments[*]} -ne 1 ]; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a <process-id>."
+    exit
+fi
+if [ ! -f "${path}/process-$1-progress.log" ]; then
+        echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Process $1 not found." 
+    exit
+fi
+if [[ "$json" == "true" ]]; then
+    format=json
+fi
+php ${root_path}lib/local-scripts/process-track.php ${path}/process-$1-progress.log
+inotifywait -q -m -e close_write -e delete_self ${path}/process-$1-progress.log | while read -r filename event; do
+    if [[ "$event" == "DELETE_SELF" ]]; then
+        kill $$
+        exit
+    fi
+    php ${root_path}lib/local-scripts/process-track.php $filename $format
+done
