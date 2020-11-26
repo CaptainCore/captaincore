@@ -25,41 +25,43 @@ run_command() {
 
     cd ${root_path}data
 
-    echo "Scanning $# sites"
     INDEX=0
-    for website in "$@"; do
+    website=$@
 
-      let INDEX=${INDEX}+1
+    let INDEX=${INDEX}+1
 
-      # Extract environment
-      if [[ "$website" == *"-staging"* ]]; then
-        environment=staging
-      else
-        environment=production
-      fi
+    # Extract environment
+    if [[ "$website" == *"-staging"* ]]; then
+      environment=staging
+    else
+      environment=production
+    fi
 
-      # Load site configs
-      while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain_id=$captain_id)"
+    # Load site configs
+    while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain_id=$captain_id)"
 
-      # Scans for errors
-      wp eval-file ../lib/local-scripts/site-scan-errors-in-console.php site=$site environment=$environment ${flags[@]}
+    # Scans for errors
+    wp eval-file ../lib/local-scripts/site-scan-errors-in-console.php site=$site environment=$environment ${flags[@]}
 
-    done
+    if [ -f "${path}/process-${process_id}-progress.log" ]; then
+      echo -n "." >> ${path}/process-${process_id}-progress.log
+    fi
 
 }
 
-# See if any sites are specifed
-if [ ${#arguments[*]} -gt 0 ]; then
-  # Runs on specifed sites
+if [ ${#arguments[*]} -eq 0 ] && [ ${#targets[*]} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use a target @all, @production or @staging."
+  exit
+fi
+
+if [ ${#arguments[*]} -eq 1 ] && [ ${#targets[*]} -eq 0 ]; then
   run_command ${arguments[*]}
 fi
 
-# Runs on targeted sites
-if [ ${#targets[*]} -gt 0 ]; then
-  run_command $(captaincore site list ${targets[*]/targets=/@} --captain_id=$captain_id)
+if [ ${#arguments[*]} -gt 1 ] && [ ${#targets[*]} -eq 0 ]; then
+  captaincore bulk scan-errors ${arguments[*]} ${flags[@]}
 fi
 
-# Error if no sites specifed
-if [[ $all != "true" ]] && [[ $updates_enabled != "true" ]] && [ ${#arguments[*]} -eq 0 ]; then
-  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
+if [ ${#targets[*]} -gt 0 ] && [ ${#arguments[*]} -eq 0 ]; then
+  captaincore bulk scan-errors ${targets[*]/targets=/@} ${flags[@]}
 fi
