@@ -106,13 +106,6 @@ if [[ $progress == "true" ]] && [[ $parent_process == "true" ]]; then
         flags[$count]=$processed_var
         continue
     fi
-
-    if [[ $var == "@"* ]]; then
-        # Remove @ from target
-        targets_current=$( echo $var | cut -c 2- )
-        targets[$count]="targets=$targets_current"
-        continue
-    fi
     
     # Assign to $arguments array
     count=1+${#arguments[*]}
