@@ -66,6 +66,7 @@ for arg in "${CMD_ARGS[@]}"; do
     fi
     if [[ "${arg}" == "--captain_id"* ]]; then
         captain_id=true
+        captain_id_arg=${arg}
     fi
     if [[ "${arg}" == "--progress"* ]]; then
         progress=true
@@ -81,11 +82,72 @@ fi
 
 if [[ $captain_id == "" && $fleet != "true"  ]]; then
     CMD_ARGS+=(--captain_id=1)
+    captain_id_arg="--captain_id=1"
 fi
 
 if [[ $progress == "true" ]]; then
-    cmd="${@:1:$((CMD_ARG_START - 1))} ${CMD_ARGS[@]}"
-	$ROOT_DIR/lib/local-scripts/process-add.php "$cmd"
+    # Loop through arguments and separate regular arguments from flags (--flag)
+    for var in "$@"; do
+
+    # If starts with "--" then assign to $flags array
+    if [[ $var == "--"* ]]; then
+        count=1+${#flags[*]}
+        processed_var=$var
+
+        # If contains a value then wrap in quotes
+        if [[ $var == *"="* ]]; then
+        flag_value=$( echo $var | perl -n -e '/.+?=(.+)/&& print $1' ) # extract value
+        flag_name=$( echo $var | perl -n -e '/(.+?)=.+/&& print $1' )  # extract name
+        flag_value="${flag_value%\"}" # Remove first double quote if found
+        flag_value="${flag_value#\"}" # Remove last double quote if found
+        processed_var=${flag_name}=\"${flag_value}\"
+        fi
+
+        flags[$count]=$processed_var
+        continue
+    fi
+
+    if [[ $var == "@"* ]]; then
+        # Remove @ from target
+        targets_current=$( echo $var | cut -c 2- )
+        targets[$count]="targets=$targets_current"
+        continue
+    fi
+    
+    # Assign to $arguments array
+    count=1+${#arguments[*]}
+    arguments[$count]=$var
+
+    done
+
+    # Loop through flags and defines variables. Example "--email=my-email@my-site.com" becomes $email
+    for i in "${!flags[@]}"; do
+
+        # Replace "-" with "_" and remove leading "--"
+        flag_name=$( echo ${flags[$i]} | cut -c 3- )
+
+        # Defines variables for flags with data
+        if [[ $flag_name == *"="* ]]; then
+            flag_value=$( echo $flag_name | perl -n -e '/.+?=\"(.+)\"/&& print $1' ) # extract value
+            flag_name=$( echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1' )      # extract name
+            flag_name=${flag_name//-/_}
+            flag_value="${flag_value%\"}" # Remove first double quote if found
+            flag_value="${flag_value#\"}" # Remove last double quote if found
+            declare "$flag_name"="$flag_value" # assigns to $flag_flagname
+            continue
+        fi
+
+        # Defines variables for boolean flags
+        flag_name=${flag_name//-/_}
+
+        if [[ "$flag_name" == "\"" ]]; then
+            continue
+        fi
+
+        declare "$flag_name"=true
+
+    done
+	$ROOT_DIR/lib/local-scripts/process-add.php "${arguments[@]} ${flags[@]} --process_id=$$ $captain_id_arg"
 fi
 
 # Run the command and capture its exit code for introspection
@@ -105,7 +167,7 @@ fi
 EXIT_CODE=$?
 
 if [[ $progress == "true" ]] && [[ $parent_process == "true" ]]; then
-	$ROOT_DIR/lib/local-scripts/process-remove.php "$cmd"
+	$ROOT_DIR/lib/local-scripts/process-remove.php "${arguments[@]} ${flags[@]} --process_id=$$ $captain_id_arg"
 fi
 
 # If the command exited with an exit code of 3 (our "show help" code)

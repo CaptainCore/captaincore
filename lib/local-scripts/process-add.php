@@ -1,11 +1,21 @@
 #!/usr/bin/env php
 <?php
 
+unset( $argv[0] );
+$commands = implode( " ", $argv );
+
 // Regex to parse command line https://regexr.com/4154h
 $pattern = '/(--[^\s]+="[^"]+")|"([^"]+)"|\'([^\']+)\'|([^\s]+)/';
-preg_match_all( $pattern, $argv[1], $matches );
+preg_match_all( $pattern, $commands, $matches );
 $args    = $matches[0];
 $command = [];
+
+foreach( $args as $index => $argument ) {
+	if ( $argument == "--progress" || strpos( $argument, '--captain_id=' ) !== false || strpos( $argument, '--process_id=' ) !== false ) {
+		continue;
+	}
+	$command[] = $argument;
+}
 
 // Replaces dashes in keys with underscores as PHP can't assign variables to $-- but $__ works fine.
 foreach( $args as $index => $arg ) {
@@ -25,7 +35,6 @@ foreach( $args as $index => $arg ) {
 	if ( substr( $arg, 0, 2 ) === "--" ) {
 		continue;
 	}
-	$command[] = $arg;
 }
 
 // Converts --arguments into $arguments
