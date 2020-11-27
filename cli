@@ -85,7 +85,7 @@ if [[ $captain_id == "" && $fleet != "true"  ]]; then
     captain_id_arg="--captain_id=1"
 fi
 
-if [[ $progress == "true" ]]; then
+if [[ $progress == "true" ]] && [[ $parent_process == "true" ]]; then
     # Loop through arguments and separate regular arguments from flags (--flag)
     for var in "$@"; do
 
