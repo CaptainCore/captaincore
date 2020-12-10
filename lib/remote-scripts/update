@@ -98,6 +98,10 @@ run_command() {
       done
     fi
   fi
+  # Purge Autoptimize cache if installed
+  if $( wp plugin is-installed autoptimize ); then 
+    silent=$( wp autoptimize clear 2>&1 )
+  fi
   # Handle Elementor database updates if installed
   if $( wp plugin is-installed elementor ); then 
     silent=$( wp elementor update db 2>&1 )
