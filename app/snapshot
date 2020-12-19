@@ -97,19 +97,19 @@ run_command() {
           fi
 
           if [[ $option == "themes" ]]; then
-            zip --test -q -r $snapshot_name $snapshot_path/wp-content/themes/ && echo "Completed generating $snapshot_name" || echo "Failed generating $snapshot_name"
+            zip --test -q -r $snapshot_name $snapshot_path/wp-content/themes/ && echo "Completed adding /wp-content/themes/ to $snapshot_name" || echo "Failed generating $snapshot_name"
           fi
 
           if [[ $option == "plugins" ]]; then
-            zip --test -q -r $snapshot_name $snapshot_path/wp-content/plugins/ && echo "Completed generating $snapshot_name" || echo "Failed generating $snapshot_name"
+            zip --test -q -r $snapshot_name $snapshot_path/wp-content/plugins/ && echo "Completed adding /wp-content/plugins/ to $snapshot_name" || echo "Failed generating $snapshot_name"
           fi
 
           if [[ $option == "uploads" ]]; then
-            zip --test -q -r $snapshot_name $snapshot_path/wp-content/uploads/ && echo "Completed generating $snapshot_name" || echo "Failed generating $snapshot_name"
+            zip --test -q -r $snapshot_name $snapshot_path/wp-content/uploads/ && echo "Completed adding /wp-content/uploads/ to $snapshot_name" || echo "Failed generating $snapshot_name"
           fi
 
           if [[ $option == "everything-else" ]]; then
-            zip --test -q -r $snapshot_name $snapshot_path/ --exclude=$snapshot_path/database-backup.sql --exclude=$snapshot_path/wp-content/themes/\* --exclude=$snapshot_path/wp-content/plugins/\* --exclude=$snapshot_path/wp-content/uploads/\* --exclude=$snapshot_path/_wpeprivate/\* --exclude=\*.git\* --exclude=$snapshot_path/wp-content/advanced-cache.php --exclude=$snapshot_path/wp-content/mu-plugins/mu-plugin.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$snapshot_path/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$snapshot_path/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$snapshot_path/wp-content/mu-plugins/wpengine-common/\* && echo "Completed generating $snapshot_name" || echo "Failed generating $snapshot_name"
+            zip --test -q -r $snapshot_name $snapshot_path/ --exclude=$snapshot_path/database-backup.sql --exclude=$snapshot_path/wp-content/themes/\* --exclude=$snapshot_path/wp-content/plugins/\* --exclude=$snapshot_path/wp-content/uploads/\* --exclude=$snapshot_path/_wpeprivate/\* --exclude=\*.git\* --exclude=$snapshot_path/wp-content/advanced-cache.php --exclude=$snapshot_path/wp-content/mu-plugins/mu-plugin.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$snapshot_path/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$snapshot_path/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$snapshot_path/wp-content/mu-plugins/wpengine-common/\* && echo "Completed adding everything else to $snapshot_name" || echo "Failed generating $snapshot_name"
           fi
 
         done
