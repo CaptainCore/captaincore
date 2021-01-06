@@ -30,8 +30,8 @@ run_command() {
   fi
 
   # Requires <site> and <commit>
-  if [[ $plugin == "" ]] && [[ $theme == "" ]] && [[ $all == "" ]]; then
-    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a plugin, theme or --all."
+  if [[ $plugin == "" ]] && [[ $theme == "" ]] && [[ $all == "" ]] && [[ $file == "" ]]; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a plugin, theme, file or --all."
     return 1
   fi
 
