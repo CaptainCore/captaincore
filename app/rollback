@@ -83,7 +83,7 @@ run_command() {
 		if [[ "$home_directory" != "" ]]; then
 			home_directory="${home_directory}/"
 		fi
-		rclone copyto ~/Tmp/restore/$commit/$file sftp-$rclone_site_name:${homdir}${wp_content}/$file
+		rclone copyto ~/Tmp/restore/$commit/$file sftp-$rclone_site_name:${home_directory}${wp_content}/$file
 		rm -rf ~/Tmp/restore/$commit/
 
 	fi
