@@ -67,21 +67,21 @@ run_command() {
   fi
 
   if [ ! -d "_wpeprivate" ] && [ ! -d "../private" ]; then
-    echo "Can't find private folder '/_wpeprivate' or '../private'. Migration cancelled.";
+    echo "Can't find private folder '/_wpeprivate' or '../private'. Migration cancelled."
     return 1
   fi
 
   # Verifies WordPress
   wp_home=$( wp option get home --skip-themes --skip-plugins )
   if [[ "$wp_home" != "http"* ]]; then
-    echo "WordPress not found. Migration cancelled.";
+    echo "WordPress not found. Migration cancelled."
     return 1
   fi
 
   cd $private
 
   if [[ "$backup_url" == *"admin-ajax.php?action=pb_backupbuddy_backupbuddy&function=download_archive&backupbuddy_backup"* ]]; then
-    echo "Backup Buddy URL found";
+    echo "Backup Buddy URL found"
     backup_url=${backup_url/wp-admin\/admin-ajax.php?action=pb_backupbuddy_backupbuddy&function=download_archive&backupbuddy_backup=/wp-content\/uploads\/backupbuddy_backups/}
   fi
 
@@ -92,6 +92,7 @@ run_command() {
 
   # Downloads backup file (No local file found)
   if [ ! -f "$private/$url" ]; then
+    echo "Downloading $backup_url"
     wget --no-check-certificate --progress=bar:force:noscroll -O restore_$timedate.out $backup_url
   fi
 
@@ -119,8 +120,15 @@ run_command() {
     rm restore_$timedate.tar
   fi
 
+  # Assume it's a zip, if nothing defined.
+  if [[ "$backup_url" != *".gz"* ]] && [[ "$backup_url" != *".zip"* ]] && [[ "$backup_url" != *".tar"* ]]; then 
+    mv restore_$timedate.out restore_$timedate.zip
+    unzip -q -o restore_$timedate.zip -x "__MACOSX/*" -x "cgi-bin/*"
+    rm restore_$timedate.zip
+  fi
+
   # Finds WordPress path
-  wordpresspath=$( find $(pwd) -type d -name 'wp-content' -print -quit )
+  wordpresspath=$( find "$(pwd)" -type d -name 'wp-content' -print -quit )
 
   if [[ $wordpresspath == "" ]]; then
     echo "Can't find wp-content/ in backup. Migration cancelled.";
@@ -128,49 +136,49 @@ run_command() {
   fi
 
   # Migrate blogs.dir if found
-  if [ -d $wordpresspath/blogs.dir ]; then
+  if [ -d "$wordpresspath/blogs.dir" ]; then
     echo "Moving: blogs.dir"
-    rm -rf $home_directory/wp-content/blogs.dir
-    mv $wordpresspath/blogs.dir $home_directory/wp-content/
+    rm -rf "$home_directory/wp-content/blogs.dir"
+    mv "$wordpresspath/blogs.dir" "$home_directory/wp-content/"
   fi
 
   # Migrate gallery if found
-  if [ -d $wordpresspath/gallery ]; then
+  if [ -d "$wordpresspath/gallery" ]; then
     echo "Moving: gallery"
-    rm -rf $home_directory/wp-content/gallery
-    mv $wordpresspath/gallery $home_directory/wp-content/
+    rm -rf "$home_directory/wp-content/gallery"
+    mv "$wordpresspath/gallery" "$home_directory/wp-content/"
   fi
 
   # Migrate ngg if found
-  if [ -d $wordpresspath/ngg ]; then
+  if [ -d "$wordpresspath/ngg" ]; then
     echo "Moving: ngg"
-    rm -rf $home_directory/wp-content/ngg
-    mv $wordpresspath/ngg $home_directory/wp-content/
+    rm -rf "$home_directory/wp-content/ngg"
+    mv "$wordpresspath/ngg" "$home_directory/wp-content/"
   fi
 
   # Migrate uploads if found
-  if [ -d $wordpresspath/uploads ]; then
+  if [ -d "$wordpresspath/uploads" ]; then
     echo "Moving: uploads"
-    rm -rf $home_directory/wp-content/uploads
-    mv $wordpresspath/uploads $home_directory/wp-content/
+    rm -rf "$home_directory/wp-content/uploads"
+    mv "$wordpresspath/uploads" "$home_directory/wp-content/"
   fi
 
   # Migrate themes if found
   for d in $wordpresspath/themes/*/; do
     echo "Moving: themes/$( basename "$d" )"
     rm -rf "$home_directory/wp-content/themes/$( basename "$d" )"
-    mv "$d" $home_directory/wp-content/themes/
+    mv "$d" "$home_directory/wp-content/themes/"
   done
 
   # Migrate plugins if found
   for d in $wordpresspath/plugins/*/; do
     echo "Moving: plugins/$( basename "$d" )"
     rm -rf "$home_directory/wp-content/plugins/$( basename "$d" )"
-    mv "$d" $home_directory/wp-content/plugins/
+    mv "$d" "$home_directory/wp-content/plugins/"
   done
 
   # Find non-default root level files and folders
-  cd $wordpresspath/..
+  cd "$wordpresspath/.."
   default_files=(index.php license.txt readme.html wp-activate.php wp-app.php wp-blog-header.php wp-comments-post.php wp-config-sample.php wp-cron.php wp-links-opml.php wp-load.php wp-login.php wp-mail.php wp-pass.php wp-register.php wp-settings.php wp-signup.php wp-trackback.php xmlrpc.php wp-admin wp-config.php wp-content wp-includes)
   root_files=($( ls ))
   for default_file in "${default_files[@]}"; do
@@ -187,7 +195,7 @@ run_command() {
     rm -rf $home_directory/$file
     mv "$file" ${home_directory}/
   done
-  cd $home_directory
+  cd "$home_directory"
 
   # Remove select plugins if found
   wp plugin delete backupbuddy wp-super-cache adminer wordfence w3-total-cache wp-file-cache broken-link-checker yet-another-related-posts-plugin comet-cache-1 woothemes-updater ewww-image-optimizer https-redirection really-simple-ssl hello wordpress-php-info force-strong-passwords --skip-plugins --skip-themes
@@ -196,13 +204,13 @@ run_command() {
   search_privacy=$( wp option get blog_public --skip-plugins --skip-themes )
 
   # Outputs table prefix and updates if different
-  cd $wordpresspath/../
+  cd "$wordpresspath/../"
   if [ -f wp-config.php ]; then
     cat wp-config.php | grep table_prefix
     table_prefix=$( cat wp-config.php | grep table_prefix | perl -n -e '/\047(.+)\047/&& print $1' )
   fi
 
-  cd $home_directory
+  cd "$home_directory"
   current_table_prefix=$( wp config get table_prefix --skip-plugins --skip-themes )
   if [[ $table_prefix != "" && $table_prefix != "$current_table_prefix" ]]; then
     wp config set table_prefix $table_prefix --skip-plugins --skip-themes
@@ -211,11 +219,6 @@ run_command() {
   echo "Resetting file and folder permissions to defaults"
   find . -type d -exec chmod 755 {} \;
   find . -type f -exec chmod 644 {} \;
-
-  # Secure database
-  if [ ! -f "$home_directory/wp-content/mysql.sql" ]; then
-    chmod 600 $home_directory/wp-content/mysql.sql
-  fi
 
   echo "Found the following database:"
   find $home_directory/wp-content/uploads $private/restore_$timedate/ -type f -name '*.sql'
@@ -240,6 +243,11 @@ run_command() {
   wp db reset --yes --skip-plugins --skip-themes
   wp db import $database --skip-plugins --skip-themes
   wp cache flush --skip-plugins --skip-themes
+
+  # Secure database
+  if [ ! -f "$home_directory/wp-content/mysql.sql" ]; then
+    chmod 600 $home_directory/wp-content/mysql.sql
+  fi
 
   # Reapply search privacy
   wp option update blog_public $search_privacy --skip-plugins --skip-themes
