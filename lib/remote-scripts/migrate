@@ -179,7 +179,7 @@ run_command() {
 
   # Find non-default root level files and folders
   cd "$wordpresspath/.."
-  default_files=(index.php license.txt readme.html wp-activate.php wp-app.php wp-blog-header.php wp-comments-post.php wp-config-sample.php wp-cron.php wp-links-opml.php wp-load.php wp-login.php wp-mail.php wp-pass.php wp-register.php wp-settings.php wp-signup.php wp-trackback.php xmlrpc.php wp-admin wp-config.php wp-content wp-includes)
+  default_files=( index.php license.txt readme.html wp-activate.php wp-app.php wp-blog-header.php wp-comments-post.php wp-config-sample.php wp-cron.php wp-links-opml.php wp-load.php wp-login.php wp-mail.php wp-pass.php wp-register.php wp-settings.php wp-signup.php wp-trackback.php xmlrpc.php wp-admin wp-config.php wp-content wp-includes database-backup.sql )
   root_files=($( ls ))
   for default_file in "${default_files[@]}"; do
     for i in "${!root_files[@]}"; do
@@ -192,7 +192,7 @@ run_command() {
   # Move non-default root level files and folders
   for file in "${root_files[@]}"; do
     echo "Moving: $file to $home_directory/"
-    rm -rf $home_directory/$file
+    rm -rf "$home_directory/$file"
     mv "$file" ${home_directory}/
   done
   cd "$home_directory"
