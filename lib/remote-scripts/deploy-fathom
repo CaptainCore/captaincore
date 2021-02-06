@@ -76,54 +76,256 @@ fi
 
 if [[ "$tracker_count" -eq "1" ]] || [[ "$tracker_count" == "" ]]; then
 
+read -r -d '' build_tracking_script_template << heredoc
+/*
+
+  Rewritten tracker.js template for self hosted Fathom with bundled trackerUrl details. 
+  Use this as a template and included directly with each website you plan on tracking. 
+  Add the following script tag to embed.
+  
+  <script src="/wp-content/mu-plugins/tracker.js" data-site="#####" defer></script>
+  
+  See minified version here: https://gist.github.com/austinginder/b7690cdeca1a109d9edf58f07ea1f146
+*/
+
+window.fathom_lite=function(){
+
+  var config = {
+    'siteId': '',
+    'trackerUrl': '//your-tracker-domain.tld/collect',
+  }
+
+  config.siteId = document.currentScript.getAttribute("data-site") || config.siteId 
+
+  // convert object to query string
+  function stringifyObject(obj) {
+    var keys = Object.keys(obj);
+
+    return '?' +
+        keys.map(function(k) {
+            return encodeURIComponent(k) + '=' + encodeURIComponent(obj[k]);
+        }).join('&');
+  }
+
+  function randomString(n) {
+    var s = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    return Array(n).join().split(',').map(() => s.charAt(Math.floor(Math.random() * s.length))).join('');
+  }
+
+  function getCookie(name) {
+    var cookies = document.cookie ? document.cookie.split('; ') : [];
+
+    for (var i = 0; i < cookies.length; i++) {
+      var parts = cookies[i].split('=');
+      if (decodeURIComponent(parts[0]) !== name) {
+        continue;
+      }
+
+      var cookie = parts.slice(1).join('=');
+      return decodeURIComponent(cookie);
+    }
+
+    return '';
+  }
+
+  function setCookie(name, data, args) {
+    name = encodeURIComponent(name);
+    data = encodeURIComponent(String(data));
+
+    var str = name + '=' + data;
+
+    if(args.path) {
+      str += ';path=' + args.path;
+    }
+    if (args.expires) {
+      str += ';expires='+args.expires.toUTCString();
+    }
+
+    document.cookie = str;
+  }
+
+  function newVisitorData() {
+    return {
+      isNewVisitor: true,
+      isNewSession: true,
+      pagesViewed: [],
+      previousPageviewId: '',
+      lastSeen: +new Date(),
+    }
+  }
+
+  function getData () {
+    let thirtyMinsAgo = new Date();
+    thirtyMinsAgo.setMinutes(thirtyMinsAgo.getMinutes() - 30);
+
+    let data = getCookie('_fathom_lite');
+    if(! data) {
+      return newVisitorData();
+    }
+
+    try{
+      data = JSON.parse(data);
+    } catch(e) {
+      console.error(e);
+      return newVisitorData();
+    }
+
+    if(data.lastSeen < (+thirtyMinsAgo)) {
+      data.isNewSession = true;
+    }
+
+    return data;
+  }
+
+  return (
+    setTimeout(function () {
+        window.fathom_lite.trackPageview();
+    }),
+  {
+    trackPageview: function ( vars ) {
+      vars = vars || {};
+
+      // Respect "Do Not Track" requests
+      if('doNotTrack' in navigator && navigator.doNotTrack === "1") {
+        return;
+      }
+
+      // ignore prerendered pages
+      if( 'visibilityState' in document && document.visibilityState === 'prerender' ) {
+        return;
+      }
+
+      // if <body> did not load yet, try again at dom ready event
+      if( document.body === null ) {
+        document.addEventListener("DOMContentLoaded", () => {
+          trackPageview(vars);
+        })
+        return;
+      }
+
+      //  parse request, use canonical if there is one
+      let req = window.location;
+
+      // do not track if not served over HTTP or HTTPS (eg from local filesystem)
+      if(req.host === '') {
+        return;
+      }
+
+      // find canonical URL
+      let canonical = document.querySelector('link[rel="canonical"][href]');
+      if(canonical) {
+        let a = document.createElement('a');
+        a.href = canonical.href;
+
+        // use parsed canonical as location object
+        req = a;
+      }
+
+      let path = vars.path || ( req.pathname + req.search );
+
+      if (!path) {
+        path = '/';
+      }
+
+      // determine hostname
+      let hostname = vars.hostname || ( req.protocol + "//" + req.hostname );
+
+      // only set referrer if not internal
+      let referrer = vars.referrer || '';
+      if (document.referrer.indexOf(hostname) < 0) {
+        referrer = document.referrer;
+      }
+
+      var data = getData();
+      var d = {
+        id: randomString(20),
+        pid: data.previousPageviewId || '',
+        p: path,
+        h: hostname,
+        r: referrer,
+        u: data.pagesViewed.indexOf(path) == -1 ? 1 : 0,
+        nv: data.isNewVisitor ? 1 : 0,
+        ns: data.isNewSession ? 1 : 0,
+        sid: config.siteId
+      };
+
+      var url = config.trackerUrl
+      var img = document.createElement('img');
+      img.setAttribute('alt', '');
+      img.setAttribute('aria-hidden', 'true');
+      img.src = url + stringifyObject(d);
+      img.addEventListener('load', function () {
+        var now = new Date();
+        var midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 24, 0, 0); // update data in cookie
+
+        if (data.pagesViewed.indexOf(path) == -1) {
+            data.pagesViewed.push(path);
+        }
+
+        data.previousPageviewId = d.id;
+        data.isNewVisitor = false;
+        data.isNewSession = false;
+        data.lastSeen = +new Date();
+        setCookie('_fathom_lite', JSON.stringify(data), { expires: midnight, path: '/' });
+
+        // remove tracking img from DOM
+        document.body.removeChild(img)
+      })
+
+      // add to DOM to fire request
+      document.body.appendChild(img);
+    },
+  })
+}();
+heredoc
+
+# Generate must-use plugin
+read -r -d '' build_tracking_script << heredoc
+window.fathom_lite=function(){var e={siteId:"$id",trackerUrl:"//$tracker/collect"};function t(){return{isNewVisitor:!0,isNewSession:!0,pagesViewed:[],previousPageviewId:"",lastSeen:+new Date}}function n(){let e=new Date;e.setMinutes(e.getMinutes()-30);let n=function(e){for(var t=document.cookie?document.cookie.split("; "):[],n=0;n<t.length;n++){var i=t[n].split("=");if(decodeURIComponent(i[0])===e){var r=i.slice(1).join("=");return decodeURIComponent(r)}}return""}("_fathom_lite");if(!n)return t();try{n=JSON.parse(n)}catch(e){return console.error(e),t()}return n.lastSeen<+e&&(n.isNewSession=!0),n}return e.siteId=document.currentScript.getAttribute("data-site")||e.siteId,setTimeout(function(){window.fathom_lite.trackPageview()}),{trackPageview:function(t){if(t=t||{},"doNotTrack"in navigator&&"1"===navigator.doNotTrack)return;if("visibilityState"in document&&"prerender"===document.visibilityState)return;if(null===document.body)return void document.addEventListener("DOMContentLoaded",()=>{trackPageview(t)});let i=window.location;if(""===i.host)return;let r=document.querySelector('link[rel="canonical"][href]');if(r){let e=document.createElement("a");e.href=r.href,i=e}let o=t.path||i.pathname+i.search;o||(o="/");let a=t.hostname||i.protocol+"//"+i.hostname,d=t.referrer||"";document.referrer.indexOf(a)<0&&(d=document.referrer);var s,c,u,l=n(),p={id:(s=20,c="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",Array(s).join().split(",").map(()=>c.charAt(Math.floor(Math.random()*c.length))).join("")),pid:l.previousPageviewId||"",p:o,h:a,r:d,u:-1==l.pagesViewed.indexOf(o)?1:0,nv:l.isNewVisitor?1:0,ns:l.isNewSession?1:0,sid:e.siteId},m=e.trackerUrl,f=document.createElement("img");f.setAttribute("alt",""),f.setAttribute("aria-hidden","true"),f.src=m+(u=p,"?"+Object.keys(u).map(function(e){return encodeURIComponent(e)+"="+encodeURIComponent(u[e])}).join("&")),f.addEventListener("load",function(){var e=new Date,t=new Date(e.getFullYear(),e.getMonth(),e.getDate(),24,0,0);-1==l.pagesViewed.indexOf(o)&&l.pagesViewed.push(o),l.previousPageviewId=p.id,l.isNewVisitor=!1,l.isNewSession=!1,l.lastSeen=+new Date,function(e,t,n){var i=(e=encodeURIComponent(e))+"="+(t=encodeURIComponent(String(t)));n.path&&(i+=";path="+n.path),n.expires&&(i+=";expires="+n.expires.toUTCString()),document.cookie=i}("_fathom_lite",JSON.stringify(l),{expires:t,path:"/"}),document.body.removeChild(f)}),document.body.appendChild(f)}}}();
+heredoc
+
 # Generate must-use plugin
 read -r -d '' build_mu_plugin << heredoc
 <?php
-
 /**
- * Plugin Name: $branding_author Stats
+ * Plugin Name: $branding_author Tracker
  * Description: Fathom Analytics tracking snippet for ${branding_author}'s bundled Fathom instance.
- * Version: 1.0
+ * Version: 1.0.0
  * Author: $branding_author
  * Author URI: $branding_author_uri
- * Text Domain: ${branding_slug}-stats
+ * Text Domain: ${branding_slug}-tracker
  */
 
-function ${branding_slug}_fathom_print_js_snippet() { ?>
-<!-- Fathom - simple website analytics - https://github.com/usefathom/fathom -->
-<script>
-(function(f, a, t, h, o, m){
-	a[h]=a[h]||function(){
-		(a[h].q=a[h].q||[]).push(arguments)
-	};
-	o=f.createElement('script'),
-	m=f.getElementsByTagName('script')[0];
-	o.async=1; o.src=t; o.id='fathom-script';
-	m.parentNode.insertBefore(o,m)
-})(document, window, '//$tracker/tracker.js', 'fathom');
-fathom('set', 'siteId', '$id');
-fathom('trackPageview');
-</script>
-<!-- / Fathom -->
-<?php
-
+function ${branding_slug}_fathom_tracker_snippet() {
+    echo "<script src=\"/$wp_content/mu-plugins/${branding_slug}-tracker.js\" defer></script>\n";
 }
-
-add_action( 'wp_head', '${branding_slug}_fathom_print_js_snippet', 50 );
+add_action( 'wp_head', '${branding_slug}_fathom_tracker_snippet', 50 );
 heredoc
 
-else
+  if [ -f "$wp_content/mu-plugins/${branding_slug}-stats.php" ]; then
+    echo "Removing legacy tracker '$wp_content/mu-plugins/${branding_slug}-stats.php'"
+    rm $wp_content/mu-plugins/${branding_slug}-stats.php
+  fi
+
+  echo "Generating '$wp_content/mu-plugins/${branding_slug}-tracker.js'"
+  echo "$build_tracking_script" > $wp_content/mu-plugins/${branding_slug}-tracker.js
+  echo "Generating '$wp_content/mu-plugins/${branding_slug}-tracker.php'"
+  echo "$build_mu_plugin" > $wp_content/mu-plugins/${branding_slug}-tracker.php
+
+fi
+
+if [[ "$tracker_count" != "1" ]] && [[ "$tracker_count" != "" ]]; then
 
 read -r -d '' php_code << heredoc
 \$ids = '$id';
 \$ids = json_decode(\$ids);
-echo '\$fathom_site_ids = array(';
+echo '\$fathom_site_ids = [';
 echo "\n";
 foreach (\$ids as \$id) { 
-  echo '     "'.\$id->domain .'" => "'.\$id->code .'",';
+  echo '       "'.\$id->domain .'" => "'.\$id->code .'",';
   echo "\n";
 }
-echo "  );";
+echo "    ];";
 heredoc
 
 fathom_site_ids_code=$( php -r "$php_code" )
@@ -131,9 +333,8 @@ fathom_site_ids_code=$( php -r "$php_code" )
 # Generate must-use plugin
 read -r -d '' build_mu_plugin << heredoc
 <?php
-
 /**
- * Plugin Name: $branding_author Stats
+ * Plugin Name: $branding_author Tracker
  * Description: Fathom Analytics tracking snippet for ${branding_author}'s bundled Fathom instance.
  * Version: 1.0
  * Author: $branding_author
@@ -141,45 +342,52 @@ read -r -d '' build_mu_plugin << heredoc
  * Text Domain: ${branding_slug}-stats
  */
 
-function ${branding_slug}_fathom_print_js_snippet() { 
+function ${branding_slug}_fathom_print_js_snippet() {
 
   // Only run if multisite is active
-  if (function_exists('get_blog_details')) {
+  if ( function_exists('get_blog_details') ) {
 
-  \$current_site = get_blog_details();
+    \$current_site = get_blog_details();
 
-  $fathom_site_ids_code
+    $fathom_site_ids_code
 
-  if ( array_key_exists( \$current_site->domain, \$fathom_site_ids ) ) {
-
-                \$fathom_site_id = \$fathom_site_ids[\$current_site->domain];
-  
-  ?>
-<!-- Fathom - simple website analytics - https://github.com/usefathom/fathom -->
-<script>
-(function(f, a, t, h, o, m){
-	a[h]=a[h]||function(){
-		(a[h].q=a[h].q||[]).push(arguments)
-	};
-	o=f.createElement('script'),
-	m=f.getElementsByTagName('script')[0];
-	o.async=1; o.src=t; o.id='fathom-script';
-	m.parentNode.insertBefore(o,m)
-})(document, window, '//$tracker/tracker.js', 'fathom');
-fathom('set', 'siteId', '<?php echo \$fathom_site_id; ?>');
-fathom('trackPageview');
-</script>
-<!-- / Fathom -->
-<?php
-
-  }
+    if ( array_key_exists( \$current_site->domain, \$fathom_site_ids ) ) {
+      \$fathom_site_id = \$fathom_site_ids[\$current_site->domain];
+      echo "<script src=\"/$wp_content/mu-plugins/${branding_slug}-\$fathom_site_id-tracker.js\" defer></script>\n"; 
+    }
   }
 }
 
 add_action( 'wp_head', '${branding_slug}_fathom_print_js_snippet', 50 );
 heredoc
 
-fi
 
-echo "Generating '$wp_content/mu-plugins/${branding_slug}-stats.php'"
-echo "$build_mu_plugin" > $wp_content/mu-plugins/${branding_slug}-stats.php
+  if [ -f "$wp_content/mu-plugins/${branding_slug}-stats.php" ]; then
+    echo "Removing legacy tracker '$wp_content/mu-plugins/${branding_slug}-stats.php'"
+    rm $wp_content/mu-plugins/${branding_slug}-stats.php
+  fi
+
+  if [[ "$( ls $wp_content/mu-plugins/${branding_slug}-*tracker.js | wc -l  )" != "0" ]]; then
+    echo "Removing existing trackers";
+    rm $wp_content/mu-plugins/${branding_slug}-*tracker.js
+  fi
+
+  echo "Generating '$wp_content/mu-plugins/${branding_slug}-tracker.php'"
+  echo "$build_mu_plugin" > $wp_content/mu-plugins/${branding_slug}-tracker.php
+
+  read -r -d '' php_code << heredoc
+\$ids = '$id';
+\$ids = json_decode(\$ids);
+echo implode( " ", array_column( \$ids, "code" ) );
+heredoc
+
+  fathom_ids=($( php -r "$php_code" ))
+  for id in ${fathom_ids[@]}; do
+    read -r -d '' build_tracking_script << heredoc
+window.fathom_lite=function(){var e={siteId:"$id",trackerUrl:"//$tracker/collect"};function t(){return{isNewVisitor:!0,isNewSession:!0,pagesViewed:[],previousPageviewId:"",lastSeen:+new Date}}function n(){let e=new Date;e.setMinutes(e.getMinutes()-30);let n=function(e){for(var t=document.cookie?document.cookie.split("; "):[],n=0;n<t.length;n++){var i=t[n].split("=");if(decodeURIComponent(i[0])===e){var r=i.slice(1).join("=");return decodeURIComponent(r)}}return""}("_fathom_lite");if(!n)return t();try{n=JSON.parse(n)}catch(e){return console.error(e),t()}return n.lastSeen<+e&&(n.isNewSession=!0),n}return e.siteId=document.currentScript.getAttribute("data-site")||e.siteId,setTimeout(function(){window.fathom_lite.trackPageview()}),{trackPageview:function(t){if(t=t||{},"doNotTrack"in navigator&&"1"===navigator.doNotTrack)return;if("visibilityState"in document&&"prerender"===document.visibilityState)return;if(null===document.body)return void document.addEventListener("DOMContentLoaded",()=>{trackPageview(t)});let i=window.location;if(""===i.host)return;let r=document.querySelector('link[rel="canonical"][href]');if(r){let e=document.createElement("a");e.href=r.href,i=e}let o=t.path||i.pathname+i.search;o||(o="/");let a=t.hostname||i.protocol+"//"+i.hostname,d=t.referrer||"";document.referrer.indexOf(a)<0&&(d=document.referrer);var s,c,u,l=n(),p={id:(s=20,c="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",Array(s).join().split(",").map(()=>c.charAt(Math.floor(Math.random()*c.length))).join("")),pid:l.previousPageviewId||"",p:o,h:a,r:d,u:-1==l.pagesViewed.indexOf(o)?1:0,nv:l.isNewVisitor?1:0,ns:l.isNewSession?1:0,sid:e.siteId},m=e.trackerUrl,f=document.createElement("img");f.setAttribute("alt",""),f.setAttribute("aria-hidden","true"),f.src=m+(u=p,"?"+Object.keys(u).map(function(e){return encodeURIComponent(e)+"="+encodeURIComponent(u[e])}).join("&")),f.addEventListener("load",function(){var e=new Date,t=new Date(e.getFullYear(),e.getMonth(),e.getDate(),24,0,0);-1==l.pagesViewed.indexOf(o)&&l.pagesViewed.push(o),l.previousPageviewId=p.id,l.isNewVisitor=!1,l.isNewSession=!1,l.lastSeen=+new Date,function(e,t,n){var i=(e=encodeURIComponent(e))+"="+(t=encodeURIComponent(String(t)));n.path&&(i+=";path="+n.path),n.expires&&(i+=";expires="+n.expires.toUTCString()),document.cookie=i}("_fathom_lite",JSON.stringify(l),{expires:t,path:"/"}),document.body.removeChild(f)}),document.body.appendChild(f)}}}();
+heredoc
+    echo "Generating '$wp_content/mu-plugins/${branding_slug}-${id}-tracker.js'"
+    echo "$build_tracking_script" > $wp_content/mu-plugins/${branding_slug}-${id}-tracker.js
+  done
+
+fi
