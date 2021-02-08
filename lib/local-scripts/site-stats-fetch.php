@@ -72,7 +72,7 @@ if ( is_array( $fathom ) ) {
 // If Fathom found then fetch stats
 if ( $fathom != "" ) {
     
-    $fathom_instance = "https://{$configuration->vars->captaincore_tracker}";
+    $fathom_instance = "https://{$configuration->vars->captaincore_tracker_api}";
     $login_details   = [
         'email'    => $configuration->vars->captaincore_tracker_user, 
         'password' => $configuration->vars->captaincore_tracker_pass
