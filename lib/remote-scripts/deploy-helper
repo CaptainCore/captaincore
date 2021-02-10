@@ -61,7 +61,7 @@ read -r -d '' build_mu_plugin << 'heredoc'
  * Plugin Name: CaptainCore Helper
  * Plugin URI: https://captaincore.io
  * Description: Collection of helper functions for CaptainCore
- * Version: 0.2.4
+ * Version: 0.2.5
  * Author: CaptainCore
  * Author URI: https://captaincore.io
  * Text Domain: captaincore-helper
@@ -101,6 +101,12 @@ function captaincore_quick_login_action_callback() {
 		$login_page     = "wp-login.php";
 		if ( is_plugin_active( 'wps-hide-login/wps-hide-login.php' ) ) {
 			$login_page = get_option( 'whl_page' );
+		}
+		if ( is_plugin_active( 'better-wp-security/better-wp-security.php' ) ) {
+			$hide_backend = (object) ITSEC_Modules::get_settings( 'hide-backend' );
+			if ( $hide_backend->enabled ) {
+				$login_page = $hide_backend->slug;
+			}
 		}
 		$home_url       = home_url();
 		$login_url      = trim( $home_url, "/" ) . "/$login_page";
