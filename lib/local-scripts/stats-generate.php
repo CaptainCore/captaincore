@@ -71,9 +71,9 @@ foreach($config_data as $config) {
 }
 
 if ( $system->captaincore_dev == true ) {
-    $fathom_instance = "http://{$configuration->vars->captaincore_tracker}";
+    $fathom_instance = "http://{$configuration->vars->captaincore_tracker_api}";
 } else {
-    $fathom_instance = "https://{$configuration->vars->captaincore_tracker}";
+    $fathom_instance = "https://{$configuration->vars->captaincore_tracker_api}";
 }
 
 $login_details = array( 
