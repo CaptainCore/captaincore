@@ -28,6 +28,45 @@ $responses      = explode( "\n", $response );
 $environment_id = ( new CaptainCore\Site( $site_details->site_id ) )->fetch_environment_id( $environment );
 $valid          = true;
 
+if ( $responses[0] == "WordPress not found" ) {
+    $json        = "{$_SERVER['HOME']}/.captaincore-cli/config.json";
+    $config_data = json_decode ( file_get_contents( $json ) );
+    $system      = $config_data[0]->system;
+
+    foreach($config_data as $config) {
+        if ( isset( $config->captain_id ) and $config->captain_id == $captain_id ) {
+            $configuration = $config;
+            break;
+        }
+    }
+
+    $environment_update = [
+        "environment_id" => $environment_id,
+        "token"          => "basic",
+        "updated_at"     => date("Y-m-d H:i:s"),
+    ];
+    // Prepare request to API
+    $request = [
+        'method'  => 'POST',
+        'headers' => [ 'Content-Type' => 'application/json' ],
+        'body'    => json_encode( [ 
+            "command" => "sync-data",
+            "site_id" => $site_details->site_id,
+            "token"   => $configuration->keys->token,
+            "data"    => $environment_update,
+        ] ),
+    ];
+
+    if ( $system->captaincore_dev ) {
+        $request['sslverify'] = false;
+    }
+
+    // Post to CaptainCore API
+    $response = wp_remote_post( $configuration->vars->captaincore_api, $request );
+    echo $response['body'];
+    return;
+}
+
 $environment_update = [
     "environment_id"    => $environment_id,
     "plugins"           => $responses[0],

@@ -16,6 +16,11 @@
 #   line 10: token
 #
 
+if [ ! -f "wp-config.php" ]; then
+    echo "WordPress not found"
+    exit
+fi
+
 plugins=$( wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version )
 themes=$(wp theme list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version )
 core=$( wp core version --skip-themes --skip-plugins --skip-packages )
