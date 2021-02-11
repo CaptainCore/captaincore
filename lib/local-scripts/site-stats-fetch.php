@@ -74,7 +74,7 @@ if ( $fathom != "" ) {
     
     $fathom_instance = "https://{$configuration->vars->captaincore_tracker_api}";
     $login_details   = [
-        'email'    => $configuration->vars->captaincore_tracker_user, 
+        'email'    => $configuration->vars->captaincore_tracker_user,
         'password' => $configuration->vars->captaincore_tracker_pass
     ];
 
@@ -92,7 +92,7 @@ if ( $fathom != "" ) {
          ] );
 
         // Save the API response so we don't have to call again until tomorrow.
-        set_transient( "captaincore_fathom_auth_{$captain_id}", $auth, HOUR_IN_SECONDS );
+        set_transient( "captaincore_fathom_auth_{$captain_id}", $auth, 20 * MINUTE_IN_SECONDS );
 
     }
 
@@ -107,7 +107,7 @@ if ( $fathom != "" ) {
         $sites    = json_decode( $response['body'] )->Data;
 
         // Save the API response so we don't have to call again until tomorrow.
-        set_transient( "captaincore_fathom_sites_{$captain_id}", $sites, HOUR_IN_SECONDS );
+        set_transient( "captaincore_fathom_sites_{$captain_id}", $sites, 20 * MINUTE_IN_SECONDS );
 
     }
 
