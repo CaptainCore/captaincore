@@ -14,9 +14,14 @@ root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_
 source ${root_path}lib/arguments
 
 website=$1
+remote_options=""
 
 # Load site configs
 while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain_id=$captain_id)"
+      
+if [[ $key != "" ]]; then
+  remote_options="-i $path_keys/${captain_id}/${key}"
+fi
 
 # Site found, start the backup
 if ! [ -z "$domain" ]; then
@@ -26,9 +31,9 @@ if ! [ -z "$domain" ]; then
 
 	if [ -n "$2" ]; then
 		if [[ "$public" == "true" ]]; then
-			scp -o StrictHostKeyChecking=no -P $port $2 $username@$address:public/
+			scp $remote_options -o StrictHostKeyChecking=no -P $port $2 $username@$address:public/
 		else
-			scp -o StrictHostKeyChecking=no -P $port $2 $username@$address:private/
+			scp $remote_options -o StrictHostKeyChecking=no -P $port $2 $username@$address:private/
 		fi
 	else
 		echo 'Missing argument. Ex: captaincore upload sitename1 "~/Download/migration.zip'
@@ -39,9 +44,9 @@ if ! [ -z "$domain" ]; then
 	echo "Uploading..."
 	if [ -n "$2" ]; then
 		if [[ "$public" == "true" ]]; then
-		scp -o StrictHostKeyChecking=no -P 22 "$2" $1@$1.ssh.wpengine.net:sites/$1/
+		scp $remote_options -o StrictHostKeyChecking=no -P 22 "$2" $1@$1.ssh.wpengine.net:sites/$1/
 		else
-			scp -o StrictHostKeyChecking=no -P 22 "$2" $1@$1.ssh.wpengine.net:sites/$1/_wpeprivate/
+			scp $remote_options -o StrictHostKeyChecking=no -P 22 "$2" $1@$1.ssh.wpengine.net:sites/$1/_wpeprivate/
 		fi
 	else
 		echo 'Missing argument. Ex: captaincore upload sitename1 "~/Download/migration.zip'
@@ -53,9 +58,9 @@ else ## not recognized so attempt WP Engine's format
 
 	if [ -n "$2" ]; then
 		if [[ "$public" == "true" ]]; then
-			scp -o StrictHostKeyChecking=no -P 22 $2 $1@$1.ssh.wpengine.net:sites/$1/
+			scp $remote_options -o StrictHostKeyChecking=no -P 22 $2 $1@$1.ssh.wpengine.net:sites/$1/
 		else
-	  	scp -o StrictHostKeyChecking=no -P 22 $2 $1@$1.ssh.wpengine.net:sites/$1/_wpeprivate/
+	  	scp $remote_options -o StrictHostKeyChecking=no -P 22 $2 $1@$1.ssh.wpengine.net:sites/$1/_wpeprivate/
 		fi
 	else
 	  echo 'Missing argument. Ex: captaincore upload sitename1 "~/Download/migration.zip'
