@@ -38,13 +38,16 @@ run_command() {
 
     rclone config delete sftp-${site_name}-${environment}
 
-    if [[ "$key" != "" ]]; then
+    if [[ "$key" != "use_password" ]]; then
+      if [[ $key == "" ]]; then
+        key=$( captaincore configuration get --field=default_key )
+      fi
       ssh_file="$path_keys/${captain_id}/${key}"
       echo "Generating rclone configs for ${site}-${environment} with SSH key"
       quiet=$( rclone config create sftp-${site_name}-${environment} $protocol host $address user $username port $port key_file $ssh_file )
     fi
 
-    if [[ "$key" == "" ]]; then
+    if [[ "$key" == "use_password" ]]; then
       password=$(captaincore site get ${site}-${environment} --field=password --captain_id=$captain_id)
       rclone_pass=$(rclone obscure $password)
       echo "Generating rclone configs for ${site}-${environment} with password"
