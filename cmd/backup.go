@@ -36,6 +36,12 @@ var backupGenerateCmd = &cobra.Command{
 var backupGetCmd = &cobra.Command{
 	Use:   "get <site> <backup-id>",
 	Short: "Fetches backup for a site",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 2 {
+			return errors.New("requires <site> and <backup-id> arguments")
+		}
+		return nil
+	},
 	Run: func(cmd *cobra.Command, args []string) {
 		resolveCommand(cmd, args)
 	},

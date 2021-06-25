@@ -120,7 +120,7 @@ func resolveCommand(c *cobra.Command, args []string) {
 		log.Fatal(err)
 	}
 
-	if target_count > 0 && c.CommandPath() != "captaincore monitor" && c.CommandPath() != "captaincore bulk" && c.CommandPath() != "captaincore plugin-zip" {
+	if target_count > 0 && c.CommandPath() != "captaincore monitor" && c.CommandPath() != "captaincore bulk" && c.CommandPath() != "captaincore plugin-zip" && c.CommandPath() != "captaincore backup get" {
 		if args[0] == "@production" || args[0] == "@staging" || args[0] == "@all" || target_count > 1 {
 			bulk = true
 		}
