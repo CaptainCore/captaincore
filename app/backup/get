@@ -13,7 +13,7 @@ while read config; do
   declare "$config"
 done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
 
-if [ ${#@} -ne 2 ]; then
+if [ ${#@} -lt 2 ]; then
   echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify <site> and <backup-id>."
   exit
 fi
