@@ -1,5 +1,7 @@
 <?php
 
+$captain_id = getenv('CAPTAIN_ID');
+
 // Replaces dashes in keys with underscores
 foreach($args as $index => $arg) {
 	$split = strpos($arg, "=");
@@ -22,7 +24,7 @@ foreach($args as $index => $arg) {
 parse_str( implode( '&', $args ) );
 
 // Loads CLI configs
-$json = "{$_SERVER['HOME']}/.captaincore-cli/config.json";
+$json = "{$_SERVER['HOME']}/.captaincore/config.json";
 
 if ( ! file_exists( $json ) ) {
 	echo "Error: Configuration file not found.";

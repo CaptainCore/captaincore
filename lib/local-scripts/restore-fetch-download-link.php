@@ -1,5 +1,7 @@
 <?php
 
+$captain_id = getenv('CAPTAIN_ID');
+
 // Replaces dashes in keys with underscores
 foreach($args as $index => $arg) {
 	$split = strpos($arg, "=");
@@ -21,7 +23,7 @@ foreach($args as $index => $arg) {
 // Converts --arguments into $arguments
 parse_str( implode( '&', $args ) );
 
-$json        = $_SERVER['HOME'] . "/.captaincore-cli/config.json";
+$json        = $_SERVER['HOME'] . "/.captaincore/config.json";
 $config_data = json_decode ( file_get_contents( $json ) );
 $system      = $config_data[0]->system;
 

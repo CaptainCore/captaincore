@@ -3,83 +3,50 @@
 #
 #   Calculates size of one or more sites.
 #
-#   `captaincore size`
+#   `captaincore size <site>`
 #
-#   [<site>...]
-#   One or more sites.
-#
-#   [@<target>]
-#   Target groups of sites like @all @production or @staging.
-#
-#
-
-# Load configuration
-root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
-source ${root_path}lib/arguments
 
 run_command() {
 
   INDEX=1
-  for site in "$@"; do
+  site=$@
 
-    # Load site configs
-    while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
+  # Load site configs
+  while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$CAPTAIN_ID)"
 
-    if [ -z "$domain" ]; then
-      echo "Domain not found"
-      return
-    fi
+  if [ -z "$domain" ]; then
+    echo "Domain not found"
+    return
+  fi
 
-    # Define Rclone site name
-    rclone_site_name=${captain_id}-${site}
+  # Define Rclone site name
+  rclone_site_name=${captain_id}-${site}
 
-    if [ "$home_directory" != "" ]; then
-      home_directory="${home_directory}/"
-    fi
-  
-    json="["
-    size_production=$(rclone size sftp-${rclone_site_name}-production:$home_directory --json)
-    size_staging=$(rclone size sftp-${rclone_site_name}-staging:$home_directory --json)
-    json+="{\"name\":\"$site\","${size_production:1:${#size_production}}
-    if [[ "$size_staging" != "" ]]; then
-      json+=","
-    fi
-    json+="{\"name\":\"$site-staging\","${size_staging:1:${#size_staging}}
-    json+="]"
+  if [ "$home_directory" != "" ]; then
+    home_directory="${home_directory}/"
+  fi
 
-    echo $json
+  json="["
+  size_production=$(rclone size sftp-${rclone_site_name}-production:$home_directory --json)
+  size_staging=$(rclone size sftp-${rclone_site_name}-staging:$home_directory --json)
+  json+="{\"name\":\"$site\","${size_production:1:${#size_production}}
+  if [[ "$size_staging" != "" ]]; then
+    json+=","
+  fi
+  json+="{\"name\":\"$site-staging\","${size_staging:1:${#size_staging}}
+  json+="]"
 
-    # Clear out variables
-    domain=''
-    username=''
-    password=''
-    address=''
-    protocol=''
-    port=''
-    home_directory=''
-    remoteserver=''
-    s3bucket=''
-    s3path=''
-    subsite=''
+  echo $json
 
-    let INDEX=${INDEX}+1
-
-  done
+  let INDEX=${INDEX}+1
 
 }
 
 # See if any sites are specifed
-if [ ${#arguments[*]} -gt 0 ]; then
+if [ ${#arguments[*]} -eq 1 ]; then
   # Runs on specifed sites
   run_command ${arguments[*]}
+  exit
 fi
 
-# Runs on targeted sites
-if [ ${#targets[*]} -gt 0 ]; then
-  run_command $(captaincore site list ${targets[*]/targets=/@} --captain_id=$captain_id)
-fi
-
-# Error if no sites specifed
-if [ ${#targets[*]} -eq 0 ] && [ ${#arguments[*]} -eq 0 ]; then
-  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use a target @all, @production or @staging."
-fi
+echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a <site>."

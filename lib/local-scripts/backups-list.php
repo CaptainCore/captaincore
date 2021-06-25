@@ -1,5 +1,7 @@
 <?php
 
+$captain_id = getenv('CAPTAIN_ID');
+
 // Replaces dashes in keys with underscores
 foreach($args as $index => $arg) {
 	$split = strpos($arg, "=");
@@ -22,7 +24,7 @@ foreach($args as $index => $arg) {
 parse_str( implode( '&', $args ) );
 
 // Loads CLI configs
-$json = "{$_SERVER['HOME']}/.captaincore-cli/config.json";
+$json = "{$_SERVER['HOME']}/.captaincore/config.json";
 
 if ( ! file_exists( $json ) ) {
 	echo "Error: Configuration file not found.";
@@ -42,7 +44,7 @@ foreach($config_data as $config) {
 if ( $system->captaincore_fleet == "true" ) {
     $system->rclone_backup = "{$system->rclone_backup}/{$captain_id}";
 }
-$restic_key = $_SERVER['HOME']. "/.captaincore-cli/data/restic.key";
+$restic_key = $_SERVER['HOME']. "/.captaincore/data/restic.key";
 $command    = "restic snapshots --repo rclone:{$system->rclone_backup}/${site}_${site_id}/${environment}/restic-repo --password-file=${restic_key} --json";
 $response   = shell_exec( $command );
 $snapshots  = json_decode ( $response );
@@ -61,7 +63,7 @@ if ( empty ( count( $snapshots ) ) ) {
         "response" => $response,
         "command"  => $command,
     ];
-    $error_file = "{$_SERVER['HOME']}/.captaincore-cli/data/snapshot-error.log";
+    $error_file = "{$_SERVER['HOME']}/.captaincore/data/snapshot-error.log";
     file_put_contents( $error_file, json_encode( $error, JSON_PRETTY_PRINT ) );
 }
 

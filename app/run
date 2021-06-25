@@ -6,19 +6,21 @@
 #   `captaincore run <site> --code=<code>`
 #
 
-# Load configuration
-root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
-source ${root_path}lib/arguments
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
 
-# See if any sites are specifed
-if [ ${#arguments[*]} -gt 0 ] && [[ "$code" != "" ]]; then
+if [ ${#@} -gt 0 ] && [[ "$CAPTAINCORE_CODE" != "" ]]; then
   # Generates receipe
   timestamp=$( date +'%Y-%m-%d' )
-  recipe_file=$path_recipes/${captain_id}-${timestamp}-${code:0:8}.sh
-  recipe_name=${timestamp}-${code:0:8}
+  recipe_file=$path_recipes/${CAPTAIN_ID}-${timestamp}-${CAPTAINCORE_CODE:0:8}.sh
+  recipe_name=${timestamp}-${CAPTAINCORE_CODE:0:8}
   read -r -d '' php_code << heredoc
 \$run_code = <<<PHPHEREDOC
-$code
+$CAPTAINCORE_CODE
 PHPHEREDOC;
 
 echo base64_decode( \$run_code );
@@ -28,10 +30,9 @@ heredoc
   echo -n "$code" > "${recipe_file}"
 
   # Runs on specifed sites
-  captaincore ssh ${arguments[*]} --recipe=$recipe_name --captain_id=$captain_id
+  captaincore ssh $1 --recipe=$recipe_name --captain-id=$CAPTAIN_ID
+  exit
 fi
 
 # Error if no sites specifed
-if [ ${#arguments[*]} -eq 0 ] || [[ "$code" == "" ]]; then
-  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a <site> and --code=<code>."
-fi
+echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a <site> and --code=<code>."

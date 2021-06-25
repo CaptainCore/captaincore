@@ -6,46 +6,44 @@
 #   `captaincore activate [<site>...]`
 #
 
-# Load configuration
-root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
-source ${root_path}lib/arguments
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+if [ ${#@} -ne 1 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a <site>."
+  exit
+fi
+
+site=$1
 
 run_command() {
 
-  for website in "${arguments[*]}"; do
+  # Extract environment
+  if [[ "$website" == *"-staging"* ]]; then
+    environment=staging
+  else
+    environment=production
+  fi
 
-  	# Extract environment
-		if [[ "$website" == *"-staging"* ]]; then
-			environment=staging
-		else
-			environment=production
-		fi
+  # Load site configs
+  while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
 
-    # Load site configs
-    while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain_id=$captain_id)"
+  if [ -z "$domain" ]; then
+    echo "Domain not found"
+    continue
+  fi
 
-    if [ -z "$domain" ]; then
-      echo "Domain not found"
-      continue
-    fi
+  rclone_config_file="$path/${site}_${site_id}/rclone.conf"
+  if [ ! -f "$rclone_config_file" ]; then
+    captaincore site key-generate $site --captain-id=$CAPTAIN_ID
+  fi
 
-    # Define Rclone site name
-		rclone_site_name=${captain_id}-${site}-${environment}
-
-    if [[ "$home_directory" != "" ]]; then
-      home_directory="${home_directory}/"
-    fi
-
-    # Remove deactivation plugin
-    rclone delete sftp-$rclone_site_name:${home_directory}${wp_content}/mu-plugins/captaincore_deactivated.php
-    echo "activated $domain"
-
-  done
+  captaincore ssh $site-$environment --script=activate -- --wp_content=$wp_content
 
 }
 
-# See if any specific sites are selected
-if [ $# -gt 0 ]; then
-  # Run selected site(s)
-  run_command $*
-fi
+run_command

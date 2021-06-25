@@ -1,5 +1,7 @@
 <?php
 
+$site = $args[0];
+
 // Replaces dashes in keys with underscores
 foreach($args as $index => $arg) {
 	$split = strpos($arg, "=");
@@ -20,6 +22,24 @@ foreach($args as $index => $arg) {
 
 // Converts --arguments into $arguments
 parse_str( implode( '&', $args ) );
+
+if( strpos( $site, "-" ) !== false ) {
+	$split       = explode( "-", $site );
+	$site        = $split[0];
+	$environment = $split[1];
+}
+
+if( strpos( $site, "@" ) !== false ) {
+	$split       = explode( "@", $site );
+	$site        = $split[0];
+	$provider    = $split[1];
+}
+
+if( strpos( $environment, "@" ) !== false ) {
+	$split       = explode( "@", $environment );
+	$environment = $split[0];
+	$provider    = $split[1];
+}
 
 // Assign default format to JSON
 if ( $format == "" ) {
@@ -43,7 +63,7 @@ if ( count( $lookup ) == 0 ) {
 }
 
 // Fetch site
-$site    = ( new CaptainCore\Site( $lookup[0]->site_id ) )->get();
+$site = ( new CaptainCore\Site( $lookup[0]->site_id ) )->get();
 
 // Set environment if not defined
 if ( $environment == "" ) {

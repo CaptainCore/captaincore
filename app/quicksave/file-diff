@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+
+#
+#   Shows file diff between Quicksaves.
+#
+#   `captaincore quicksave-file-diff <site> --hash=<git_hash> --file=<file>`
+#
+#   [--html]
+#   HTML converted output
+#
+#   Example: captaincore quicksave-file-diff sitename 4c43c16ae40f384e93573133282bb86a46d040fd versions/plugins.json
+#
+
+
+if [ ${#@} -ne 3 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a <site> <commit-hash> <file>."
+  exit
+fi
+
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+site=$1
+commit=$2
+file=$3
+
+run_command() {
+
+	# Extract environment
+	if [[ "$website" == *"-staging"* ]]; then
+		environment=staging
+	else
+		environment=production
+	fi
+
+	while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$captain_id)"
+
+	# Return error if domain not found
+	if [[ "$domain" == "" ]] || [[ "$site" == "" ]] || [[ "$provider" == "" ]]; then
+		echo "Can't locate website for site $site"
+		return 1
+	fi
+
+	if [ ! -d "$path/${site}_${site_id}/${environment}/quicksave/" ]; then
+		echo -e "Error: Unable to locate Quicksave."
+		return
+	fi
+
+	cd $path/${site}_${site_id}/${environment}/quicksave/
+
+	# capture all git commit into array
+	git_commits=($( git log --pretty=format:"%H" ))
+
+	for i in ${!git_commits[@]}; do
+		if [[ "${git_commits[$i]}" == "$commit" ]]; then
+			current_index=$i
+		fi
+	done
+
+	git_hash_previous=${git_commits[ $(( $current_index + 1 )) ]}
+	git_diff=$( git diff $git_hash_previous $commit -- $file )
+	if [[ $FLAG_HTML == "true" ]]; then
+
+		read -r -d '' php_code << heredoc
+<?php
+error_reporting(0);
+\$git_diff = <<<'PHPHEREDOC'
+$git_diff
+PHPHEREDOC;
+
+echo htmlentities( \$git_diff );
+heredoc
+
+		echo -n "$php_code" > $path_tmp/${captain_id}-${commit}.php
+		php $path_tmp/${captain_id}-${commit}.php
+
+	else
+		echo "$git_diff"
+	fi
+
+}
+
+run_command

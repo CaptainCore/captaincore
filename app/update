@@ -18,91 +18,49 @@
 #   Passed onto `wp plugin update --exclude=<theme-names>`
 #
 
-# Load configuration
-root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
-source ${root_path}lib/arguments
+if [ ${#@} -ne 1 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a <site>."
+fi
 
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+site=$1
 
 run_command() {
     
-    # Remove leading "--" from flags
-    for i in "${!flags[@]}"; do
-      flags[$i]=`echo ${flags[$i]} | cut -c 3-`
-    done
+  cd ${CAPTAINCORE_PATH}/data
 
-    cd ${root_path}data
+  # Extract environment
+  if [[ "$website" == *"-staging"* ]]; then
+    environment=staging
+  else
+    environment=production
+  fi
 
-    # Begin time tracking
-    overalltimebegin=$(date +"%s")
-    backup_date=$(date +'%Y-%m-%d')
-    backup_time=$(date +'%H-%M')
+  # Load site configs
+  while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
 
-    # Begin logging
-    echo "$(date +'%Y-%m-%d %H:%M') Begin updates"
+  rclone_config_file="$path/${site}_${site_id}/rclone.conf"
 
-    echo "Updating $# sites"
-    INDEX=0
-    for website in "$@"; do
+  ftp_output=$( { rclone lsd ${environment}:$home_directory --config="$rclone_config_file" ; } 2>&1 )
+  ftp_search_for_wordpress=$( echo "$ftp_output" | perl -wnE'say for /wp-admin/g' )
 
-      let INDEX=${INDEX}+1
+  if [[ $ftp_search_for_wordpress != "wp-admin" ]]; then
+    echo "Error: WordPress not found $site-$environment"
+    return
+  fi
 
-    	# Extract environment
-      if [[ "$website" == *"-staging"* ]]; then
-        environment=staging
-      else
-        environment=production
-      fi
+  wp eval-file ../lib/local-scripts/site-run-updates.php site=$site environment=$environment updates_enabled=$updates_enabled updates_exclude_themes=$updates_exclude_themes updates_exclude_plugins=$updates_exclude_plugins
 
-      # Load site configs
-      while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain_id=$captain_id)"
-
-      # Define Rclone site name
-      rclone_site_name=${captain_id}-${site}-${environment}
-
-      # captures FTP errors in $ftp_output and file listing to log file
-      ftp_output=$( { rclone lsd sftp-$rclone_site_name:$home_directory ; } 2>&1 )
-      ftp_search_for_wordpress=$( echo "$ftp_output" | perl -wnE'say for /wp-admin/g' )
-
-      # Handle FTP errors
-      if [[ $ftp_search_for_wordpress != "wp-admin" ]]; then
-
-        # WordPress not found, so performing regular backup
-        echo "WordPress not found: $site ($ftp_output)"
-				continue
-
-      fi
-
-      # No errors found, run updates
-
-      # run updates
-      echo "$(date +'%Y-%m-%d %H:%M') Begin updates on $site (${INDEX}/$#)"
-      
-      # Run site updates
-      wp eval-file ../lib/local-scripts/site-run-updates.php site=$site environment=$environment updates_enabled=$updates_enabled updates_exclude_themes=$updates_exclude_themes updates_exclude_plugins=$updates_exclude_plugins ${flags[@]}
-
-    done
-
-    echo "$(date +'%Y-%m-%d %H:%M') Updates finished"
-
-    # End time tracking
-    overalltimeend=$(date +"%s")
-    diff=$(($overalltimeend-$overalltimebegin))
-    echo "$(date +'%Y-%m-%d %H:%M') $(($diff / 3600)) hours, $((($diff / 60) % 60)) minutes and $(($diff % 60)) seconds elapsed."
+  if [ -f "${path}/process-${process_id}-progress.log" ]; then
+    echo -n "." >> ${path}/process-${process_id}-progress.log
+  fi
 
 }
 
-# See if any sites are specifed
-if [ ${#arguments[*]} -gt 0 ]; then
-  # Runs on specifed sites
-  run_command ${arguments[*]}
-fi
-
-# Runs on targeted sites
-if [ ${#targets[*]} -gt 0 ]; then
-  run_command $(captaincore site list ${targets[*]/targets=/@} --captain_id=$captain_id)
-fi
-
-# Error if no sites specifed
-if [[ $all != "true" ]] && [[ $updates_enabled != "true" ]] && [ ${#arguments[*]} -eq 0 ]; then
-  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use --all."
-fi
+run_command

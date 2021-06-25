@@ -49,7 +49,7 @@ if ( $process_id == "" or $command == "" ) {
 }
 
 // Loads CLI configs
-$json = "{$_SERVER['HOME']}/.captaincore-cli/config.json";
+$json = "{$_SERVER['HOME']}/.captaincore/config.json";
 
 if ( ! file_exists( $json ) ) {
 	echo "Error: Configuration file not found.";

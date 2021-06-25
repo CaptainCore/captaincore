@@ -1,5 +1,7 @@
 <?php
 
+$captain_id = getenv('CAPTAIN_ID');
+
 // Replaces dashes in keys with underscores
 foreach($args as $index => $arg) {
 	$split = strpos($arg, "=");
@@ -22,7 +24,7 @@ foreach($args as $index => $arg) {
 parse_str( implode( '&', $args ) );
 
 // Loads CLI configs
-$json = "{$_SERVER['HOME']}/.captaincore-cli/config.json";
+$json = "{$_SERVER['HOME']}/.captaincore/config.json";
 
 if ( ! file_exists( $json ) ) {
 	echo "Error: Configuration file not found.";
@@ -35,11 +37,12 @@ $system      = $config_data[0]->system;
 if ( $system->captaincore_fleet == "true" ) {
     $system->rclone_backup = "{$system->rclone_backup}/{$captain_id}";
 }
-$restic_key   = $_SERVER['HOME']. "/.captaincore-cli/data/restic.key";
+$restic_key   = $_SERVER['HOME']. "/.captaincore/data/restic.key";
 $command      = "restic ls -l $backup_id / --recursive --repo rclone:{$system->rclone_backup}/${site}_${site_id}/${environment}/restic-repo --json --password-file=${restic_key}";
 $items        = shell_exec( $command );
 $items        = explode( PHP_EOL, $items );
 $folder_usage = [];
+$omit_items   = [ "/wp-content/uploads/", "/wp-content/blog.dir/" ];
 if ( count ( $items ) > 50000 ) {
     $omit = true;
 }
@@ -49,7 +52,7 @@ foreach ( $items as $key => $item ) {
         unset( $items[ $key ] );
         continue;
     }
-    if ( $omit && substr( $row->path, 0, 20 ) == "/wp-content/uploads/" && $row->type == "file" ) {
+    if ( $omit && in_array( substr( $row->path, 0, 20 ), $omit_items ) && $row->type == "file" ) {
         unset( $items[ $key ] );
         $path = dirname( $row->path );
         if ( empty( $folder_usage[ $path ] ) ) {

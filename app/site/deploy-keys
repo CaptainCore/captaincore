@@ -6,12 +6,21 @@
 #   `captaincore deploy keys <site>`
 #
 
-root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
-source ${root_path}lib/arguments
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+if [ ${#@} -ne 1 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a site."
+  exit
+fi
+
+site=$1
 
 run_command() {
-
-  website=$1
 
   # Extract environment
   if [[ "$website" == *"-staging"* ]]; then
@@ -21,15 +30,22 @@ run_command() {
   fi
 
   # Load site vars
-  while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain_id=$captain_id)"
+  while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
 
-  # Define Rclone site name
-  rclone_site_name=${captain_id}-${site}-${environment}
+  if [[ "$domain" == "" ]]; then
+    exit
+  fi
+
+  # Define Rclone config file
+  rclone_config_file="$path/${site}_${site_id}/rclone.conf"
+  if [ ! -f "$rclone_config_file" ]; then
+    captaincore site key-generate $site --captain-id=$CAPTAIN_ID
+  fi
 
   if [[ $provider == "kinsta" ]]; then
 
     # Check for authorized_keys using rclone's JSON
-    check_for_keys=$( rclone lsjson sftp-${rclone_site_name}:.ssh/authorized_keys --no-modtime )
+    check_for_keys=$( rclone lsjson ${environment}:.ssh/authorized_keys --no-modtime --config="$rclone_config_file" )
 
     # PHP script to read JSON value
     read -r -d '' php_code << heredoc
@@ -48,21 +64,21 @@ heredoc
 
   # No authorized_keys found, generate new one
   if [[ "$found_authorized_keys" != "authorized_keys" ]]; then
-    echo local_public_key | rclone rcat sftp-${rclone_site_name}:.ssh/authorized_keys
+    echo local_public_key | rclone rcat ${environment}:.ssh/authorized_keys --config="$rclone_config_file"
   fi
 
   # Examine existing authorized_keys file
   if [[ "$found_authorized_keys" == "authorized_keys" ]]; then
 
     # Fetch current authorized_keys
-    authorized_keys=$( rclone cat sftp-${rclone_site_name}:.ssh/authorized_keys )
+    authorized_keys=$( rclone cat ${environment}:.ssh/authorized_keys --config="$rclone_config_file" )
 
     # Check if key is already added
     if [ -z "${authorized_keys##*$local_public_key*}" ]; then
       echo "Key already added."
     else 
       echo "Adding key."
-      printf "$authorized_keys\n$local_public_key\n" | rclone rcat sftp-${rclone_site_name}:.ssh/authorized_keys
+      printf "$authorized_keys\n$local_public_key\n" | rclone rcat ${environment}:.ssh/authorized_keys --config="$rclone_config_file"
     fi
 
   fi
@@ -75,13 +91,4 @@ fi
 
 }
 
-# See if any sites are specifed
-if [ ${#arguments[*]} -eq 1 ]; then
-  # Runs on specifed sites
-  run_command ${arguments[*]}
-fi
-
-# Error if no sites specifed
-if [ ${#arguments[*]} -eq 0 ]; then
-  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a site."
-fi
+run_command

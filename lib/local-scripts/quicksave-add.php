@@ -1,5 +1,7 @@
 <?php
 
+$captain_id = getenv('CAPTAIN_ID');
+
 // Replaces dashes in keys with underscores
 foreach($args as $index => $arg) {
 	$split = strpos($arg, "=");
@@ -36,7 +38,7 @@ $env            = $environment;
 $environment    = ( new CaptainCore\Environments )->get( $environment_id );
 
 // Loads CLI configs
-$json = "{$_SERVER['HOME']}/.captaincore-cli/config.json";
+$json = "{$_SERVER['HOME']}/.captaincore/config.json";
 
 if ( ! file_exists( $json ) ) {
 	echo "Error: Configuration file not found.";
@@ -173,4 +175,4 @@ if ( $system->captaincore_dev ) {
 $response = wp_remote_post( $configuration->vars->captaincore_api, $request );
 
 # Generate capture
-shell_exec( "captaincore capture {$site->site}-{$env} --captain_id=$captain_id" );
+shell_exec( "captaincore capture {$site->site}-{$env} --captain-id=$captain_id" );

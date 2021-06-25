@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+
+#
+#   Runs custom bash script or WP-CLI commands on a site.
+#
+#   `captaincore site backup download <site> <backup_id> <payload_id>`
+#
+#   [<email>]
+#   Sent email with downloadable link
+#
+
+if [ ${#@} -ne 3 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify <site> <backup-id> and <payload-id>."
+fi
+
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+site=$1
+backup_id=$2
+payload_id=$3
+
+# Extract environment
+if [[ "$site" == *"-staging"* ]]; then
+    environment=staging
+fi
+
+if [[ "$site" == *"-production"* ]]; then
+    environment=production
+fi
+
+if [[ "$site" != *"-"* ]]; then
+    environment=production
+fi
+mkdir -p "${CAPTAINCORE_PATH}/data/payload/"
+payload_file="${CAPTAINCORE_PATH}/data/payload/${payload_id}.txt"
+
+# Load site configs
+while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
+
+timestamp=$( date +'%Y-%m-%d_%H-%M-%S' )
+restore_path="$path/${site}_${site_id}/${environment}/restores/${timestamp}-${backup_id:0:8}"
+mount_name="${timestamp}-${backup_id:0:3}"
+zip_name="${site}_${environment}_${backup_id:0:8}_at_$timestamp.zip"
+mkdir -p "$restore_path/$mount_name"
+
+read -r -d '' php_code << heredoc
+\$data        = json_decode( base64_decode( file_get_contents ( "$payload_file" ) ) );
+\$files       = \$data->files; 
+\$directories = \$data->directories;
+if ( ! empty( \$directories ) ) {
+    file_put_contents ( "$restore_path/directories_to_restore.txt", implode( PHP_EOL, \$directories ) );
+}
+file_put_contents ( "$restore_path/files_to_restore.txt", implode( PHP_EOL, \$files ) );
+heredoc
+
+php -r "$php_code"
+
+rclone_config_file="$path/${site}_${site_id}/rclone.conf"
+echo "Mounting Restic repo"
+command="mount ${restore_path}/$mount_name/ --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo"
+restic $command > $restore_path/restic-mount.log 2>&1 &
+count=0
+
+while true; do
+
+    echo -n "."
+    reading_mount_progress=""
+
+    # Assume something didn't work if takes longer then 10 minutes
+    if [ $count -gt 600 ]; then
+        echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Mounting Restic repo failed."
+        exit 1
+    fi
+
+    if [ -f "$restore_path/restic-mount.log" ]; then
+        reading_mount_progress=$( cat $restore_path/restic-mount.log )
+    fi
+
+    if [[ "$reading_mount_progress" == *"Now serving the repository at"* ]]; then
+        break
+    fi
+
+    sleep 1
+    let count+=1
+
+done
+
+echo ""
+timestamp=$( stat -c %Y ${restore_path}/$mount_name/ids/${backup_id:0:8}/ )
+read -r -d '' php_code << heredoc
+\$dt = new DateTime("@$timestamp"); echo \$dt->format("Y-m-d g:i:s a");
+heredoc
+timestamp=$( php -r "$php_code" )
+rclone copy --files-from ${restore_path}/files_to_restore.txt ${restore_path}/$mount_name/ids/${backup_id:0:8}/ ${restore_path}/restore/ --transfers 32
+if [ -f "${restore_path}/directories_to_restore.txt" ]; then
+    while IFS= read -r line; do
+        rclone copy ${restore_path}/$mount_name/ids/${backup_id:0:8}${line} ${restore_path}/restore${line} --transfers 32
+    done < "${restore_path}/directories_to_restore.txt"
+fi
+
+# Unmount Restic repo
+fusermount -u ${restore_path}/$mount_name/
+rmdir ${restore_path}/$mount_name/
+
+cd $restore_path
+zip -qr ${zip_name} restore/
+rm -rf ${restore_path}/restore/
+
+# Moves snapshot to Backblaze archive folder
+rclone move $zip_name $rclone_snapshot/${site}_${site_id}/
+
+cd ${CAPTAINCORE_PATH}/data
+backup_url=$( wp eval-file ../lib/local-scripts/restore-fetch-download-link.php zip_name="$zip_name" site=$site site_id=$site_id )
+echo $backup_url
+
+if [[ $FLAG_EMAIL != "" ]]; then
+    count=$(( $( wc -l "$restore_path/files_to_restore.txt" | awk '{ print $1 }' ) + 1 ))
+    printf "Contains files from $domain $environment environment as of $timestamp.<br><a href='$backup_url'>Download zip</a><br><br>" | mutt -e 'set content_type=text/html' -s "Downloadable zip with $count items" -- $FLAG_EMAIL
+fi

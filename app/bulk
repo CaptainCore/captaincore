@@ -15,16 +15,40 @@
 #   Number of sites to backup at same time
 #
 
-# Load configuration
-root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
-source ${root_path}lib/arguments
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
 
-cmd=${arguments[1]}
+# Error if no sites specifed
+if [ ${#@} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify <command>."
+  exit
+fi
+
+cmd=$1
+cmd=${cmd/\// }
+args=(${@/$1/})
+
+target=$CAPTAINCORE_ARGS
+count=( $target )
+target_count=(${#target})
+
+# Remove targets from args
+args=${args[@]:${#count[@]}:${#args[@]}}
+
+# Error if no sites specifed
+if [[ $cmd == "" ]] || [[ $target == "" ]]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use a target @all, @production or @staging."
+  exit
+fi
 
 run_command() {
-
-    sites=$@
-    count=( $sites )
+    if [[ $target == "@all" ]] || [[ $target == "@production" ]] || [[ $target == "@staging" ]]; then
+      target=$( captaincore site list $target --captain-id=$CAPTAIN_ID )
+    fi
 
     # Start progress tracking
     if [[ $progress == "true" ]]; then
@@ -34,8 +58,8 @@ run_command() {
     if [[ $parallel == "" ]]; then
         parallel=3
     fi
-    
-    echo $sites | xargs -P $parallel -n 1 captaincore $cmd "${flags[@]}"
+  
+    eval "echo $target | xargs -P $parallel -n 1 captaincore $cmd $args --captain-id=$CAPTAIN_ID"
 
     # End progress tracking
     if [ -f "${path}/process-${process_id}-progress.log" ]; then
@@ -44,26 +68,4 @@ run_command() {
 
 }
 
-# Error if no sites specifed
-if [ ${#targets[*]} -eq 0 ] && [ ${#arguments[*]} -eq 1 ]; then
-  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use a target @all, @production or @staging."
-  exit
-fi
-
-# Error if no sites specifed
-if [ ${#arguments[*]} -eq 0 ]; then
-  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify <command>."
-  exit
-fi
-
-# Runs on specifed sites
-if [ ${#arguments[*]} -gt 1 ]; then
-  unset 'arguments[1]'
-  run_command ${arguments[*]}
-fi
-
-# Runs on targeted sites
-if [ ${#targets[*]} -gt 0 ]; then
-  run_command $(captaincore site list ${targets[*]/targets=/@} --captain_id=$captain_id)
-fi
-
+run_command

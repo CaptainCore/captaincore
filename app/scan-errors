@@ -12,56 +12,40 @@
 #   Target groups of sites like @all @production or @staging. Use `captaincore update @production.updates-on` to target production sites marked for automatic updates.
 #
 
-# Load configuration
-root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
-source ${root_path}lib/arguments
-
-run_command() {
-    
-    # Remove leading "--" from flags
-    for i in "${!flags[@]}"; do
-      flags[$i]=`echo ${flags[$i]} | cut -c 3-`
-    done
-
-    cd ${root_path}data
-
-    INDEX=0
-    website=$@
-
-    let INDEX=${INDEX}+1
-
-    # Extract environment
-    if [[ "$website" == *"-staging"* ]]; then
-      environment=staging
-    else
-      environment=production
-    fi
-
-    # Load site configs
-    while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain_id=$captain_id)"
-
-    # Scans for errors
-    wp eval-file ../lib/local-scripts/site-scan-errors-in-console.php site=$site environment=$environment ${flags[@]}
-
-    if [ -f "${path}/process-${process_id}-progress.log" ]; then
-      echo -n "." >> ${path}/process-${process_id}-progress.log
-    fi
-
-}
-
-if [ ${#arguments[*]} -eq 0 ] && [ ${#targets[*]} -eq 0 ]; then
-  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use a target @all, @production or @staging."
+if [ ${#@} -ne 1 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Requires a <site>"
   exit
 fi
 
-if [ ${#arguments[*]} -eq 1 ] && [ ${#targets[*]} -eq 0 ]; then
-  run_command ${arguments[*]}
-fi
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
 
-if [ ${#arguments[*]} -gt 1 ] && [ ${#targets[*]} -eq 0 ]; then
-  captaincore bulk scan-errors ${arguments[*]} ${flags[@]}
-fi
+site=$1
 
-if [ ${#targets[*]} -gt 0 ] && [ ${#arguments[*]} -eq 0 ]; then
-  captaincore bulk scan-errors ${targets[*]/targets=/@} ${flags[@]}
-fi
+run_command() {
+
+  cd ${CAPTAINCORE_PATH}/data
+
+  if [[ "$website" == *"-staging"* ]]; then
+    environment=staging
+  else
+    environment=production
+  fi
+
+  # Load site configs
+  while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
+
+  # Scans for errors
+  wp eval-file ../lib/local-scripts/site-scan-errors-in-console.php site=$site environment=$environment
+
+  if [ -f "${path}/process-${process_id}-progress.log" ]; then
+    echo -n "." >> ${path}/process-${process_id}-progress.log
+  fi
+
+}
+
+run_command

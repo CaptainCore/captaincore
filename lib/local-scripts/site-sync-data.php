@@ -1,5 +1,7 @@
 <?php
 
+$captain_id = getenv('CAPTAIN_ID');
+
 // Replaces dashes in keys with underscores
 foreach($args as $index => $arg) {
 	$split = strpos($arg, "=");
@@ -15,21 +17,20 @@ foreach($args as $index => $arg) {
 	} else {
 		$args[$index] = str_replace('-', '_', $arg);
 	}
-
 }
 
 // Converts --arguments into $arguments
 parse_str( implode( '&', $args ) );
 
 // Fetch site details
-$site_details   = json_decode( shell_exec( "captaincore site get {$site}-{$environment} --captain_id=$captain_id" ) );
-$response       = shell_exec( "captaincore ssh {$site}-{$environment} --script=fetch-site-data --captain_id=$captain_id" );
+$site_details   = json_decode( shell_exec( "captaincore site get {$site}-{$environment} --captain-id=$captain_id" ) );
+$response       = shell_exec( "captaincore ssh {$site}-{$environment} --script=fetch-site-data --captain-id=$captain_id" );
 $responses      = explode( "\n", $response );
 $environment_id = ( new CaptainCore\Site( $site_details->site_id ) )->fetch_environment_id( $environment );
 $valid          = true;
 
 if ( $responses[0] == "WordPress not found" ) {
-    $json        = "{$_SERVER['HOME']}/.captaincore-cli/config.json";
+    $json        = "{$_SERVER['HOME']}/.captaincore/config.json";
     $config_data = json_decode ( file_get_contents( $json ) );
     $system      = $config_data[0]->system;
 
@@ -97,7 +98,7 @@ if ( ! $valid ) {
     return;
 }
 
-$json        = "{$_SERVER['HOME']}/.captaincore-cli/config.json";
+$json        = "{$_SERVER['HOME']}/.captaincore/config.json";
 $config_data = json_decode ( file_get_contents( $json ) );
 $system      = $config_data[0]->system;
 

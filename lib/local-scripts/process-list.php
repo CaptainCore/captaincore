@@ -10,7 +10,7 @@ foreach ( $process_logs as $process_log ) {
     if ( strpos($process_log, '-progress.log' ) === false ) { 
         continue;
     }
-    $process = json_decode( shell_exec( "php {$_SERVER['HOME']}/.captaincore-cli/lib/local-scripts/process-track.php {$process_log} \"json\"" ) );
+    $process = json_decode( shell_exec( "php {$_SERVER['HOME']}/.captaincore/lib/local-scripts/process-track.php {$process_log} \"json\"" ) );
     if ( in_array( $process->process_id, $process_ids ) ) {
         foreach ( $processes as $p ) {
             if ( $p->process_id == $process->process_id ) {

@@ -6,50 +6,37 @@
 #   `captaincore site sync <site_id>`
 #
 #    [--update-extras]
-#    
 #
 
-# Load configuration
-root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
-source ${root_path}lib/arguments
+# Error if no sites specifed
+if [ ${#@} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a site."
+  exit
+fi
+
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+site_id=$1
 
 run_command() {
 
-	site_id=$1
-
-	# Remove leading "--" from flags
-	for i in "${!flags[@]}"; do
-		flags[$i]=`echo ${flags[$i]} | cut -c 3-`
-	done
-
-	cd ${root_path}data
-	wp eval-file ../lib/local-scripts/site-sync.php site_id=$site_id ${flags[@]}
+	cd ${CAPTAINCORE_PATH}/data
+	wp eval-file ../lib/local-scripts/site-sync.php site_id=$site_id
 
 	# Generate rclone keys
-	captaincore site rclone-configs $site_id --captain_id=$captain_id
+	captaincore site key-generate $site_id --captain-id=$CAPTAIN_ID
 
-	if [ "$update_extras" ]; then
-
-		# Prepare site
-		captaincore site prepare $site_id --captain_id=$captain_id
-
-		# Deploy global defaults
-		captaincore site deploy-defaults ${site_id}-production --global-only
-
-		# Capture screenshot
-		captaincore capture ${site_id}-production
-
+	if [ "$CAPTAINCORE_UPDATE_EXTRAS" ]; then
+		captaincore site prepare $site_id --captain-id=$CAPTAIN_ID
+		captaincore site deploy-defaults ${site_id}-production --global-only --captain-id=$CAPTAIN_ID
+		captaincore capture ${site_id}-production --captain-id=$CAPTAIN_ID
 	fi
 
 }
 
-# See if any sites are specifed
-if [ ${#arguments[*]} -eq 1 ]; then
-  # Runs on specifed sites
-  run_command ${arguments[*]}
-fi
-
-# Error if no sites specifed
-if [ ${#arguments[*]} -eq 0 ]; then
-  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a site."
-fi
+run_command

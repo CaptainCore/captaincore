@@ -15,118 +15,51 @@
 #    Custom link to display on deactivate page.
 #
 
-# Load configuration
-root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
-source ${root_path}lib/arguments
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
 
-# Unique timestamp
-timestamp=$(date +%s)
+if [ ${#@} -ne 1 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a <site>."
+  exit
+fi
 
-# Must use WordPress deactivate plugin
-cat <<EOF > ~/Tmp/captaincore_deactivated_${timestamp}.php
-<?php
-
-function captaincore_template_redirect() { ?><html>
-  <head>
-	<meta charset="utf-8">
-	<title>Website Deactivated</title>
-
-	<!-- Compiled and minified CSS -->
-	<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
-	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0-beta/css/materialize.min.css">
-
-	<!-- Compiled and minified JavaScript -->
-	<script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0-beta/js/materialize.min.js"></script>
-
-	<style>
-		@import url('https://fonts.googleapis.com/css?family=Roboto');
-		body {
-			text-align: center;
-			margin: 10% auto;
-			padding: 0%;
-			font-family: 'Roboto', sans-serif;
-			overflow: hidden;
-			display: block;
-			max-width: 450px;
-			background: #eeeeee;
-		}
-		p {
-		  margin-top: 3%;
-		  line-height: 1.4em;
-		  display: block;
-		}
-		img {
-		  margin-top: 1%;
-		}
-		a {
-			color:#27c3f3;
-		}
-	</style>
-  </head>
-  <body>
-		<div class="row">
-	<div class="col s12">
-	  <div class="card">
-		<div class="card-content">
-					<span class="card-title">Website Deactivated</span>
-						<p>This website is no longer active.</p>
-		</div>
-				<div class="card-content grey lighten-4">
-					<p>Site owners contact <a href="${link}">${name}</a></p>
-				</div>
-	  </div>
-	</div>
-  </div>
-
-
-	</body>
-</html>
-
-<?php
-
-  die();
-
-}
-add_action( 'template_redirect', 'captaincore_template_redirect' );
-EOF
+site=$1
 
 run_command() {
 
-	for website in "${arguments[*]}"; do
+	# Extract environment
+	if [[ "$website" == *"-staging"* ]]; then
+		environment=staging
+	else
+		environment=production
+	fi
 
-		# Extract environment
-		if [[ "$website" == *"-staging"* ]]; then
-			environment=staging
-		else
-			environment=production
-		fi
+	# Load site configs
+	while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
 
-    	# Load site configs
-		while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain_id=$captain_id)"
+	if [[ $domain == "" ]]; then
+		echo "Domain not found"
+		continue
+	fi
 
-		if [[ $domain == "" ]]; then
-			echo "Domain not found"
-			continue
-		fi
+	read -r -d '' php_code << heredoc
+\$run_code = <<<PHPHEREDOC
+wp_content=$wp_content
+name=$FLAG_NAME
+link=$FLAG_LINK
+PHPHEREDOC;
 
-		# Define Rclone site name
-		rclone_site_name=${captain_id}-${site}-${environment}
+echo base64_encode( \$run_code );
+heredoc
 
-		if [[ "$home_directory" != "" ]]; then
-			home_directory="${home_directory}/"
-		fi
+	arguments=$( php -r "$php_code" )
 
-		# Upload deactivation plugin to mu-plugins
-		rclone copyto ~/Tmp/captaincore_deactivated_${timestamp}.php sftp-${rclone_site_name}:${home_directory}${wp_content}/mu-plugins/captaincore_deactivated.php
-
-		echo "deactivated $domain"
-
-	done
+	captaincore ssh $site-$environment --script=deactivate -- --arguments="$arguments"
 
 }
 
-# See if any specific sites are selected
-if [ $# -gt 0 ]; then
-    # Run on selected site(s)
-    run_command ${arguments[*]}
-fi
+run_command

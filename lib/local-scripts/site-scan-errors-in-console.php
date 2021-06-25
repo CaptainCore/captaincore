@@ -1,5 +1,7 @@
 <?php
 
+$captain_id = getenv('CAPTAIN_ID');
+
 // Replaces dashes in keys with underscores
 foreach($args as $index => $arg) {
 	$split = strpos($arg, "=");
@@ -32,7 +34,7 @@ $site           = ( new CaptainCore\Sites )->get( $lookup[0]->site_id );
 $environment_id = ( new CaptainCore\Site( $site->site_id ) )->fetch_environment_id( $environment );
 $environment    = ( new CaptainCore\Environments )->get( $environment_id );
 
-$json        = "{$_SERVER['HOME']}/.captaincore-cli/config.json";
+$json        = "{$_SERVER['HOME']}/.captaincore/config.json";
 $config_data = json_decode ( file_get_contents( $json ) );
 $system      = $config_data[0]->system;
 
@@ -45,7 +47,7 @@ foreach($config_data as $config) {
 
 foreach( [ "once" ] as $run ) {
     $results = shell_exec( "lighthouse {$environment->home_url} --only-audits=errors-in-console --chrome-flags=\"--headless\" --output=json --quiet" );
-
+   
     // Check if JSON valid
     if ( json_last_error() !== JSON_ERROR_NONE ) {
         echo "Check not valid format";

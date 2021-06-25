@@ -15,27 +15,22 @@
 #	php configs.php update remotes rclone_backup B2:Folder/Sites --captain_id=2
 #
 
-
 if ( ! isset($argv[1]) ) {
 	return;
 }
 
-$command = $argv[1];
-$captain_id = "1";
+$command    = $argv[1];
+$captain_id = getenv('CAPTAIN_ID');
 
 // Assign arguments to variables
 foreach ($argv as $key => $argument) {
-	if( strpos($argument, "--captain_id=" ) !== false ) {
-		$captain_id = str_replace( "--captain_id=", "", $argument );
-		unset( $argv[$key] );
-	}
 	if( strpos($argument, "--format=" ) !== false ) {
 		$format = str_replace( "--format=", "", $argument );
 		unset( $argv[$key] );
 	}
 }
 
-$json        = $_SERVER['HOME'] . "/.captaincore-cli/config.json";
+$json        = $_SERVER['HOME'] . "/.captaincore/config.json";
 $config_data = json_decode ( file_get_contents( $json ) );
 $system      = $config_data[0]->system;
 
@@ -169,9 +164,9 @@ if ( $command == "update" ) {
 
 }
 
-if ( $command == "fetch-captain_ids" ) {
+if ( $command == "fetch-captain-ids" ) {
 
-	$captain_ids = array(); 
+	$captain_ids = []; 
 
 	foreach($config_data as $config) {
 		if ( isset( $config->captain_id ) ) {

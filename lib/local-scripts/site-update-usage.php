@@ -1,5 +1,7 @@
 <?php
 
+$captain_id = getenv('CAPTAIN_ID');
+
 // Replaces dashes in keys with underscores
 foreach($args as $index => $arg) {
 	$split = strpos($arg, "=");
@@ -22,7 +24,7 @@ foreach($args as $index => $arg) {
 parse_str( implode( '&', $args ) );
 
 // Fetch site details
-$site_details   = json_decode( shell_exec( "captaincore site get $site --captain_id=$captain_id" ) );
+$site_details   = json_decode( shell_exec( "captaincore site get $site --captain-id=$captain_id" ) );
 $environment_id = ( new CaptainCore\Site( $site_details->site_id ) )->fetch_environment_id( $environment );
 
 $environment_update = [
@@ -32,7 +34,7 @@ $environment_update = [
     "updated_at"     => date("Y-m-d H:i:s"),
 ];
 
-$json        = $_SERVER['HOME'] . "/.captaincore-cli/config.json";
+$json        = $_SERVER['HOME'] . "/.captaincore/config.json";
 $config_data = json_decode ( file_get_contents( $json ) );
 $system      = $config_data[0]->system;
 

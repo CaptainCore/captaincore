@@ -47,7 +47,7 @@ $snapshot = [
 $snapshot['snapshot_id'] = ( new CaptainCore\Snapshots )->insert( $snapshot );
 
 // Loads CLI configs
-$json = "{$_SERVER['HOME']}/.captaincore-cli/config.json";
+$json = "{$_SERVER['HOME']}/.captaincore/config.json";
 
 if ( ! file_exists( $json ) ) {
 	echo "Error: Configuration file not found.";

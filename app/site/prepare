@@ -6,45 +6,36 @@
 #   `captaincore site prepare <site>`
 #
 
-# Load configuration
-root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
-source ${root_path}lib/arguments
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+if [ ${#@} -ne 1 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a site."
+  exit
+fi
 
 site=$1
 
 # Load site details
-while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain_id=$captain_id)"
+while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
 
-environments=( $( captaincore site environment list $site --captain_id=$captain_id ) )
+environments=( $( captaincore environment list $site --captain-id=$CAPTAIN_ID ) )
 
 for environment in ${environments[@]}; do
 
   # Deploy SSH keys
-  captaincore site deploy-keys ${site}-${environment} --captain_id=$captain_id
-
-  # Define Rclone site name
-  rclone_site_name="sftp-${captain_id}-${site}-${environment}"
-
-  # Captures FTP errors in $ftp_output and file listing to log file
-  ftp_output=$( { rclone lsd $rclone_site_name:$home_directory ; } 2>&1 )
-  ftp_search_for_wordpress=$( echo "$ftp_output" | perl -wnE'say for /wp-admin/g' )
-
-  # Handle FTP errors
-  if [[ $ftp_search_for_wordpress != "wp-admin" ]]; then
-    echo "Error: $site missing WordPress."
-    exit
-  fi
-
-  # Append trailing slash if home_directory exist
-  if [ "$home_directory" != "" ]; then
-    home_directory="${home_directory}/"
-  fi
+  captaincore site deploy-keys ${site}-${environment} --captain-id=$CAPTAIN_ID
 
   # Pull down wp-config.php
-  rclone copy $rclone_site_name:${home_directory}wp-config.php $path/${site}_${site_id}/${environment}/backup/
+  mkdir -p "$path/${site}_${site_id}/${environment}/backup/"
+  captaincore ssh $site-$environment --command="cat wp-config.php" --captain-id=$CAPTAIN_ID > $path/${site}_${site_id}/${environment}/backup/
 
   # Generate token
-  token_key=$(captaincore site fetch-token $site-$environment --captain_id=$captain_id)
+  token_key=$(captaincore site fetch-token $site-$environment --captain-id=$CAPTAIN_ID)
 
   if [[ "$captaincore_dev" == true ]]; then
     curl_argument="-k"
@@ -61,20 +52,17 @@ for environment in ${environments[@]}; do
 EOF
 
   # Set permalink to 'Post name' format if not set
-  captaincore ssh ${site}-${environment} --script=rewrite-prep --captain_id=$captain_id
+  captaincore ssh ${site}-${environment} --script=rewrite-prep --captain-id=$CAPTAIN_ID
 
   # Deploy helper plugin
-  captaincore ssh ${site}-${environment} --script=deploy-helper --wp_content=$wp_content --captain_id=$captain_id
+  captaincore ssh ${site}-${environment} --script=deploy-helper --wp_content=$wp_content --captain-id=$CAPTAIN_ID
 
   # Generate new Fathom code if needed
   if [[ $captaincore_tracker != "" ]] && [[ $fathom == "" ]]; then
     # Generate new Fathom tracking code, if needed
-    captaincore site stats-generate ${site}-${environment} --captain_id=$captain_id
+    captaincore site stats-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
   fi
 
-  captaincore sync-data ${site}-${environment} --captain_id=$captain_id
+  captaincore sync-data ${site}-${environment} --captain-id=$CAPTAIN_ID
 
 done
-
-# Update configs
-captaincore configs update-websites --captain_id=$captain_id

@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+
+#
+#   Rollback theme, plugin or file from a Quicksave on a site.
+#
+#   `captaincore rollback <site> <commit>`
+#
+#   [--plugin=<plugin>]
+#
+#   [--theme=<theme>]
+#
+#   [--file=<file>]
+#
+#   [--all]
+#
+
+if [ ${#@} -ne 2 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a <site> and <commit>."
+  exit
+fi
+
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+site=$1
+commit=$2
+
+run_command() {
+
+  # Requires <site> and <commit>
+  if [[ $site == "" ]] || [[ $commit == "" ]]; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a site and a commit."
+    return 1
+  fi
+
+  # Requires <site> and <commit>
+  if [[ $FLAG_PLUGIN == "" ]] && [[ $FLAG_THEME == "" ]] && [[ $all == "" ]] && [[ $FLAG_FILE == "" ]]; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a plugin, theme, file or --all."
+    return 1
+  fi
+
+  # Extract environment
+  if [[ "$site" == *"-staging"* ]]; then
+    environment=staging
+  else
+    environment=production
+  fi
+
+  # Load site info
+  while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
+
+  rclone_config_file="$path/${site}_${site_id}/rclone.conf"
+  if [ ! -f "$rclone_config_file" ]; then
+    captaincore site key-generate $site --captain-id=$CAPTAIN_ID
+  fi
+
+  # Lookup rclone
+  remote_check=$( rclone config show $environment --config="$rclone_config_file" )
+
+  if [[ $remote_check == *"Couldn't find type of fs"* ]]; then
+    echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $site"
+    captaincore site key-generate $site --captain-id=$CAPTAIN_ID
+  fi
+
+  # Append trailing slash if home_directory exist
+  if [ "$home_directory" != "" ]; then
+    home_directory="${home_directory}/"
+  fi
+
+  if [[ "$FLAG_PLUGIN" != "" ]]; then
+
+    echo "Rolling back plugin $FLAG_PLUGIN"
+    cd $path/${site}_${site_id}/${environment}/quicksave/
+    mkdir -p ~/Tmp/restore/$commit/
+    git archive --format=zip $commit:plugins/$FLAG_PLUGIN/ > ~/Tmp/restore/$commit/$FLAG_PLUGIN.zip
+    captaincore upload ${site}-${environment} ~/Tmp/restore/$commit/$FLAG_PLUGIN.zip --public --captain-id=$CAPTAIN_ID
+    captaincore ssh ${site}-${environment} --command="rm -rf ${wp_content}/plugins/$FLAG_PLUGIN/; unzip $FLAG_PLUGIN.zip -d ${wp_content}/plugins/$FLAG_PLUGIN/; rm $FLAG_PLUGIN.zip" --captain-id=$CAPTAIN_ID
+    rm -rf ~/Tmp/restore/$commit/
+
+  fi
+
+  if [[ "$FLAG_THEME" != "" ]]; then
+
+    echo "Rolling back theme $FLAG_THEME"
+    cd $path/${site}_${site_id}/${environment}/quicksave/
+    mkdir -p ~/Tmp/restore/$commit/
+    git archive --format=zip $commit:themes/$FLAG_THEME/ > ~/Tmp/restore/$commit/$FLAG_THEME.zip
+    captaincore upload ${site}-${environment} ~/Tmp/restore/$commit/$FLAG_THEME.zip --public --captain-id=$CAPTAIN_ID
+    captaincore ssh ${site}-${environment} --command="rm -rf ${wp_content}/themes/$FLAG_THEME/; unzip $FLAG_THEME.zip -d ${wp_content}/themes/$FLAG_THEME/; rm $FLAG_THEME.zip" --captain-id=$CAPTAIN_ID
+    rm -rf ~/Tmp/restore/$commit/
+
+  fi
+
+	if [[ "$FLAG_FILE" != "" ]]; then
+
+		file_name=${FLAG_FILE##*/}
+		file_path=${FLAG_FILE//$file_name/}
+		echo "Rolling back file '$FLAG_FILE'"
+		cd $path/${site}_${site_id}/${environment}/quicksave/
+		mkdir -p ~/Tmp/restore/$commit/$file_path
+		git show $commit:$FLAG_FILE > ~/Tmp/restore/$commit/$FLAG_FILE
+		if [[ "$home_directory" != "" ]]; then
+			home_directory="${home_directory}/"
+		fi
+		rclone copyto ~/Tmp/restore/$commit/$FLAG_FILE ${environment}:$home_directory${wp_content}/$FLAG_FILE --config="$rclone_config_file"
+		rm -rf ~/Tmp/restore/$commit/
+
+	fi
+
+  if [[ "$all" == "true" ]]; then
+
+    echo "Rolling back entire quicksave"
+    cd $path/${site}_${site_id}/${environment}/quicksave/
+    mkdir -p ~/Tmp/restore/$commit/
+    git archive --format=zip $commit: > ~/Tmp/restore/$commit/quicksave_${commit}_all.zip
+    captaincore upload ${site}-${environment} ~/Tmp/restore/$commit/quicksave_${commit}_all.zip --public --captain-id=$CAPTAIN_ID
+    echo '<?php $upgrading = time(); ?>' | captaincore ssh ${site}-${environment} --command="cat > .maintenance; rm -rf ${wp_content}/themes/; unzip -q -o quicksave_${commit}_all.zip 'themes/*' -d ${wp_content}/; rm -rf ${wp_content}/plugins/; unzip -q -o quicksave_${commit}_all.zip 'plugins/*' -d ${wp_content}/; rm -rf ${wp_content}/mu-plugins/; unzip -q -o quicksave_${commit}_all.zip 'mu-plugins/*' -d ${wp_content}/; rm .maintenance" --captain-id=$CAPTAIN_ID
+    rm -rf ~/Tmp/restore/$commit/
+
+  fi
+
+}
+run_command

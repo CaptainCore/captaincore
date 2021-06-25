@@ -1,1 +1,0 @@
-[<@target> [--provider=<provider>] [--filter=<theme|plugin|core>] [--filter-name=<name>] [--filter-version=<version>] [--filter-status=<active|inactive|dropin|must-use>] [--field=<field>]

@@ -1,5 +1,7 @@
 <?php
 
+$targets = $args[0];
+
 // Replaces dashes in keys with underscores
 foreach($args as $index => $arg) {
 	$split = strpos($arg, "=");
@@ -29,13 +31,13 @@ if ( !isset( $targets ) ) {
 // Process sites to target
 $targets       = explode( ".", $targets );
 $minor_targets = [];
-if ( in_array( "production", $targets ) ) {
+if ( in_array( "@production", $targets ) ) {
 	$environment = "Production";
 }
-if ( in_array( "staging", $targets ) ) {
+if ( in_array( "@staging", $targets ) ) {
 	$environment = "Staging";
 }
-if ( in_array( "all", $targets ) ) {
+if ( in_array( "@all", $targets ) ) {
 	$environment = "all";
 }
 if ( in_array("updates-on", $targets ) ) {

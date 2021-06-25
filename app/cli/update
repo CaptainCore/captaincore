@@ -14,4 +14,4 @@ cd ${root_path}
 git pull
 
 # Grant execute permissions
-find ~/.captaincore-cli/app/ -type f -exec chmod +x {} \;
+find ~/.captaincore/app/ -type f -exec chmod +x {} \;

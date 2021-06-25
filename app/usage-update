@@ -3,72 +3,54 @@
 #
 #   Generates usage stats for one or more sites.
 #
-#   `captaincore usage-update <site>...`
+#   `captaincore usage-update <site>`
 #
 
-# Load configuration
-root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
-source ${root_path}lib/arguments
+if [ ${#@} -ne 1 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a <site>."
+fi
+
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+site=$1
 
 run_command() {
 
-    echo "Generating usage stats for $# websites"
-    INDEX=1
-    for website in "$@"; do
+  # Extract environment
+  if [[ "$website" == *"-staging"* ]]; then
+    environment=staging
+  else
+    environment=production
+  fi
+  
+  # Load site configs
+  while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
 
-    	# Extract environment
-      if [[ "$website" == *"-staging"* ]]; then
-        environment=staging
-      else
-        environment=production
-      fi
-      
-      # Load site configs
-      while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain_id=$captain_id)"
+  # Site found, start the backup
+  if [ -z "$domain" ]; then
+    continue
+  fi
 
-      # Site found, start the backup
-      if [ -z "$domain" ]; then
-        continue
-      fi
+  if [[ "$OSTYPE" == "linux-gnu" ]]; then
+    # Begin folder size in bytes without apparent-size flag
+    folder_size=`du -s --block-size=1 $path/${site}_${site_id}/${environment}/backup/`
+    folder_size=`echo $folder_size | cut -d' ' -f 1`
+  elif [[ "$OSTYPE" == "darwin"* ]]; then
+    # Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
+    folder_size=`find $path/${site}_${site_id}/${environment}/backup/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
+  fi
 
-      if [[ "$OSTYPE" == "linux-gnu" ]]; then
-        # Begin folder size in bytes without apparent-size flag
-        folder_size=`du -s --block-size=1 $path/${site}_${site_id}/${environment}/backup/`
-        folder_size=`echo $folder_size | cut -d' ' -f 1`
-      elif [[ "$OSTYPE" == "darwin"* ]]; then
-        # Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
-        folder_size=`find $path/${site}_${site_id}/${environment}/backup/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
-      fi
+  # Views for yearly stats
+  visits=$( captaincore stats $site --captain-id=$CAPTAIN_ID )
 
-      # Views for yearly stats
-      visits=$( captaincore stats $site --captain_id=$captain_id )
-
-      # Remove leading "--" from flags
-      for i in "${!flags[@]}"; do
-        flags[$i]=`echo ${flags[$i]} | cut -c 3-`
-      done
-
-      # Store updated info in WordPress datastore
-      cd ${root_path}data
-      wp eval-file ../lib/local-scripts/site-update-usage.php site=$site environment=$environment storage=$folder_size visits=$visits ${flags[@]}
-
-    let INDEX=${INDEX}+1
-    done
+  cd ${CAPTAINCORE_PATH}/data
+  wp eval-file ../lib/local-scripts/site-update-usage.php site=$site environment=$environment storage=$folder_size visits=$visits
 
 }
 
-# See if any sites are specifed
-if [ ${#arguments[*]} -gt 0 ]; then
-  # Runs on specifed sites
-  run_command ${arguments[*]}
-fi
-
-# Runs on targeted sites
-if [ ${#targets[*]} -gt 0 ]; then
-  run_command $(captaincore site list ${targets[*]/targets=/@} --captain_id=$captain_id)
-fi
-
-# Error if no sites specifed
-if [ ${#targets[*]} -eq 0 ] && [ ${#arguments[*]} -eq 0 ]; then
-  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one or more sites, or use a target @all, @production or @staging."
-fi
+run_command

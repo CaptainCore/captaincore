@@ -1,5 +1,8 @@
 <?php
 
+$captain_id = getenv('CAPTAIN_ID');
+$site       = $args[0];
+
 // Replaces dashes in keys with underscores
 foreach($args as $index => $arg) {
 	$split = strpos($arg, "=");
@@ -21,8 +24,27 @@ foreach($args as $index => $arg) {
 // Converts --arguments into $arguments
 parse_str( implode( '&', $args ) );
 
+
+if( strpos( $site, "-" ) !== false ) {
+	$split       = explode( "-", $site );
+	$site        = $split[0];
+	$environment = $split[1];
+}
+
+if( strpos( $site, "@" ) !== false ) {
+	$split       = explode( "@", $site );
+	$site        = $split[0];
+	$provider    = $split[1];
+}
+
+if( strpos( $environment, "@" ) !== false ) {
+	$split       = explode( "@", $environment );
+	$environment = $split[0];
+	$provider    = $split[1];
+}
+
 // Loads CLI configs
-$json = "{$_SERVER['HOME']}/.captaincore-cli/config.json";
+$json = "{$_SERVER['HOME']}/.captaincore/config.json";
 
 if ( ! file_exists( $json ) ) {
 	echo "Error: Configuration file not found.";
@@ -41,6 +63,14 @@ if ( $environment == "" ) {
 $lookup     = ( new CaptainCore\Sites )->where( [ "site" => $site ] );
 if ( $provider ) {
 	$lookup = ( new CaptainCore\Sites )->where( [ "site" => $site, "provider" => $provider ] );
+}
+
+
+if (count( $lookup ) == 0 && is_numeric( $site ) ) {
+    $lookup     = ( new CaptainCore\Sites )->where( [ "site_id" => $site ] );
+    if ( $provider ) {
+        $lookup = ( new CaptainCore\Sites )->where( [ "site_id" => $site, "provider" => $provider ] );
+    }
 }
 
 // Error if site not found
@@ -115,17 +145,17 @@ $deployment_script_file = "$path_tmp/{$captain_id}-{$timestamp}-{$token}.sh";
 file_put_contents( $deployment_script_file, $deployment_script );
 
 if ( isset( $debug ) ) {
-    echo "captaincore ssh ${site}-${environment} --script=$deployment_script_file --captain_id=$captain_id\n";
+    echo "captaincore ssh ${site}-${environment} --script=$deployment_script_file --captain-id=$captain_id\n";
     foreach ( $recipe_ids as $recipe_id ) {
-        echo "captaincore ssh ${site}-${environment} --recipe=$recipe_id --captain_id=$captain_id\n";
+        echo "captaincore ssh ${site}-${environment} --recipe=$recipe_id --captain-id=$captain_id\n";
     }
     exit;
 }
 echo "Deploying default configurations\n";
-echo shell_exec( "captaincore ssh ${site}-${environment} --script=$deployment_script_file --captain_id=$captain_id" );
+echo shell_exec( "captaincore ssh ${site}-${environment} --script=$deployment_script_file --captain-id=$captain_id" );
 
 foreach ( $recipe_ids as $recipe_id ) {
     $recipe = ( new CaptainCore\Recipes )->get( $recipe_id );
     echo "Deploying recipe '{$recipe->title}'\n";
-    echo shell_exec( "captaincore ssh ${site}-${environment} --recipe=$recipe_id --captain_id=$captain_id" );
+    echo shell_exec( "captaincore ssh ${site}-${environment} --recipe=$recipe_id --captain-id=$captain_id" );
 }

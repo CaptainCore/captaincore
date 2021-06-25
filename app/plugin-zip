@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+
+#
+#   Generates plugin zips on a single site.
+#
+#   `captaincore plugins-zip <site> <plugin>...`
+#
+
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+if [ ${#@} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Requires a <site>"
+  exit
+fi
+
+site=$1
+count=( $@ )
+plugins=${@:2:${#@}}
+
+captaincore ssh $site --script=plugins-zip -- --plugins="$plugins"

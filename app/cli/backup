@@ -29,7 +29,7 @@ run_command() {
   # Create Archive
   cd ~
   rm captaincore_backup.zip
-  zip -r captaincore_backup.zip .captaincore-cli
+  zip -r captaincore_backup.zip .captaincore
 
   # Upload to remove
   rclone sync captaincore_backup.zip ${rclone_cli_backup}/

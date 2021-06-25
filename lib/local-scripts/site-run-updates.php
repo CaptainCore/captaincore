@@ -1,5 +1,7 @@
 <?php
 
+$captain_id = getenv('CAPTAIN_ID');
+
 // Replaces dashes in keys with underscores
 foreach($args as $index => $arg) {
 	$split = strpos($arg, "=");
@@ -33,22 +35,22 @@ $environment_id = ( new CaptainCore\Site( $site->site_id ) )->fetch_environment_
 
 foreach( [ "once" ] as $run ) {
     if ( $updates_exclude_themes != "" && $updates_exclude_plugins != "" ) {
-        $response = shell_exec( "captaincore ssh {$site->site}-{$environment} --script=update --exclude_plugins=$updates_exclude_plugins --exclude_themes=$updates_exclude_themes --all --format=json --provider={$site->provider} --captain_id=$captain_id" );
+        $response = shell_exec( "captaincore ssh {$site->site}-{$environment} --script=update --exclude_plugins=$updates_exclude_plugins --exclude_themes=$updates_exclude_themes --all --format=json --provider={$site->provider} --captain-id=$captain_id" );
         continue;
     }
     if ( $updates_exclude_themes != "" ) {
-        $response = shell_exec( "captaincore ssh {$site->site}-{$environment} --script=update --exclude_themes=$updates_exclude_themes --all --format=json --provider={$site->provider} --captain_id=$captain_id" );
+        $response = shell_exec( "captaincore ssh {$site->site}-{$environment} --script=update --exclude_themes=$updates_exclude_themes --all --format=json --provider={$site->provider} --captain-id=$captain_id" );
         continue;
     }
     if ( $updates_exclude_plugins != "" ) {
-        $response = shell_exec( "captaincore ssh {$site->site}-{$environment} --script=update --exclude_plugins=$updates_exclude_plugins --all --format=json --provider={$site->provider} --captain_id=$captain_id" );
+        $response = shell_exec( "captaincore ssh {$site->site}-{$environment} --script=update --exclude_plugins=$updates_exclude_plugins --all --format=json --provider={$site->provider} --captain-id=$captain_id" );
         continue;
     }
-    $response = shell_exec( "captaincore ssh {$site->site}-{$environment} --script=update --all --format=json --provider={$site->provider} --captain_id=$captain_id" );
+    $response = shell_exec( "captaincore ssh {$site->site}-{$environment} --script=update --all --format=json --provider={$site->provider} --captain-id=$captain_id" );
 }
 
 // Loads CLI configs
-$json = "{$_SERVER['HOME']}/.captaincore-cli/config.json";
+$json = "{$_SERVER['HOME']}/.captaincore/config.json";
 
 if ( ! file_exists( $json ) ) {
 	echo "Error: Configuration file not found.";
