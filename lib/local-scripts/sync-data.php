@@ -38,17 +38,18 @@ $responses      = explode( "\n", $response );
 $environment_id = ( new CaptainCore\Site( $site_details->site_id ) )->fetch_environment_id( $environment );
 $valid          = true;
 
-if ( $responses[0] == "WordPress not found" ) {
-    $json        = "{$_SERVER['HOME']}/.captaincore/config.json";
-    $config_data = json_decode ( file_get_contents( $json ) );
-    $system      = $config_data[0]->system;
+$json        = "{$_SERVER['HOME']}/.captaincore/config.json";
+$config_data = json_decode ( file_get_contents( $json ) );
+$system      = $config_data[0]->system;
 
-    foreach($config_data as $config) {
-        if ( isset( $config->captain_id ) and $config->captain_id == $captain_id ) {
-            $configuration = $config;
-            break;
-        }
+foreach($config_data as $config) {
+    if ( isset( $config->captain_id ) and $config->captain_id == $captain_id ) {
+        $configuration = $config;
+        break;
     }
+}
+
+if ( $responses[0] == "WordPress not found" ) {
 
     $environment_update = [
         "environment_id" => $environment_id,
@@ -68,7 +69,7 @@ if ( $responses[0] == "WordPress not found" ) {
         ] ),
     ];
 
-    if ( $system->captaincore_dev ) {
+    if ( $system->captaincore_dev == "true" ) {
         $request['sslverify'] = false;
     }
 
@@ -108,17 +109,6 @@ if ( ! $valid ) {
     return;
 }
 
-$json        = "{$_SERVER['HOME']}/.captaincore/config.json";
-$config_data = json_decode ( file_get_contents( $json ) );
-$system      = $config_data[0]->system;
-
-foreach($config_data as $config) {
-	if ( isset( $config->captain_id ) and $config->captain_id == $captain_id ) {
-		$configuration = $config;
-		break;
-	}
-}
-
 // Update current environment with new data.
 ( new CaptainCore\Environments )->update( $environment_update, [ "environment_id" => $environment_id ] );
 
@@ -134,7 +124,7 @@ $request = [
     ] ),
 ];
 
-if ( $system->captaincore_dev ) {
+if ( $system->captaincore_dev == "true" ) {
     $request['sslverify'] = false;
 }
 
