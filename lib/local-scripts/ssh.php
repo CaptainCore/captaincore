@@ -157,12 +157,17 @@ if ( $site_data->key != 'use_password' ) {
 }
 
 if ( $site_data->key == 'use_password' ) {
-  $before_ssh = "sshpass -p '{$environment->password}'";
+    $before_ssh = "sshpass -p '{$environment->password}'";
 }
 
 if ( $site->provider == "kinsta" ) {
     $command_prep  = "$environment_vars cd public/ &&";
     $remote_server = "$remote_options $environment->username@$environment->address -p $environment->port";
+}
+
+if ( $site->provider == "wpengine" ) {
+    $command_prep  = "$environment_vars rm ~/.wp-cli/config.yml; cd sites/* &&"; 
+    $remote_server = "$remote_options {$site->site}@{$site->site}.ssh.wpengine.net";
 }
 
 if ( ! empty( $command ) ) {
