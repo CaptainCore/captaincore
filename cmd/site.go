@@ -96,6 +96,33 @@ var keyGenerateCmd = &cobra.Command{
 	},
 }
 
+var siteCopyProductionToStaging = &cobra.Command{
+	Use:   "copy-to-staging <site>",
+	Short: "Copy production to staging (Kinsta only)",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveCommand(cmd, args)
+	},
+}
+var siteCopyStagingToProduction = &cobra.Command{
+	Use:   "copy-to-production <site>",
+	Short: "Copy staging to production (Kinsta only)",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveCommand(cmd, args)
+	},
+}
+
 var siteStatsGenerateCmd = &cobra.Command{
 	Use:   "stats-generate <site>",
 	Short: "Generates Fathom tracker",
@@ -187,19 +214,22 @@ func init() {
 	siteCmd.AddCommand(listCmd)
 	siteCmd.AddCommand(keyGenerateCmd)
 	siteCmd.AddCommand(sshFailCmd)
+	siteCmd.AddCommand(siteCopyProductionToStaging)
+	siteCmd.AddCommand(siteCopyStagingToProduction)
 	siteCmd.AddCommand(siteFetchTokenCmd)
 	siteCmd.AddCommand(sitePrepareCmd)
 	siteCmd.AddCommand(siteDeployDefaultsCmd)
 	siteCmd.AddCommand(siteDeployKeysCmd)
 	siteCmd.AddCommand(siteStatsGenerateCmd)
 	siteCmd.AddCommand(syncSiteCmd)
-
 	getCmd.Flags().StringVarP(&flagField, "field", "", "", "Return certain field")
 	getCmd.Flags().BoolVarP(&flagBash, "bash", "", false, "Return bash format")
 	siteStatsGenerateCmd.Flags().BoolVarP(&flagSkipAlreadyGenerated, "skip-already-generated", "", false, "Skips if already has tracking")
 	siteDeployDefaultsCmd.Flags().BoolVarP(&flagGlobalOnly, "global-only", "", false, "Deploy global only configurations")
 	syncSiteCmd.Flags().BoolVarP(&flagDebug, "debug", "", false, "Debug response")
 	syncSiteCmd.Flags().BoolVarP(&flagUpdateExtras, "update-extras", "", false, "Runs prepare site, deploy global defaults and capture screenshot")
+	siteCopyProductionToStaging.Flags().StringVarP(&flagEmail, "email", "e", "", "Notify email address")
+	siteCopyStagingToProduction.Flags().StringVarP(&flagEmail, "email", "e", "", "Notify email address")
 	listCmd.Flags().StringVarP(&flagProvider, "provider", "p", "", "Filter by host provider")
 	listCmd.Flags().StringVarP(&flagFilter, "filter", "f", "", "Filter by <theme|plugin|core>")
 	listCmd.Flags().StringVarP(&flagFilterName, "filter-name", "n", "", "Filter name")

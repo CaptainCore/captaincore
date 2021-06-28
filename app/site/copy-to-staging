@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+
+#
+#   Copy production to staging (Kinsta only)
+#
+#   `captaincore copy-production-to-staging <site> --email=<email>`
+#
+
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+if [ ${#@} -ne 1 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a site."
+  exit
+fi
+
+site=$1
+
+run_command() {
+
+  # Load site configs
+  while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
+
+  # Vars found, proceed
+  if [ -z "$domain" ]; then
+    echo "Domain not found"
+    return
+  fi
+
+  # Define Rclone config file
+  rclone_config_file="$path/${site}_${site_id}/rclone.conf"
+  if [ ! -f "$rclone_config_file" ]; then
+    captaincore site key-generate $site --captain-id=$CAPTAIN_ID
+  fi
+
+  if [ "$home_directory" != "" ]; then
+    home_directory="${home_directory}/"
+  fi
+
+  # Grab core version
+  core_version=$( captaincore ssh ${site}-production --command="wp core version --skip-plugins --skip-themes" --captain-id=$CAPTAIN_ID )
+
+  # Snapshot everything except uploads
+  echo "Generating snapshot of production site."
+  captaincore snapshot generate ${site}-production --notes="Deploy to staging." --filter=database,themes,plugins,everything-else --captain-id=$CAPTAIN_ID
+
+  # Fetch snapshop id
+  cd ${CAPTAINCORE_PATH}/data
+  snapshot_id=$( wp eval-file ../lib/local-scripts/snapshot-list.php site_id=$site_id environment=production limit=1 )
+
+  # Fetch new snapshot
+  snapshot_link=$( captaincore snapshot fetch-link $snapshot_id --captain-id=$CAPTAIN_ID )
+  
+  # Download production snapshot to staging site and import database
+  captaincore ssh ${site}-staging --script=migrate --captain-id=$CAPTAIN_ID -- --url="$snapshot_link" --update-urls
+
+  if [[ "$migration" == "failed" ]]; then
+    echo "Deploy to staging failed."
+    exit
+  fi
+
+  # Enable search privacy and disable email on staging site
+  captaincore ssh ${site}-staging --command="wp option update blog_public 0 --skip-plugins --skip-themes; wp plugin install log-emails --activate --skip-plugins --skip-themes; wp plugin deactivate wp-rocket sendgrid-email-delivery-simplified mailgun login-recaptcha --skip-plugins --skip-themes" --captain-id=$CAPTAIN_ID
+
+  # Install matching core version
+  captaincore ssh ${site}-staging --command="wp core update --version=$core_version --skip-plugins --skip-themes" --captain-id=$CAPTAIN_ID
+
+  # Sync uploads folders
+  echo "Syncing wp-content/uploads/ from production to staging."
+  rclone sync production:${home_directory}wp-content/uploads/ staging:${home_directory}wp-content/uploads/ --config="$rclone_config_file"
+
+  # Post completion to CaptainCore API
+  if [[ $captaincore_dev == true ]]; then
+    curl_argument="-k"
+  fi
+
+  curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
+{
+"command":"production-to-staging",
+"site_id":"$site_id",
+"email":"$FLAG_EMAIL",
+"token":"$token"
+}
+EOF
+
+}
+
+run_command

@@ -1,5 +1,7 @@
 <?php
 
+$captain_id = getenv('CAPTAIN_ID');
+
 // Replaces dashes in keys with underscores
 foreach($args as $index => $arg) {
 	$split = strpos($arg, "=");
@@ -83,6 +85,13 @@ if ( ! empty( $system->captaincore_dev ) ) {
 
 // Post to CaptainCore API
 $response = wp_remote_post( $configuration->vars->captaincore_api, $request );
+
+if ( is_wp_error( $response ) ) {
+    $error_message = $response->get_error_message();
+    echo "Something went wrong: $error_message";
+    exit;
+}
+
 echo $response['body'];
 
 $environment             = ( new CaptainCore\Environments )->get( $environment_id );

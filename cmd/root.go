@@ -14,9 +14,10 @@ import (
 	"github.com/spf13/viper"
 )
 
-var flagDebug, flagSkipDB, flagSkipScreenshot, flagForce, flagBash, flagUpdateExtras, flagSkipRemote, flagFleet, flagHtml, flagPublic, flagSkipAlreadyGenerated, flagGlobalOnly bool
+var flagDebug, flagSkipDB, flagSkipScreenshot, flagForce, flagBash, flagUpdateExtras, flagSkipRemote, flagFleet bool
+var flagHtml, flagPublic, flagSkipAlreadyGenerated, flagGlobalOnly, flagDeleteAfterSnapshot bool
 var flagCode, flagCommand, flagFilter, flagFilterName, flagFilterVersion, flagFilterStatus, flagField, flagPage, flagRecipe, flagScript, flagProvider string
-var captainID, cfgFile, flagTheme, flagPlugin, flagFile, flagEmail, flagName, flagLink string
+var captainID, cfgFile, flagTheme, flagPlugin, flagFile, flagEmail, flagName, flagLink, flagNotes string
 var flagParallel, flagRetry int
 
 var colorYellow = "\x1b[33;1m"
@@ -169,6 +170,12 @@ func resolveCommand(c *cobra.Command, args []string) {
 	if flagUpdateExtras == true {
 		env = append([]string{"CAPTAINCORE_UPDATE_EXTRAS=true"}, env...)
 	}
+	if flagDeleteAfterSnapshot == true {
+		env = append([]string{"DELETE_AFTER_SNAPSHOT=true"}, env...)
+	}
+	if flagNotes != "" {
+		env = append([]string{"FLAG_NOTES=" + flagNotes}, env...)
+	}
 	if flagParallel != 0 {
 		env = append([]string{"PARALLEL=" + strconv.Itoa(flagParallel)}, env...)
 	}
@@ -192,6 +199,9 @@ func resolveCommand(c *cobra.Command, args []string) {
 	}
 	if flagEmail != "" {
 		env = append([]string{"FLAG_EMAIL=" + flagEmail}, env...)
+	}
+	if flagFilter != "" {
+		env = append([]string{"FLAG_FILTER=" + flagFilter}, env...)
 	}
 	if flagRetry != 0 {
 		env = append([]string{"RETRY=" + strconv.Itoa(flagRetry)}, env...)

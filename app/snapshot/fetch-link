@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+
+#
+#   Fetch download link for snapshot
+#
+#   `captaincore snapshot-fetch-link <snapshot-id>`
+#
+
+if [ ${#@} -ne 1 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Requires a <site>"
+  exit
+fi
+
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+snapshop_id=$1
+
+run_command() {
+
+    cd ${CAPTAINCORE_PATH}/data
+
+    # Fetches private download link from B2 Bucket.
+    wp eval-file ../lib/local-scripts/snapshot-fetch-download-link.php snapshot_id=$snapshop_id
+}
+
+run_command
