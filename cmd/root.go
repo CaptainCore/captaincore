@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-var flagDebug, flagSkipDB, flagSkipScreenshot, flagForce, flagBash, flagUpdateExtras, flagSkipRemote, flagFleet, flagHtml, flagPublic, flagSkipAlreadyGenerated bool
+var flagDebug, flagSkipDB, flagSkipScreenshot, flagForce, flagBash, flagUpdateExtras, flagSkipRemote, flagFleet, flagHtml, flagPublic, flagSkipAlreadyGenerated, flagGlobalOnly bool
 var flagCode, flagCommand, flagFilter, flagFilterName, flagFilterVersion, flagFilterStatus, flagField, flagPage, flagRecipe, flagScript, flagProvider string
 var captainID, cfgFile, flagTheme, flagPlugin, flagFile, flagEmail, flagName, flagLink string
 var flagParallel, flagRetry int
@@ -259,6 +259,9 @@ func resolveCommandWP(c *cobra.Command, args []string) {
 	}
 	if flagBash == true {
 		args = append(args, "format=bash")
+	}
+	if flagGlobalOnly == true {
+		args = append(args, "global-only=true")
 	}
 	if flagFilter != "" {
 		args = append(args, "filter="+flagFilter)

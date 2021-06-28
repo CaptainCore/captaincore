@@ -32,7 +32,7 @@ for environment in ${environments[@]}; do
 
   # Pull down wp-config.php
   mkdir -p "$path/${site}_${site_id}/${environment}/backup/"
-  captaincore ssh $site-$environment --command="cat wp-config.php" --captain-id=$CAPTAIN_ID > $path/${site}_${site_id}/${environment}/backup/
+  captaincore ssh $site-$environment --command="cat wp-config.php" --captain-id=$CAPTAIN_ID > $path/${site}_${site_id}/${environment}/backup/wp-config.php
 
   # Generate token
   token_key=$(captaincore site fetch-token $site-$environment --captain-id=$CAPTAIN_ID)
@@ -55,7 +55,7 @@ EOF
   captaincore ssh ${site}-${environment} --script=rewrite-prep --captain-id=$CAPTAIN_ID
 
   # Deploy helper plugin
-  captaincore ssh ${site}-${environment} --script=deploy-helper --wp_content=$wp_content --captain-id=$CAPTAIN_ID
+  captaincore ssh ${site}-${environment} --script=deploy-helper --captain-id=$CAPTAIN_ID -- --wp_content=$wp_content
 
   # Generate new Fathom code if needed
   if [[ $captaincore_tracker != "" ]] && [[ $fathom == "" ]]; then

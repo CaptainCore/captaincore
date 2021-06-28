@@ -11,20 +11,6 @@ var siteCmd = &cobra.Command{
 	Short: "Site commands",
 }
 
-var deployDefaultsCmd = &cobra.Command{
-	Use:   "deploy-defaults <site>",
-	Short: " Deploy default configurations to a site",
-	Args: func(cmd *cobra.Command, args []string) error {
-		if len(args) < 1 {
-			return errors.New("requires a <site> argument")
-		}
-		return nil
-	},
-	Run: func(cmd *cobra.Command, args []string) {
-		resolveCommand(cmd, args)
-	},
-}
-
 var siteDeployKeysCmd = &cobra.Command{
 	Use:   "deploy-keys <site>",
 	Short: "Deploy keys to a site",
@@ -211,6 +197,7 @@ func init() {
 	getCmd.Flags().StringVarP(&flagField, "field", "", "", "Return certain field")
 	getCmd.Flags().BoolVarP(&flagBash, "bash", "", false, "Return bash format")
 	siteStatsGenerateCmd.Flags().BoolVarP(&flagSkipAlreadyGenerated, "skip-already-generated", "", false, "Skips if already has tracking")
+	siteDeployDefaultsCmd.Flags().BoolVarP(&flagGlobalOnly, "global-only", "", false, "Deploy global only configurations")
 	syncSiteCmd.Flags().BoolVarP(&flagDebug, "debug", "", false, "Debug response")
 	syncSiteCmd.Flags().BoolVarP(&flagUpdateExtras, "update-extras", "", false, "Runs prepare site, deploy global defaults and capture screenshot")
 	listCmd.Flags().StringVarP(&flagProvider, "provider", "p", "", "Filter by host provider")
