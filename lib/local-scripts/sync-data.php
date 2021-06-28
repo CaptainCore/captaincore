@@ -23,6 +23,12 @@ foreach($args as $index => $arg) {
 // Converts --arguments into $arguments
 parse_str( implode( '&', $args ) );
 
+if ( strpos($site, '@') !== false ) {
+    $parts    = explode( "@", $site );
+    $site     = $parts[0];
+    $provider = $parts[1];
+}
+
 // Determines environment
 if ( strpos($site, '-staging') !== false ) {
     $site        = str_replace( "-staging", "", $site );
