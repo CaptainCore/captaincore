@@ -1,6 +1,7 @@
 <?php
 
 $captain_id = getenv('CAPTAIN_ID');
+$site       = $args[0];
 
 // Replaces dashes in keys with underscores
 foreach($args as $index => $arg) {
@@ -22,7 +23,16 @@ foreach($args as $index => $arg) {
 // Converts --arguments into $arguments
 parse_str( implode( '&', $args ) );
 
-$site = $args[0];
+// Determines environment
+if ( strpos($site, '-staging') !== false ) {
+    $site        = str_replace( "-staging", "", $site );
+    $environment = "staging";
+}
+if ( strpos($site, '-production') !== false ) {
+    $site        = str_replace( "-production", "", $site );
+    $environment = "production";
+}
+
 if ( empty( $environment ) ) {
     $environment = "production";
 }

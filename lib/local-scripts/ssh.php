@@ -89,7 +89,17 @@ if ( empty( $site ) ) {
     return;
 }
 
-$lookup = ( new CaptainCore\Sites )->where( [ "site" => $site ] );
+foreach( [ "once" ] as $run ) {
+	if ( $provider ) {
+		$lookup = ( new CaptainCore\Sites )->where( [ "site" => $site, "provider" => $provider, "status" => "active" ] );
+		continue;
+	}
+	if ( ctype_digit( $site ) ) {
+		$lookup = ( new CaptainCore\Sites )->where( [ "site_id" => $site, "status" => "active" ] );
+		continue;
+	}
+	$lookup = ( new CaptainCore\Sites )->where( [ "site" => $site, "status" => "active" ] );
+}
 
 // Error if site not found
 if ( count( $lookup ) == 0 ) {

@@ -24,7 +24,6 @@ foreach($args as $index => $arg) {
 // Converts --arguments into $arguments
 parse_str( implode( '&', $args ) );
 
-
 if( strpos( $site, "-" ) !== false ) {
 	$split       = explode( "-", $site );
 	$site        = $split[0];
@@ -60,17 +59,16 @@ if ( $environment == "" ) {
 	$environment = "production";
 }
 
-$lookup     = ( new CaptainCore\Sites )->where( [ "site" => $site ] );
-if ( $provider ) {
-	$lookup = ( new CaptainCore\Sites )->where( [ "site" => $site, "provider" => $provider ] );
-}
-
-
-if (count( $lookup ) == 0 && is_numeric( $site ) ) {
-    $lookup     = ( new CaptainCore\Sites )->where( [ "site_id" => $site ] );
-    if ( $provider ) {
-        $lookup = ( new CaptainCore\Sites )->where( [ "site_id" => $site, "provider" => $provider ] );
-    }
+foreach( [ "once" ] as $run ) {
+	if ( $provider ) {
+		$lookup = ( new CaptainCore\Sites )->where( [ "site" => $site, "provider" => $provider, "status" => "active" ] );
+		continue;
+	}
+	if ( ctype_digit( $site ) ) {
+		$lookup = ( new CaptainCore\Sites )->where( [ "site_id" => $site, "status" => "active" ] );
+		continue;
+	}
+	$lookup = ( new CaptainCore\Sites )->where( [ "site" => $site, "status" => "active" ] );
 }
 
 // Error if site not found
