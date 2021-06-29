@@ -24,13 +24,13 @@ commit=$2
 run_command() {
 
 	# Extract environment
-	if [[ "$website" == *"-staging"* ]]; then
+	if [[ "$site" == *"-staging"* ]]; then
 		environment=staging
 	else
 		environment=production
 	fi
 
-	while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$captain_id)"
+	while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
 
 	# Return error if domain not found
 	if [[ "$domain" == "" ]] || [[ "$site" == "" ]] || [[ "$provider" == "" ]]; then
