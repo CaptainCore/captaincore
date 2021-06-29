@@ -11,19 +11,25 @@ if [ ${#@} -ne 1 ]; then
   exit
 fi
 
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+site=$1
+
+if [[ "$site" == "" ]]; then
+	echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one a site."
+	return 1
+fi
+
 run_command() {
 
-	site=$1
+	cd ${CAPTAINCORE_PATH}/data
 
-	cd ${root_path}data
-
-	# Requires <site>
-	if [[ "$site" == "" ]]; then
-		echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify one a site."
-		return 1
-	fi
-
-	verify=$( captaincore site get $site --captain-id=$captain_id )
+	verify=$( captaincore site get $site --captain-id=$CAPTAIN_ID )
 
 	if [[ "$verify" == "" ]]; then
 		echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Site '$site' not found in CaptainCore."
@@ -31,18 +37,18 @@ run_command() {
 	fi
 
 	# Final snapshot then remove site related files
-	captaincore snapshot $site --delete-after-snapshot --email=$captaincore_admin_email --captain-id=$captain_id
+	captaincore snapshot generate $site --delete-after-snapshot --email=$captaincore_admin_email --captain-id=$CAPTAIN_ID
 
 	# Load site configs
-	while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$captain_id)"
+	while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
 
 	if [[ "$site" != "" ]] && [[ "$site_id" != "" ]]; then
-		wp eval-file ../lib/local-scripts/site-delete.php site_id=$site_id captain-id=$captain_id
+		wp eval-file ../lib/local-scripts/site-delete.php site_id=$site_id
 	fi
 
 	# Update configs
-	captaincore configs update-websites --captain-id=$captain_id
+	captaincore configs update-websites --captain-id=$CAPTAIN_ID
 
 }
 
-run_command $1
+run_command

@@ -64,18 +64,15 @@ run_command() {
     return 1
   fi
 
-  # Define Rclone site name
-  rclone_site_name=${captain_id}-${site}-${environment}
-
   if [[ "$site" == *"-staging" ]]; then
     site=${site//-staging/}
     use_staging=true
   fi
 
-  if [[ "$skip_backup" != "true" ]]; then
+#  if [[ "$skip_backup" != "true" ]]; then
     # Generate fresh backup
-    captaincore backup generate $site --skip-remote --captain-id=$CAPTAIN_ID
-  fi
+#    captaincore backup generate $site --skip-remote --captain-id=$CAPTAIN_ID
+#  fi
 
   # Generates snapshot archive
   timedate="$(date +'%Y-%m-%d-%H-%M-%S')-$( php -r 'echo bin2hex(openssl_random_pseudo_bytes( 4 ));' )"
@@ -122,7 +119,7 @@ run_command() {
 
     fi
 
-    if [[ "$filter" == "" ]]; then
+    if [[ "$FLAG_FILTER" == "" ]]; then
       # Add everything to ZIP
       zip --test -q -r $snapshot_name $snapshot_path/ --exclude=$snapshot_path/_wpeprivate/\* --exclude=\*.git\* --exclude=$snapshot_path/wp-content/advanced-cache.php --exclude=$snapshot_path/wp-content/mu-plugins/mu-plugin.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$snapshot_path/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$snapshot_path/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$snapshot_path/wp-content/mu-plugins/wpengine-common/\*
     fi
@@ -147,13 +144,13 @@ run_command() {
   if [[ $SKIP_REMOTE != true ]]; then
 
     # Moves snapshot to Backblaze archive folder
-    rclone move $snapshot_name $rclone_snapshot/${site}_${site_id}/
+    rclone move $snapshot_name $rclone_snapshot/
 
     if [[ "$debug" == "true" ]]; then
     read -r -d '' VAR << EOM
 {
 "command":"snapshot",
-"user_id":"$user_id",
+"user_id":"$FLAG_USER_ID",
 "site_id":"$site_id",
 "environment":"$environment",
 "storage":"$snapshot_size",
@@ -168,7 +165,7 @@ EOM
   fi
 
     cd ${CAPTAINCORE_PATH}/data
-    wp eval-file ../lib/local-scripts/snapshot-add.php site_id=$site_id environment=$environment user_id=$user_id storage=$snapshot_size archive="${site}-${environment}-${timedate}.zip" email=$FLAG_EMAIL notes="$FLAG_NOTES"
+    wp eval-file ../lib/local-scripts/snapshot-add.php site_id=$site_id environment=$environment user_id=$FLAG_USER_ID storage=$snapshot_size archive="${site}-${environment}-${timedate}.zip" email=$FLAG_EMAIL notes="$FLAG_NOTES"
 
   fi
 

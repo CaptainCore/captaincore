@@ -56,7 +56,6 @@ $output = json_decode( $server_output );
 
 // Defines folder paths
 $b2_snapshots  = CAPTAINCORE_B2_SNAPSHOTS;
-$site_folder   = "{$site->site}_{$site->site_id}"; 
 if ( $system->captaincore_fleet == "true" ) {
     $b2_snapshots = "{$b2_snapshots}/{$captain_id}";
 }
@@ -69,7 +68,7 @@ $api_url          = 'https://api001.backblazeb2.com';       // From b2_authorize
 $auth_token       = $output->authorizationToken;            // From b2_authorize_account call
 $bucket_id        = CAPTAINCORE_B2_BUCKET_ID;               // The file name prefix of files the download authorization will allow
 $valid_duration   = 604800;                                 // The number of seconds the authorization is valid for
-$file_name_prefix = "$b2_snapshots_folder/{$site_folder}";  // The file name prefix of files the download authorization will allow
+$file_name_prefix = "$b2_snapshots_folder/";  // The file name prefix of files the download authorization will allow
 
 $session = curl_init( $api_url . '/b2api/v1/b2_get_download_authorization' );
 
@@ -92,6 +91,6 @@ $server_output = curl_exec( $session );                // Let's do this!
 curl_close( $session );                                // Clean up
 $server_output = json_decode( $server_output );
 $auth          = $server_output->authorizationToken;
-$url           = "https://f001.backblazeb2.com/file/{$b2_snapshots}/{$site_folder}/{$name}?Authorization={$auth}";
+$url           = "https://f001.backblazeb2.com/file/{$b2_snapshots}/{$name}?Authorization={$auth}";
 
 echo $url;
