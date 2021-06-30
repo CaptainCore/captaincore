@@ -11,7 +11,6 @@
 #   Example: captaincore quicksave-file-diff sitename 4c43c16ae40f384e93573133282bb86a46d040fd versions/plugins.json
 #
 
-
 if [ ${#@} -ne 3 ]; then
   echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a <site> <commit-hash> <file>."
   exit
@@ -31,13 +30,13 @@ file=$3
 run_command() {
 
 	# Extract environment
-	if [[ "$website" == *"-staging"* ]]; then
+	if [[ "$site" == *"-staging"* ]]; then
 		environment=staging
 	else
 		environment=production
 	fi
 
-	while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$captain_id)"
+	while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
 
 	# Return error if domain not found
 	if [[ "$domain" == "" ]] || [[ "$site" == "" ]] || [[ "$provider" == "" ]]; then

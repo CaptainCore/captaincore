@@ -33,19 +33,19 @@ while read config; do
   declare "$config"
 done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
 
+$site=$1
+
 run_command() {
 
-    website=$1
-
     # Extract environment
-    if [[ "$website" == *"-staging"* ]]; then
+    if [[ "$site" == *"-staging"* ]]; then
         environment=staging
     else
         environment=production
     fi
     
     # Load site configs
-    while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain-id=$CAPTAIN_ID)"
+    while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
 
     # Return error if domain not found
     if [[ "$domain" == "" ]] || [[ "$site" == "" ]] || [[ "$provider" == "" ]]; then
@@ -118,4 +118,4 @@ run_command() {
 
 }
 
-run_command $1
+run_command
