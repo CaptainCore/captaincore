@@ -125,7 +125,7 @@ func resolveCommand(c *cobra.Command, args []string) {
 		c.CommandPath() != "captaincore bulk" && c.CommandPath() != "captaincore plugin-zip" &&
 		c.CommandPath() != "captaincore backup get" && c.CommandPath() != "captaincore backup get-generate" && c.CommandPath() != "captaincore backup download" &&
 		c.CommandPath() != "captaincore quicksave show-changes" && c.CommandPath() != "captaincore quicksave file-diff" && c.CommandPath() != "captaincore quicksave rollback" {
-		if args[0] == "@production" || args[0] == "@staging" || args[0] == "@all" || target_count > 1 {
+		if strings.HasPrefix(args[0], "@production") || strings.HasPrefix(args[0], "@staging") || strings.HasPrefix(args[0], "@all") || target_count > 1 {
 			bulk = true
 		}
 	}
@@ -255,7 +255,7 @@ func resolveCommandWP(c *cobra.Command, args []string) {
 	}
 
 	if len(args) > 0 && c.CommandPath() != "captaincore site list" {
-		if args[0] == "@production" || args[0] == "@staging" || args[0] == "@all" {
+		if strings.HasPrefix(args[0], "@production") || strings.HasPrefix(args[0], "@staging") || strings.HasPrefix(args[0], "@all") {
 			resolveCommand(c, args)
 			return
 		}

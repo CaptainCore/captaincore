@@ -46,7 +46,7 @@ if [[ $cmd == "" ]] || [[ $target == "" ]]; then
 fi
 
 run_command() {
-    if [[ $target == "@all" ]] || [[ $target == "@production" ]] || [[ $target == "@staging" ]]; then
+    if [[ $target == "@all"* ]] || [[ $target == "@production"* ]] || [[ $target == "@staging"* ]]; then
       target=$( captaincore site list $target --captain-id=$CAPTAIN_ID )
     fi
 
