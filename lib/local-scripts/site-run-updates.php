@@ -35,18 +35,18 @@ $environment_id = ( new CaptainCore\Site( $site->site_id ) )->fetch_environment_
 
 foreach( [ "once" ] as $run ) {
     if ( $updates_exclude_themes != "" && $updates_exclude_plugins != "" ) {
-        $response = shell_exec( "captaincore ssh {$site->site}-{$environment} --script=update --exclude_plugins=$updates_exclude_plugins --exclude_themes=$updates_exclude_themes --all --format=json --provider={$site->provider} --captain-id=$captain_id" );
+        $response = shell_exec( "captaincore ssh {$site->site}-{$environment} --script=update --captain-id=$captain_id -- --exclude_plugins=$updates_exclude_plugins --exclude_themes=$updates_exclude_themes --all --format=json --provider={$site->provider}" );
         continue;
     }
     if ( $updates_exclude_themes != "" ) {
-        $response = shell_exec( "captaincore ssh {$site->site}-{$environment} --script=update --exclude_themes=$updates_exclude_themes --all --format=json --provider={$site->provider} --captain-id=$captain_id" );
+        $response = shell_exec( "captaincore ssh {$site->site}-{$environment} --script=update --captain-id=$captain_id -- --exclude_themes=$updates_exclude_themes --all --format=json --provider={$site->provider}" );
         continue;
     }
     if ( $updates_exclude_plugins != "" ) {
-        $response = shell_exec( "captaincore ssh {$site->site}-{$environment} --script=update --exclude_plugins=$updates_exclude_plugins --all --format=json --provider={$site->provider} --captain-id=$captain_id" );
+        $response = shell_exec( "captaincore ssh {$site->site}-{$environment} --script=update --captain-id=$captain_id -- --exclude_plugins=$updates_exclude_plugins --all --format=json --provider={$site->provider}" );
         continue;
     }
-    $response = shell_exec( "captaincore ssh {$site->site}-{$environment} --script=update --all --format=json --provider={$site->provider} --captain-id=$captain_id" );
+    $response = shell_exec( "captaincore ssh {$site->site}-{$environment} --script=update --captain-id=$captain_id -- --all --format=json --provider={$site->provider}" );
 }
 
 // Loads CLI configs
@@ -108,6 +108,9 @@ foreach ( $responses as $key => $item ) {
     $new_logs[] = ( new CaptainCore\UpdateLogs )->get( $log_id );
     
     // Output to log file
+    if ( ! file_exists( "${logs_path}/" ) ) {
+        mkdir( "${logs_path}/", 0777, true );
+    }
     file_put_contents( "${logs_path}/{$time_now_file_name}-{$type}s.json", json_encode( $data ), JSON_PRETTY_PRINT );
 }
 
@@ -131,6 +134,11 @@ foreach( $new_logs as $new_log ) {
 
     // Post to CaptainCore API
     $response = wp_remote_post( $configuration->vars->captaincore_api, $request );
+    if ( is_wp_error( $response ) ) {
+        $error_message = $response->get_error_message();
+        echo "Something went wrong: $error_message";
+        return;
+    }
     echo $response['body'];
 
 }
