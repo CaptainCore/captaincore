@@ -18,9 +18,9 @@ while read config; do
   declare "$config"
 done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
 
-run_command() {
+site=$1
 
-  site=$1
+run_command() {
 
   # Extract environment
   if [[ "$site" == *"-staging"* ]]; then
@@ -47,9 +47,9 @@ run_command() {
   backup_list="$path/${site}_${site_id}/${environment}/backups/list.json"
   
   cd ${CAPTAINCORE_PATH}/data
-  wp eval-file ${CAPTAINCORE_PATH}/lib/local-scripts/backups-list.php site=$site site_id=$site_id environment=$environment > $backup_list
+  wp eval-file ${CAPTAINCORE_PATH}/lib/local-scripts/backups-list.php site=$site site_id=$site_id environment=$environment > "$backup_list"
 
 
 }
 
-run_command $@
+run_command

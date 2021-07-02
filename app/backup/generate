@@ -24,122 +24,122 @@ while read config; do
   declare "$config"
 done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
 
+site=$1
+
 run_command() {
 
   if [[ $SKIP_REMOTE == true ]]; then
     echo "Skipping remote"
   fi
 
-    site=$@
+  # Extract environment
+  if [[ "$site" == *"-staging"* ]]; then
+    environment=staging
+  fi
 
-    # Extract environment
-    if [[ "$site" == *"-staging"* ]]; then
-      environment=staging
+  if [[ "$site" == *"-production"* ]]; then
+    environment=production
+  fi
+
+  if [[ "$site" != *"-"* ]]; then
+    environment=production
+  fi
+
+  # Load site configs
+  while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
+
+  # Site found, start the backup
+  if [[ $domain == "" ]]; then
+    echo "Error: $site missing domain. Skipping backup."
+    exit
+  fi
+
+  # Append trailing slash if home_directory exist
+  if [ "$home_directory" != "" ]; then
+    home_directory="${home_directory}/"
+  fi
+
+  # Define Rclone config file
+  rclone_config_file="$path/${site}_${site_id}/rclone.conf"
+  if [ ! -f "$rclone_config_file" ]; then
+    captaincore site key-generate $site --captain-id=$CAPTAIN_ID
+  fi
+
+  # Lookup rclone
+  remote_check=$( rclone config show $environment --config="$rclone_config_file" )
+
+  if [[ $remote_check == *"Couldn't find type of fs"* ]]; then
+    echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $site"
+    captaincore site key-generate $site --captain-id=$CAPTAIN_ID
+  fi
+
+  # Captures FTP errors in $ftp_output and file listing to log file
+  ftp_output=$( { rclone lsd ${environment}:$home_directory --config="$rclone_config_file" ; } 2>&1 )
+  ftp_search_for_wordpress=$( echo "$ftp_output" | perl -wnE'say for /wp-admin/g' )
+
+  # Handle FTP errors
+  if [[ $ftp_search_for_wordpress != "wp-admin" ]]; then
+    wordpress_not_found=true
+  fi
+
+  # Incremental backup locally with rclone
+  echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup ${site}-${environment} to local"
+
+  if [[ $SKIP_DB != true ]] && [[ $wordpress_not_found != true ]]; then
+
+    # Database backup if remote server supports
+    if [[ "$provider" == "kinsta" ]] || [[ "$provider" == "wpengine" ]]; then
+      captaincore ssh ${site}-${environment} --script="db-backup" --captain-id=$CAPTAIN_ID
     fi
 
-    if [[ "$site" == *"-production"* ]]; then
-      environment=production
+    if [[ "$provider" == "wpengine" ]]; then
+      rclone sync ${environment}:_wpeprivate/database-backup.sql $path/${site}_${site_id}/${environment}/backup/ --config="$rclone_config_file"
     fi
 
-    if [[ "$site" != *"-"* ]]; then
-      environment=production
+    if [[ "$provider" == "kinsta" ]]; then
+      rclone sync ${environment}:private/database-backup.sql $path/${site}_${site_id}/${environment}/backup/ --config="$rclone_config_file"
     fi
 
-    # Load site configs
-    while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
+  fi
 
-    # Site found, start the backup
-    if [[ $domain == "" ]]; then
-      echo "Error: $site missing domain. Skipping backup."
-      exit
+  # Backup site locally
+  if [[ "$wp_content" != "wp-content" ]]; then
+    echo "$(date +'%Y-%m-%d %H:%M') Backing up ${site}-${environment} alternative wp-content location ($wp_content)"
+    rclone sync ${environment}:$home_directory $path/${site}_${site_id}/${environment}/backup/ --exclude-from="${CAPTAINCORE_PATH}/lib/excludes" --filter="+ $wp_content/**" --filter="- wp-content/**" --filter="- content/**" --config="$rclone_config_file"
+  else
+    rclone sync ${environment}:$home_directory $path/${site}_${site_id}/${environment}/backup/ --exclude-from="${CAPTAINCORE_PATH}/lib/excludes" --filter="- content/**" --config="$rclone_config_file"
+  fi
+  
+  # Calculate folder size in bytes without apparent-size flag
+  if [[ "$OSTYPE" == "linux-gnu" ]]; then
+    folder_size=$( du -s --block-size=1 $path/${site}_${site_id}/${environment}/backup/ )
+    folder_size=$( echo $folder_size | cut -d' ' -f 1 )
+  fi
+
+  # Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    folder_size=$( find $path/${site}_${site_id}/${environment}/backup/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}' )
+  fi
+
+  # Incremental backup upload to Restic
+  if [[ $SKIP_REMOTE != true ]]; then
+    echo "$(date +'%Y-%m-%d %H:%M') Storing $site to backup archive"
+    if [[ $( restic snapshots --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key" ) == "" ]]; then
+      echo "Generating restic repo for $site"
+      restic init --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key"
     fi
+    cd $path/${site}_${site_id}/${environment}/backup/
+    restic backup . --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --exclude-file="${CAPTAINCORE_PATH}/lib/restic-excludes" --password-file="${CAPTAINCORE_PATH}/data/restic.key"
+    captaincore backup list-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
+    captaincore backup get-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
+  fi
 
-    # Append trailing slash if home_directory exist
-    if [ "$home_directory" != "" ]; then
-      home_directory="${home_directory}/"
-    fi
+  captaincore usage-update ${site}-${environment} --captain-id=$CAPTAIN_ID
 
-    # Define Rclone config file
-    rclone_config_file="$path/${site}_${site_id}/rclone.conf"
-    if [ ! -f "$rclone_config_file" ]; then
-      captaincore site key-generate $site --captain-id=$CAPTAIN_ID
-    fi
-
-    # Lookup rclone
-    remote_check=$( rclone config show $environment --config="$rclone_config_file" )
-
-    if [[ $remote_check == *"Couldn't find type of fs"* ]]; then
-      echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $site"
-      captaincore site key-generate $site --captain-id=$CAPTAIN_ID
-    fi
-
-    # Captures FTP errors in $ftp_output and file listing to log file
-    ftp_output=$( { rclone lsd ${environment}:$home_directory --config="$rclone_config_file" ; } 2>&1 )
-    ftp_search_for_wordpress=$( echo "$ftp_output" | perl -wnE'say for /wp-admin/g' )
-
-    # Handle FTP errors
-    if [[ $ftp_search_for_wordpress != "wp-admin" ]]; then
-      wordpress_not_found=true
-    fi
-
-    # Incremental backup locally with rclone
-    echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup ${site}-${environment} to local"
-
-    if [[ $SKIP_DB != true ]] && [[ $wordpress_not_found != true ]]; then
-
-      # Database backup if remote server supports
-      if [[ "$provider" == "kinsta" ]] || [[ "$provider" == "wpengine" ]]; then
-        captaincore ssh ${site}-${environment} --script="db-backup" --captain-id=$CAPTAIN_ID
-      fi
-
-      if [[ "$provider" == "wpengine" ]]; then
-        rclone sync ${environment}:_wpeprivate/database-backup.sql $path/${site}_${site_id}/${environment}/backup/ --config="$rclone_config_file"
-      fi
-
-      if [[ "$provider" == "kinsta" ]]; then
-        rclone sync ${environment}:private/database-backup.sql $path/${site}_${site_id}/${environment}/backup/ --config="$rclone_config_file"
-      fi
-
-    fi
-
-    # Backup site locally
-    if [[ "$wp_content" != "wp-content" ]]; then
-      echo "$(date +'%Y-%m-%d %H:%M') Backing up ${site}-${environment} alternative wp-content location ($wp_content)"
-      rclone sync ${environment}:$home_directory $path/${site}_${site_id}/${environment}/backup/ --exclude-from="${CAPTAINCORE_PATH}/lib/excludes" --filter="+ $wp_content/**" --filter="- wp-content/**" --filter="- content/**" --config="$rclone_config_file"
-    else
-      rclone sync ${environment}:$home_directory $path/${site}_${site_id}/${environment}/backup/ --exclude-from="${CAPTAINCORE_PATH}/lib/excludes" --filter="- content/**" --config="$rclone_config_file"
-    fi
-   
-    # Calculate folder size in bytes without apparent-size flag
-    if [[ "$OSTYPE" == "linux-gnu" ]]; then
-      folder_size=$( du -s --block-size=1 $path/${site}_${site_id}/${environment}/backup/ )
-      folder_size=$( echo $folder_size | cut -d' ' -f 1 )
-    fi
-
-    # Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-      folder_size=$( find $path/${site}_${site_id}/${environment}/backup/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}' )
-    fi
-
-    # Incremental backup upload to Restic
-    if [[ $SKIP_REMOTE != true ]]; then
-      echo "$(date +'%Y-%m-%d %H:%M') Storing $site to backup archive"
-      if [[ $( restic snapshots --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key" ) == "" ]]; then
-        echo "Generating restic repo for $site"
-        restic init --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key"
-      fi
-      cd $path/${site}_${site_id}/${environment}/backup/
-      restic backup . --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --exclude-file="${CAPTAINCORE_PATH}/lib/restic-excludes" --password-file="${CAPTAINCORE_PATH}/data/restic.key"
-      captaincore backup list-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
-      captaincore backup get-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
-    fi
-
-    captaincore usage-update ${site}-${environment} --captain-id=$CAPTAIN_ID
-
-    if [ -f "${path}/process-${process_id}-progress.log" ]; then
-      echo -n "." >> ${path}/process-${process_id}-progress.log
-    fi
+  if [ -f "${path}/process-${process_id}-progress.log" ]; then
+    echo -n "." >> ${path}/process-${process_id}-progress.log
+  fi
 
 }
 
-run_command $@
+run_command

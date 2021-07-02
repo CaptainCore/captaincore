@@ -18,9 +18,9 @@ while read config; do
   declare "$config"
 done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
 
-run_command() {
+site=$1
 
-  site=$1
+run_command() {
 
   # Extract environment
   if [[ "$site" == *"-staging"* ]]; then
@@ -39,11 +39,11 @@ run_command() {
   while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
 
   backup_list="$path/${site}_${site_id}/${environment}/backups/list.json"
-  if [ ! -f "$backup_list" ]; then
+  if [ ! -f "$backup_list" ] || [[ $( stat --printf="%s" $path/${site}_${site_id}/${environment}/backups/list.json ) == "0" ]]; then
     captaincore backup list-generate $site-$environment --captain-id=$CAPTAIN_ID
   fi
   cat "$backup_list"
 
 }
 
-run_command $@
+run_command

@@ -37,84 +37,84 @@ site=$1
 
 run_command() {
 
-    # Extract environment
-    if [[ "$site" == *"-staging"* ]]; then
-        environment=staging
-    else
-        environment=production
-    fi
-    
-    # Load site configs
-    while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
+  # Extract environment
+  if [[ "$site" == *"-staging"* ]]; then
+      environment=staging
+  else
+      environment=production
+  fi
+  
+  # Load site configs
+  while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
 
-    # Return error if domain not found
-    if [[ "$domain" == "" ]] || [[ "$site" == "" ]] || [[ "$provider" == "" ]]; then
-        echo "Can't locate website for $site"
-        exit
-    fi
+  # Return error if domain not found
+  if [[ "$domain" == "" ]] || [[ "$site" == "" ]] || [[ "$provider" == "" ]]; then
+      echo "Can't locate website for $site"
+      exit
+  fi
 
-    rclone_config_file="$path/${site}_${site_id}/rclone.conf"
-    if [ ! -f "$rclone_config_file" ]; then
-      captaincore site key-generate $site --captain-id=$CAPTAIN_ID
-    fi
+  rclone_config_file="$path/${site}_${site_id}/rclone.conf"
+  if [ ! -f "$rclone_config_file" ]; then
+    captaincore site key-generate $site --captain-id=$CAPTAIN_ID
+  fi
 
-    # Lookup rclone
-    remote_check=$( rclone config show $environment --config="$rclone_config_file" )
+  # Lookup rclone
+  remote_check=$( rclone config show $environment --config="$rclone_config_file" )
 
-    if [[ $remote_check == *"Couldn't find type of fs"* ]]; then
-      echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $site"
-      captaincore site key-generate $site --captain-id=$CAPTAIN_ID
-    fi
+  if [[ $remote_check == *"Couldn't find type of fs"* ]]; then
+    echo "$(date +'%Y-%m-%d %H:%M') Generating rclone configs for $site"
+    captaincore site key-generate $site --captain-id=$CAPTAIN_ID
+  fi
 
-    # Captures FTP errors in $ftp_output and file listing to log file
-    ftp_output=$( { rclone lsd ${environment}:$home_directory --config="$rclone_config_file" ; } 2>&1 )
-    ftp_search_for_wordpress=$( echo "$ftp_output" | perl -wnE'say for /wp-admin/g' )
+  # Captures FTP errors in $ftp_output and file listing to log file
+  ftp_output=$( { rclone lsd ${environment}:$home_directory --config="$rclone_config_file" ; } 2>&1 )
+  ftp_search_for_wordpress=$( echo "$ftp_output" | perl -wnE'say for /wp-admin/g' )
 
-    # Handle FTP errors
-    if [[ $ftp_search_for_wordpress != "wp-admin" ]]; then
-        echo "Can't locate WordPress for ${site}-${environment}"
-        exit
-    fi
+  # Handle FTP errors
+  if [[ $ftp_search_for_wordpress != "wp-admin" ]]; then
+      echo "Can't locate WordPress for ${site}-${environment}"
+      exit
+  fi
 
-    # Append trailing slash if home_directory exist
-    if [ "$home_directory" != "" ]; then
-        home_directory="${home_directory}/"
-    fi
+  # Append trailing slash if home_directory exist
+  if [ "$home_directory" != "" ]; then
+      home_directory="${home_directory}/"
+  fi
 
-    echo "$(date +'%Y-%m-%d %H:%M') Begin quicksave for ${site}-${environment}"
+  echo "$(date +'%Y-%m-%d %H:%M') Begin quicksave for ${site}-${environment}"
 
-    site_path="${site}_${site_id}/${environment}"
+  site_path="${site}_${site_id}/${environment}"
 
-    # Updates themes/plugins before Quicksave (Selective backup site locally)
-    rclone sync ${environment}:$home_directory${wp_content}/themes/ $path/$site_path/backup/${wp_content}/themes/ --exclude .DS_Store --exclude *timthumb.txt  --config="$rclone_config_file"
-    rclone sync ${environment}:$home_directory${wp_content}/mu-plugins/ $path/$site_path/backup/${wp_content}/mu-plugins/ --exclude .DS_Store --exclude *timthumb.txt --config="$rclone_config_file"
-    rclone sync ${environment}:$home_directory${wp_content}/plugins/ $path/$site_path/backup/${wp_content}/plugins/ --exclude .DS_Store --exclude *timthumb.txt --config="$rclone_config_file"
+  # Updates themes/plugins before Quicksave (Selective backup site locally)
+  rclone sync ${environment}:$home_directory${wp_content}/themes/ $path/$site_path/backup/${wp_content}/themes/ --exclude .DS_Store --exclude *timthumb.txt  --config="$rclone_config_file"
+  rclone sync ${environment}:$home_directory${wp_content}/mu-plugins/ $path/$site_path/backup/${wp_content}/mu-plugins/ --exclude .DS_Store --exclude *timthumb.txt --config="$rclone_config_file"
+  rclone sync ${environment}:$home_directory${wp_content}/plugins/ $path/$site_path/backup/${wp_content}/plugins/ --exclude .DS_Store --exclude *timthumb.txt --config="$rclone_config_file"
 
-    # Sync to git repo
-    mkdir -p $path/$site_path/quicksave/mu-plugins
-    mkdir -p $path/$site_path/quicksave/plugins
-    mkdir -p $path/$site_path/quicksave/themes
-    mkdir -p $path/$site_path/quicksave/versions
+  # Sync to git repo
+  mkdir -p $path/$site_path/quicksave/mu-plugins
+  mkdir -p $path/$site_path/quicksave/plugins
+  mkdir -p $path/$site_path/quicksave/themes
+  mkdir -p $path/$site_path/quicksave/versions
 
-    cd $path/$site_path/quicksave/
+  cd $path/$site_path/quicksave/
 
-    # Create new git repo if needed
-    if [ ! -d ".git" ]; then
-        git init
-    fi
+  # Create new git repo if needed
+  if [ ! -d ".git" ]; then
+      git init
+  fi
 
-    rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" $path/$site_path/backup/${wp_content}/mu-plugins/ $path/$site_path/quicksave/mu-plugins
-    rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" $path/$site_path/backup/${wp_content}/plugins/ $path/$site_path/quicksave/plugins
-    rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" $path/$site_path/backup/${wp_content}/themes/ $path/$site_path/quicksave/themes
+  rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" $path/$site_path/backup/${wp_content}/mu-plugins/ $path/$site_path/quicksave/mu-plugins
+  rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" $path/$site_path/backup/${wp_content}/plugins/ $path/$site_path/quicksave/plugins
+  rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" $path/$site_path/backup/${wp_content}/themes/ $path/$site_path/quicksave/themes
 
-    cd ${CAPTAINCORE_PATH}/data
+  cd ${CAPTAINCORE_PATH}/data
 
-    wp eval-file ../lib/local-scripts/site-sync-data.php site=$site environment=$environment
-    wp eval-file ../lib/local-scripts/quicksave-add.php site=$site environment=$environment
+  wp eval-file ../lib/local-scripts/site-sync-data.php site=$site environment=$environment
+  wp eval-file ../lib/local-scripts/quicksave-add.php site=$site environment=$environment
 
-	if [ -f "${path}/process-${process_id}-progress.log" ]; then
-      echo -n "." >> ${path}/process-${process_id}-progress.log
-    fi
+  if [ -f "${path}/process-${process_id}-progress.log" ]; then
+    echo -n "." >> ${path}/process-${process_id}-progress.log
+  fi
 
 }
 
