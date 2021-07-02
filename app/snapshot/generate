@@ -82,6 +82,10 @@ run_command() {
 
   if [[ $DELETE_AFTER_SNAPSHOT == true ]]; then
     cd $path/
+    if [ ! -d "${site}_${site_id}/" ]; then
+      echo "Skipping snapshot, can't find $path/${site}_${site_id}/"
+      exit
+    fi
     zip --test -q -r $snapshot_name ${site}_${site_id}/ && echo "Completed generating $snapshot_name" || echo "Failed generating $snapshot_name"
   fi
 
