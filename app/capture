@@ -83,8 +83,8 @@ run_command() {
 	remote_path_screenshots=${site}_${site_id}/${environment}/screenshots
 
 	if [[ "$captaincore_fleet" == "true" ]]; then 
-		remote_path_captures=${captain_id}/${remote_path_captures}
-		remote_path_screenshots=${captain_id}/${remote_path_screenshots}
+		remote_path_captures=${CAPTAIN_ID}/${remote_path_captures}
+		remote_path_screenshots=${CAPTAIN_ID}/${remote_path_screenshots}
 	fi
 
 	# Append trailing slash if home_directory exist
