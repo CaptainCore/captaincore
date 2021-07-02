@@ -31,8 +31,11 @@ run_command() {
     return
   fi
 
-  # Define Rclone site name
-  rclone_site_name=${captain_id}-${site}
+  # Define Rclone config file
+  rclone_config_file="$path/${site}_${site_id}/rclone.conf"
+  if [ ! -f "$rclone_config_file" ]; then
+    captaincore site key-generate $site --captain-id=$CAPTAIN_ID
+  fi
 
   if [ "$home_directory" != "" ]; then
     home_directory="${home_directory}/"
@@ -49,7 +52,7 @@ run_command() {
   staging_home_url=$( captaincore ssh $site-staging --command="wp option get home --skip-plugins --skip-themes" --captain-id=$CAPTAIN_ID )
 
   # Download staging snapshot to production site and import database
-  captaincore ssh $site --script=migrate --url="${staging_home_url}/wp-content_$timestamp.zip" --update-urls --captain-id=$CAPTAIN_ID
+  captaincore ssh $site --script=migrate -- --url="${staging_home_url}/wp-content_$timestamp.zip" --update-urls --captain-id=$CAPTAIN_ID
 
   # Remove from production_to_staging
   captaincore ssh $site-staging --command="rm -f wp-content_$timestamp.zip" --captain-id=$CAPTAIN_ID
@@ -58,7 +61,8 @@ run_command() {
   captaincore ssh $site --command="wp core update --version=$core_version --skip-plugins --skip-themes" --captain-id=$CAPTAIN_ID
 
   # Sync uploads folders
-  rclone sync sftp-${rclone_site_name}-staging:${home_directory}wp-content/uploads/ sftp-${rclone_site_name}-production:${home_directory}wp-content/uploads/ --stats-one-line --progress
+  rclone sync staging:${home_directory}wp-content/uploads/ production:${home_directory}wp-content/uploads/ --config="$rclone_config_file"
+
 
   # Post completion to CaptainCore API
   if [[ $captaincore_dev == true ]]; then
