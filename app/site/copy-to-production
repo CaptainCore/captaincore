@@ -18,52 +18,54 @@ if [ ${#@} -ne 1 ]; then
   exit
 fi
 
+site=$1
+
 run_command() {
   
-    # Load site configs
-    while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain-id=$CAPTAIN_ID)"
+  # Load site configs
+  while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
 
-    # Vars found, proceed
-    if [ -z "$domain" ]; then
-      echo "Domain not found"
-      return
-    fi
+  # Vars found, proceed
+  if [ -z "$domain" ]; then
+    echo "Domain not found"
+    return
+  fi
 
-    # Define Rclone site name
-    rclone_site_name=${captain_id}-${site}
+  # Define Rclone site name
+  rclone_site_name=${captain_id}-${site}
 
-    if [ "$home_directory" != "" ]; then
-      home_directory="${home_directory}/"
-    fi
+  if [ "$home_directory" != "" ]; then
+    home_directory="${home_directory}/"
+  fi
 
-    # Unique timestamp
-    timestamp=$(date +%s)
+  # Unique timestamp
+  timestamp=$(date +%s)
 
-    # Grab core version
-    core_version=$( captaincore ssh $site-staging --command="wp core version --skip-plugins --skip-themes" --captain-id=$CAPTAIN_ID )
+  # Grab core version
+  core_version=$( captaincore ssh $site-staging --command="wp core version --skip-plugins --skip-themes" --captain-id=$CAPTAIN_ID )
 
-    captaincore ssh $site-staging --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip --test -q -r wp-content_$timestamp.zip . --exclude=wp-content/wp-includes/\* --exclude=wp-content/wp-admin/\* --exclude=wp-content/uploads/\* --exclude=wp-content/updraft/\*" --captain-id=$CAPTAIN_ID
+  captaincore ssh $site-staging --command="wp db export --skip-plugins --skip-themes --add-drop-table - > wp-content/mysql.sql; zip --test -q -r wp-content_$timestamp.zip . --exclude=wp-content/wp-includes/\* --exclude=wp-content/wp-admin/\* --exclude=wp-content/uploads/\* --exclude=wp-content/updraft/\*" --captain-id=$CAPTAIN_ID
 
-    staging_home_url=$( captaincore ssh $site-staging --command="wp option get home --skip-plugins --skip-themes" --captain-id=$CAPTAIN_ID )
+  staging_home_url=$( captaincore ssh $site-staging --command="wp option get home --skip-plugins --skip-themes" --captain-id=$CAPTAIN_ID )
 
-    # Download staging snapshot to production site and import database
-    captaincore ssh $site --script=migrate --url="${staging_home_url}/wp-content_$timestamp.zip" --update-urls --captain-id=$CAPTAIN_ID
+  # Download staging snapshot to production site and import database
+  captaincore ssh $site --script=migrate --url="${staging_home_url}/wp-content_$timestamp.zip" --update-urls --captain-id=$CAPTAIN_ID
 
-    # Remove from production_to_staging
-    captaincore ssh $site-staging --command="rm -f wp-content_$timestamp.zip" --captain-id=$CAPTAIN_ID
+  # Remove from production_to_staging
+  captaincore ssh $site-staging --command="rm -f wp-content_$timestamp.zip" --captain-id=$CAPTAIN_ID
 
-    # Install matching core version
-    captaincore ssh $site --command="wp core update --version=$core_version --skip-plugins --skip-themes" --captain-id=$CAPTAIN_ID
+  # Install matching core version
+  captaincore ssh $site --command="wp core update --version=$core_version --skip-plugins --skip-themes" --captain-id=$CAPTAIN_ID
 
-    # Sync uploads folders
-    rclone sync sftp-${rclone_site_name}-staging:${home_directory}wp-content/uploads/ sftp-${rclone_site_name}-production:${home_directory}wp-content/uploads/ --stats-one-line --progress
+  # Sync uploads folders
+  rclone sync sftp-${rclone_site_name}-staging:${home_directory}wp-content/uploads/ sftp-${rclone_site_name}-production:${home_directory}wp-content/uploads/ --stats-one-line --progress
 
-    # Post completion to CaptainCore API
-    if [[ $captaincore_dev == true ]]; then
-      curl_argument="-k"
-    fi
+  # Post completion to CaptainCore API
+  if [[ $captaincore_dev == true ]]; then
+    curl_argument="-k"
+  fi
 
-    curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
+  curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
 {
 "command":"staging-to-production",
 "site_id":"$site_id",
