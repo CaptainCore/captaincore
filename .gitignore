@@ -5,6 +5,7 @@ config.json
 config.sh
 cookies.yaml
 data
+dist/
 .DS_Store
 captaincore
 vendor
