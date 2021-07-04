@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.12.0] - 2021-07-04
+### Added
+- Command `server`. Previously was a separate project named CaptainCore Dispatch which has now been merged here.
+- Command `configuration get` and `configuration sync`
+- Integration for [Fathom Analytics](https://usefathom.com/). Starting phase out support of Fathom Lite.
+- Revamped Fathom tracker.js
+- Delete accounts
+
+### Changed
+- Replaced underlying [Bash CLI](https://github.com/SierraSoftworks/bash-cli) framework with [Cobra](https://cobra.dev/).
+- Argument `--captain_id` is now `--captain-id`
+- Moved command `backup` to `backup generate` and organized backup related commands to `backup download`, `backup get`, `backup get-generate`, `backup list` and `backup list-generate`.
+- Moved command  `quicksave` to `quicksave generate` and organized quicksave related commands to `quicksave file-diff`, `quicksave generate`, `quicksave rollback`, `quicksave show-changes`, `quicksave sync` and `quicksave usage-update`.
+- Moved command `site environment` commands to `environment`
+- Moved command `snapshot` to `snapshot generate` and organized snapshot related command to `snapshot fetch-link`.
+- Moved commands `copy-production-to-staging` and `copy-staging-to-production` to `site copy-to-production` and `site copy-to-staging`.
+- Command `site copy-to-staging` now uses a snapshot for improved deployments.
+
 ## [0.11.0] - 2020-11-24
 ### Added
 - Command `bulk` to provide standardized way of parallelizing commands.
@@ -13,7 +31,7 @@
 
 ### Changed
 - Remove runner commands `backup-runner`, `ssh-runner` and `sync-data-runner`. Implemented new `bulk` command for running commands in parallel.
-- Handles Elementor database upgrades when running`update` script.
+- Handles Elementor database upgrades when running `update` script.
 - Improved `migrate` script. Better feedback and minor order correction when applying new table prefix.
 - Improved `launch` script to use the source domain and properly handle escaped URLs.
 - Improved site monitor notifications.
