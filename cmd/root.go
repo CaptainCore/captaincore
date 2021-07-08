@@ -122,7 +122,7 @@ func resolveCommand(c *cobra.Command, args []string) {
 	}
 
 	if target_count > 0 && c.CommandPath() != "captaincore monitor" &&
-		c.CommandPath() != "captaincore bulk" && c.CommandPath() != "captaincore plugin-zip" &&
+		c.CommandPath() != "captaincore bulk" && c.CommandPath() != "captaincore plugin-zip" && c.CommandPath() != "captaincore upload" &&
 		c.CommandPath() != "captaincore backup get" && c.CommandPath() != "captaincore backup get-generate" && c.CommandPath() != "captaincore backup download" &&
 		c.CommandPath() != "captaincore quicksave show-changes" && c.CommandPath() != "captaincore quicksave file-diff" && c.CommandPath() != "captaincore quicksave rollback" {
 		if strings.HasPrefix(args[0], "@production") || strings.HasPrefix(args[0], "@staging") || strings.HasPrefix(args[0], "@all") || target_count > 1 {
@@ -231,6 +231,7 @@ func resolveCommand(c *cobra.Command, args []string) {
 		captainIds := strings.Split(string(out), " ")
 		// Loop through CaptainIDs
 		for _, fleetCaptainID := range captainIds {
+			//fmt.Println(path+command, args, fleetCaptainID)
 			cmdRun(path+command, args, env, fleetCaptainID)
 		}
 		return
