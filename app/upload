@@ -20,10 +20,10 @@ website=$1
 remote_options=""
 
 # Load site configs
-while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain-id=$captain_id)"
+while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain-id=$CAPTAIN_ID)"
       
 if [[ $key != "" ]]; then
-  remote_options="-i $path_keys/${captain_id}/${key}"
+  remote_options="-i $path_keys/${CAPTAIN_ID}/${key}"
 fi
 
 # Site found, start the backup
