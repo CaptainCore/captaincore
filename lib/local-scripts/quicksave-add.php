@@ -27,7 +27,7 @@ $lookup = ( new CaptainCore\Sites )->where( [ "site" => $site ] );
 
 // Error if site not found
 if ( count( $lookup ) == 0 ) {
-	echo "Error: Site '$site' not found.";
+	echo "Error: Site '$site' not found.\n";
 	return;
 }
 
@@ -41,7 +41,7 @@ $environment    = ( new CaptainCore\Environments )->get( $environment_id );
 $json = "{$_SERVER['HOME']}/.captaincore/config.json";
 
 if ( ! file_exists( $json ) ) {
-	echo "Error: Configuration file not found.";
+	echo "Error: Configuration file not found.\n";
 	return;
 }
 
@@ -76,7 +76,7 @@ $git_status = trim ( shell_exec( "cd {$site_path}; git status -s") );
 
 if ( $git_status == "" and $force != true ) {
 	# Skip quicksave as nothing changed
-	echo "Quicksave skipped as nothing changed";
+	echo "Quicksave skipped as nothing changed\n";
 	return;
 }
 
