@@ -109,7 +109,7 @@ run_command() {
 
   cd ${CAPTAINCORE_PATH}/data
 
-  wp eval-file ../lib/local-scripts/site-sync-data.php site=$site environment=$environment
+  wp eval-file ../lib/local-scripts/sync-data.php $site-${environment}
   wp eval-file ../lib/local-scripts/quicksave-add.php site=$site environment=$environment
 
   if [ -f "${path}/process-${process_id}-progress.log" ]; then
