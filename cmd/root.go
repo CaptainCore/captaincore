@@ -17,7 +17,7 @@ import (
 var flagDebug, flagSkipDB, flagSkipScreenshot, flagForce, flagBash, flagUpdateExtras, flagSkipRemote, flagFleet bool
 var flagHtml, flagPublic, flagSkipAlreadyGenerated, flagGlobalOnly, flagDeleteAfterSnapshot bool
 var flagCode, flagCommand, flagFilter, flagFilterName, flagFilterVersion, flagFilterStatus, flagField, flagPage, flagRecipe, flagScript, flagProvider string
-var captainID, cfgFile, flagTheme, flagPlugin, flagFile, flagEmail, flagName, flagLink, flagNotes, flagUserId string
+var captainID, cfgFile, flagTheme, flagPlugin, flagFile, flagEmail, flagName, flagLink, flagNotes, flagUserId, flagFormat string
 var flagParallel, flagRetry int
 
 var colorYellow = "\x1b[33;1m"
@@ -270,6 +270,9 @@ func resolveCommandWP(c *cobra.Command, args []string) {
 
 	if flagProvider != "" {
 		args = append(args, "provider="+flagProvider)
+	}
+	if flagFormat != "" {
+		args = append(args, "format="+flagFormat)
 	}
 	if flagBash == true {
 		args = append(args, "format=bash")

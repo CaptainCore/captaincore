@@ -1,5 +1,8 @@
 <?php
 
+$captain_id = getenv('CAPTAIN_ID');
+$recipe     = $args[0];
+
 // Replaces dashes in keys with underscores
 foreach($args as $index => $arg) {
 	$split = strpos($arg, "=");
@@ -20,7 +23,6 @@ foreach($args as $index => $arg) {
 
 // Converts --arguments into $arguments
 parse_str( implode( '&', $args ) );
-
 
 // Loads CLI configs
 $json = "{$_SERVER['HOME']}/.captaincore/config.json";
@@ -45,7 +47,6 @@ if ( $system->captaincore_fleet == true ) {
 	$path = "{$path}/{$captain_id}";
 }
 
-
 if ( $format == 'base64' ) {
 	$recipe       = json_decode( base64_decode( $recipe ) ) ;
 	$recipe_check = ( new CaptainCore\Recipes )->get( $recipe->recipe_id );
@@ -58,6 +59,6 @@ if ( $format == 'base64' ) {
     ( new CaptainCore\Recipes )->update( (array) $recipe, [ "recipe_id" => $recipe->recipe_id ] );
 
     $recipe_file = "$path_recipes/{$captain_id}-{$recipe->recipe_id}.sh";
-    echo "Generating $recipe_file";
+    echo "Generating $recipe_file\n";
     file_put_contents( $recipe_file, $recipe->content );
 }
