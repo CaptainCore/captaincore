@@ -225,6 +225,28 @@ func newBackground(w http.ResponseWriter, r *http.Request) {
 	task.CaptainID, err = strconv.Atoi(captainID)
 	task.Token = randomToken
 
+	// If command contains payload="<payload>" then then write data to file and change to payload="true"
+	pattern := `(--payload='.+')`
+	payload := regexp.MustCompile(pattern).FindString(task.Command)
+
+	if len(payload) >= 1 {
+		log.Println("Payload found, writing to file.")
+		task.Command = strings.Replace(task.Command, payload, task.Token, -1)
+
+		pattern_data := `--payload='(.+)'`
+		payload_data := regexp.MustCompile(pattern_data).FindStringSubmatch(payload)
+
+		usr, err := user.Current()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		writeerr := WriteToFile(usr.HomeDir+"/.captaincore/data/payload/"+task.Token+".txt", payload_data[1])
+		if writeerr != nil {
+			log.Fatal(writeerr)
+		}
+	}
+
 	db.Create(&task)
 
 	// Starts running CaptainCore command
@@ -530,7 +552,7 @@ func runCommand(cmd string, t Task) string {
 	}
 
 	err = command.Wait()
-	if err != nil {
+	if err != nil && client.conn != nil {
 		client.conn.WriteMessage(1, []byte("Error: "+err.Error()))
 		client.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 		client.conn.Close()
