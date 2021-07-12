@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/CaptainCore/cli/cmd"
+	"github.com/CaptainCore/captaincore/cmd"
 )
 
 func main() {

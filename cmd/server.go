@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"github.com/CaptainCore/cli/server"
+	"github.com/CaptainCore/captaincore/server"
 	"github.com/spf13/cobra"
 )
 

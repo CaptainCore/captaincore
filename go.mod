@@ -1,4 +1,4 @@
-module github.com/CaptainCore/cli
+module github.com/CaptainCore/captaincore
 
 go 1.16
 
