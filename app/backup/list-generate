@@ -47,8 +47,8 @@ run_command() {
   backup_list="$path/${site}_${site_id}/${environment}/backups/list.json"
   
   cd ${CAPTAINCORE_PATH}/data
+  echo "Generating ${site}_${site_id}/${environment}/backups/list.json"
   wp eval-file ${CAPTAINCORE_PATH}/lib/local-scripts/backups-list.php site=$site site_id=$site_id environment=$environment > "$backup_list"
-
 
 }
 
