@@ -88,6 +88,12 @@ if ( $system->captaincore_fleet == "true" ) {
 }
 
 if ( is_file ( "$system->path/{$site->site}_{$site->site_id}/{$environment}/backups/list.json" ) ) {
-	$snapshots = json_decode ( file_get_contents( "$system->path/{$site->site}_{$site->site_id}/{$environment}/backups/list.json" ) );
-	echo implode( " ", array_column( $snapshots, "id" ) ) ;	
+	$snapshots    = json_decode ( file_get_contents( "$system->path/{$site->site}_{$site->site_id}/{$environment}/backups/list.json" ) );
+	$snapshot_ids = array_column( $snapshots, "id" );
+	foreach ( $snapshot_ids as $snapshot_id ) {
+		if ( ! is_file ( "$system->path/{$site->site}_{$site->site_id}/{$environment}/backups/snapshot-$snapshot_id.json" ) ) {
+			echo "Generating missing {$site->site}_{$site->site_id}/{$environment}/backups/snapshot-$snapshot_id.json";
+			shell_exec( "captaincore backup get-generate {$site->site}-{$environment} $snapshot_id --captain-id=$captain_id" );
+		}
+	}
 }
