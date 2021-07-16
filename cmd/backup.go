@@ -77,6 +77,20 @@ var backupListGenerateCmd = &cobra.Command{
 	},
 }
 
+var backupListMissingCmd = &cobra.Command{
+	Use:   "list-missing <site>",
+	Short: "Generates list of snapshots for a site that haven't been generated",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveCommandWP(cmd, args)
+	},
+}
+
 func init() {
 	rootCmd.AddCommand(backupCmd)
 	backupCmd.AddCommand(backupDownloadCmd)
@@ -85,6 +99,7 @@ func init() {
 	backupCmd.AddCommand(backupGetGenerateCmd)
 	backupCmd.AddCommand(backupListCmd)
 	backupCmd.AddCommand(backupListGenerateCmd)
+	backupCmd.AddCommand(backupListMissingCmd)
 	backupDownloadCmd.Flags().StringVarP(&flagEmail, "email", "e", "", "Email notify")
 	backupGenerateCmd.Flags().BoolVarP(&flagSkipDB, "skip-db", "", false, "Skip database backup")
 	backupGenerateCmd.Flags().BoolVarP(&flagSkipRemote, "skip-remote", "", false, "Skip remote backup")
