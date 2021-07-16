@@ -92,7 +92,7 @@ if ( is_file ( "$system->path/{$site->site}_{$site->site_id}/{$environment}/back
 	$snapshot_ids = array_column( $snapshots, "id" );
 	foreach ( $snapshot_ids as $snapshot_id ) {
 		if ( ! is_file ( "$system->path/{$site->site}_{$site->site_id}/{$environment}/backups/snapshot-$snapshot_id.json" ) ) {
-			echo "Generating missing {$site->site}_{$site->site_id}/{$environment}/backups/snapshot-$snapshot_id.json";
+			echo "Generating missing {$site->site}_{$site->site_id}/{$environment}/backups/snapshot-$snapshot_id.json\n";
 			shell_exec( "captaincore backup get-generate {$site->site}-{$environment} $snapshot_id --captain-id=$captain_id" );
 		}
 	}

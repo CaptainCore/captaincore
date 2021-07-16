@@ -41,6 +41,10 @@ cd ${CAPTAINCORE_PATH}/data
 
 if [[ "$backup_id" == "" ]] || [[ "$backup_id" == *"--"* ]]; then
     backup_id=$( wp eval-file ${CAPTAINCORE_PATH}/lib/local-scripts/backups-get-latest.php site=$site site_id=$site_id environment=$environment )
+    if [[ "$backup_id" == "" ]]; then
+        captaincore backup list-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
+        backup_id=$( wp eval-file ${CAPTAINCORE_PATH}/lib/local-scripts/backups-get-latest.php site=$site site_id=$site_id environment=$environment )
+    fi
     echo "Backup id not selected. Generating response for latest ID $backup_id"
 fi
 
@@ -50,4 +54,5 @@ if [[ $( restic snapshots --repo="rclone:${rclone_backup}/${site}_${site_id}/${e
 fi
 
 backup_snapshot="$path/${site}_${site_id}/${environment}/backups/snapshot-${backup_id}.json"
+echo "Generating ${site}_${site_id}/${environment}/backups/snapshot-${backup_id}.json"
 wp eval-file ${CAPTAINCORE_PATH}/lib/local-scripts/backups-get.php backup_id=$backup_id site=$site site_id=$site_id environment=$environment > "$backup_snapshot"
