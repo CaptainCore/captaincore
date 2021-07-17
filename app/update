@@ -32,8 +32,6 @@ done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
 site=$1
 
 run_command() {
-    
-  cd ${CAPTAINCORE_PATH}/data
 
   # Extract environment
   if [[ "$website" == *"-staging"* ]]; then
@@ -54,6 +52,8 @@ run_command() {
     echo "Error: WordPress not found $site-$environment"
     return
   fi
+
+  cd ${CAPTAINCORE_PATH}/data
 
   wp eval-file ../lib/local-scripts/site-run-updates.php site=$site environment=$environment updates_enabled=$updates_enabled updates_exclude_themes=$updates_exclude_themes updates_exclude_plugins=$updates_exclude_plugins
 

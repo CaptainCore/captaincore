@@ -22,4 +22,5 @@ var updateCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(updateCmd)
+	updateCmd.Flags().BoolVarP(&flagDebug, "debug", "d", false, "Debug mode. No updates will run.")
 }
