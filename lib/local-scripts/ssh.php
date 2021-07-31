@@ -33,7 +33,7 @@ if ( ! empty( $arguments ) ) {
     $arguments         = $matches[0];
     $site              = $arguments[0];
     unset( $arguments[0] );
-    foreach( $arguments as $argument ) {
+    foreach( $arguments as $key => $argument ) {
         if ( empty( $argument ) ) {
             continue;
         }
@@ -48,6 +48,12 @@ if ( ! empty( $arguments ) ) {
         if ( substr( $argument, 0, 9 ) === "--recipe=" ) {
             $recipe  = substr( $argument, 9, strlen( $argument ) );
             $pass_through_args = true;
+        }
+        if (strpos($argument, '=') !== false) {
+            $position = strpos( $argument, '=' );
+            $argument = substr_replace( $argument, "=\\\"", $position, 1 );
+            $argument = "$argument\\\"";
+            $arguments[$key] = $argument;
         }
     }
     if ( $pass_through_args == true ) {
