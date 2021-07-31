@@ -110,7 +110,7 @@ run_command() {
 
   if [[ "$backup_url" == *".zip"* ]]; then
     mv restore_$timedate.out restore_$timedate.zip
-    unzip -q -o restore_$timedate.zip -x "__MACOSX/*" -x "cgi-bin/*"
+    unzip -q -o restore_$timedate.zip -x "__MACOSX/*" -x "cgi-bin/*" 2>&-
     rm restore_$timedate.zip
   fi
 
@@ -123,7 +123,7 @@ run_command() {
   # Assume it's a zip, if nothing defined.
   if [[ "$backup_url" != *".gz"* ]] && [[ "$backup_url" != *".zip"* ]] && [[ "$backup_url" != *".tar"* ]]; then 
     mv restore_$timedate.out restore_$timedate.zip
-    unzip -q -o restore_$timedate.zip -x "__MACOSX/*" -x "cgi-bin/*"
+    unzip -q -o restore_$timedate.zip -x "__MACOSX/*" -x "cgi-bin/*" 2>&-
     rm restore_$timedate.zip
   fi
 
@@ -198,7 +198,12 @@ run_command() {
   cd "$home_directory"
 
   # Remove select plugins if found
-  wp plugin delete backupbuddy wp-super-cache adminer wordfence w3-total-cache wp-file-cache broken-link-checker yet-another-related-posts-plugin comet-cache-1 woothemes-updater ewww-image-optimizer https-redirection really-simple-ssl hello wordpress-php-info force-strong-passwords --skip-plugins --skip-themes
+  plugins=( backupbuddy wp-super-cache adminer wordfence w3-total-cache wp-file-cache broken-link-checker yet-another-related-posts-plugin comet-cache-1 woothemes-updater ewww-image-optimizer https-redirection really-simple-ssl hello wordpress-php-info force-strong-passwords )
+  for plugin in ${plugins[@]}; do
+    if $( wp plugin is-installed $plugin --skip-plugins --skip-themes ); then
+      wp plugin delete $plugin --skip-plugins --skip-themes
+    fi
+  done
 
   # Grabs current privacy settings
   search_privacy=$( wp option get blog_public --skip-plugins --skip-themes )
@@ -245,7 +250,7 @@ run_command() {
   wp cache flush --skip-plugins --skip-themes
 
   # Secure database
-  if [ ! -f "$home_directory/wp-content/mysql.sql" ]; then
+  if [ -f "$home_directory/wp-content/mysql.sql" ]; then
     chmod 600 $home_directory/wp-content/mysql.sql
   fi
 
