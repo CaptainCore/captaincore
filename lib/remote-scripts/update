@@ -71,6 +71,15 @@ run_command() {
     private=$(pwd)
     cd $home_directory
   fi
+  if $( wp theme is-active Newspaper );
+    required_theme_plugins=()
+    active_plugins=( $( wp plugin list --status=active --field=name ) )
+    for slug in ${active_plugins[@]}; do
+      if [[ "$slug" == "td-"* ]]; then
+        required_theme_plugins+=( $slug )
+      fi
+    done
+  fi
 
   echo "<?php define( 'WP_ADMIN', true ); ?>" > $private/require-wp-admin.php
 
@@ -97,6 +106,13 @@ run_command() {
         fi
       done
     fi
+  fi
+  if $( wp theme is-active Newspaper );
+    required_theme_plugins=()
+    for slug in ${required_theme_plugins[@]}; do 
+      command="\$key = array_search( \"$slug\", array_column( tagdiv_global::\$theme_plugins_list, \"slug\" ) ); echo tagdiv_global::\$theme_plugins_list[\$key][\"source\"];"; 
+      silent=$( wp plugin install $( wp eval "$command" --skip-plugins ) --force --activate 2>&1 )
+    done
   fi
   # Purge Autoptimize cache if installed
   if $( wp plugin is-installed autoptimize ); then 
