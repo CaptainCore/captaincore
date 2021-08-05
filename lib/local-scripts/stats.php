@@ -84,7 +84,7 @@ if ( is_array( $fathom ) ) {
 $total_pageviews = 0;
 $analytics       = new BeyondCode\FathomAnalytics\FathomAnalytics( $system->fathom_username, $system->fathom_password );
 $sites           = $analytics->getSites();
-$hunt = null;
+$hunt            = null;
 foreach($sites as $s) {
     if ($site->name == $s->name) {
         $hunt = $s;
@@ -92,8 +92,8 @@ foreach($sites as $s) {
     }
 }
 if ( ! empty ( $hunt ) ) {
-    $results         = $analytics->getData( $s->id, Carbon\Carbon::now()->subDays(365));
-    $total_pageviews += $results->chart_data[0]->pageviews;
+    $results         = $analytics->getData( $hunt->id, Carbon\Carbon::now()->subDays(365));
+    $total_pageviews += $results->site_stats->pageviews;
 }
 
 // If Fathom found then fetch stats
