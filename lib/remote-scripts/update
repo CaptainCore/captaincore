@@ -71,7 +71,7 @@ run_command() {
     private=$(pwd)
     cd $home_directory
   fi
-  if $( wp theme is-active Newspaper );
+  if $( wp theme is-active Newspaper ); then
     required_theme_plugins=()
     active_plugins=( $( wp plugin list --status=active --field=name ) )
     for slug in ${active_plugins[@]}; do
@@ -107,7 +107,7 @@ run_command() {
       done
     fi
   fi
-  if $( wp theme is-active Newspaper );
+  if $( wp theme is-active Newspaper ); then
     required_theme_plugins=()
     for slug in ${required_theme_plugins[@]}; do 
       command="\$key = array_search( \"$slug\", array_column( tagdiv_global::\$theme_plugins_list, \"slug\" ) ); echo tagdiv_global::\$theme_plugins_list[\$key][\"source\"];"; 
