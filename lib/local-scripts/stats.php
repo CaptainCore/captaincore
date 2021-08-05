@@ -93,7 +93,7 @@ foreach($sites as $s) {
 }
 if ( ! empty ( $hunt ) ) {
     $results         = $analytics->getData( $hunt->id, Carbon\Carbon::now()->subDays(365));
-    $total_pageviews += $results->site_stats->pageviews;
+    $total_pageviews += $results->site_stats->current->pageviews;
 }
 
 // If Fathom found then fetch stats
