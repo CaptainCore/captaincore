@@ -154,12 +154,12 @@ if ( $fathom != "" ) {
             if(isset($stat->Pageviews))
                $total_pageviews += $stat->Pageviews;
           }
-        // Return yearly average based on current usage.
-        echo $total_pageviews;
-    } else {
-        // Fathom not found
-        echo "0";
     }
+
+}
+
+if ( ! empty( $total_pageviews ) ) {
+    echo $total_pageviews;
     die();
 }
 
