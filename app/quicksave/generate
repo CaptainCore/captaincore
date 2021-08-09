@@ -112,6 +112,8 @@ run_command() {
   wp eval-file ../lib/local-scripts/sync-data.php $site-${environment}
   wp eval-file ../lib/local-scripts/quicksave-add.php site=$site environment=$environment
 
+  captaincore quicksave list-generate $site-${environment} --captain-id=$CAPTAIN_ID
+
   if [ -f "${path}/process-${process_id}-progress.log" ]; then
     echo -n "." >> ${path}/process-${process_id}-progress.log
   fi
