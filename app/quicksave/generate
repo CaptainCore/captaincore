@@ -71,7 +71,7 @@ run_command() {
   ftp_search_for_wordpress=$( echo "$ftp_output" | perl -wnE'say for /wp-admin/g' )
 
   # Handle FTP errors
-  if [[ $ftp_search_for_wordpress != "wp-admin" ]]; then
+  if [[ $ftp_search_for_wordpress != "wp-admin"* ]]; then
       echo "Can't locate WordPress for ${site}-${environment}"
       exit
   fi

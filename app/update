@@ -48,7 +48,7 @@ run_command() {
   ftp_output=$( { rclone lsd ${environment}:$home_directory --config="$rclone_config_file" ; } 2>&1 )
   ftp_search_for_wordpress=$( echo "$ftp_output" | perl -wnE'say for /wp-admin/g' )
 
-  if [[ $ftp_search_for_wordpress != "wp-admin" ]]; then
+  if [[ $ftp_search_for_wordpress != "wp-admin"* ]]; then
     echo "Error: WordPress not found $site-$environment"
     return
   fi
