@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+
+#
+#   Fetch token
+#
+
+wp eval "echo md5( AUTH_KEY );" --skip-plugins --skip-themes

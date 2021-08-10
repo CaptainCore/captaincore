@@ -25,20 +25,6 @@ var siteDeployKeysCmd = &cobra.Command{
 	},
 }
 
-var fetchTokenCmd = &cobra.Command{
-	Use:   "fetch-token <site>",
-	Short: " Fetch token for a site",
-	Args: func(cmd *cobra.Command, args []string) error {
-		if len(args) < 1 {
-			return errors.New("requires a <site> argument")
-		}
-		return nil
-	},
-	Run: func(cmd *cobra.Command, args []string) {
-		resolveCommand(cmd, args)
-	},
-}
-
 var deleteCmd = &cobra.Command{
 	Use:   "delete <site>",
 	Short: "Delete a site",
@@ -151,20 +137,6 @@ var siteDeployDefaultsCmd = &cobra.Command{
 	},
 }
 
-var siteFetchTokenCmd = &cobra.Command{
-	Use:   "fetch-token <site>",
-	Short: "Fetch token for site",
-	Args: func(cmd *cobra.Command, args []string) error {
-		if len(args) < 1 {
-			return errors.New("requires a <site> argument")
-		}
-		return nil
-	},
-	Run: func(cmd *cobra.Command, args []string) {
-		resolveCommand(cmd, args)
-	},
-}
-
 var sitePrepareCmd = &cobra.Command{
 	Use:   "prepare <site> [--skip-deployment]",
 	Short: "Preps new site configurations",
@@ -216,7 +188,6 @@ func init() {
 	siteCmd.AddCommand(sshFailCmd)
 	siteCmd.AddCommand(siteCopyProductionToStaging)
 	siteCmd.AddCommand(siteCopyStagingToProduction)
-	siteCmd.AddCommand(siteFetchTokenCmd)
 	siteCmd.AddCommand(sitePrepareCmd)
 	siteCmd.AddCommand(siteDeployDefaultsCmd)
 	siteCmd.AddCommand(siteDeployKeysCmd)

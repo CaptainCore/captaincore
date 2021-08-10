@@ -35,14 +35,7 @@ if $( wp core is-installed --network --skip-themes --skip-plugins --skip-package
     subsite_count=$( wp site list --format=count --skip-themes --skip-plugins --skip-packages )
 fi
 
-auth_code=$(grep "'AUTH_KEY'" wp-config.php | awk -F "'" '{print $4}')
-
-read -r -d '' php_code << heredoc
-\$auth_key = '$auth_code';
-echo md5(\$auth_key);
-heredoc
-
-token=$( php -r "$php_code" )
+token=$( wp eval "echo md5( AUTH_KEY );" --skip-plugins --skip-themes )
 
 # Assume WP-CLI output may contain whitespaces and remove.
 echo ${plugins} | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'

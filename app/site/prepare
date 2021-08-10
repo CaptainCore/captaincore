@@ -35,7 +35,7 @@ for environment in ${environments[@]}; do
   captaincore ssh $site-$environment --command="cat wp-config.php" --captain-id=$CAPTAIN_ID > $path/${site}_${site_id}/${environment}/backup/wp-config.php
 
   # Generate token
-  token_key=$(captaincore site fetch-token $site-$environment --captain-id=$CAPTAIN_ID)
+  token_key=$( captaincore ssh $site-$environment --script=fetch-token --captain-id=$CAPTAIN_ID )
 
   if [[ "$captaincore_dev" == true ]]; then
     curl_argument="-k"
