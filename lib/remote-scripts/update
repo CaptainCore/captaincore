@@ -73,26 +73,39 @@ run_command() {
   fi
   if $( wp theme is-active Newspaper ); then
     required_theme_plugins=()
-    active_plugins=( $( wp plugin list --status=active --field=name ) )
+    active_plugins=( $( wp plugin list --field=name ) )
     for slug in ${active_plugins[@]}; do
       if [[ "$slug" == "td-"* ]]; then
         required_theme_plugins+=( $slug )
       fi
     done
+    read -r -d '' php_code << heredoc
+<?php
+\$theme_info             = tagdiv_check_theme_version()[0];
+\$theme_version          = wp_get_theme()->display( 'Version' );
+\$theme_version_to_check = array_keys( \$theme_info )[0];
+\$theme_url              = \$theme_info[ \$theme_version_to_check ];
+if ( version_compare( \$theme_version, \$theme_version_to_check, "<" ) ) {
+  echo "theme install \$theme_url --force --skip-plugins=wps-hide-login";
+}
+heredoc
+    # Run Newspaper theme update if found
+    command=$( echo -n "$php_code" | wp eval-file - )
+    if [[ "$command" != "" ]]; then
+      silent=$( wp $command 2>&1 )
+    fi
   fi
 
-  echo "<?php define( 'WP_ADMIN', true ); ?>" > $private/require-wp-admin.php
-
   if [[ $exclude_themes == "" ]]; then
-  	wp theme update ${flags[@]} --require="$private/require-wp-admin.php"
+  	wp theme update ${flags[@]} --exec="define( 'WP_ADMIN', true );" --skip-plugins=wps-hide-login
   else
-  	wp theme update ${flags[@]} --require="$private/require-wp-admin.php" --exclude=$exclude_themes
+  	wp theme update ${flags[@]} --exec="define( 'WP_ADMIN', true );" --exclude=$exclude_themes --skip-plugins=wps-hide-login
   fi
   echo " "
   if [[ $exclude_plugins == "" ]]; then
-    wp plugin update ${flags[@]} --require="$private/require-wp-admin.php"
+    wp plugin update ${flags[@]} --exec="define( 'WP_ADMIN', true );" --skip-plugins=wps-hide-login
   else
-  	wp plugin update ${flags[@]} --require="$private/require-wp-admin.php" --exclude=$exclude_plugins
+  	wp plugin update ${flags[@]} --exec="define( 'WP_ADMIN', true );" --exclude=$exclude_plugins --skip-plugins=wps-hide-login
   fi
   # Handle WooCommerce database updates if installed
   if $( wp plugin is-installed woocommerce ); then 
@@ -108,8 +121,7 @@ run_command() {
     fi
   fi
   if $( wp theme is-active Newspaper ); then
-    required_theme_plugins=()
-    for slug in ${required_theme_plugins[@]}; do 
+    for slug in ${required_theme_plugins[@]}; do
       command="\$key = array_search( \"$slug\", array_column( tagdiv_global::\$theme_plugins_list, \"slug\" ) ); echo tagdiv_global::\$theme_plugins_list[\$key][\"source\"];"; 
       silent=$( wp plugin install $( wp eval "$command" --skip-plugins ) --force --activate 2>&1 )
     done
