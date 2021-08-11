@@ -34,7 +34,7 @@ site=$1
 run_command() {
 
   # Extract environment
-  if [[ "$website" == *"-staging"* ]]; then
+  if [[ "$site" == *"-staging"* ]]; then
     environment=staging
   else
     environment=production
