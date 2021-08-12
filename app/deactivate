@@ -49,6 +49,7 @@ run_command() {
 	read -r -d '' php_code << heredoc
 \$run_code = <<<PHPHEREDOC
 wp_content=$wp_content
+provider=$provider
 name=$FLAG_NAME
 link=$FLAG_LINK
 PHPHEREDOC;
