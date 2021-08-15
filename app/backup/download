@@ -62,7 +62,7 @@ php -r "$php_code"
 
 rclone_config_file="$path/${site}_${site_id}/rclone.conf"
 echo "Mounting Restic repo"
-command="mount ${restore_path}/$mount_name/ --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo"
+command="mount ${restore_path}/$mount_name/ --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file=${CAPTAINCORE_PATH}/data/restic.key"
 restic $command > $restore_path/restic-mount.log 2>&1 &
 count=0
 
