@@ -204,7 +204,7 @@ if ( $command == 'generate' ) {
 
 		// WordPress 5.2 bug causing random redirect loops with Kinsta cache on home page. If 301 found then sent a Kinsta purge cache.
 		if ( $record->notify_count == 0 and $record->http_code == '301' ) {
-			shell_exec( "captaincore ssh {$record->name} --command=\"wp kinsta cache purge\" --captain_id=$captain_id" );
+			shell_exec( "captaincore ssh {$record->name} --command=\"wp kinsta cache purge\" --captain-id=$captain_id" );
 		}
 
 		if ( $record->notify_count == 0 ) {
