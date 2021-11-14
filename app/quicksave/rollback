@@ -71,6 +71,11 @@ run_command() {
     home_directory="${home_directory}/"
   fi
 
+  if [[ "$FLAG_VERSION" == "previous" ]]; then
+    cd $path/${site}_${site_id}/${environment}/quicksave/
+    commit=$( git log -n 1 $commit --pretty=format:"%P" )
+  fi
+
   if [[ "$FLAG_PLUGIN" != "" ]]; then
 
     echo "Rolling back plugin $FLAG_PLUGIN"

@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+
+#
+#   Fetches quicksave for a site
+#
+#   `captaincore quicksave get <site> <hash>`
+#
+
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+if [ ${#@} -ne 2 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify <site> and <hash>."
+  exit
+fi
+
+site=$1
+hash=$2
+
+# Extract environment
+if [[ "$site" == *"-staging"* ]]; then
+    environment=staging
+fi
+
+if [[ "$site" == *"-production"* ]]; then
+    environment=production
+fi
+
+if [[ "$site" != *"-"* ]]; then
+    environment=production
+fi
+
+# Load site configs
+while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
+
+quicksave="$path/${site}_${site_id}/${environment}/quicksaves/commit-$hash.json"
+
+if [ ! -f "$quicksave" ]; then
+    generate=$( captaincore quicksave get-generate $site-$environment $hash --captain-id=$CAPTAIN_ID )
+fi
+
+cat $quicksave

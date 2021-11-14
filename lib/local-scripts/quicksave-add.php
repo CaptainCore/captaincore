@@ -85,6 +85,9 @@ $git_commit = trim( shell_exec( "cd {$site_path}; git commit -m \"quicksave on {
 
 # Save git hash
 $git_commit = trim ( shell_exec( "cd {$site_path}; git log -n 1 --pretty=format:\"%H\"" ) );  # Get hash of last commit (commit hash)
+$command    = "captaincore quicksave get-generate {$site->site}-$env $git_commit --captain-id=$captain_id";
+shell_exec( $command );
+
 $git_status = trim ( shell_exec( "cd {$site_path}; git show {$git_commit} --shortstat --format=" ) );
 $core       = trim ( shell_exec( "cd {$site_path}; git show {$git_commit}:versions/core.json" ) );
 $themes     = trim ( shell_exec( "cd {$site_path}; git show {$git_commit}:versions/themes.json" ) );
@@ -93,40 +96,6 @@ $timestamp  = trim ( shell_exec( "cd {$site_path}; git show -s --pretty=format:\
 
 $dt         = new DateTime("@$timestamp");  // convert UNIX timestamp to PHP DateTime
 $created_at = $dt->format('Y-m-d H:i:s'); // output = 2017-01-01 00:00:00
-
-$quicksave_add = [
-	"created_at"     => $created_at,
-	"site_id"        => $site->site_id,
-	"environment_id" => $environment_id,
-	"git_commit"     => $git_commit,
-	"git_status"     => $git_status,
-	"core"           => $core,
-	"themes"         => json_encode( json_decode( $themes ) ),
-	"plugins"        => json_encode( json_decode( $plugins ) ),
-];
-
-// Update current environment with new data.
-$quicksave_add["quicksave_id"] = ( new CaptainCore\Quicksaves )->insert( $quicksave_add );
-
-// Prepare request to API
-$request = [
-    'method'  => 'POST',
-    'headers' => [ 'Content-Type' => 'application/json' ],
-    'body'    => json_encode( [ 
-        "command" => "quicksave-add",
-        "site_id" => $site->site_id,
-        "token"   => $configuration->keys->token,
-        "data"    => $quicksave_add,
-    ] ),
-];
-
-if ( ! empty( $system->captaincore_dev ) ) {
-    $request['sslverify'] = false;
-}
-
-// Post to CaptainCore API
-$response = wp_remote_post( $configuration->vars->captaincore_api, $request );
-echo $response['body'];
 
 # Generate quicksave usage stats
 $quicksave_count = trim( shell_exec( "cd {$site_path}; git rev-list --all --count" ) );
