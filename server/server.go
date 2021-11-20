@@ -74,7 +74,7 @@ a:hover { opacity: 0.75 }
 </style>
 </head>
 <body>
-<h2><a href="https://captaincore.io"><img src="assets/logo-192x192.png" style="width:32px; filter: invert(100%) grayscale(100%) brightness(100); top: 7px; position: relative; margin-right: 4px;">CaptainCore</a><small style="font-size: .57em;">v0.12.0</small></h2>
+<h2><a href="https://captaincore.io"><img src="assets/logo-192x192.png" style="width:32px; filter: invert(100%) grayscale(100%) brightness(100); top: 7px; position: relative; margin-right: 4px;">CaptainCore</a><small style="font-size: .57em;">v0.13.0</small></h2>
 <p><a target="_blank" href="https://docs.captaincore.io">Docs 📖</a><a target="_blank" href="https://captaincore.io/development-updates/">Development Updates 🔔</a></p>
 <p><a class="github-button" href="https://github.com/sponsors/austinginder" data-icon="octicon-heart" data-size="large" aria-label="Sponsor @austinginder on GitHub">Sponsor via Github</a></p>
 </body>

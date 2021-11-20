@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.13.0] - 2021-11-20
+### Added
+- Commands `quicksave list`, `quicksave list-generate`, `quicksave list-missing`, `quicksave get` and `quicksave get-generate` which power the improved Quicksave GUI.
+- Command `backup list-missing` to generate missing backup responses for GUI.
+
+### Changed
+- Command `account sync` has been restored with compatibility fixes for Cobra
+- Improved `monitor` server caching handling
+- Improved remote script `update` with new WP-CLI `--exec` parameter to quickly pass `define( 'WP_ADMIN', true );` before running updates.
+- Massive [quicksave performance improvements](https://captaincore.io/quicksave-performance-improvements/). Generating quicksaves will now also create individual `commit-<hash>.json` files and a `list.json`. Those cached responses are used to power a very fast GUI.
+
 ## [0.12.0] - 2021-07-04
 ### Added
 - Command `server`. Previously was a separate project named CaptainCore Dispatch which has now been merged here.
