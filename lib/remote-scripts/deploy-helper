@@ -190,4 +190,5 @@ add_filter( 'auto_theme_update_send_email', '__return_false' );
 heredoc
 
 echo "Generating '$wp_content/mu-plugins/captaincore-helper.php'"
+mkdir -p "$wp_content/mu-plugins/"
 echo "$build_mu_plugin" > $wp_content/mu-plugins/captaincore-helper.php
