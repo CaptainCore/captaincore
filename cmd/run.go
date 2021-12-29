@@ -24,5 +24,4 @@ func init() {
 	rootCmd.AddCommand(runCmd)
 	runCmd.Flags().StringVarP(&flagCode, "code", "c", "", "WP-CLI command or script to run directly")
 	runCmd.Flags().BoolVarP(&flagDebug, "debug", "d", false, "Debug mode")
-	runCmd.MarkFlagRequired("code")
 }

@@ -32,6 +32,7 @@ heredoc
   # Runs on specifed sites
   captaincore ssh $1 --recipe=$recipe_name --captain-id=$CAPTAIN_ID
   exit
+
 fi
 
 # Error if no sites specifed
