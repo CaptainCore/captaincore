@@ -44,6 +44,9 @@ run_command() {
   # Grab core version
   core_version=$( captaincore ssh ${site}-production --command="wp core version --skip-plugins --skip-themes" --captain-id=$CAPTAIN_ID )
 
+  # Fresh copy of files
+  captaincore backup generate ${site}-production --skip-remote --captain-id=$CAPTAIN_ID
+
   # Snapshot everything except uploads
   echo "Generating snapshot of production site."
   captaincore snapshot generate ${site}-production --notes="Deploy to staging." --filter=database,themes,plugins,everything-else --captain-id=$CAPTAIN_ID
