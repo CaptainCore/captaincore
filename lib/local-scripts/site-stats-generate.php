@@ -86,15 +86,16 @@ foreach($config_data as $config) {
 	}
 }
 
+defined('FATHOM_API_KEY') or define( 'FATHOM_API_KEY', $system->fathom_api_key );
+
 $time_now        = date("Y-m-d H:i:s");
-$analytics       = new BeyondCode\FathomAnalytics\FathomAnalytics( $system->fathom_username, $system->fathom_password );
-$response        = $analytics->newSite( $site_name );
+$response        = fathom_api_post( "sites", [ "name" => $site_name ] );
 $details         = ( isset( $environment->details ) ? json_decode( $environment->details ) : (object) [] );
-if ( empty( $response->tracking_id ) ) {
+if ( empty( $response->id ) ) {
     echo "Error: Could not fetch tracking ID from Fathom for {$site->site}-{$environment_name}\n";
 	return;
 }
-$details->fathom = [ [ "domain" => $site_name, "code" => $response->tracking_id ] ];
+$details->fathom = [ [ "domain" => $site_name, "code" => $response->id ] ];
 ( new CaptainCore\Environments )->update( [ 
     "details"         => json_encode( $details ),
     "updated_at"      => $time_now,
