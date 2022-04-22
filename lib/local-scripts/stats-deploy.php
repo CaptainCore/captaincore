@@ -117,7 +117,7 @@ if ( is_array( $site_data->environment_vars ) ) {
 }
 
 $fathom_analytics = ( ! empty( $details->fathom ) ? json_encode( $details->fathom ) : [] );
-$fathom_arguments = "id=$fathom_analytics\nbranding_author={$configuration->vars->captaincore_branding_author}\nbranding_author_uri={$configuration->vars->captaincore_branding_author_uri}\nbranding_slug={$configuration->vars->captaincore_branding_slug}";
+$fathom_arguments = "id=$fathom_analytics\ntracker_url={$configuration->vars->captaincore_tracker_url}\nbranding_author={$configuration->vars->captaincore_branding_author}\nbranding_author_uri={$configuration->vars->captaincore_branding_author_uri}\nbranding_slug={$configuration->vars->captaincore_branding_slug}";
 $fathom_arguments = base64_encode( $fathom_arguments );
 
 echo shell_exec( "captaincore ssh {$site->site}-{$env} --script=deploy-fathom -- --wp_content=$wp_content --fathom_arguments=$fathom_arguments" );
