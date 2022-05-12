@@ -27,9 +27,9 @@ core=$( wp core version --skip-themes --skip-plugins --skip-packages )
 home_url=$( wp option get home --skip-themes --skip-plugins --skip-packages )
 users=$( wp user list --format=json --skip-themes --skip-plugins --skip-packages )
 
-db_name=$( grep DB_NAME wp-config.php | awk -F "'" '{print $4}' )
-db_username=$( grep DB_USER wp-config.php | awk -F "'" '{print $4}' )
-db_password=$( grep DB_PASS wp-config.php | awk -F "'" '{print $4}' )
+db_name=$( wp eval "echo DB_NAME;" --skip-plugins --skip-themes --skip-packages )
+db_username=$( wp eval "echo DB_USER;" --skip-plugins --skip-themes --skip-packages )
+db_password=$( wp eval "echo DB_PASSWORD;" --skip-plugins --skip-themes --skip-packages )
 
 if $( wp core is-installed --network --skip-themes --skip-plugins --skip-packages ); then
     subsite_count=$( wp site list --format=count --skip-themes --skip-plugins --skip-packages )
