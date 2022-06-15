@@ -48,7 +48,14 @@ for arg in "$@"; do
 
 done
 
-backup_url=$url
+read -r -d '' php_code << heredoc
+\$arguments = <<<PHPHEREDOC
+$url
+PHPHEREDOC;
+echo urldecode( \$arguments );
+heredoc
+
+backup_url=$( php -r "$php_code" )
 
 # Store current path
 home_directory=$(pwd)
@@ -133,6 +140,23 @@ run_command() {
   if [[ $wordpresspath == "" ]]; then
     echo "Can't find wp-content/ in backup. Migration cancelled.";
     return 1
+  fi
+
+  # Migrate mu-plugins if found
+  if [ -d "$wordpresspath/wp-content/mu-plugins" ]; then
+    echo "Moving: mu-plugins"
+    cd "$wordpresspath/wp-content/mu-plugins"
+    for working in *; do
+        echo "$working"
+        if [ -f "$home_directory/wp-content/mu-plugins/$working" ]; then
+          rm "$home_directory/wp-content/mu-plugins/$working"
+        fi
+        if [ -d "$home_directory/wp-content/mu-plugins/$working" ]; then
+          rm -rf "$home_directory/wp-content/mu-plugins/$working"
+        fi
+        mv "$working" "$home_directory/wp-content/mu-plugins/"
+    done
+    cd "${private}/restore_${timedate}"
   fi
 
   # Migrate blogs.dir if found
