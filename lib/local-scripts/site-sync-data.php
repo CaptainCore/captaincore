@@ -69,18 +69,19 @@ if ( $responses[0] == "WordPress not found" ) {
 }
 
 $environment_update = [
-    "environment_id"    => $environment_id,
-    "plugins"           => $responses[0],
-    "themes"            => $responses[1],
-    "core"              => $responses[2],
-    "home_url"          => $responses[3],
-    "users"             => $responses[4],
-    "database_name"     => $responses[5],
-    "database_username" => $responses[6],
-    "database_password" => $responses[7],
-    "subsite_count"     => $responses[8],
-    "token"             => $responses[9],
-    "updated_at"        => date("Y-m-d H:i:s"),
+    "environment_id"        => $environment_id,
+    "plugins"               => $responses[0],
+    "themes"                => $responses[1],
+    "core"                  => $responses[2],
+    "home_url"              => $responses[3],
+    "users"                 => $responses[4],
+    "database_name"         => $responses[5],
+    "database_username"     => $responses[6],
+    "database_password"     => $responses[7],
+    "core_verify_checksums" => $responses[8],
+    "subsite_count"         => $responses[9],
+    "token"                 => $responses[10],
+    "updated_at"            => date("Y-m-d H:i:s"),
 ];
 
 $plugins = json_decode( $responses[0] );

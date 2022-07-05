@@ -12,8 +12,9 @@
 #   line 6: database name
 #   line 7: database username
 #   line 8: database password
-#   line 9: subsite count
-#   line 10: token
+#   line 9: core verify checksum
+#   line 10: subsite count
+#   line 11: token
 #
 
 if [ ! -f "wp-config.php" ]; then
@@ -26,6 +27,18 @@ themes=$(wp theme list --format=json --skip-themes --skip-plugins --skip-package
 core=$( wp core version --skip-themes --skip-plugins --skip-packages )
 home_url=$( wp option get home --skip-themes --skip-plugins --skip-packages )
 users=$( wp user list --format=json --skip-themes --skip-plugins --skip-packages )
+core_verify_checksums=$( wp core verify-checksums --skip-themes --skip-plugins --skip-packages 2>&1 )
+
+# Make sure to only include output of first line of core check
+if [[ $( echo "$core_verify_checksums" | wc -l ) != "1" ]]; then
+    core_verify_checksums=$( echo "$core_verify_checksums" | tail -n 1 )
+fi
+
+if [[ "$core_verify_checksums" == "Success: WordPress installation verifies against checksums." ]]; then
+    core_verify_checksums=true
+else
+    core_verify_checksums=false
+fi
 
 db_name=$( wp eval "echo DB_NAME;" --skip-plugins --skip-themes --skip-packages )
 db_username=$( wp eval "echo DB_USER;" --skip-plugins --skip-themes --skip-packages )
@@ -46,5 +59,6 @@ echo ${users} | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
 echo ${db_name}
 echo ${db_username}
 echo ${db_password}
+echo ${core_verify_checksums}
 echo ${subsite_count} | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
 echo ${token}

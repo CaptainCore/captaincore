@@ -46,9 +46,11 @@ if ( empty( $environment ) ) {
 // Fetch site details
 $site_details   = json_decode( shell_exec( "captaincore site get {$site}-{$environment} --captain-id=$captain_id" ) );
 if ( empty( $site_details->site ) ) {
-    echo "Error: Site not found.";
+    echo "Error: Site {$site}-{$environment} not found.\n";
     exit;
 }
+
+echo "Syncing data for {$site}-{$environment}\n";
 $response       = shell_exec( "captaincore ssh {$site}-{$environment} --script=fetch-site-data --captain-id=$captain_id" );
 $responses      = explode( "\n", $response );
 $environment_id = ( new CaptainCore\Site( $site_details->site_id ) )->fetch_environment_id( $environment );
@@ -96,18 +98,19 @@ if ( $responses[0] == "WordPress not found" ) {
 }
 
 $environment_update = [
-    "environment_id"    => $environment_id,
-    "plugins"           => $responses[0],
-    "themes"            => $responses[1],
-    "core"              => $responses[2],
-    "home_url"          => $responses[3],
-    "users"             => $responses[4],
-    "database_name"     => $responses[5],
-    "database_username" => $responses[6],
-    "database_password" => $responses[7],
-    "subsite_count"     => $responses[8],
-    "token"             => $responses[9],
-    "updated_at"        => date("Y-m-d H:i:s"),
+    "environment_id"        => $environment_id,
+    "plugins"               => $responses[0],
+    "themes"                => $responses[1],
+    "core"                  => $responses[2],
+    "home_url"              => $responses[3],
+    "users"                 => $responses[4],
+    "database_name"         => $responses[5],
+    "database_username"     => $responses[6],
+    "database_password"     => $responses[7],
+    "core_verify_checksums" => $responses[8],
+    "subsite_count"         => $responses[9],
+    "token"                 => $responses[10],
+    "updated_at"            => date("Y-m-d H:i:s"),
 ];
 
 $plugins = json_decode( $responses[0] );
