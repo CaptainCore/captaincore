@@ -35,9 +35,9 @@ if [[ $( echo "$core_verify_checksums" | wc -l ) != "1" ]]; then
 fi
 
 if [[ "$core_verify_checksums" == "Success: WordPress installation verifies against checksums." ]]; then
-    core_verify_checksums=true
+    core_verify_checksums=1
 else
-    core_verify_checksums=false
+    core_verify_checksums=0
 fi
 
 db_name=$( wp eval "echo DB_NAME;" --skip-plugins --skip-themes --skip-packages )
