@@ -257,12 +257,24 @@ func resolveCommandWP(c *cobra.Command, args []string) {
 	if err != nil {
 		log.Fatal(err)
 	}
+	target_count := 0
+
+	for _, arg := range args {
+		if strings.Contains(arg, "--") == false {
+			target_count = target_count + 1
+		}
+	}
 
 	if len(args) > 0 && c.CommandPath() != "captaincore site list" {
 		if strings.HasPrefix(args[0], "@production") || strings.HasPrefix(args[0], "@staging") || strings.HasPrefix(args[0], "@all") {
 			resolveCommand(c, args)
 			return
 		}
+	}
+
+	if c.CommandPath() == "captaincore sync-data" && target_count > 1 {
+		resolveCommand(c, args)
+		return
 	}
 
 	command := c.CommandPath()
