@@ -102,6 +102,8 @@ run_command() {
 
   fi
 
+  mkdir -p $path/${site}_${site_id}/${environment}/backup/
+
   # Backup site locally
   if [[ "$wp_content" != "wp-content" ]]; then
     echo "$(date +'%Y-%m-%d %H:%M') Backing up ${site}-${environment} alternative wp-content location ($wp_content)"
