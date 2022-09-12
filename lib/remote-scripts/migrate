@@ -73,6 +73,12 @@ run_command() {
     cd $home_directory
   fi
 
+  if [ -d "../tmp" ]; then
+    cd ../tmp
+    private=$(pwd)
+    cd $home_directory
+  fi
+
   if [ ! -d "_wpeprivate" ] && [ ! -d "../private" ]; then
     echo "Can't find private folder '/_wpeprivate' or '../private'. Migration cancelled."
     return 1
