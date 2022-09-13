@@ -96,6 +96,7 @@ foreach ( $environments as $environment ) {
         continue;
     }
     // Update existing environment
+    unset( $environment->users );
     ( new CaptainCore\Environments )->update( (array) $environment, [ "environment_id" => $environment_id ] );
 }
 foreach ( $shared_with as $record ) {
