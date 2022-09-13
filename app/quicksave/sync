@@ -42,7 +42,7 @@ run_command() {
 		echo "${INDEX}/$# - $domain"
 
 		# Return error if domain not found
-		if [[ "$domain" == "" ]] || [[ "$site" == "" ]] || [[ "$provider" == "" ]]; then
+		if [[ "$domain" == "" ]] || [[ "$site" == "" ]]; then
 			echo "Can't locate website for $site"
 			continue
 		fi
