@@ -186,6 +186,11 @@ if ( $site->provider == "wpengine" ) {
     $remote_server = "$remote_options {$site->site}@{$site->site}.ssh.wpengine.net";
 }
 
+if ( $site->provider == "rocketdotnet" ) {
+    $command_prep  = "$environment_vars cd public_html/ &&";
+    $remote_server = "$remote_options $site->username@$site->address -p $site->port";
+}
+
 if ( empty( $site->provider ) ) {
     $command_prep  = "$environment_vars cd $environment->home_directory/ &&";
     $remote_server = "$remote_options $environment->username@$environment->address -p $environment->port";
