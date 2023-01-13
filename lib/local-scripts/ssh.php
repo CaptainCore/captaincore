@@ -187,7 +187,7 @@ if ( $site->provider == "wpengine" ) {
 }
 
 if ( $site->provider == "rocketdotnet" ) {
-    $command_prep  = "$environment_vars cd public_html/ &&";
+    $command_prep  = "$environment_vars cd $site->home_directory/ &&";
     $remote_server = "$remote_options $environment->username@$environment->address -p $environment->port";
 }
 
