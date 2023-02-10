@@ -250,7 +250,7 @@ func newBackground(w http.ResponseWriter, r *http.Request) {
 	db.Create(&task)
 
 	// Starts running CaptainCore command
-	go runCommand("captaincore "+task.Command+" --captain-id="+captainID, task)
+	go runCommand("captaincore --captain-id="+captainID+" "+task.Command, task)
 	fmt.Fprintf(w, "Successfully Started Task "+task.Token)
 }
 
@@ -403,7 +403,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 		// Execute job if requested
 		if data.Action == "start" {
 			captainID := strconv.Itoa(task.CaptainID)
-			go runCommand("captaincore "+task.Command+" --captain-id="+captainID, task)
+			go runCommand("captaincore --captain-id="+captainID+" "+task.Command, task)
 		}
 		if data.Action == "listen" {
 			captainID := strconv.Itoa(task.CaptainID)
