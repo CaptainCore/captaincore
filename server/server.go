@@ -210,7 +210,7 @@ func newRun(w http.ResponseWriter, r *http.Request) {
 	db.Create(&task)
 
 	// Starts running CaptainCore command
-	response := runCommand("captaincore "+task.Command+" --captain-id="+captainID, task)
+	response := runCommand("captaincore --captain-id="+captainID+" "+task.Command, task)
 	fmt.Fprintf(w, response)
 }
 
