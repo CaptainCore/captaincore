@@ -22,6 +22,12 @@ if [ ! -f "wp-config.php" ]; then
     exit
 fi
 
+# Install CaptainCore helper if missing
+helper_check=$( wp plugin list --status=must-use --skip-themes --skip-plugins --skip-packages | grep "captaincore-helper" )
+if [[ "$helper_check" == "" ]]; then
+    curl https://run.captaincore.io/deploy-helper | bash -s
+fi
+
 plugins=$( wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version )
 themes=$(wp theme list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version )
 core=$( wp core version --skip-themes --skip-plugins --skip-packages )
