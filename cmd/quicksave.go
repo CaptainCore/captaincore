@@ -123,6 +123,20 @@ var quicksaveRollbackCmd = &cobra.Command{
 	},
 }
 
+var quicksaveSearchCmd = &cobra.Command{
+	Use:   "search <site> <theme|plugin:title|name:search>",
+	Short: "Searches Quicksaves for theme/plugin changes",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 2 {
+			return errors.New("requires a <site> and <theme|plugin:title|name:search> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveCommandWP(cmd, args)
+	},
+}
+
 var quicksaveShowChangesCmd = &cobra.Command{
 	Use:   "show-changes <site> <commit-hash>",
 	Short: "Shows file changes between Quicksaves",
@@ -175,6 +189,7 @@ func init() {
 	quicksaveCmd.AddCommand(quicksaveListMissingCmd)
 	quicksaveCmd.AddCommand(quicksaveFileDiffCmd)
 	quicksaveCmd.AddCommand(quicksaveRollbackCmd)
+	quicksaveCmd.AddCommand(quicksaveSearchCmd)
 	quicksaveCmd.AddCommand(quicksaveShowChangesCmd)
 	quicksaveCmd.AddCommand(quicksaveSyncCmd)
 	quicksaveCmd.AddCommand(quicksaveUpdateUsageCmd)
