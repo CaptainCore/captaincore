@@ -120,7 +120,7 @@ foreach ( $quicksaves as $key => $quicksave ) {
 }
 
 $quicksaves = array_values($quicksaves);
-usort($quicksaves, fn($a, $b) => $a->created_at < $b->created_at);
+usort($quicksaves, fn($a, $b) => (int) $a->created_at > (int) $b->created_at);
 $previous = -1;
 foreach( $quicksaves as $key => $quicksave ) {
     if ( empty( $quicksaves[ $previous ] ) ) {
@@ -138,5 +138,7 @@ if ( count( $quicksaves ) == 1 ) {
     echo "[]";
     return;
 }
+
+usort($quicksaves, fn($a, $b) => (int) $a->created_at < (int) $b->created_at);
 
 echo json_encode( array_values($quicksaves), JSON_PRETTY_PRINT );
