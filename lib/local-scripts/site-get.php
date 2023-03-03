@@ -81,6 +81,7 @@ $home_directory          = $site->environments[$environment_key]->home_directory
 $database_username       = $site->environments[$environment_key]->database_username;
 $database_password       = $site->environments[$environment_key]->database_password;
 $capture_pages           = $site->environments[$environment_key]->capture_pages;
+$details                 = empty( $site->environments[$environment_key]->details ) ? (object) [] : $site->environments[$environment_key]->details;
 $fathom                  = $site->environments[$environment_key]->fathom;
 $offload_enabled         = $site->environments[$environment_key]->offload_enabled;
 $offload_provider        = $site->environments[$environment_key]->offload_provider;
@@ -107,10 +108,10 @@ if ( is_array( $site->environment_vars ) ) {
 $array = [
 	"site_id"                 => $site->site_id,
 	"site"                    => $site->site,
-	"status"                  => $site->status,
+	"status"                  => empty( $site->status ) ? "" : $site->status,
 	"provider"                => $site->provider,
 	"key"                     => $site->key,
-	"environment_vars"        => $environment_vars,
+	"environment_vars"        => empty( $environment_vars ) ? "" : $environment_vars,
 	"domain"                  => $site->name,
 	"home_url"                => $home_url,
 	"defaults"                => json_encode( $site->account["defaults"] ),
@@ -140,6 +141,12 @@ if ( $format == 'bash' and $capture_pages != "" ) {
 	$capture_pages = implode(",", array_column( $capture_pages, "page" ) );
 }
 
+if ( empty( $details->auth ) ) {
+	$details->auth = "";
+} else {
+	$details->auth = base64_encode( $details->auth->username . ":" .  $details->auth->password );
+}
+
 if ( $format == 'bash' && is_array( $fathom ) ) {
 	if ( $fathom[0]->domain == "" || $fathom[0]->code == "" ) {
 		$fathom = "";
@@ -163,6 +170,7 @@ key={$site->key}
 fathom=$fathom
 capture_pages=$capture_pages
 site={$site->site}
+auth={$details->auth}
 environment_vars={$environment_vars}
 wp_content={$wp_content}
 status={$site->status}
