@@ -109,7 +109,8 @@ $environment_update = [
     "database_password"     => $responses[7],
     "core_verify_checksums" => $responses[8],
     "subsite_count"         => $responses[9],
-    "token"                 => $responses[10],
+    "php_memory"            => $responses[10],
+    "token"                 => $responses[11],
     "updated_at"            => date("Y-m-d H:i:s"),
 ];
 

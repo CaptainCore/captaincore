@@ -14,7 +14,8 @@
 #   line 8: database password
 #   line 9: core verify checksum
 #   line 10: subsite count
-#   line 11: token
+#   line 11: PHP memory
+#   line 12: token
 #
 
 if [ ! -f "wp-config.php" ]; then
@@ -54,6 +55,23 @@ if $( wp core is-installed --network --skip-themes --skip-plugins --skip-package
     subsite_count=$( wp site list --format=count --skip-themes --skip-plugins --skip-packages )
 fi
 
+php_version=$( php -v | head -n1 | cut -d ' ' -f 2 | cut -d '.' -f 1,2 )
+if [ -f "/etc/php/$php_version/fpm/php.ini" ]; then
+    php_memory=$( cat "/etc/php/$php_version/fpm/php.ini" | grep "memory_limit" )
+fi
+if [[ "$php_memory" == "" ]]; then
+    php_ini=$( wp eval 'echo php_ini_loaded_file();' )
+    php_memory=$( cat "$php_ini" | grep "memory_limit" )
+fi
+
+read -r -d '' php_code << heredoc
+\$line = '$php_memory';
+preg_match( '/memory_limit = (\d\w+)/', '$php_memory', \$matches );
+echo \$matches[1];
+heredoc
+
+php_memory=$( php -r "$php_code" )
+
 token=$( wp eval "echo md5( AUTH_KEY );" --skip-plugins --skip-themes )
 
 # Assume WP-CLI output may contain whitespaces and remove.
@@ -67,4 +85,5 @@ echo ${db_username}
 echo ${db_password}
 echo ${core_verify_checksums}
 echo ${subsite_count} | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+echo ${php_memory}
 echo ${token}
