@@ -154,6 +154,10 @@ heredoc
   if [[ $provider == "kinsta" ]]; then
     silent=$( wp kinsta cache purge )
   fi
+  # Update language packs
+  silent=$( wp language core update )
+  silent=$( wp language plugin update --all )
+  silent=$( wp language theme update --all )
 
 }
 run_command
