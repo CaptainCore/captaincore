@@ -58,19 +58,6 @@ home_directory=$(pwd)
 
 run_command() {
 
-  # Find private folder
-  if [ ! -d "_wpeprivate" ] && [ ! -d "../private" ]; then
-    echo "Can't find private folder '/_wpeprivate' or '../private'. Updates skipped.";
-    return 1
-  fi
-  if [ -d "_wpeprivate" ]; then
-    private=${home_directory}/_wpeprivate
-  fi
-  if [ -d "../private" ]; then
-    cd ../private
-    private=$(pwd)
-    cd $home_directory
-  fi
   if $( wp theme is-active Newspaper ); then
     required_theme_plugins=()
     active_plugins=( $( wp plugin list --field=name ) )
