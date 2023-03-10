@@ -2,9 +2,13 @@
 /database-backup.sql
 .DS_Store
 *timthumb.txt
-/wp-content/updraft/
+/wp-content/ai1wm-backups/
 /wp-content/cache/
+/wp-content/plugins/akeebabackupwp/app/backups/
 /wp-content/uploads_from_s3/
+/wp-content/uploads/db-backup/
+/wp-content/updraft/
+/wp-content/debug.log
 /wp-snapshots/
 /wp-admin/
 /wp-includes/
