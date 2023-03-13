@@ -9,6 +9,8 @@
 /wp-content/uploads/db-backup/
 /wp-content/updraft/
 /wp-content/debug.log
+/wp-content/uploads/cache/
+/wp-content/uploads/backupbuddy_backups/
 /wp-snapshots/
 /wp-admin/
 /wp-includes/
