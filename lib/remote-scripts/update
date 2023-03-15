@@ -146,5 +146,7 @@ heredoc
   silent=$( wp language plugin update --all )
   silent=$( wp language theme update --all )
 
+  silent=$( wp maintenance-mode deactivate --skip-plugins --skip-themes )
+
 }
 run_command
