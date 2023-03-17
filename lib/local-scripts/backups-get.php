@@ -21,7 +21,9 @@ foreach($args as $index => $arg) {
 }
 
 // Converts --arguments into $arguments
-parse_str( implode( '&', $args ) );
+parse_str( implode( '&', $args ), $arguments );
+
+$arguments = (object) $arguments;
 
 // Loads CLI configs
 $json = "{$_SERVER['HOME']}/.captaincore/config.json";
@@ -38,10 +40,11 @@ if ( $system->captaincore_fleet == "true" ) {
     $system->rclone_backup = "{$system->rclone_backup}/{$captain_id}";
 }
 $restic_key   = $_SERVER['HOME']. "/.captaincore/data/restic.key";
-$command      = "restic ls -l $backup_id / --recursive --repo rclone:{$system->rclone_backup}/${site}_${site_id}/${environment}/restic-repo --json --password-file=${restic_key}";
+$command      = "restic ls -l $arguments->backup_id / --recursive --repo rclone:{$system->rclone_backup}/{$arguments->site}_{$arguments->site_id}/{$arguments->environment}/restic-repo --json --password-file=${restic_key}";
 $items        = shell_exec( $command );
 $items        = explode( PHP_EOL, $items );
 $folder_usage = [];
+$omit         = false;
 $omit_items   = [ "/wp-content/uploads/", "/wp-content/blog.dir/" ];
 if ( count ( $items ) > 50000 ) {
     $omit = true;
@@ -82,8 +85,74 @@ foreach ( $folder_usage as $key => $value ) {
     }
 }
 
-foreach ( $items as $key => $item ) {
-    $items[ $key ] = json_encode( $item );
+function buildTree( $branches ) {
+    // Create a hierarchy where keys are the labels
+    $rootChildren = [];
+    $omitted      = false;
+    foreach($branches as $branch) {
+        $children =& $rootChildren;
+        $paths = explode( "/", $branch->path );
+        foreach( $paths as $label ) {
+            if ( $label == "" ) { 
+                continue;
+            };
+            $ext = "";
+            if ( strpos( $label, "." ) !== false ) { 
+                $ext = substr( $label, strpos( $label, "." ) + 1 );
+            }
+            if ( empty( $branch->count ) ) {
+                $branch->count = 1;
+            }
+            if ( empty( $branch->size ) ) {
+                $branch->size = 0;
+            }
+            if ( $branch->type == "dir" && $branch->count > 1 ) {
+                $omitted = true;
+            }
+            if (!isset($children[$label])) $children[$label] = [ "//path" => $branch->path, "//type" => $branch->type, "//size" => $branch->size, "//count" => $branch->count, "//ext" => $ext ];
+            $children =& $children[$label];
+        }
+    }
+    // Create target structure from that hierarchy
+    function recur($children) {
+        $result = [];
+        foreach( $children as $label => $grandchildren ) {
+            $node = [ 
+                "name"  => $label,
+                "path"  => $grandchildren["//path"],
+                "type"  => $grandchildren["//type"],
+                "count" => $grandchildren["//count"],
+                "size"  => $grandchildren["//size"],
+                "ext"   => $grandchildren["//ext"]
+            ];
+            unset( $grandchildren["//path"] );
+            unset( $grandchildren["//type"] );
+            unset( $grandchildren["//size"] );
+            unset( $grandchildren["//count"] );
+            unset( $grandchildren["//ext"] );
+            if ( count($grandchildren) ) { 
+                $node["children"] = recur( $grandchildren );
+            };
+            $result[] = $node;
+        }
+        return $result;
+    }
+    return [ $omitted, recur($rootChildren) ];
 }
 
-echo implode( "\n", $items );
+$results = buildTree( $items );
+
+function sortRecurse(&$array) {
+    usort($array, fn($a, $b) => [$a['type'], $a['name']] <=> [$b['type'], $b['name']]);
+    foreach ($array as &$subarray) {
+        if ( isset( $subarray['children']) ) {
+            sortRecurse($subarray['children']);
+        }
+    }
+    return $array;
+}
+
+echo json_encode( [ 
+    "omitted" => $results[0],
+    "files"   => sortRecurse( $results[1] ),
+]);

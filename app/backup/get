@@ -35,12 +35,20 @@ if [[ "$site" != *"-"* ]]; then
 fi
 
 # Load site configs
-while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
+IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
 
-backup_items="$path/${site}_${site_id}/${environment}/backups/snapshot-$backup_id.json"
+backup_files_link="$rclone_upload_uri/${site}_${site_id}/${environment}/backups/snapshot-$backup_id.json"
+http_status=$( curl --write-out "%{http_code}" -o /dev/null -sI $backup_files_link )
 
-if [ ! -f "$backup_items" ]; then
-    captaincore backup get-generate $site-$environment $backup_id --captain-id=$CAPTAIN_ID
+if [[ "$http_status" != "200" ]]; then
+    # Attempt to generate missing backup files
+    silent=$( captaincore backup get-generate $site-$environment $backup_id --captain-id=$CAPTAIN_ID )
+   
+    # check if backup file exists
+     http_status=$( curl --write-out "%{http_code}" -o /dev/null -sI $backup_files_link )
+    if [[ "$http_status" != "200" ]]; then
+        exit
+    fi
 fi
 
-cat $backup_items
+echo $backup_files_link

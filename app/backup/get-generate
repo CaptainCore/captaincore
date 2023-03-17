@@ -35,7 +35,7 @@ if [[ "$site" != *"-"* ]]; then
 fi
 
 # Load site configs
-while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
+IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
 
 cd ${CAPTAINCORE_PATH}/data
 
@@ -56,3 +56,7 @@ fi
 backup_snapshot="$path/${site}_${site_id}/${environment}/backups/snapshot-${backup_id}.json"
 echo "Generating ${site}_${site_id}/${environment}/backups/snapshot-${backup_id}.json"
 wp eval-file ${CAPTAINCORE_PATH}/lib/local-scripts/backups-get.php backup_id=$backup_id site=$site site_id=$site_id environment=$environment > "$backup_snapshot"
+
+if [ -f "$backup_snapshot" ]; then
+  rclone move "$backup_snapshot" "${rclone_upload}${site}_${site_id}/${environment}/backups/"
+fi
