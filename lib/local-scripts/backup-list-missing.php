@@ -22,7 +22,9 @@ foreach($args as $index => $arg) {
 }
 
 // Converts --arguments into $arguments
-parse_str( implode( '&', $args ) );
+parse_str( implode( '&', $args ), $arguments );
+$environment = "production";
+$provider    = "";
 
 if( strpos( $site, "-" ) !== false ) {
 	$split       = explode( "-", $site );
@@ -42,10 +44,6 @@ if( strpos( $environment, "@" ) !== false ) {
 	$provider    = $split[1];
 }
 
-// Assign default format to JSON
-if ( $format == "" ) {
-	$format = "json";
-}
 foreach( [ "once" ] as $run ) {
 	if ( $provider ) {
 		$lookup = ( new CaptainCore\Sites )->where( [ "site" => $site, "provider" => $provider, "status" => "active" ] );
@@ -69,7 +67,7 @@ if ( $environment == "" ) {
 }
 
 // Fetch site
-$site = ( new CaptainCore\Site( $lookup[0]->site_id ) )->get();
+$site = (object) ( new CaptainCore\Site( $lookup[0]->site_id ) )->get();
 
 // Loads CLI configs
 $json = "{$_SERVER['HOME']}/.captaincore/config.json";
@@ -91,7 +89,9 @@ if ( is_file ( "$system->path/{$site->site}_{$site->site_id}/{$environment}/back
 	$snapshots    = json_decode ( file_get_contents( "$system->path/{$site->site}_{$site->site_id}/{$environment}/backups/list.json" ) );
 	$snapshot_ids = array_column( $snapshots, "id" );
 	foreach ( $snapshot_ids as $snapshot_id ) {
-		if ( ! is_file ( "$system->path/{$site->site}_{$site->site_id}/{$environment}/backups/snapshot-$snapshot_id.json" ) ) {
+		$backup_files_link = "$system->rclone_upload_uri/{$site->site}_{$site->site_id}/{$environment}/backups/snapshot-$snapshot_id.json";
+		$http_status = shell_exec( "curl --write-out \"%{http_code}\" -o /dev/null -sI {$backup_files_link}" );
+		if ( $http_status != "200" ) {
 			echo "Generating missing {$site->site}_{$site->site_id}/{$environment}/backups/snapshot-$snapshot_id.json\n";
 			shell_exec( "captaincore backup get-generate {$site->site}-{$environment} $snapshot_id --captain-id=$captain_id" );
 		}
