@@ -38,5 +38,4 @@ fi
 # Load site configs
 IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
 
-command="dump $backup_id $file_id --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --quiet --password-file=${CAPTAINCORE_PATH}/data/restic.key"
-restic $command
+restic dump $backup_id "$file_id" --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --quiet --password-file=${CAPTAINCORE_PATH}/data/restic.key
