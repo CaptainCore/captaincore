@@ -91,6 +91,20 @@ var backupListMissingCmd = &cobra.Command{
 	},
 }
 
+var backupShowCmd = &cobra.Command{
+	Use:   "show <site> <backup-id> <file-id>",
+	Short: "Retrieve individual file from site backup",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 3 {
+			return errors.New("requires a <site> <backup-id> and <file-id> arguments")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveCommand(cmd, args)
+	},
+}
+
 func init() {
 	rootCmd.AddCommand(backupCmd)
 	backupCmd.AddCommand(backupDownloadCmd)
@@ -100,6 +114,7 @@ func init() {
 	backupCmd.AddCommand(backupListCmd)
 	backupCmd.AddCommand(backupListGenerateCmd)
 	backupCmd.AddCommand(backupListMissingCmd)
+	backupCmd.AddCommand(backupShowCmd)
 	backupDownloadCmd.Flags().StringVarP(&flagEmail, "email", "e", "", "Email notify")
 	backupGenerateCmd.Flags().BoolVarP(&flagSkipDB, "skip-db", "", false, "Skip database backup")
 	backupGenerateCmd.Flags().BoolVarP(&flagSkipRemote, "skip-remote", "", false, "Skip remote backup")

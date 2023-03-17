@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+
+#
+#   Retrieve individual file from site backup
+#
+#   `captaincore site backup show <site> <backup_id> <file_id>`
+#
+
+if [ ${#@} -ne 3 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify <site> <backup-id> and <file-id>."
+  exit
+fi
+
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+site=$1
+backup_id=$2
+file_id=$3
+
+# Extract environment
+if [[ "$site" == *"-staging"* ]]; then
+    environment=staging
+fi
+
+if [[ "$site" == *"-production"* ]]; then
+    environment=production
+fi
+
+if [[ "$site" != *"-"* ]]; then
+    environment=production
+fi
+
+# Load site configs
+IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
+
+command="dump $backup_id $file_id --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --quiet --password-file=${CAPTAINCORE_PATH}/data/restic.key"
+restic $command
