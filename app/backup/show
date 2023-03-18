@@ -20,7 +20,13 @@ done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
 
 site=$1
 backup_id=$2
-file_id=$3
+
+read -r -d '' php_code << heredoc
+\$file = base64_decode( "$3" );
+echo \$file;
+heredoc
+
+file=$( php -r "$php_code")
 
 # Extract environment
 if [[ "$site" == *"-staging"* ]]; then
@@ -38,4 +44,4 @@ fi
 # Load site configs
 IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
 
-restic dump $backup_id "$file_id" --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --quiet --password-file=${CAPTAINCORE_PATH}/data/restic.key
+restic dump $backup_id "$file" --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --quiet --password-file=${CAPTAINCORE_PATH}/data/restic.key
