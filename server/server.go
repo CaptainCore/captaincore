@@ -452,8 +452,8 @@ func HandleRequests(d bool) {
 	router.HandleFunc("/", handleIndex)
 
 	httpSrv = &http.Server{
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
+		ReadTimeout:  60 * time.Second,
+		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,
 		Handler:      router,
 		Addr:         ":8000",
