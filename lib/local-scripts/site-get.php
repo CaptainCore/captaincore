@@ -1,27 +1,12 @@
 <?php
 
-$site = $args[0];
-
-// Replaces dashes in keys with underscores
-foreach($args as $index => $arg) {
-	$split = strpos($arg, "=");
-	if ( $split ) {
-		$key = str_replace('-', '_', substr( $arg , 0, $split ) );
-		$value = substr( $arg , $split, strlen( $arg ) );
-
-		// Removes unnecessary bash quotes
-		$value = trim( $value,'"' ); 				// Remove last quote 
-		$value = str_replace( '="', '=', $value );  // Remove quote right after equals
-
-		$args[$index] = $key.$value;
-	} else {
-		$args[$index] = str_replace('-', '_', $arg);
-	}
-
-}
+$environment = "";
 
 // Converts --arguments into $arguments
-parse_str( implode( '&', $args ) );
+parse_str( implode( '&', $args ), $args );
+
+$site   = array_keys( $args )[0];
+$format = empty( $args["format"] ) ? "" : $args["format"];
 
 if( strpos( $site, "-" ) !== false ) {
 	$split       = explode( "-", $site );
@@ -42,11 +27,11 @@ if( strpos( $environment, "@" ) !== false ) {
 }
 
 // Assign default format to JSON
-if ( $format == "" ) {
+if ( empty( $format ) ) {
 	$format = "json";
 }
 foreach( [ "once" ] as $run ) {
-	if ( $provider ) {
+	if ( ! empty( $provider ) ) {
 		$lookup = ( new CaptainCore\Sites )->where( [ "site" => $site, "provider" => $provider, "status" => "active" ] );
 		continue;
 	}
@@ -63,15 +48,16 @@ if ( count( $lookup ) == 0 ) {
 }
 
 // Fetch site
-$site = ( new CaptainCore\Site( $lookup[0]->site_id ) )->get();
+$site               = ( new CaptainCore\Site( $lookup[0]->site_id ) )->get();
+$site               = (object) $site;
+$site->environments = ( new CaptainCore\Site( $lookup[0]->site_id ) )->environments();
 
 // Set environment if not defined
-if ( $environment == "" ) {
+if ( empty( $environment ) ) {
 	$environment = "Production";
 }
 
-$environment_key = array_search( ucfirst($environment), array_column( $site->environments, 'environment' ) );
-
+$environment_key         = array_search( ucfirst($environment), array_column( $site->environments, 'environment' ) );
 $address                 = $site->environments[$environment_key]->address;
 $username                = $site->environments[$environment_key]->username;
 $password                = $site->environments[$environment_key]->password;
@@ -94,9 +80,10 @@ $updates_enabled         = $site->environments[$environment_key]->updates_enable
 $updates_exclude_themes  = $site->environments[$environment_key]->updates_exclude_themes;
 $updates_exclude_plugins = $site->environments[$environment_key]->updates_exclude_plugins;
 $wp_content              = "wp-content";
+$environment_vars        = "";
 
 if ( is_array( $site->environment_vars ) ) { 
-	foreach ( $site->environment_vars as $item ) { 
+	foreach ( $site->environment_vars as $item ) {
 		$environment_vars = "{$environment_vars} {$item->key}='{$item->value}'";
 		if ( $item->key == "STACKED_ID" || $item->key == "STACKED_SITE_ID" ) {
 			$wp_content = "content/{$item->value}";
@@ -114,7 +101,7 @@ $array = [
 	"environment_vars"        => empty( $environment_vars ) ? "" : $environment_vars,
 	"domain"                  => $site->name,
 	"home_url"                => $home_url,
-	"defaults"                => json_encode( $site->account["defaults"] ),
+	"defaults"                => empty( $site->account["defaults"] ) ? "[]" : json_encode( $site->account["defaults"] ),
 	"fathom"                  => json_encode( $fathom ),
 	"capture_pages"           => $capture_pages,
 	'address'                 => $address,
@@ -155,7 +142,7 @@ if ( $format == 'bash' && is_array( $fathom ) ) {
 	}
 }
 
-$default_users = json_encode ( $site->account["defaults"]->users );
+$default_users = empty( $site->account["defaults"]->users ) ? "[]" : json_encode ( $site->account["defaults"]->users );
 
 if ( is_array( $updates_exclude_themes ) ) {
 	$updates_exclude_themes = implode( ",", $updates_exclude_themes );
@@ -163,6 +150,21 @@ if ( is_array( $updates_exclude_themes ) ) {
 if ( is_array( $updates_exclude_plugins ) ) {
 	$updates_exclude_plugins = implode( ",", $updates_exclude_plugins );
 }
+
+if ( ! empty( $field ) ) {
+	echo $array[$field];
+	return true;
+}
+
+if ( $format == 'json' ) {
+	echo json_encode( $array, JSON_PRETTY_PRINT );
+	return;
+}
+
+if ( empty( $environment_vars ) ) { $environment_vars = ""; }
+if ( empty( $site->status ) ) { $site->status = ""; }
+
+$backup = ( new CaptainCore\Site( $site->site_id ) )->fetch()->backup_settings;
 
 $bash = "site_id={$site->site_id}
 domain={$site->name}
@@ -187,22 +189,10 @@ database_password=$database_password
 updates_enabled=$updates_enabled
 updates_exclude_themes=$updates_exclude_themes
 updates_exclude_plugins=$updates_exclude_plugins
-offload_enabled=$offload_enabled
-offload_provider=$offload_provider
-offload_access_key=$offload_access_key
-offload_secret_key=$offload_secret_key
-offload_bucket=$offload_bucket
-offload_path=$offload_path";
-
-if ( $field ) {
-	echo $array[$field];
-	return true;
-}
+backup_active={$backup->active}
+backup_interval={$backup->interval}
+backup_mode={$backup->mode}";
 
 if ( $format == 'bash' ) {
 	echo $bash;
-}
-
-if ( $format == 'json' ) {
-	echo json_encode( $array, JSON_PRETTY_PRINT );
 }
