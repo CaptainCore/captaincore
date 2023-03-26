@@ -97,7 +97,7 @@ run_command() {
       fi
 
       if [[ "$provider" == "kinsta" ]]; then
-        rclone sync ${environment}:private/database-backup.sql backup:${rclone_backup#*:}/${site}_${site_id}/${environment}/backup/ --config="$rclone_config_file" --fast-list --progress --dry-run
+        rclone sync ${environment}:private/database-backup.sql backup:${rclone_backup#*:}/${site}_${site_id}/${environment}/backup/ --config="$rclone_config_file" --fast-list
       fi
 
       if [[ "$provider" == "rocketdotnet" ]]; then
@@ -109,9 +109,9 @@ run_command() {
     # Backup WordPress site to Rclone backup
     if [[ "$wp_content" != "wp-content" ]]; then
       echo "$(date +'%Y-%m-%d %H:%M') Backing up ${site}-${environment} alternative wp-content location ($wp_content)"
-      rclone sync ${environment}:$home_directory backup:${rclone_backup#*:}/${site}_${site_id}/${environment}/backup/ --exclude-from="${CAPTAINCORE_PATH}/lib/excludes" --filter="+ $wp_content/**" --filter="- wp-content/**" --filter="- content/**" --fast-list --config="$rclone_config_file" --progress --dry-run
+      rclone sync ${environment}:$home_directory backup:${rclone_backup#*:}/${site}_${site_id}/${environment}/backup/ --exclude-from="${CAPTAINCORE_PATH}/lib/excludes" --filter="+ $wp_content/**" --filter="- wp-content/**" --filter="- content/**" --fast-list --config="$rclone_config_file"
     else
-      rclone sync ${environment}:$home_directory backup:${rclone_backup#*:}/${site}_${site_id}/${environment}/backup/ --exclude-from="${CAPTAINCORE_PATH}/lib/excludes" --filter="- content/**" --fast-list --config="$rclone_config_file" --progress
+      rclone sync ${environment}:$home_directory backup:${rclone_backup#*:}/${site}_${site_id}/${environment}/backup/ --exclude-from="${CAPTAINCORE_PATH}/lib/excludes" --filter="- content/**" --fast-list --config="$rclone_config_file"
     fi
 
     # attempt to unmount
