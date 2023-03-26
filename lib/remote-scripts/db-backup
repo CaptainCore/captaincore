@@ -13,9 +13,15 @@ if [ -d "../private" ]; then
     cd $home_directory
 fi
 
+if [ -d "../tmp" ]; then
+    cd ../tmp
+    private_directory=$(pwd)
+    cd $home_directory
+fi
+
 if [[ "$private_directory" == "" ]]; then
     echo "Can't find private folder. Database backup cancelled.";
-    return 1
+    exit 1
 fi
 
 
@@ -25,7 +31,7 @@ DBUSER=$(grep DB_USER wp-config.php | awk -F "'" '{print $4}')
 DBPASS=$(grep DB_PASS wp-config.php | awk -F "'" '{print $4}')
 
 # Perform DB backup with [emoji support](https://anchor.host/wp-cli-database-backups-with-emojis/) and [speed](https://guides.wp-bullet.com/how-to-export-large-wordpress-databases-and-speed-up-the-process/)
-mysqldump -u ${DBUSER} -p${DBPASS} --default-character-set=utf8mb4 --add-drop-table --single-transaction --quick --lock-tables=false ${DBNAME} > ${private_directory}/database-backup.sql
+mysqldump -u ${DBUSER} -p${DBPASS} --max_allowed_packet=512M --default-character-set=utf8mb4 --add-drop-table --single-transaction --quick --lock-tables=false ${DBNAME} > ${private_directory}/database-backup.sql
 
 # Make it safe
 chmod 600 ${private_directory}/database-backup.sql
