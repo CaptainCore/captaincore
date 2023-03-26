@@ -54,6 +54,11 @@ run_command() {
 
   done
 
+  # Add backup remote
+  backup_remote=$( rclone config show ${rclone_backup%:*} ) 
+  echo "[backup]" >> "$rclone_config_file" 
+  echo "${backup_remote#*$'\n'}" >> "$rclone_config_file" 
+
 }
 
 run_command $1
