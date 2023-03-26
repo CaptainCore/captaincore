@@ -133,7 +133,12 @@ run_command() {
     mount_point=$(pwd)
     if [[ "$mount_point/" != "$path/${site}_${site_id}/${environment}/backup/" ]]; then
       cd $path/${site}_${site_id}/${environment}/
-      umount backup/
+      if [[ "$OSTYPE" == "linux-gnu" ]]; then
+       fusermount -u backup/
+      elif [[ "$OSTYPE" == "darwin"* ]]; then
+        umount backup/
+      fi
+      
       echo "Backup cancel. Rclone mounting error."
       exit
     fi
@@ -148,7 +153,11 @@ run_command() {
       restic backup . --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key" --exclude-file="${CAPTAINCORE_PATH}/lib/restic-excludes" --no-scan --ignore-inode --read-concurrency=3
     fi
     cd $path/${site}_${site_id}/${environment}/
-    umount backup/
+    if [[ "$OSTYPE" == "linux-gnu" ]]; then
+      fusermount -u backup/
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+      umount backup/
+    fi
 
     captaincore backup list-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
     captaincore backup get-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
