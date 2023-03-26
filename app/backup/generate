@@ -87,6 +87,8 @@ run_command() {
 
   if [[ "$backup_mode" == "direct" ]]; then
 
+    echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup ${site}-${environment} to Rclone"
+
     if [[ $SKIP_DB != true ]] && [[ $wordpress_not_found != true ]]; then
 
       # Database backup
@@ -115,7 +117,12 @@ run_command() {
     fi
 
     # attempt to unmount
-    umount $path/${site}_${site_id}/${environment}/backup/
+    if [[ "$OSTYPE" == "linux-gnu" ]]; then
+      fusermount -u $path/${site}_${site_id}/${environment}/backup/
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+      umount $path/${site}_${site_id}/${environment}/backup/
+    fi
+
     mkdir -p $path/${site}_${site_id}/${environment}/backup/
     cd $path/${site}_${site_id}/${environment}/
 
