@@ -85,6 +85,81 @@ run_command() {
     wordpress_not_found=true
   fi
 
+  if [[ "$backup_mode" == "direct" ]]; then
+
+    if [[ $SKIP_DB != true ]] && [[ $wordpress_not_found != true ]]; then
+
+      # Database backup
+      captaincore ssh ${site}-${environment} --script="db-backup" --captain-id=$CAPTAIN_ID
+
+      if [[ "$provider" == "wpengine" ]]; then
+        rclone sync ${environment}:_wpeprivate/database-backup.sql backup:${rclone_backup#*:}/${site}_${site_id}/${environment}/backup/ --config="$rclone_config_file" --fast-list
+      fi
+
+      if [[ "$provider" == "kinsta" ]]; then
+        rclone sync ${environment}:private/database-backup.sql backup:${rclone_backup#*:}/${site}_${site_id}/${environment}/backup/ --config="$rclone_config_file" --fast-list --progress --dry-run
+      fi
+
+      if [[ "$provider" == "rocketdotnet" ]]; then
+        rclone sync ${environment}:tmp/database-backup.sql backup:${rclone_backup#*:}/${site}_${site_id}/${environment}/backup/ --config="$rclone_config_file" --fast-list
+      fi
+
+    fi
+
+    # Backup WordPress site to Rclone backup
+    if [[ "$wp_content" != "wp-content" ]]; then
+      echo "$(date +'%Y-%m-%d %H:%M') Backing up ${site}-${environment} alternative wp-content location ($wp_content)"
+      rclone sync ${environment}:$home_directory backup:${rclone_backup#*:}/${site}_${site_id}/${environment}/backup/ --exclude-from="${CAPTAINCORE_PATH}/lib/excludes" --filter="+ $wp_content/**" --filter="- wp-content/**" --filter="- content/**" --fast-list --config="$rclone_config_file" --progress --dry-run
+    else
+      rclone sync ${environment}:$home_directory backup:${rclone_backup#*:}/${site}_${site_id}/${environment}/backup/ --exclude-from="${CAPTAINCORE_PATH}/lib/excludes" --filter="- content/**" --fast-list --config="$rclone_config_file" --progress
+    fi
+
+    # attempt to unmount
+    umount $path/${site}_${site_id}/${environment}/backup/
+    mkdir -p $path/${site}_${site_id}/${environment}/backup/
+    cd $path/${site}_${site_id}/${environment}/
+
+    # if files found, purge backup
+    if [[ "$( ls backup )" != "" ]]; then
+      rm -rf backup/
+      mkdir backup/
+    fi
+
+    echo "Mounting ${environment} to backup/"
+    rclone mount backup:${rclone_backup#*:}/${site}_${site_id}/${environment}/backup/ backup --config="$rclone_config_file" --daemon --read-only --transfers 40
+    echo "rclone mount backup:${rclone_backup#*:}/${site}_${site_id}/${environment}/backup/ backup --config="$rclone_config_file" --daemon --read-only --transfers 40"
+    echo "changing to backup/"
+    cd "backup"
+    mount_point=$(pwd)
+    if [[ "$mount_point/" != "$path/${site}_${site_id}/${environment}/backup/" ]]; then
+      cd $path/${site}_${site_id}/${environment}/
+      umount backup/
+      echo "Backup cancel. Rclone mounting error."
+      exit
+    fi
+    if [[ $( restic snapshots --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key" ) == "" ]]; then
+      echo "Generating restic repo for $site"
+      restic init --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key"
+    fi
+    if [[ "$wp_content" != "wp-content" ]]; then
+      echo "$(date +'%Y-%m-%d %H:%M') Backing up ${site}-${environment} alternative wp-content location ($wp_content)"
+      restic backup . --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key" --exclude="wp-content/" --exclude="content/*" --exclude="!$wp_content" --exclude-file="${CAPTAINCORE_PATH}/lib/restic-excludes" --no-scan --ignore-inode --read-concurrency=3
+    else
+      restic backup . --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key" --exclude-file="${CAPTAINCORE_PATH}/lib/restic-excludes" --no-scan --ignore-inode --read-concurrency=3
+    fi
+    cd $path/${site}_${site_id}/${environment}/
+    umount backup/
+
+    captaincore backup list-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
+    captaincore backup get-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
+
+    cd $path/${site}_${site_id}/${environment}/backups/
+    runtime_end=$( date +%s )
+    echo "$runtime_start $runtime_end" >> runtime
+    exit
+
+  fi
+
   # Incremental backup locally with rclone
   echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup ${site}-${environment} to local"
 
