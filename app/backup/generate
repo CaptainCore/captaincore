@@ -160,6 +160,7 @@ run_command() {
       restic backup . --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key" --exclude-file="${CAPTAINCORE_PATH}/lib/restic-excludes" --no-scan --ignore-inode --read-concurrency=3
     fi
     cd $path/${site}_${site_id}/${environment}/
+    sleep 7
     if [[ "$OSTYPE" == "linux-gnu" ]]; then
       fusermount -u backup/
     elif [[ "$OSTYPE" == "darwin"* ]]; then
