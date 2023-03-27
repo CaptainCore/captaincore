@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+
+#
+#   Returns runtimes of previous backups
+#
+#   `captaincore backup runtime <site>`
+#
+
+if [ ${#@} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Requires a <site>"
+  exit
+fi
+
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+site=$1
+
+run_command() {
+
+  # Extract environment
+  if [[ "$site" == *"-staging"* ]]; then
+    environment=staging
+  fi
+
+  if [[ "$site" == *"-production"* ]]; then
+    environment=production
+  fi
+
+  if [[ "$site" != *"-"* ]]; then
+    environment=production
+  fi
+
+  # Load site configs
+  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
+
+  runtime="$path/${site}_${site_id}/${environment}/backups/runtime"
+  if [ -f "$runtime" ]; then
+    cd ${CAPTAINCORE_PATH}/data
+    wp eval-file ${CAPTAINCORE_PATH}/lib/local-scripts/backups-runtime.php site=$site site_id=$site_id environment=$environment
+  fi
+
+}
+
+run_command

@@ -105,6 +105,20 @@ var backupShowCmd = &cobra.Command{
 	},
 }
 
+var backupRuntimeCmd = &cobra.Command{
+	Use:   "runtime <site>",
+	Short: "Returns runtimes of previous backups",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site>")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveCommand(cmd, args)
+	},
+}
+
 func init() {
 	rootCmd.AddCommand(backupCmd)
 	backupCmd.AddCommand(backupDownloadCmd)
@@ -115,6 +129,7 @@ func init() {
 	backupCmd.AddCommand(backupListGenerateCmd)
 	backupCmd.AddCommand(backupListMissingCmd)
 	backupCmd.AddCommand(backupShowCmd)
+	backupCmd.AddCommand(backupRuntimeCmd)
 	backupDownloadCmd.Flags().StringVarP(&flagEmail, "email", "e", "", "Email notify")
 	backupGenerateCmd.Flags().BoolVarP(&flagSkipDB, "skip-db", "", false, "Skip database backup")
 	backupGenerateCmd.Flags().BoolVarP(&flagSkipRemote, "skip-remote", "", false, "Skip remote backup")
