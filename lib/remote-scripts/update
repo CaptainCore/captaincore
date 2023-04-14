@@ -95,7 +95,7 @@ heredoc
   	wp plugin update ${flags[@]} --exec="define( 'WP_ADMIN', true );" --exclude=$exclude_plugins --skip-plugins=wps-hide-login
   fi
   # Handle WooCommerce database updates if installed
-  if $( wp plugin is-installed woocommerce ); then 
+  if $( wp plugin is-installed woocommerce --skip-plugins --skip-themes ); then 
     silent=$( wp wc update 2>&1 )
     # Handle WooCommerce database updates on multisite if installed
     if $( wp core is-installed --network ); then 
@@ -114,19 +114,20 @@ heredoc
     done
   fi
   # Purge Autoptimize cache if installed
-  if $( wp plugin is-installed autoptimize ); then 
+  if $( wp plugin is-installed autoptimize --skip-plugins --skip-themes ); then 
     silent=$( wp autoptimize clear 2>&1 )
   fi
   # Handle Elementor database updates if installed
-  if $( wp plugin is-installed elementor ); then 
+  if $( wp plugin is-installed elementor --skip-plugins --skip-themes ); then 
     silent=$( wp elementor update db 2>&1 )
+    silent=$( wp elementor flush_css 2>&1 )
     # Handle Elementor database updates on multisite if installed
     if $( wp core is-installed --network ); then 
       silent=$( wp elementor update db --network 2>&1 )
     fi
   fi
   # Handle Elementor Pro database updates if installed
-  if $( wp plugin is-installed elementor-pro ); then 
+  if $( wp plugin is-installed elementor-pro --skip-plugins --skip-themes ); then 
     silent=$( wp elementor-pro update db 2>&1 )
     # Handle Elementor Pro database updates on multisite if installed
     if $( wp core is-installed --network ); then 
@@ -134,7 +135,7 @@ heredoc
     fi
   fi
   # Handle redirection database updates if installed
-  if $( wp plugin is-installed redirection ); then 
+  if $( wp plugin is-installed redirection --skip-plugins --skip-themes ); then 
     silent=$( wp redirection database upgrade 2>&1 )
   fi
   silent=$( wp cache flush )
