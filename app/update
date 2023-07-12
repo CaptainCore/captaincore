@@ -57,6 +57,8 @@ run_command() {
 
   wp eval-file ../lib/local-scripts/site-run-updates.php site=$site environment=$environment updates_enabled=$updates_enabled updates_exclude_themes=$updates_exclude_themes updates_exclude_plugins=$updates_exclude_plugins
 
+  captaincore sync-data $site-$environment --captain-id=$CAPTAIN_ID
+
   if [ -f "${path}/process-${process_id}-progress.log" ]; then
     echo -n "." >> ${path}/process-${process_id}-progress.log
   fi
