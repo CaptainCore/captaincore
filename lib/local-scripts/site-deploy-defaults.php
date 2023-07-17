@@ -110,6 +110,7 @@ foreach( [ "once" ] as $run ) {
 if ( ! isset( $global_only ) ) {
 foreach ( $accounts as $account ) {
 
+    $account            = ( new CaptainCore\Accounts )->get( $account->account_id );
     $defaults           = json_decode( $account->defaults );
     $deployment_script .= "# Defaults for account: '{$account->name}'\n";
 
