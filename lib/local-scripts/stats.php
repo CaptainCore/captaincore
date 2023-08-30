@@ -86,8 +86,8 @@ $fathom_analytics = ( ! empty( $details->fathom ) ? $details->fathom : [] );
 $fathom_ids       = array_column( $fathom_analytics, "code" );
 
 // hunt by site name
-if ( empty( $fathom_analytics ) || count( $fathom_ids ) >= 0 ) {
-    $hunt         = null;
+if ( empty( $fathom_analytics ) || count( $fathom_ids ) != 1 ) {
+    $hunt          = null;
     $site_name     = $environment->home_url;
     $site_name     = str_replace( "http://www.", "", $site_name );
     $site_name     = str_replace( "https://www.", "", $site_name );
@@ -96,13 +96,14 @@ if ( empty( $fathom_analytics ) || count( $fathom_ids ) >= 0 ) {
     defined('FATHOM_API_KEY') or define( 'FATHOM_API_KEY', $system->fathom_api_key );
     $fathom_sites = ( new CaptainCore\Sites )->fathom_sites();
     foreach ( $fathom_sites as $fathom_site ) {
-        if ($fathom_site->name == $site_name) {
+        if ( $fathom_site->name == $site_name ) {
             $hunt = $fathom_site;
             break;
         }
     }
-    
-    $fathom_id  = $fathom_site->id;
+    if ( ! empty( $hunt ) ) {
+        $fathom_id  = $fathom_site->id;
+    }
 }
 
 if ( empty( $fathom_id ) ) {
@@ -117,7 +118,7 @@ $response = wp_remote_get( $url, [
     "headers" => [ "Authorization" => "Bearer " .  $system->fathom_api_key ],
 ] );
 
-$stats            = json_decode( $response['body'] );
+$stats           = json_decode( $response['body'] );
 $total_pageviews = array_sum( array_column( $stats, "pageviews" ) );
 
 // If Fathom found then fetch stats
