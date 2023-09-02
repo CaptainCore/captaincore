@@ -22,7 +22,7 @@ foreach($args as $index => $arg) {
 }
 
 // Converts --arguments into $arguments
-parse_str( implode( '&', $args ) );
+parse_str( implode( '&', $args ), $arguments );
 
 // Determines environment
 if ( strpos($site, '-staging') !== false ) {
