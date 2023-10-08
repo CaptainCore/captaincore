@@ -38,7 +38,7 @@ run_command() {
   # Load site configs
   while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
 
-  if [[ $( restic snapshots --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo ) == "" ]]; then
+  if [[ $( restic snapshots --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key" ) == "" ]]; then
       echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Backup repo not found."
       exit 1
   fi
