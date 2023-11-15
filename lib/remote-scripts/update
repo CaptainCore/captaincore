@@ -140,7 +140,7 @@ heredoc
   fi
   silent=$( wp cache flush )
   if [[ $provider == "kinsta" ]]; then
-    silent=$( wp kinsta cache purge )
+    silent=$( wp kinsta cache purge --all )
   fi
   # Update language packs
   silent=$( wp language core update )

@@ -53,3 +53,7 @@ if [ -f "${wp_content}/mu-plugins/captaincore-deactivated.php" ]; then
     echo "Removing ${wp_content}/mu-plugins/captaincore-deactivated.php"
     rm "${wp_content}/mu-plugins/captaincore-deactivated.php"
 fi
+
+if [[ "$provider" == "kinsta" ]]; then
+	wp kinsta cache purge --all --skip-themes
+fi

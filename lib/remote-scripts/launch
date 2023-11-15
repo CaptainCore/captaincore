@@ -75,7 +75,7 @@ run_command() {
   wp cache flush
 
   if [[ "$current_domain" == *"kinsta"* ]]; then
-    wp kinsta cache purge
+    wp kinsta cache purge --all
   fi
 
 }

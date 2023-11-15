@@ -132,5 +132,5 @@ home=$( wp option get home )
 echo "Generated $wp_content/mu-plugins/captaincore-deactivated.php"
 
 if [[ "$provider" == "kinsta" ]]; then
-	wp kinsta cache purge --skip-themes
+	wp kinsta cache purge --all --skip-themes
 fi
