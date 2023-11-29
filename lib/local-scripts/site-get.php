@@ -151,8 +151,8 @@ if ( is_array( $updates_exclude_plugins ) ) {
 	$updates_exclude_plugins = implode( ",", $updates_exclude_plugins );
 }
 
-if ( ! empty( $field ) ) {
-	echo $array[$field];
+if ( ! empty( $args["field"] ) ) {
+	echo $array[$args["field"]];
 	return true;
 }
 
