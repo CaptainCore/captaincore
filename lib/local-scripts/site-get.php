@@ -31,12 +31,12 @@ if ( empty( $format ) ) {
 	$format = "json";
 }
 foreach( [ "once" ] as $run ) {
-	if ( ! empty( $provider ) ) {
-		$lookup = ( new CaptainCore\Sites )->where( [ "site" => $site, "provider" => $provider, "status" => "active" ] );
-		continue;
-	}
 	if ( ctype_digit( $site ) ) {
 		$lookup = ( new CaptainCore\Sites )->where( [ "site_id" => $site, "status" => "active" ] );
+		continue;
+	}
+	if ( ! empty( $provider ) ) {
+		$lookup = ( new CaptainCore\Sites )->where( [ "site" => $site, "provider" => $provider, "status" => "active" ] );
 		continue;
 	}
 	$lookup = ( new CaptainCore\Sites )->where( [ "site" => $site, "status" => "active" ] );
