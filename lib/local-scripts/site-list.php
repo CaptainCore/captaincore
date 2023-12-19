@@ -40,6 +40,9 @@ if ( in_array( "@staging", $targets ) ) {
 if ( in_array( "@all", $targets ) ) {
 	$environment = "all";
 }
+if ( in_array("monitor-on", $targets ) ) {
+	$minor_targets[] = "monitor-on";
+}
 if ( in_array("updates-on", $targets ) ) {
 	$minor_targets[] = "updates-on";
 }
@@ -57,19 +60,29 @@ if ( ! empty( $filter ) && $filter != "core" && $filter != "plugins" && $filter 
 	return;
 }
 
-$results  = [];
-$sites = ( new CaptainCore\Sites )->fetch_sites_matching( [ 
-	"filter" => [
+$results        = [];
+$site_arguments = [];
+if ( ! empty( $filter ) ) {
+	$site_arguments[ "filter"] = [
 		"type"    => $filter,
 		"name"    => $filter_name,
 		"version" => $filter_version,
 		"status"  => $filter_status,
-	],
-	"environment" => $environment,
-	"provider"    => $provider,
-	"field"       => $field,
-	"targets"     => $minor_targets,
-] );
+	];
+}
+if ( ! empty( $environment ) ) {
+	$site_arguments[ "environment"] = $environment;
+}
+if ( ! empty( $provider ) ) {
+	$site_arguments[ "provider"] = $provider;
+}
+if ( ! empty( $field ) ) {
+	$site_arguments[ "field"] = $field;
+}
+if ( ! empty( $targets ) ) {
+	$site_arguments[ "targets"] = $targets;
+}
+$sites = ( new CaptainCore\Sites )->fetch_sites_matching( $site_arguments );
 
 if ( ! is_array( $sites ) ) {
 	return;
@@ -97,7 +110,7 @@ foreach ( $sites as $site ) {
 
 
 // Return results
-if ( $field ) {
+if ( ! empty( $field ) ) {
 	if ( $field == 'ids' ) {
 		$site = $site->site_id;
 	} elseif ( $field == 'domain' ) {
