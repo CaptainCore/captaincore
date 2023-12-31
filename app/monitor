@@ -49,7 +49,7 @@ run_command() {
   fi
 
   # See if any sites are specifed
-  if [[ $@ != "@all" && $@ != "@production" && $@ != "@staging" ]]; then
+  if [[ $@ != "@all"* && $@ != "@production" && $@ != "@staging" ]]; then
     # Runs on specific sites
     for site in $@; do
       url=$( captaincore site get $site --field=home_url --captain-id=$CAPTAIN_ID )
@@ -65,7 +65,7 @@ run_command() {
     urls_to_check=${urls}
   fi
 
-  if [[ $@ == "@all" || $@ == "@production" || $@ == "@staging" ]]; then
+  if [[ $@ == "@all"* || $@ == "@production" || $@ == "@staging" ]]; then
     urls=$( captaincore site list $@ --field=home_url,site --captain-id=$CAPTAIN_ID )
     for item in ${urls[*]}; do
       url=${item%%,*}
