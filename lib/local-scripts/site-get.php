@@ -31,7 +31,7 @@ if ( empty( $format ) ) {
 	$format = "json";
 }
 foreach( [ "once" ] as $run ) {
-	if ( ctype_digit( $site ) ) {
+	if ( is_numeric( $site ) ) {
 		$lookup = ( new CaptainCore\Sites )->where( [ "site_id" => $site, "status" => "active" ] );
 		continue;
 	}
