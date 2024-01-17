@@ -18,6 +18,8 @@ done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
 
 website=$1
 remote_options=""
+default_key=$( captaincore configuration get --field=default_key --captain-id=$CAPTAIN_ID )
+remote_options="-oIdentityFile=$path_keys/${CAPTAIN_ID}/${default_key}"
 
 # Load site configs
 while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain-id=$CAPTAIN_ID)"
