@@ -23,7 +23,7 @@ remote_options=""
 while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain-id=$CAPTAIN_ID)"
       
 if [[ $key != "" ]]; then
-  remote_options="-i $path_keys/${CAPTAIN_ID}/${key}"
+  remote_options="-oIdentityFile=$path_keys/${CAPTAIN_ID}/${key}"
 fi
 
 # Site found, start the backup
