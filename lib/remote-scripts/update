@@ -94,6 +94,7 @@ heredoc
   else
   	wp plugin update ${flags[@]} --exec="define( 'WP_ADMIN', true );" --exclude=$exclude_plugins --skip-plugins=wps-hide-login
   fi
+
   # Handle WooCommerce database updates if installed
   if $( wp plugin is-installed woocommerce --skip-plugins --skip-themes ); then 
     silent=$( wp wc update 2>&1 )
@@ -107,16 +108,24 @@ heredoc
       done
     fi
   fi
+
   if $( wp theme is-active Newspaper ); then
     for slug in ${required_theme_plugins[@]}; do
       command="\$key = array_search( \"$slug\", array_column( tagdiv_global::\$theme_plugins_list, \"slug\" ) ); echo tagdiv_global::\$theme_plugins_list[\$key][\"source\"];"; 
       silent=$( wp plugin install $( wp eval "$command" --skip-plugins ) --force --activate 2>&1 )
     done
   fi
+
+  # Handle AdRotate Professional database updates if installed
+  if $( wp plugin is-installed adrotate-pro --skip-plugins --skip-themes ); then 
+    silent=$( wp eval "adrotate_check_upgrade();" 2>&1 )
+  fi
+
   # Purge Autoptimize cache if installed
   if $( wp plugin is-installed autoptimize --skip-plugins --skip-themes ); then 
     silent=$( wp autoptimize clear 2>&1 )
   fi
+
   # Handle Elementor database updates if installed
   if $( wp plugin is-installed elementor --skip-plugins --skip-themes ); then 
     silent=$( wp elementor update db 2>&1 )
@@ -126,6 +135,7 @@ heredoc
       silent=$( wp elementor update db --network 2>&1 )
     fi
   fi
+
   # Handle Elementor Pro database updates if installed
   if $( wp plugin is-installed elementor-pro --skip-plugins --skip-themes ); then 
     silent=$( wp elementor-pro update db 2>&1 )
@@ -134,6 +144,7 @@ heredoc
       silent=$( wp elementor-pro update db --network 2>&1 )
     fi
   fi
+
   # Handle redirection database updates if installed
   if $( wp plugin is-installed redirection --skip-plugins --skip-themes ); then 
     silent=$( wp redirection database upgrade 2>&1 )
@@ -142,6 +153,7 @@ heredoc
   if [[ $provider == "kinsta" ]]; then
     silent=$( wp kinsta cache purge --all )
   fi
+
   # Update language packs
   silent=$( wp language core update )
   silent=$( wp language plugin update --all )
