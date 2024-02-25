@@ -3,7 +3,7 @@
 #
 #   Deploys Mailgun
 #
-#   `deploy-mailgun --key=<key> --domain=<domain>`
+#   `deploy-mailgun --key=<key> --domain=<domain> --name=<name>`
 #
 
 # Loop through arguments and separate regular arguments from flags
@@ -45,5 +45,9 @@ for arg in "$@"; do
 
 done
 
+read -r -d '' mailgun << heredoc
+{"region":"us","useAPI":"1","domain":"mg.$domain","apiKey":"$key","username":"","password":"","secure":"1","sectype":"tls","track-clicks":"no","track-opens":"0","from-address":"no-reply@mg.$domain","from-name":"$name","override-from":"1","campaign-id":""}
+heredoc
+
+wp option set mailgun "$mailgun" --format=json
 wp plugin install mailgun --force --activate
-wp option set mailgun '{"useAPI":"1","domain":"mg.'${domain}'","apiKey":"'$key'","username":"","password":"","secure":"1","track-clicks":"no","track-opens":"1","campaign-id":""}' --format=json
