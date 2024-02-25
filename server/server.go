@@ -511,6 +511,11 @@ func runCommand(cmd string, t Task) string {
 			newArgument = strings.Replace(newArgument, "\"", "", -1)
 			arguments[i] = newArgument
 		}
+		if strings.HasPrefix(v, "--name=") {
+			newArgument := strings.Replace(v, "\"", "", 1)
+			newArgument = strings.Replace(newArgument, "\"", "", -1)
+			arguments[i] = newArgument
+		}
 	}
 
 	// Format the command
