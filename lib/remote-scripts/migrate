@@ -303,5 +303,10 @@ run_command() {
   # Flush permalinks
   wp rewrite flush
 
+  # WooCommerce housecleaning
+  if $( wp plugin is-active woocommerce ); then
+    wp wc tool run regenerate_product_attributes_lookup_table --user=$( wp user list --field=email --role-administrator | tail -n 1 )
+  fi
+
 }
 run_command
