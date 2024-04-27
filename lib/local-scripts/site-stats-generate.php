@@ -89,7 +89,7 @@ foreach($config_data as $config) {
 defined('FATHOM_API_KEY') or define( 'FATHOM_API_KEY', $system->fathom_api_key );
 
 $time_now        = date("Y-m-d H:i:s");
-$response        = fathom_api_post( "sites", [ "name" => $site_name ] );
+$response        = CaptainCore\Remote\Fathom::post( "sites", [ "name" => $site_name ] );
 $details         = ( isset( $environment->details ) ? json_decode( $environment->details ) : (object) [] );
 if ( empty( $response->id ) ) {
     echo "Error: Could not fetch tracking ID from Fathom for {$site->site}-{$environment_name}\n";
