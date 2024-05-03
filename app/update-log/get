@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+
+#
+#   Fetches update log for a site
+#
+#   `captaincore update-log get <site> <hash-before> <hash-after>`
+#
+
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+if [ ${#@} -ne 3 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify <site>, <hash-before> and <hash-after>."
+  exit
+fi
+
+site=$1
+hash_before=$2
+hash_after=$3
+
+# Extract environment
+if [[ "$site" == *"-staging"* ]]; then
+    environment=staging
+fi
+
+if [[ "$site" == *"-production"* ]]; then
+    environment=production
+fi
+
+if [[ "$site" != *"-"* ]]; then
+    environment=production
+fi
+
+# Load site configs
+IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
+
+update_log="$path/${site}_${site_id}/${environment}/update-logs/log-$hash_before-$hash_after.json"
+
+if [ ! -f "$update_log" ]; then
+    generate=$( captaincore update-log get-generate $site-$environment $hash_before $hash_after --captain-id=$CAPTAIN_ID )
+fi
+
+cat $update_log

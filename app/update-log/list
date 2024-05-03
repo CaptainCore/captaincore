@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+
+#
+#   Fetches list of update logs for a site
+#
+#   `captaincore update-log list <site>`
+#
+
+if [ ${#@} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Requires a <site>"
+  exit
+fi
+
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+site=$1
+
+run_command() {
+
+  # Extract environment
+  if [[ "$site" == *"-staging"* ]]; then
+    environment=staging
+  fi
+
+  if [[ "$site" == *"-production"* ]]; then
+    environment=production
+  fi
+
+  if [[ "$site" != *"-"* ]]; then
+    environment=production
+  fi
+
+  # Load site configs
+  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
+
+  update_log_list="$path/${site}_${site_id}/${environment}/update-logs/list.json"
+
+  if [ ! -f "$update_log_list" ] || [[ $( wc -c < $update_log_list | awk '{print $1}' ) == "0" ]]; then
+    captaincore update-log list-generate $site-$environment --captain-id=$CAPTAIN_ID
+  fi
+  cat "$update_log_list"
+
+}
+
+run_command

@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+
+#
+#   Generates list of update logs for a site
+#
+#   `captaincore update-log list-generate <site>`
+#
+
+if [ ${#@} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Requires a <site>"
+  exit
+fi
+
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+site=$1
+
+run_command() {
+
+  # Extract environment
+  if [[ "$site" == *"-staging"* ]]; then
+    environment=staging
+  fi
+
+  if [[ "$site" == *"-production"* ]]; then
+    environment=production
+  fi
+
+  if [[ "$site" != *"-"* ]]; then
+    environment=production
+  fi
+
+  # Load site configs
+  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
+
+  mkdir -p $path/${site}_${site_id}/${environment}/update-logs/
+  update_log_list="$path/${site}_${site_id}/${environment}/update-logs/list.json"
+  if [[ "$( find $path/${site}_${site_id}/${environment}/update-logs/ -name "log-*" -type f )" == "" ]]; then
+    echo "Skipping generation of ${site}_${site_id}/${environment}/update-logs/list.json as no update logs found."
+    exit
+  fi
+  
+  cd ${CAPTAINCORE_PATH}/data
+  echo "Generating ${site}_${site_id}/${environment}/update-logs/list.json"
+  wp eval-file ${CAPTAINCORE_PATH}/lib/local-scripts/update-logs-list.php site=$site site_id=$site_id environment=$environment > "$update_log_list"
+
+}
+
+run_command

@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+
+#
+#   Generates update log between two quicksaves for one or more sites.
+#
+#   `captaincore update-log <site> <hash-before> <hash-after>`
+#
+#   [<site>...]
+#   One or more sites.
+#
+#   [@<target>]
+#   Target groups of sites like @all @production or @staging.
+#
+#   [--debug]
+#   Debug mode
+#
+
+if [ ${#@} -ne 3 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a <site> <hash-before> <hash-after>."
+  exit
+fi
+
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+site=$1
+hash_before=$2
+hash_after=$3
+
+run_command() {
+
+  # Extract environment
+  if [[ "$site" == *"-staging"* ]]; then
+      environment=staging
+  else
+      environment=production
+  fi
+  
+  # Load site configs
+  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
+  echo "$(date +'%Y-%m-%d %H:%M') Generating update log for ${site}-${environment} between ${hash_before} and ${hash_after}"
+  site_path="${site}_${site_id}/${environment}"
+  mkdir -p $path/$site_path/update-logs/
+  cd ${CAPTAINCORE_PATH}/data
+  #captaincore update-logs list-generate $site-${environment} --captain-id=$CAPTAIN_ID
+
+  update_log="$path/${site}_${site_id}/${environment}/update-logs/log-${hash_before}-${hash_after}.json"
+  echo "Generating ${site}_${site_id}/${environment}/update-logs/log-${hash_before}-${hash_after}.json"
+  wp eval-file ${CAPTAINCORE_PATH}/lib/local-scripts/update-logs-generate.php hash_before=$hash_before hash_after=$hash_after site=$site site_id=$site_id environment=$environment > "$update_log"
+
+}
+
+run_command
