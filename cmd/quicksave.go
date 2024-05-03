@@ -123,6 +123,20 @@ var quicksaveRollbackCmd = &cobra.Command{
 	},
 }
 
+var quicksaveLatestCmd = &cobra.Command{
+	Use:   "latest <site>",
+	Short: "Show most recent quicksave",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveCommandWP(cmd, args)
+	},
+}
+
 var quicksaveSearchCmd = &cobra.Command{
 	Use:   "search <site> <theme|plugin:title|name:search>",
 	Short: "Searches Quicksaves for theme/plugin changes",
@@ -184,6 +198,7 @@ func init() {
 	quicksaveCmd.AddCommand(quicksaveGetCmd)
 	quicksaveCmd.AddCommand(quicksaveGetGenerateCmd)
 	quicksaveCmd.AddCommand(quicksaveGenerateCmd)
+	quicksaveCmd.AddCommand(quicksaveLatestCmd)
 	quicksaveCmd.AddCommand(quicksaveListCmd)
 	quicksaveCmd.AddCommand(quicksaveListGenerateCmd)
 	quicksaveCmd.AddCommand(quicksaveListMissingCmd)
@@ -195,6 +210,7 @@ func init() {
 	quicksaveCmd.AddCommand(quicksaveUpdateUsageCmd)
 	quicksaveFileDiffCmd.Flags().StringVar(&flagTheme, "theme", "", "Theme slug")
 	quicksaveFileDiffCmd.Flags().StringVar(&flagPlugin, "plugin", "", "Plugin slug")
+	quicksaveLatestCmd.Flags().StringVarP(&flagField, "field", "", "", "Return certain field")
 	quicksaveRollbackCmd.Flags().StringVar(&flagTheme, "theme", "", "Theme to rollback")
 	quicksaveRollbackCmd.Flags().StringVar(&flagPlugin, "plugin", "", "Plugin to rollback")
 	quicksaveRollbackCmd.Flags().StringVar(&flagVersion, "version", "this", "Rollback to 'this' or 'previous' version")
