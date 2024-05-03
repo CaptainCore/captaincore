@@ -41,7 +41,7 @@ run_command() {
   fi
 
   # Load site configs
-  while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
+  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
 
   rclone_config_file="$path/${site}_${site_id}/rclone.conf"
   ftp_output=$( { rclone lsd ${environment}:$home_directory --config="$rclone_config_file" ; } 2>&1 )
@@ -54,14 +54,22 @@ run_command() {
 
   cd ${CAPTAINCORE_PATH}/data
 
+  captaincore quicksave generate $site-$environment --captain-id=$CAPTAIN_ID
+  quicksave_id_before=$( captaincore quicksave latest $site-$environment --field=hash --captain-id=$CAPTAIN_ID )
   plugin_count_before=$( captaincore ssh $site-$environment --command="wp plugin list --format=csv --fields=name --skip-plugins --skip-themes | tail -n +2 | wc -l" --captain-id=$CAPTAIN_ID )
   wp eval-file ../lib/local-scripts/site-run-updates.php site=$site environment=$environment updates_enabled=$updates_enabled updates_exclude_themes=$updates_exclude_themes updates_exclude_plugins=$updates_exclude_plugins
-  captaincore sync-data $site-$environment --captain-id=$CAPTAIN_ID
+  captaincore quicksave generate $site-$environment --captain-id=$CAPTAIN_ID
+  quicksave_id_after=$( captaincore quicksave latest $site-$environment --field=hash --captain-id=$CAPTAIN_ID )
   plugin_count_after=$( captaincore ssh $site-$environment --command="wp plugin list --format=csv --fields=name --skip-plugins --skip-themes | tail -n +2 | wc -l" --captain-id=$CAPTAIN_ID )
 
   if [[ $plugin_count_before != $plugin_count_after ]]; then
     echo "Sending Email"
     echo "Updating plugins on $home_url ($site-$environment) resulted in a mismatch count.<br /><br />Before updating there were $plugin_count_before plugins.<br />After updating there were $plugin_count_after plugins." | mutt -e 'set content_type=text/html' -s "Plugin update mismatch ($plugin_count_before:$plugin_count_after) on $home_url" -- $captaincore_admin_email
+  fi
+
+  if [[ $quicksave_id_before != $quicksave_id_after ]]; then
+    captaincore update-log generate $site-$environment $quicksave_id_before $quicksave_id_after --captain-id=$CAPTAIN_ID
+    captaincore update-log list-generate $site-$environment --captain-id=$CAPTAIN_ID
   fi
 
   if [ -f "${path}/process-${process_id}-progress.log" ]; then
