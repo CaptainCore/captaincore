@@ -3,10 +3,10 @@
 #
 #   Shows file changes between Quicksaves.
 #
-#   `captaincore view-changes <site> <commit-hash>`
+#   `captaincore quicksave show-changes <site> <commit-hash> [<match>]`
 #
 
-if [ ${#@} -ne 2 ]; then
+if [ ${#@} -lt 2 ]; then
   echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a <site> and <commit-hash>."
   exit
 fi
@@ -20,6 +20,7 @@ done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
 
 site=$1
 commit=$2
+match=$3
 
 run_command() {
 
@@ -30,7 +31,7 @@ run_command() {
 		environment=production
 	fi
 
-	while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
+	IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
 
 	# Return error if domain not found
 	if [[ "$domain" == "" ]] || [[ "$site" == "" ]]; then
@@ -44,7 +45,7 @@ run_command() {
 	fi
 
 	cd $path/${site}_${site_id}/${environment}/quicksave/
-	git_show=$( git show $commit --name-status --format= )
+	git_show=$( git show $commit --name-status --format= $match )
 	echo "$git_show"
 
 }
