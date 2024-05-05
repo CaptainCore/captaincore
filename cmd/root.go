@@ -15,7 +15,7 @@ import (
 )
 
 var flagDebug, flagSkipDB, flagSkipScreenshot, flagForce, flagBash, flagUpdateExtras, flagSkipRemote, flagFleet bool
-var flagHtml, flagPublic, flagSkipAlreadyGenerated, flagGlobalOnly, flagDeleteAfterSnapshot bool
+var flagAll, flagHtml, flagPublic, flagSkipAlreadyGenerated, flagGlobalOnly, flagDeleteAfterSnapshot bool
 var flagCode, flagCommand, flagFilter, flagFilterName, flagFilterVersion, flagFilterStatus, flagField, flagPage, flagRecipe, flagScript, flagProvider string
 var captainID, cfgFile, flagTheme, flagPlugin, flagFile, flagEmail, flagName, flagLink, flagNotes, flagUserId, flagFormat, flagVersion string
 var flagParallel, flagRetry int
@@ -185,6 +185,9 @@ func resolveCommand(c *cobra.Command, args []string) {
 	}
 	if flagParallel != 0 {
 		env = append([]string{"PARALLEL=" + strconv.Itoa(flagParallel)}, env...)
+	}
+	if flagAll == true {
+		env = append([]string{"FLAG_ALL=true"}, env...)
 	}
 	if flagHtml == true {
 		env = append([]string{"FLAG_HTML=true"}, env...)
