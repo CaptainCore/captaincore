@@ -36,11 +36,17 @@ run_command() {
   fi
 
   # Load site configs
-  while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
+  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
 
   quicksave_list="$path/${site}_${site_id}/${environment}/quicksaves/list.json"
-  if [ ! -f "$quicksave_list" ] || [[ $( stat --printf="%s" $quicksave_list ) == "0" ]]; then
+
+  if [ ! -f "$quicksave_list" ] || [[ $( wc -c < $quicksave_list | awk '{print $1}' ) == "0" ]]; then
     captaincore quicksave list-generate $site-$environment --captain-id=$CAPTAIN_ID
+  fi
+  if [[ "$FIELD" != "" ]]; then
+    cd ${root_path}data
+    wp eval-file ../lib/local-scripts/quicksave-list-field.php file=$quicksave_list field=$FIELD
+    return
   fi
   cat "$quicksave_list"
 

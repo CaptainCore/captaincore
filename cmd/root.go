@@ -165,6 +165,9 @@ func resolveCommand(c *cobra.Command, args []string) {
 	if flagSkipDB == true {
 		env = append([]string{"SKIP_DB=true"}, env...)
 	}
+	if flagField != "" {
+		env = append([]string{"FIELD=" + flagField}, env...)
+	}
 	if flagSkipRemote == true {
 		env = append([]string{"SKIP_REMOTE=true"}, env...)
 	}

@@ -211,6 +211,7 @@ func init() {
 	quicksaveFileDiffCmd.Flags().StringVar(&flagTheme, "theme", "", "Theme slug")
 	quicksaveFileDiffCmd.Flags().StringVar(&flagPlugin, "plugin", "", "Plugin slug")
 	quicksaveLatestCmd.Flags().StringVarP(&flagField, "field", "", "", "Return certain field")
+	quicksaveListCmd.Flags().StringVarP(&flagField, "field", "", "", "Return certain field")
 	quicksaveRollbackCmd.Flags().StringVar(&flagTheme, "theme", "", "Theme to rollback")
 	quicksaveRollbackCmd.Flags().StringVar(&flagPlugin, "plugin", "", "Plugin to rollback")
 	quicksaveRollbackCmd.Flags().StringVar(&flagVersion, "version", "this", "Rollback to 'this' or 'previous' version")
