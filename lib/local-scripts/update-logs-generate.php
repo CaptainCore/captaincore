@@ -119,6 +119,9 @@ usort( $current->themes, function($a, $b) {
 });
 
 usort( $current->plugins, function($a, $b) {
+    if ( $a->status == "must-use" || $b->status == "must-use" ) {
+        return $a->status <=> $b->status;
+    }
     $diff = $b->changed <=> $a->changed;
     return ($diff !== 0) ? $diff : $a->name <=> $b->name;
 });
