@@ -152,11 +152,11 @@ var quicksaveSearchCmd = &cobra.Command{
 }
 
 var quicksaveShowChangesCmd = &cobra.Command{
-	Use:   "show-changes <site> <commit-hash>",
+	Use:   "show-changes <site> <commit-hash> [<match>]",
 	Short: "Shows file changes between Quicksaves",
 	Args: func(cmd *cobra.Command, args []string) error {
 		if len(args) < 2 {
-			return errors.New("requires a <site> and <commit-has> argument")
+			return errors.New("requires a <site> and <commit-hash> argument")
 		}
 		return nil
 	},

@@ -21,7 +21,12 @@ foreach($args as $index => $arg) {
 }
 
 // Converts --arguments into $arguments
-parse_str( implode( '&', $args ) );
+parse_str( implode( '&', $args ), $arguments );
+$arguments   = (object) $arguments;
+$hash        = $arguments->hash;
+$environment = $arguments->environment;
+$site        = $arguments->site;
+$site_id     = $arguments->site_id;
 
 // Loads CLI configs
 $json = "{$_SERVER['HOME']}/.captaincore/config.json";
@@ -51,17 +56,28 @@ $status           = trim ( shell_exec( "cd $quicksave_path; git show $hash --sho
 $current->core    = trim ( shell_exec( "cd $quicksave_path; git show {$hash}:versions/core.json" ) );
 $current->themes  = json_decode( trim ( shell_exec( "cd $quicksave_path; git show {$hash}:versions/themes.json" ) ) );
 $current->plugins = json_decode( trim ( shell_exec( "cd $quicksave_path; git show {$hash}:versions/plugins.json" ) ) );
-$previous_hash    = trim ( shell_exec( "cd $quicksave_path; git show -s --pretty=format:\"%P\" $hash" ) );
 
+if ( empty( $previous_hash ) ) {
+    $previous_hash = trim ( shell_exec( "cd $quicksave_path; git show -s --pretty=format:\"%P\" $hash" ) );
+}
+
+$files_changed    = trim ( shell_exec( "cd $quicksave_path; git diff $previous_hash $hash --name-only" ) );
+$files_changed    = explode( "\n", $files_changed );
+
+if (!function_exists('str_starts_with')) {  // PHP < 8.0
+    function str_starts_with(string $haystack, string $needle): bool {
+        return strpos($haystack, $needle) === 0;
+    }
+}
 
 foreach( [ "once" ] as $run ) {
     if ( $previous_hash == "" ) { 
         continue;
     }
     $previous->created_at = trim ( shell_exec( "cd $quicksave_path; git show -s --pretty=format:\"%ct\" {$previous_hash}" ) );
-    $previous->core       = trim ( shell_exec( "cd  $quicksave_path; git show {$previous_hash}:versions/core.json" ) );
-    $previous->themes     = json_decode( trim ( shell_exec( "cd  $quicksave_path; git show {$previous_hash}:versions/themes.json" ) ) );
-    $previous->plugins    = json_decode( trim ( shell_exec( "cd  $quicksave_path; git show {$previous_hash}:versions/plugins.json" ) ) );
+    $previous->core       = trim ( shell_exec( "cd $quicksave_path; git show {$previous_hash}:versions/core.json" ) );
+    $previous->themes     = json_decode( trim ( shell_exec( "cd $quicksave_path; git show {$previous_hash}:versions/themes.json" ) ) );
+    $previous->plugins    = json_decode( trim ( shell_exec( "cd $quicksave_path; git show {$previous_hash}:versions/plugins.json" ) ) );
 
     $themes_names          = array_column( $current->themes, 'name' );
     $plugins_names         = array_column( $current->plugins, 'name' );
@@ -73,33 +89,69 @@ foreach( [ "once" ] as $run ) {
     $plugins_deleted       = [];
 
     foreach( $current->themes as $key => $theme ) {
-        $compare_theme_key = null;
+        if ( ! in_array( $theme->name, $compare_themes_names ) ) {
+            $current->themes[ $key ]->changed = true;
+            $current->themes[ $key ]->new     = true;
+        }
         foreach( $previous->themes as $previous_theme ) {
             if ( $theme->name == $previous_theme->name ) {
-                
+                $current->themes[ $key ]->changed = false;
                 if ( $theme->version != $previous_theme->version ) {
                     $current->themes[ $key ]->changed_version = $previous_theme->version;
+                    $current->themes[ $key ]->changed = true;
                 }
                 if ( $theme->status != $previous_theme->status ) {
                     $current->themes[ $key ]->changed_status = $previous_theme->status;
+                    $current->themes[ $key ]->changed = true;
                 }
                 if ( $theme->title != $previous_theme->title ) {
                     $current->themes[ $key ]->changed_title = $previous_theme->title;
+                    $current->themes[ $key ]->changed = true;
+                }
+                if ( $current->themes[ $key ]->changed ) {
+                    continue;
+                }
+                foreach( $files_changed as $file ) {
+                    if ( ! str_starts_with($file, "themes/" ) ) {
+                        continue;
+                    }
+                    if ( str_starts_with( $file, "themes/{$theme->name}" ) ) {
+                        $current->themes[ $key ]->changed = true;
+                    }
                 }
             }
         }
     }
     foreach( $current->plugins as $key => $plugin ) {
+        if ( ! in_array( $plugin->name, $compare_plugins_names ) ) {
+            $current->plugins[ $key ]->changed = true;
+            $current->plugins[ $key ]->new     = true;
+        }
         foreach( $previous->plugins as $previous_plugin ) {
             if ( $plugin->name == $previous_plugin->name ) {
+                $current->plugins[ $key ]->changed = false;
                 if ( $plugin->version != $previous_plugin->version ) {
                     $current->plugins[ $key ]->changed_version = $previous_plugin->version;
+                    $current->plugins[ $key ]->changed = true;
                 }
                 if ( $plugin->status != $previous_plugin->status ) {
                     $current->plugins[ $key ]->changed_status = $previous_plugin->status;
+                    $current->plugins[ $key ]->changed = true;
                 }
                 if ( $plugin->title != $previous_plugin->title ) {
                     $current->plugins[ $key ]->changed_title = $previous_plugin->title;
+                    $current->plugins[ $key ]->changed = true;
+                }
+                if ( $current->plugins[ $key ]->changed ) {
+                    continue;
+                }
+                foreach( $files_changed as $file ) {
+                    if ( ! str_starts_with($file, "plugins/" ) ) {
+                        continue;
+                    }
+                    if ( str_starts_with( $file, "plugins/{$plugin->name}" ) ) {
+                        $current->plugins[ $key ]->changed = true;
+                    }
                 }
             }
         }
@@ -119,6 +171,16 @@ foreach( [ "once" ] as $run ) {
     }
 
 }
+
+usort( $current->themes, function($a, $b) {
+    $diff = $b->changed <=> $a->changed;
+    return ($diff !== 0) ? $diff : $a->name <=> $b->name;
+});
+
+usort( $current->plugins, function($a, $b) {
+    $diff = $b->changed <=> $a->changed;
+    return ($diff !== 0) ? $diff : $a->name <=> $b->name;
+});
 
 $quicksave = (object) [
     "core"            => $current->core,

@@ -27,6 +27,13 @@ foreach($config_data as $config) {
 if ( $system->captaincore_fleet == "true" ) {
     $system->path            = "{$system->path}/${captain_id}";
 }
+
+if (!function_exists('str_starts_with')) {  // PHP < 8.0
+    function str_starts_with(string $haystack, string $needle): bool {
+        return strpos($haystack, $needle) === 0;
+    }
+}
+
 $current             = (object) [];
 $previous            = (object) [];
 $quicksave_path      = "$system->path/{$arguments->site}_{$arguments->site_id}/{$arguments->environment}/quicksave";
@@ -55,15 +62,18 @@ foreach( [ "once" ] as $run ) {
         $compare_theme_key = null;
         foreach( $previous->themes as $previous_theme ) {
             if ( $theme->name == $previous_theme->name ) {
-                
+                $current->themes[ $key ]->changed = false;
                 if ( $theme->version != $previous_theme->version ) {
                     $current->themes[ $key ]->changed_version = $previous_theme->version;
+                    $current->themes[ $key ]->changed = true;
                 }
                 if ( $theme->status != $previous_theme->status ) {
                     $current->themes[ $key ]->changed_status = $previous_theme->status;
+                    $current->themes[ $key ]->changed = true;
                 }
                 if ( $theme->title != $previous_theme->title ) {
                     $current->themes[ $key ]->changed_title = $previous_theme->title;
+                    $current->themes[ $key ]->changed = true;
                 }
             }
         }
@@ -71,14 +81,18 @@ foreach( [ "once" ] as $run ) {
     foreach( $current->plugins as $key => $plugin ) {
         foreach( $previous->plugins as $previous_plugin ) {
             if ( $plugin->name == $previous_plugin->name ) {
+                $current->plugins[ $key ]->changed = false;
                 if ( $plugin->version != $previous_plugin->version ) {
                     $current->plugins[ $key ]->changed_version = $previous_plugin->version;
+                    $current->plugins[ $key ]->changed = true;
                 }
                 if ( $plugin->status != $previous_plugin->status ) {
                     $current->plugins[ $key ]->changed_status = $previous_plugin->status;
+                    $current->plugins[ $key ]->changed = true;
                 }
                 if ( $plugin->title != $previous_plugin->title ) {
                     $current->plugins[ $key ]->changed_title = $previous_plugin->title;
+                    $current->plugins[ $key ]->changed = true;
                 }
             }
         }
@@ -98,6 +112,16 @@ foreach( [ "once" ] as $run ) {
     }
 
 }
+
+usort( $current->themes, function($a, $b) {
+    $diff = $b->changed <=> $a->changed;
+    return ($diff !== 0) ? $diff : $a->name <=> $b->name;
+});
+
+usort( $current->plugins, function($a, $b) {
+    $diff = $b->changed <=> $a->changed;
+    return ($diff !== 0) ? $diff : $a->name <=> $b->name;
+});
 
 $update_log = (object) [
     "created_at"      => $current->created_at,
