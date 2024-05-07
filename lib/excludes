@@ -1,5 +1,7 @@
 # Excludes the following from backups
 /database-backup.sql
+/error_log
+/tmp
 .DS_Store
 *timthumb.txt
 /wp-content/ai1wm-backups/
