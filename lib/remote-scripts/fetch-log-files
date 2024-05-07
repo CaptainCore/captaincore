@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+
+#
+#   Fetches list of server logs
+#
+
+read -r -d '' php_code << 'heredoc'
+<?php
+$debugger    = empty( WP_DEBUG ) ? false : WP_DEBUG;
+$files       = [];
+$home_path   = get_home_path();
+$parent_path = dirname( $home_path );
+
+if ( is_file( "${home_path}wp-content/debug.log" ) ) {
+    $files[] = [
+        "name"        => "wp-content/debug.log",
+        "path"        => "${home_path}wp-content/debug.log",
+        "created_at"  => filectime( "${home_path}wp-content/debug.log" ),
+        "modified_at" => filemtime( "${home_path}wp-content/debug.log" ),
+        "size"        => filesize( "${home_path}wp-content/debug.log" )
+    ];
+}
+
+foreach (glob("${parent_path}/logs/*.log") as $file) {
+    if ( filesize( $file ) == 0 ) {
+        continue;
+    }
+    $files[] = [
+        "name"        => "~/logs/" . basename( $file ),
+        "path"        => $file,
+        "created_at"  => filectime( $file ),
+        "modified_at" => filemtime( $file ),
+        "size"        => filesize( $file )
+    ];
+}
+
+$response = [
+    "debugger" => $debugger,
+    "files"    => $files
+];
+
+
+echo json_encode( $response, JSON_PRETTY_PRINT );
+heredoc
+
+echo "$php_code" | wp eval-file -

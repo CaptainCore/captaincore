@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+
+#
+#   Fetches a server log file
+#
+
+# Loop through arguments and separate regular arguments from flags
+for arg in "$@"; do
+
+  # Add to arguments array. (Does not starts with "--")
+  if [[ $arg != --* ]]; then
+    count=1+${#arguments[*]}
+    arguments[$count]=$arg
+    continue
+  fi
+
+  # Remove leading "--"
+  flag_name=$( echo $arg | cut -c 3- )
+
+  # Add to flags array
+  count=1+${#flags[*]}
+  flags[$count]=$arg
+
+  # Process flags without data (Assign to variable)
+  if [[ $arg != *"="* ]]; then
+    flag_name=${flag_name//-/_}
+    declare "$flag_name"=true
+  fi
+
+  # Process flags with data (Assign to variable)
+  if [[ $arg == *"="* ]]; then
+    flag_value=$( echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1' ) # extract value
+    flag_name=$( echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1' ) # extract name
+    flag_name=${flag_name/-/_}
+
+    # Remove first and last quote if found
+    flag_value="${flag_value%\"}"
+    flag_value="${flag_value#\"}"
+    
+    declare "$flag_name"="$flag_value"
+    continue
+  fi
+
+done
+
+if [ -f "$file" ]; then
+  tail -n 10000 "$file" | tac
+fi
