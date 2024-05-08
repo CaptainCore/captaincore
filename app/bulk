@@ -35,6 +35,7 @@ args=(${@/$1/})
 target=$CAPTAINCORE_ARGS
 count=( $target )
 target_count=(${#target})
+parallel=$FLAG_PARALLEL
 
 # Remove targets from args
 args=${args[@]:${#count[@]}:${#args[@]}}
@@ -55,7 +56,7 @@ run_command() {
         php ${root_path}lib/local-scripts/process-start.php ${process_id} ${#count[@]} "${path}/process-${process_id}-progress.log"
     fi
 
-    if [[ $parallel == "" ]]; then
+    if [[ "$parallel" == "" ]]; then
         parallel=3
     fi
   

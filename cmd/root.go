@@ -184,7 +184,7 @@ func resolveCommand(c *cobra.Command, args []string) {
 		env = append([]string{"FLAG_VERSION=" + flagVersion}, env...)
 	}
 	if flagParallel != 0 {
-		env = append([]string{"PARALLEL=" + strconv.Itoa(flagParallel)}, env...)
+		env = append([]string{"FLAG_PARALLEL=" + strconv.Itoa(flagParallel)}, env...)
 	}
 	if flagAll == true {
 		env = append([]string{"FLAG_ALL=true"}, env...)
