@@ -13,6 +13,14 @@ $parent_path     = dirname( $home_path );
 $wp_content      = empty( WP_CONTENT_DIR ) ? "${home_path}wp-content" : WP_CONTENT_DIR;
 $wp_content_base = basename( $wp_content );
 
+if (! function_exists('str_ends_with')) {
+    function str_ends_with(string $haystack, string $needle): bool
+    {
+        $needle_len = strlen($needle);
+        return ($needle_len === 0 || 0 === substr_compare($haystack, $needle, - $needle_len));
+    }
+}
+
 if ( is_file( "${home_path}error_log" ) ) {
     $files[] = [
         "name"        => "error_log",
@@ -23,6 +31,19 @@ if ( is_file( "${home_path}error_log" ) ) {
     ];
 }
 
+foreach (glob("${parent_path}/logs/*error.log*") as $file) {
+    if ( filesize( $file ) == 0 || str_ends_with( $file, '.gz' ) ) {
+        continue;
+    }
+    $files[] = [
+        "name"        => "~/logs/" . basename( $file ),
+        "path"        => $file,
+        "created_at"  => filectime( $file ),
+        "modified_at" => filemtime( $file ),
+        "size"        => filesize( $file )
+    ];
+}
+
 if ( is_file( "${home_path}wp-content/debug.log" ) ) {
     $files[] = [
         "name"        => "${wp_content_base}/debug.log",
@@ -30,6 +51,19 @@ if ( is_file( "${home_path}wp-content/debug.log" ) ) {
         "created_at"  => filectime( "${wp_content}/debug.log" ),
         "modified_at" => filemtime( "${wp_content}/debug.log" ),
         "size"        => filesize( "${wp_content}/debug.log" )
+    ];
+}
+
+foreach (glob("${parent_path}/logs/*access.log*") as $file) {
+    if ( filesize( $file ) == 0 || str_ends_with( $file, '.gz' ) ) {
+        continue;
+    }
+    $files[] = [
+        "name"        => "~/logs/" . basename( $file ),
+        "path"        => $file,
+        "created_at"  => filectime( $file ),
+        "modified_at" => filemtime( $file ),
+        "size"        => filesize( $file )
     ];
 }
 
@@ -46,8 +80,21 @@ foreach (glob("${parent_path}/access-logs/*_log") as $file) {
     ];
 }
 
-foreach (glob("${parent_path}/logs/*.log") as $file) {
-    if ( filesize( $file ) == 0 ) {
+foreach (glob("${parent_path}/logs/*mail.log*") as $file) {
+    if ( filesize( $file ) == 0 || str_ends_with( $file, '.gz' ) ) {
+        continue;
+    }
+    $files[] = [
+        "name"        => "~/logs/" . basename( $file ),
+        "path"        => $file,
+        "created_at"  => filectime( $file ),
+        "modified_at" => filemtime( $file ),
+        "size"        => filesize( $file )
+    ];
+}
+
+foreach (glob("${parent_path}/logs/*cache*.log*") as $file) {
+    if ( filesize( $file ) == 0 || str_ends_with( $file, '.gz' ) ) {
         continue;
     }
     $files[] = [
