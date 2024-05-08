@@ -141,4 +141,4 @@ $response = [
 echo json_encode( $response, JSON_PRETTY_PRINT );
 heredoc
 
-echo "$php_code" | wp eval-file - 2>/dev/null
+echo "$php_code" | wp eval-file - --skip-themes --skip-plugins 2>/dev/null
