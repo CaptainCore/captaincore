@@ -17,7 +17,7 @@ import (
 var flagDebug, flagSkipDB, flagSkipScreenshot, flagForce, flagBash, flagUpdateExtras, flagSkipRemote, flagFleet bool
 var flagAll, flagHtml, flagPublic, flagSkipAlreadyGenerated, flagGlobalOnly, flagDeleteAfterSnapshot bool
 var flagCode, flagCommand, flagFilter, flagFilterName, flagFilterVersion, flagFilterStatus, flagField, flagPage, flagRecipe, flagScript, flagProvider string
-var captainID, cfgFile, flagTheme, flagPlugin, flagFile, flagEmail, flagName, flagLink, flagNotes, flagUserId, flagFormat, flagVersion string
+var captainID, cfgFile, flagTheme, flagPlugin, flagFile, flagLimit, flagEmail, flagName, flagLink, flagNotes, flagUserId, flagFormat, flagVersion string
 var flagParallel, flagRetry int
 
 var colorYellow = "\x1b[33;1m"
@@ -200,6 +200,9 @@ func resolveCommand(c *cobra.Command, args []string) {
 	}
 	if flagFile != "" {
 		env = append([]string{"FLAG_FILE=" + flagFile}, env...)
+	}
+	if flagLimit != "" {
+		env = append([]string{"FLAG_LIMIT=" + flagLimit}, env...)
 	}
 	if flagName != "" {
 		env = append([]string{"FLAG_NAME=" + flagName}, env...)

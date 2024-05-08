@@ -3,9 +3,10 @@
 #
 #   Fetches a server log file
 #
-#   `captaincore logs list <site>`
+#   `captaincore logs get <site> --file=<file>`
 #
-
+#   [--limit=<number>]
+#
 
 if [ ${#@} -eq 0 ]; then
   echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Requires a <site>"
@@ -40,7 +41,7 @@ run_command() {
   IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
 
   if [ ! -f "$logs_list" ] || [[ $( wc -c < $logs_list | awk '{print $1}' ) == "0" ]]; then
-    captaincore ssh $site-$environment --script=fetch-log-file -- --file="$FLAG_FILE" --captain-id=$CAPTAIN_ID
+    captaincore ssh $site-$environment --script=fetch-log-file -- --file="$FLAG_FILE" --limit="$FLAG_LIMIT" --captain-id=$CAPTAIN_ID
   fi
 
 }

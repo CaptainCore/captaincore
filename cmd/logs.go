@@ -44,4 +44,5 @@ func init() {
 	logsCmd.AddCommand(logsListCmd)
 	logsCmd.AddCommand(logsGetCmd)
 	logsGetCmd.Flags().StringVar(&flagFile, "file", "", "File to retrieve")
+	logsGetCmd.Flags().StringVar(&flagLimit, "limit", "", "Limit number of lines")
 }
