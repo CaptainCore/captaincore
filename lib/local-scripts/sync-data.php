@@ -150,4 +150,8 @@ if ( $system->captaincore_dev == "true" ) {
 
 // Post to CaptainCore API
 $response = wp_remote_post( $configuration->vars->captaincore_api, $request );
-echo $response['body'];
+$result = json_decode( $response['body'] );
+unset( $result->environment->plugins );
+unset( $result->environment->themes );
+unset( $result->environment->users );
+echo json_encode( $result, JSON_PRETTY_PRINT ) . "\n";
