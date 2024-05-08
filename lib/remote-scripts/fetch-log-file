@@ -43,6 +43,10 @@ for arg in "$@"; do
 
 done
 
+if [[ "$limit" == "" ]]; then
+  limit=1000
+fi
+
 if [ -f "$file" ]; then
-  tail -n 10000 "$file" | tac
+  tail -n $limit "$file" | tac
 fi
