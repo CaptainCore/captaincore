@@ -3,7 +3,7 @@
 #
 #   Generates quicksave for plugins and themes changes for one or more sites.
 #
-#   `captaincore quicksave <site>`
+#   `captaincore quicksave generate <site>`
 #
 #   [<site>...]
 #   One or more sites.
@@ -111,6 +111,28 @@ run_command() {
 
   wp eval-file ../lib/local-scripts/sync-data.php $site-${environment}
   wp eval-file ../lib/local-scripts/quicksave-add.php site=$site environment=$environment
+
+  if [[ "$github_storage" != "" ]]; then
+
+    cd $path/$site_path/quicksave/
+
+    if [[ "$(git remote -v)" == "" ]]; then
+
+      gh repo create $github_storage/${site}-${site_id}-${environment} --private
+      git remote add origin git@github.com:$github_storage/${site}-${site_id}-${environment}.git
+      git branch -M main
+      git push -u origin main
+
+    fi
+
+    git push
+
+  fi
+
+  # Remove git lock if found
+  if [ -f "$path/$site_path/quicksave/.git/index.lock" ]; then
+    rm "$path/$site_path/quicksave/.git/index.lock"
+  fi
 
   captaincore quicksave list-generate $site-${environment} --captain-id=$CAPTAIN_ID
 
