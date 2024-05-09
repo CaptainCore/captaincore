@@ -126,6 +126,9 @@ run_command() {
     remote_created=$( gh repo view $github_storage/${site}-${site_id}-${environment} 2>&1 )
     if [[ "$remote_created" == *"Could not resolve"* ]]; then 
       gh repo create $github_storage/${site}-${site_id}-${environment} --private
+    fi
+
+    if [[ $( git branch --remotes ) == "" ]]; then
       git branch -M main
       git push -u origin main
     fi
