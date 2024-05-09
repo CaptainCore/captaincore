@@ -117,12 +117,17 @@ run_command() {
     cd $path/$site_path/quicksave/
 
     if [[ "$(git remote -v)" == "" ]]; then
-
       gh repo create $github_storage/${site}-${site_id}-${environment} --private
       git remote add origin git@github.com:$github_storage/${site}-${site_id}-${environment}.git
       git branch -M main
       git push -u origin main
+    fi
 
+    remote_created=$( gh repo view $github_storage/${site}-${site_id}-${environment} 2>&1 )
+    if [[ "$remote_created" == *"Could not resolve"* ]]; then 
+      gh repo create $github_storage/${site}-${site_id}-${environment} --private
+      git branch -M main
+      git push -u origin main
     fi
 
     git push
