@@ -81,6 +81,7 @@ run_command() {
       home_directory="${home_directory}/"
   fi
 
+  quicksave_id_before=$( captaincore quicksave latest $site-$environment --field=hash --captain-id=$CAPTAIN_ID )
   echo "$(date +'%Y-%m-%d %H:%M') Begin quicksave for ${site}-${environment}"
 
   site_path="${site}_${site_id}/${environment}"
@@ -112,29 +113,16 @@ run_command() {
   wp eval-file ../lib/local-scripts/sync-data.php $site-${environment}
   wp eval-file ../lib/local-scripts/quicksave-add.php site=$site environment=$environment
 
-  if [[ "$github_storage" != "" ]]; then
+  quicksave_id_after=$( captaincore quicksave latest $site-$environment --field=hash --captain-id=$CAPTAIN_ID )
 
+  if [[ "$quicksave_id_before" != "$quicksave_id_after" ]]; then
     cd $path/$site_path/quicksave/
-
-    if [[ "$(git remote -v)" == "" ]]; then
-      gh repo create $github_storage/${site}-${site_id}-${environment} --private
-      git remote add origin git@github.com:$github_storage/${site}-${site_id}-${environment}.git
-      git branch -M main
-      git push -u origin main
+    echo "$(date +'%Y-%m-%d %H:%M') Backing up /quicksave/ to restic repo"
+    if [[ $( restic snapshots --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/quicksave-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key" ) == "" ]]; then
+      echo "Generating new restic repo ${site}_${site_id}/${environment}/quicksave-repo"
+      restic init --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/quicksave-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key"
     fi
-
-    remote_created=$( gh repo view $github_storage/${site}-${site_id}-${environment} 2>&1 )
-    if [[ "$remote_created" == *"Could not resolve"* ]]; then 
-      gh repo create $github_storage/${site}-${site_id}-${environment} --private
-    fi
-
-    if [[ $( git branch --remotes ) == "" ]]; then
-      git branch -M main
-      git push -u origin main
-    fi
-
-    git push
-
+    restic backup . --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/quicksave-repo --exclude-file="${CAPTAINCORE_PATH}/lib/restic-excludes" --password-file="${CAPTAINCORE_PATH}/data/restic.key"
   fi
 
   # Remove git lock if found
