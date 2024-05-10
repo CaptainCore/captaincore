@@ -113,6 +113,12 @@ run_command() {
   wp eval-file ../lib/local-scripts/sync-data.php $site-${environment}
   wp eval-file ../lib/local-scripts/quicksave-add.php site=$site environment=$environment
 
+  # Remove git lock if found
+  if [ -f "$path/$site_path/quicksave/.git/index.lock" ]; then
+    rm "$path/$site_path/quicksave/.git/index.lock"
+  fi
+
+  captaincore quicksave list-generate $site-${environment} --captain-id=$CAPTAIN_ID
   quicksave_id_after=$( captaincore quicksave latest $site-$environment --field=hash --captain-id=$CAPTAIN_ID )
 
   if [[ "$quicksave_id_before" != "$quicksave_id_after" ]]; then
@@ -124,13 +130,6 @@ run_command() {
     fi
     restic backup . --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/quicksave-repo --exclude-file="${CAPTAINCORE_PATH}/lib/restic-excludes" --password-file="${CAPTAINCORE_PATH}/data/restic.key"
   fi
-
-  # Remove git lock if found
-  if [ -f "$path/$site_path/quicksave/.git/index.lock" ]; then
-    rm "$path/$site_path/quicksave/.git/index.lock"
-  fi
-
-  captaincore quicksave list-generate $site-${environment} --captain-id=$CAPTAIN_ID
 
   if [ -f "${path}/process-${process_id}-progress.log" ]; then
     echo -n "." >> ${path}/process-${process_id}-progress.log
