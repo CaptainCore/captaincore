@@ -6,20 +6,9 @@
 #   `captaincore default-sync`
 #
 
-# Load configuration
-root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
-source ${root_path}lib/arguments
-
 run_command() {
-
-	# Remove leading "--" from flags
-	for i in "${!flags[@]}"; do
-		flags[$i]=`echo ${flags[$i]} | cut -c 3-`
-	done
-
-	cd ${root_path}data
-	wp eval-file ../lib/local-scripts/default-sync.php ${flags[@]}
-
+  cd ${CAPTAINCORE_PATH}/data
+  wp eval-file ../lib/local-scripts/default-sync.php ${flags[@]}
 }
 
 if [ ${#arguments[*]} -eq 0 ]; then
