@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+
+#
+#   Logs response of email health check 
+#
+#   `captaincore email-health response <site> <token> <status>`
+#
+
+if [ ${#@} -ne 3 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a <site> <token> <status>."
+fi
+
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+site=$1
+token=$2
+email_status=$3
+
+run_command() {
+
+  # Extract environment
+  if [[ "$site" == *"-staging"* ]]; then
+    environment=staging
+  else
+    environment=production
+  fi
+
+  # Load site configs
+  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
+
+  cd ${CAPTAINCORE_PATH}/data
+
+  health_check_file="$path_email_health/${token}/list.json"
+  if [ -f "$health_check_file" ]; then
+    wp eval-file ../lib/local-scripts/email-health-update.php file=$health_check_file status=$email_status site_id=$site_id environment=$environment
+  fi
+
+}
+
+run_command

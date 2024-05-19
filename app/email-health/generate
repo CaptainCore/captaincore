@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+
+#
+#   Runs email health check on one or more sites.
+#
+#   `captaincore email-health generate`
+#
+#   [<site>...]
+#   One or more sites to check.
+#
+#   [@<target>]
+#   Target groups of sites like @all @production or @staging.
+#
+#   [--retry=<number-of-retries>]
+#   Number of retries for failures. Defaults to 3.
+#
+#   [--parallel=<number-of-checks>]
+#   Number of monitor checks to run at same time. Defaults to 5.
+#
+
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+if [[ "${#CAPTAINCORE_ARGS}" == "0" ]]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Required <site> or <target>."
+  exit 1
+fi
+
+run_command() {
+
+  target=$CAPTAINCORE_ARGS
+
+  # Assign default retry
+  if [[ $RETRY == "" ]]; then
+    RETRY=3
+  fi
+
+  # Assign default parallel
+  if [[ $FLAG_PARALLEL == "" ]]; then
+    FLAG_PARALLEL=5
+  fi
+
+  if [[ $target == "@all"* ]] || [[ $target == "@production"* ]] || [[ $target == "@staging"* ]]; then
+    target=$( captaincore site list $target --captain-id=$CAPTAIN_ID )
+  fi
+
+  token=$(date +"%s")
+
+  # Define list.json location
+  mkdir -p "$path_email_health/${token}/"
+  health_check_file="$path_email_health/${token}/list.json"
+
+  if [[ "$target" == "" ]]; then
+    echo "${COLOR_RED}Error:${COLOR_NORMAL} Nothing to check"
+    exit
+  fi
+
+  cd "$HOME/.captaincore/data"
+  echo "logging to $health_check_file"
+
+  # Run checks in parallel. Collect the results in log file.
+  ( echo $target | xargs -P $FLAG_PARALLEL -n 1 -I {} captaincore email-health send {} $token ) 2>&1 | tee $health_check_file
+
+  # Process responses
+  php $HOME/.captaincore/lib/local-scripts/email-health.php process $health_check_file
+
+  for attempt in $(seq 1 $RETRY); do
+
+    # Skip last attempt
+    if [[ $attempt != $RETRY ]]; then 
+
+      echo "Attempt #${attempt} checking environments for received emails.";
+      sleep 60
+      php $HOME/.captaincore/lib/local-scripts/email-health.php check $health_check_file
+      continue
+  
+    fi
+
+    error_count=$( php $HOME/.captaincore/lib/local-scripts/email-health.php errors $health_check_file )
+    echo "Attempt #${attempt} found $error_count undelivered emails."
+
+  done
+
+  # Build emails
+  email_content=$( php $HOME/.captaincore/lib/local-scripts/email-health.php generate $health_check_file )
+
+  if [[ $email_content != "" ]]; then
+
+    echo "Sending Email"
+    echo $email_content
+
+    error_count=$( php $HOME/.captaincore/lib/local-scripts/email-health.php errors $health_check_file )
+
+    # output "Response code $response for $address" per each item in array
+    echo $email_content | mutt -e 'set content_type=text/html' -s "Email Monitor: $error_count failed deliveries" -- $captaincore_admin_email
+
+  fi
+
+}
+run_command

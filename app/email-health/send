@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+
+#
+#   Send health check email on a site.
+#
+#   `captaincore email-health send <site> <token>`
+#
+
+if [ ${#@} -ne 2 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a <site> and <token>."
+  exit
+fi
+
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+site=$1
+token=$2
+
+run_command() {
+
+  # Extract environment
+  if [[ "$site" == *"-staging"* ]]; then
+      environment=staging
+  else
+      environment=production
+  fi
+  
+  # Load site configs
+  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
+
+  timestamp=$(date +%s)
+  response=$( captaincore ssh $site-$environment --script=email-health-check --captain-id=$CAPTAIN_ID -- --site_id=$site_id --environment=$environment --token=$token --email=$email_health_notify )
+
+  if [[ $response == "" ]]; then
+    read -r -d '' json_output << EOM
+{"site_id":"$site_id", "environment":"$environment","home_url":"$home_url","status":"sent","token":"$token","sent_at":"$timestamp"}
+EOM
+
+  else
+    read -r -d '' json_output << EOM
+{"site_id":"$site_id", "environment":"$environment","home_url":"$home_url","status":"sent","token":"$token","sent_at":"$timestamp","sending_unexpected_response":"$response"}
+EOM
+
+  fi
+
+	echo $json_output
+
+}
+
+run_command
