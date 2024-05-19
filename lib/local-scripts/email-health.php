@@ -148,6 +148,8 @@ if ( $command == 'generate' ) {
 			$html .= trim( $warning ) . "<br />\n";
 		};
 
+		echo $html;
+
 	}
 
 }
