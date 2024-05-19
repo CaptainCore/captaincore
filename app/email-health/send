@@ -33,6 +33,10 @@ run_command() {
   # Load site configs
   IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
 
+  if [[ "$site_id" == "" ]]; then
+    return
+  fi
+
   timestamp=$(date +%s)
   response=$( captaincore ssh $site-$environment --script=email-health-check --captain-id=$CAPTAIN_ID -- --site_id=$site_id --environment=$environment --token=$token --email=$email_health_notify )
 
