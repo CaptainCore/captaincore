@@ -33,11 +33,15 @@ run_command() {
   # Load site configs
   IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
 
+  if [[ "$email_status" == "" ]] || [[ "$site_id" == "" ]] || [[ "$environment" == "" ]]; then
+    return
+  fi
+
   cd ${CAPTAINCORE_PATH}/data
 
-  health_check_file="$path_email_health/${token}/list.json"
-  if [ -f "$health_check_file" ]; then
-    wp eval-file ../lib/local-scripts/email-health-update.php file=$health_check_file status=$email_status site_id=$site_id environment=$environment
+  health_check_directory="$path_email_health/${token}/"
+  if [ -d "$health_check_directory" ]; then
+    wp eval-file ../lib/local-scripts/email-health-update.php directory=$health_check_directory status=$email_status site_id=$site_id environment=$environment
   fi
 
 }

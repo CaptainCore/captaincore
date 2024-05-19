@@ -1,7 +1,7 @@
 #! /usr/bin/env php
 <?php
-$command           = $argv[1];
-$health_check_file = $argv[2];
+$command                = $argv[1];
+$health_check_directory = $argv[2];
 
 function time_elapsed_string( $datetime, $full = false ) {
 	$now  = new DateTime();
@@ -34,28 +34,27 @@ function time_elapsed_string( $datetime, $full = false ) {
 	return $string ? implode( ', ', $string ) . ' ago' : 'just now';
 }
 
-// Check command: Feed in log file, outputs error count
 if ( $command == 'check' ) {
 
-    $email_checks = json_decode( file_get_contents( $health_check_file ) );
+    $email_checks = json_decode( file_get_contents( "{$health_check_directory}list.json" ) );
 	foreach ( $email_checks as $email_check ) {
         if ( $email_check->status == "received" ) {
             continue;
         }
-        $email_file = dirname( $health_check_file ) . "/response-{$email_check->site_id}-{$email_check->environment}.json";
+        $email_file = "{$health_check_directory}response-{$email_check->site_id}-{$email_check->environment}.json";
         if ( is_file( $email_file ) ) {
             $email_check->status = "received";
         }
     }
 
-    file_put_contents( $health_check_file, json_encode( $email_checks, JSON_PRETTY_PRINT ) );
+    file_put_contents( "{$health_check_directory}list.json", json_encode( $email_checks, JSON_PRETTY_PRINT ) );
 
 }
 
 // Process command: Feed in log file, outputs error urls and clean log file
 if ( $command == 'process' ) {
 
-	$lines  = explode( "\n", file_get_contents( $health_check_file ) );
+	$lines  = explode( "\n", file_get_contents(  "{$health_check_directory}log.json" ) );
 	$output = [];
 	$errors = [];
 
@@ -68,7 +67,7 @@ if ( $command == 'process' ) {
 			continue;
 		}
 
-        $email_file = dirname( $health_check_file ) . "/response-{$record->site_id}-{$record->environment}.json";
+        $email_file = "{$health_check_directory}/response-{$record->site_id}-{$record->environment}.json";
         if ( is_file( $email_file ) ) {
             $record->status = "received";
         }
@@ -77,12 +76,12 @@ if ( $command == 'process' ) {
 
 	}
 
-	file_put_contents( $health_check_file, json_encode( $output, JSON_PRETTY_PRINT ) );
+	file_put_contents( "{$health_check_directory}list.json", json_encode( $output, JSON_PRETTY_PRINT ) );
 
 }
 
-if ( $command == 'errors' ) {
-    $email_checks = json_decode( file_get_contents( $health_check_file ) );
+if ( $command == 'undelivered' ) {
+    $email_checks = json_decode( file_get_contents( "{$health_check_directory}list.json" ) );
     $undelivered  = 0;
 	foreach ( $email_checks as $email_check ) {
         if ( $email_check->status == "sent" ) {
@@ -95,19 +94,16 @@ if ( $command == 'errors' ) {
 // Generate command: Store errors in monitor.json and send email if needed
 if ( $command == 'generate' ) {
 
-	$notify_at    = array( '1 hour', '4 hour', '24 hour' );
-	$log_errors   = [];
-	$time_now     = date( 'U' );
-	$errors       = array();
-	$known_errors = array();
+	$errors       = [];
+	$known_errors = [];
 	$warnings     = [];
 
 	// Generate empty "/list.json" if needed
-	if ( ! file_exists( $health_check_file ) ) {
-		file_put_contents( $health_check_file, '[]' );
+	if ( ! file_exists( "{$health_check_directory}list.json" ) ) {
+		file_put_contents( "{$health_check_directory}list.json", '[]' );
 	}
 
-	$email_checks = json_decode( file_get_contents( $health_check_file ) );
+	$email_checks = json_decode( file_get_contents( "{$health_check_directory}list.json" ) );
 
 	// Loop through monitor records and update/remove to $errors[] as needed
 	foreach ( $email_checks as $key => $record ) {
@@ -146,18 +142,4 @@ if ( $command == 'generate' ) {
 
 	}
 
-	// If errors or restored then append ongoing errors to the bottom then output html
-	if ( count( $errors ) > 0 ) {
-
-		if ( count( $known_errors ) > 0 ) {
-			$html .= '<br /><strong>Ongoing Errors</strong><br /><br />';
-		}
-
-		foreach ( $known_errors as $known_error ) {
-			$html .= trim( $known_error ) . "<br />\n";
-		};
-
-		echo $html;
-
-	}
 }

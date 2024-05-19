@@ -21,17 +21,32 @@ foreach($args as $index => $arg) {
 // Converts --arguments into $arguments
 parse_str( implode( '&', $args ), $arguments );
 $arguments    = (object) $arguments;
-$file         = $arguments->file;
+$directory    = $arguments->directory;
 $site_id      = $arguments->site_id;
 $environment  = $arguments->environment;
 $status       = $arguments->status;
 
-$email_checks = json_decode( file_get_contents( $file ) );
+if ( ! is_file( "{$directory}list.json" ) ) {
+    file_put_contents( "{$directory}list.json", '[]' );
+}
+
+$email_checks = json_decode( file_get_contents( "{$directory}list.json" ) );
+$found        = false;
 foreach ( $email_checks as $email_check ) {
     if ( $email_check->site_id == $site_id && $email_check->environment == $environment ) {
+        $found                    = true;
         $email_check->status      = $status;
         $email_check->received_at = (string) time();
     }
+}
+
+if ( ! $found ) {
+    $email_checks[] = (object) [
+        'site_id'      => $site_id,
+        'environment'  => $environment,
+        'status'       => $status,
+        'received_at'  => (string) time(),
+    ];
 }
 
 file_put_contents( $file, json_encode( $email_checks, JSON_PRETTY_PRINT ) );

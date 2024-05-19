@@ -50,9 +50,9 @@ run_command() {
 
   token=$(date +"%s")
 
-  # Define list.json location
-  mkdir -p "$path_email_health/${token}/"
-  health_check_file="$path_email_health/${token}/list.json"
+  # Define location for health check
+  health_check_directory="$path_email_health/${token}/"
+  mkdir -p "$health_check_directory"
 
   if [[ "$target" == "" ]]; then
     echo "${COLOR_RED}Error:${COLOR_NORMAL} Nothing to check"
@@ -60,13 +60,13 @@ run_command() {
   fi
 
   cd "$HOME/.captaincore/data"
-  echo "logging to $health_check_file"
+  echo "logging to ${health_check_directory}log.json"
 
   # Run checks in parallel. Collect the results in log file.
-  ( echo $target | tr ' ' '\n' | xargs -P $FLAG_PARALLEL -I {} captaincore email-health send {} $token ) 2>&1 | tee $health_check_file
+  ( echo $target | tr ' ' '\n' | xargs -P $FLAG_PARALLEL -I {} captaincore email-health send {} $token ) 2>&1 | tee "${health_check_directory}log.json"
 
   # Process responses
-  php $HOME/.captaincore/lib/local-scripts/email-health.php process $health_check_file
+  php $HOME/.captaincore/lib/local-scripts/email-health.php process $health_check_directory
 
   for attempt in $(seq 1 $RETRY); do
 
@@ -75,28 +75,28 @@ run_command() {
 
       echo "Attempt #${attempt} checking environments for received emails.";
       sleep 60
-      php $HOME/.captaincore/lib/local-scripts/email-health.php check $health_check_file
+      php $HOME/.captaincore/lib/local-scripts/email-health.php check $health_check_directory
       continue
   
     fi
 
-    error_count=$( php $HOME/.captaincore/lib/local-scripts/email-health.php errors $health_check_file )
+    undelivered_count=$( php $HOME/.captaincore/lib/local-scripts/email-health.php undelivered $health_check_directory )
     echo "Attempt #${attempt} found $error_count undelivered emails."
 
   done
 
   # Build emails
-  email_content=$( php $HOME/.captaincore/lib/local-scripts/email-health.php generate $health_check_file )
+  email_content=$( php $HOME/.captaincore/lib/local-scripts/email-health.php generate $health_check_directory )
 
   if [[ $email_content != "" ]]; then
 
     echo "Sending Email"
     echo $email_content
 
-    error_count=$( php $HOME/.captaincore/lib/local-scripts/email-health.php errors $health_check_file )
+    undelivered_count=$( php $HOME/.captaincore/lib/local-scripts/email-health.php undelivered $health_check_directory )
 
     # output "Response code $response for $address" per each item in array
-    echo $email_content | mutt -e 'set content_type=text/html' -s "Email Monitor: $error_count failed deliveries" -- $captaincore_admin_email
+    echo $email_content | mutt -e 'set content_type=text/html' -s "Email Monitor: $undelivered_count failed deliveries" -- $captaincore_admin_email
 
   fi
 
