@@ -54,6 +54,12 @@ if ( $command == 'check' ) {
 // Process command: Feed in log file, outputs error urls and clean log file
 if ( $command == 'process' ) {
 
+	if ( ! file_exists( "{$health_check_directory}list.json" ) ) {
+		file_put_contents( "{$health_check_directory}list.json", '[]' );
+	}
+
+	$email_checks = json_decode( file_get_contents( "{$health_check_directory}list.json" ) );
+
 	$lines  = explode( "\n", file_get_contents(  "{$health_check_directory}log.json" ) );
 	$output = [];
 	$errors = [];
@@ -74,6 +80,17 @@ if ( $command == 'process' ) {
 
 		$output[] = $record;
 
+	}
+
+	foreach( $email_checks as $email_check ) {
+		foreach( $output as $key => $record ) {
+			if ( $email_check->site_id == $record->site_id && $email_check->environment == $record->environment ) {
+				$record[$key]->status      = $email_check->status;
+				$record[$key]->received_at = $email_check->received_at;
+				continue;
+			}
+			$output[] = $email_check;
+		}
 	}
 
 	file_put_contents( "{$health_check_directory}list.json", json_encode( $output, JSON_PRETTY_PRINT ) );
