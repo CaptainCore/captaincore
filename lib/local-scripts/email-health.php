@@ -41,9 +41,10 @@ if ( $command == 'check' ) {
         if ( $email_check->status == "received" ) {
             continue;
         }
-        $email_file = "{$health_check_directory}response-{$email_check->site_id}-{$email_check->environment}.json";
+        $email_file = "{$health_check_directory}response-{$email_check->site_id}-{$email_check->environment}.txt";
         if ( is_file( $email_file ) ) {
-            $email_check->status = "received";
+            $email_check->status      = "received";
+			$email_check->received_at = filectime( $email_file );
         }
     }
 
@@ -73,7 +74,7 @@ if ( $command == 'process' ) {
 			continue;
 		}
 
-        $email_file = "{$health_check_directory}/response-{$record->site_id}-{$record->environment}.txt";
+        $email_file = "{$health_check_directory}response-{$record->site_id}-{$record->environment}.txt";
         if ( is_file( $email_file ) ) {
             $record->status      = "received";
 			$record->received_at = filectime( $email_file );
