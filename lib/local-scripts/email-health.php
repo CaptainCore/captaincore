@@ -73,24 +73,14 @@ if ( $command == 'process' ) {
 			continue;
 		}
 
-        $email_file = "{$health_check_directory}/response-{$record->site_id}-{$record->environment}.json";
+        $email_file = "{$health_check_directory}/response-{$record->site_id}-{$record->environment}.txt";
         if ( is_file( $email_file ) ) {
-            $record->status = "received";
+            $record->status      = "received";
+			$record->received_at = filectime( $email_file );
         }
 
 		$output[] = $record;
 
-	}
-
-	foreach( $email_checks as $email_check ) {
-		foreach( $output as $key => $record ) {
-			if ( $email_check->site_id == $record->site_id && $email_check->environment == $record->environment ) {
-				$output[$key]->status      = $email_check->status;
-				$output[$key]->received_at = $email_check->received_at;
-				continue;
-			}
-			$output[] = $email_check;
-		}
 	}
 
 	file_put_contents( "{$health_check_directory}list.json", json_encode( $output, JSON_PRETTY_PRINT ) );

@@ -41,7 +41,7 @@ run_command() {
 
   health_check_directory="$path_email_health/${token}/"
   if [ -d "$health_check_directory" ]; then
-    wp eval-file ../lib/local-scripts/email-health-update.php directory=$health_check_directory status=$email_status site_id=$site_id environment=$environment
+    cat $email_status > "${health_check_directory}response-${site_id}-${environment}.txt"
   fi
 
 }
