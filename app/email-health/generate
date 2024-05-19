@@ -63,7 +63,7 @@ run_command() {
   echo "logging to $health_check_file"
 
   # Run checks in parallel. Collect the results in log file.
-  ( echo $target | xargs -P $FLAG_PARALLEL -n 1 -I {} captaincore email-health send {} $token ) 2>&1 | tee $health_check_file
+  ( echo $target | xargs -P $FLAG_PARALLEL -I {} captaincore email-health send {} $token ) 2>&1 | tee $health_check_file
 
   # Process responses
   php $HOME/.captaincore/lib/local-scripts/email-health.php process $health_check_file
