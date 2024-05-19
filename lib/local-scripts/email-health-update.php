@@ -49,4 +49,4 @@ if ( ! $found ) {
     ];
 }
 
-file_put_contents( $file, json_encode( $email_checks, JSON_PRETTY_PRINT ) );
+file_put_contents( "{$directory}list.json", json_encode( $email_checks, JSON_PRETTY_PRINT ) );
