@@ -74,7 +74,7 @@ run_command() {
     if [[ $attempt != $RETRY ]]; then 
 
       echo "Attempt #${attempt} checking environments for received emails.";
-      sleep 60
+      sleep 300
       php $HOME/.captaincore/lib/local-scripts/email-health.php check $health_check_directory
       continue
   
