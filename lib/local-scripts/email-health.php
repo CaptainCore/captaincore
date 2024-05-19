@@ -85,8 +85,8 @@ if ( $command == 'process' ) {
 	foreach( $email_checks as $email_check ) {
 		foreach( $output as $key => $record ) {
 			if ( $email_check->site_id == $record->site_id && $email_check->environment == $record->environment ) {
-				$record[$key]->status      = $email_check->status;
-				$record[$key]->received_at = $email_check->received_at;
+				$output[$key]->status      = $email_check->status;
+				$output[$key]->received_at = $email_check->received_at;
 				continue;
 			}
 			$output[] = $email_check;
