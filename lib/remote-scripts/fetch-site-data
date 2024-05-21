@@ -52,6 +52,10 @@ if [[ "$core_verify_checksums_response" == "Warning: File doesn't exist: wp-conf
     core_verify_checksums=1
 fi
 
+if [[ "$core_verify_checksums_response" == "Warning: File doesn't exist: wp-config-sample.php"$'\n'"Warning: File should not exist: wp-config-orig.php"$'\n'"Error: WordPress installation doesn't verify against checksums." ]]; then
+    core_verify_checksums=1
+fi
+
 db_name=$( wp eval "echo DB_NAME;" --skip-plugins --skip-themes --skip-packages )
 db_username=$( wp eval "echo DB_USER;" --skip-plugins --skip-themes --skip-packages )
 db_password=$( wp eval "echo DB_PASSWORD;" --skip-plugins --skip-themes --skip-packages )
