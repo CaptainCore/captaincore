@@ -34,17 +34,18 @@ themes=$(wp theme list --format=json --skip-themes --skip-plugins --skip-package
 core=$( wp core version --skip-themes --skip-plugins --skip-packages )
 home_url=$( wp option get home --skip-themes --skip-plugins --skip-packages )
 users=$( wp user list --format=json --skip-themes --skip-plugins --skip-packages )
-core_verify_checksums=$( wp core verify-checksums --skip-themes --skip-plugins --skip-packages 2>&1 )
+core_verify_checksums_response=$( wp core verify-checksums --skip-themes --skip-plugins --skip-packages 2>&1 )
+core_verify_checksums=0
 
-# Make sure to only include output of first line of core check
-if [[ $( echo "$core_verify_checksums" | wc -l ) != "1" ]]; then
-    core_verify_checksums=$( echo "$core_verify_checksums" | tail -n 1 )
+# Make sure to only include output of last line of core check
+core_verify_checksums_response_last_line=$( echo "$core_verify_checksums_response" | tail -n 1 )
+
+if [[ "$core_verify_checksums_response_last_line" == "Success: WordPress installation verifies against checksums." ]]; then
+    core_verify_checksums=1
 fi
 
-if [[ "$core_verify_checksums" == "Success: WordPress installation verifies against checksums." ]]; then
+if [[ "$core_verify_checksums_response" == "Warning: File doesn't exist: readme.html"$'\n'"Error: WordPress installation doesn't verify against checksums." ]]; then
     core_verify_checksums=1
-else
-    core_verify_checksums=0
 fi
 
 db_name=$( wp eval "echo DB_NAME;" --skip-plugins --skip-themes --skip-packages )
