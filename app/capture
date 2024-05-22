@@ -142,8 +142,8 @@ run_command() {
 				query="url=$( urlencode "${home_url}${page}" )&authorization=$( urlencode "Basic $auth" )&full_page=true&viewport_width=1280&force=true&user_agent=$( urlencode "$user_agent" )&format=jpg&pixel_ratio=2"
 			fi
 			screenshots_cloud_token=$( printf '%s' "$query" | openssl sha1 -hmac "$screenshots_cloud_api_secret" | sed 's/^.* //' )
-			echo "https://api.screenshots.cloud/v1/screenshot/$screenshots_cloud_api_key/$screenshots_cloud_token/?$query"
-			curl "https://api.screenshots.cloud/v1/screenshot/$screenshots_cloud_api_key/$screenshots_cloud_token/?$query" > ".screenshots/${page//\//#}_working.jpg"
+			echo "Downloading https://api.screenshots.cloud/v1/screenshot/$screenshots_cloud_api_key/$screenshots_cloud_token/?$query"
+			curl --silent "https://api.screenshots.cloud/v1/screenshot/$screenshots_cloud_api_key/$screenshots_cloud_token/?$query" > ".screenshots/${page//\//#}_working.jpg"
 		fi
 
 	done
@@ -178,14 +178,14 @@ run_command() {
 		if [[ "$image" == ".screenshots/#_working.jpg" ]]; then
 			convert ".screenshots/#_working.jpg" -thumbnail 800 -gravity North -crop 800x500+0+0 ".screenshots/${created_at}_${git_commit_short}_thumb-800.jpg"
 			convert ".screenshots/${created_at}_${git_commit_short}_thumb-800.jpg" -thumbnail 100 ".screenshots/${created_at}_${git_commit_short}_thumb-100.jpg"
-			rclone move ".screenshots/${created_at}_${git_commit_short}_thumb-100.jpg" ${rclone_upload}${remote_path_screenshots}/ --fast-list --transfers=32 --no-update-modtime --progress
-			rclone move ".screenshots/${created_at}_${git_commit_short}_thumb-800.jpg" ${rclone_upload}${remote_path_screenshots}/ --fast-list --transfers=32 --no-update-modtime --progress
+			rclone move ".screenshots/${created_at}_${git_commit_short}_thumb-100.jpg" ${rclone_upload}${remote_path_screenshots}/ --fast-list --transfers=32 --no-update-modtime --progress --stats-one-line --stats=1m
+			rclone move ".screenshots/${created_at}_${git_commit_short}_thumb-800.jpg" ${rclone_upload}${remote_path_screenshots}/ --fast-list --transfers=32 --no-update-modtime --progress --stats-one-line --stats=1m
 		fi
 		mv "$image" "$new_image_name"
 	done
 	
-	# Copy to remove storage 
-	rclone move .screenshots/ ${rclone_upload}${remote_path_captures}/ --fast-list --transfers=32 --no-update-modtime --progress
+	# Copy to remote storage 
+	rclone move .screenshots/ ${rclone_upload}${remote_path_captures}/ --fast-list --transfers=32 --no-update-modtime --progress --stats-one-line --stats=1m
 
 	# Build json for capture
 	read -r -d '' capture << EOM
@@ -219,7 +219,7 @@ EOM
 	fi
 
 	# Adds capture to CaptainCore
-	curl ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOM
+	curl --silent ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOM
 {
 	"command": "new-capture",
 	"site_id":"$site_id",
