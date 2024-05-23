@@ -98,6 +98,11 @@ run_command() {
     backup_url=${backup_url/wp-admin\/admin-ajax.php?action=pb_backupbuddy_backupbuddy&function=download_archive&backupbuddy_backup=/wp-content\/uploads\/backupbuddy_backups/}
   fi
 
+  if [[ "$backup_url" == *"www.dropbox.com"* ]] && [[ "$backup_url" == *"&dl=0" ]]; then
+    echo "Dropbox URL found"
+    backup_url=${backup_url/&dl=0/&dl=1}
+  fi
+
   # Generate fresh snapshot directory
   timedate=$(date +'%Y-%m-%d-%H%M%S')
   mkdir -p restore_$timedate
