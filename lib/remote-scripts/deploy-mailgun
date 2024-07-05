@@ -48,11 +48,11 @@ done
 wp plugin install $gravitysmtp_zip --force --activate --skip-plugins --skip-themes
 
 read -r -d '' gravitysmtp_config << heredoc
-{"debug_log_enabled":"false","setup_wizard_should_display":"false","license_key":"$key","enabled_connector":{"generic":true}}
+{"debug_log_enabled":"false","setup_wizard_should_display":"false","license_key":"$key","enabled_connector":{"generic":"true"},"primary_connector":{"generic":"true"},"backup_connector":{"generic":"false"}}
 heredoc
 
 read -r -d '' gravitysmtp_generic << heredoc
-{"host":"smtp.mailgun.org","port":"587","auth":true,"username":"postmaster@mg.$domain","password":"$password","from_email":"no-reply@mg.$domain","force_from_email":true,"from_name":"$name","force_from_name":true,"encryption_type":"tls","auto_tls":true,"activated":true,"configured":true,"enabled":true}
+{"host":"smtp.mailgun.org","port":"587","auth":true,"username":"postmaster@mg.$domain","password":"$password","from_email":"no-reply@mg.$domain","force_from_email":true,"from_name":"$name","force_from_name":true,"encryption_type":"tls","auto_tls":true,"activated":true,"configured":true,"enabled":true,"is_primary":true,"is_backup":false}
 heredoc
 
 wp option set gravitysmtp_config "$gravitysmtp_config"
