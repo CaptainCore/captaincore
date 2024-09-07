@@ -196,10 +196,9 @@ if ( ! empty( $total_pageviews ) ) {
 if ( $fathom == "" ) {
 
     // Connects to WordPress.com and pulls blog ids
-    $keys = json_decode( shell_exec( "captaincore configs fetch keys --captain_id=$captain_id" ) );
-    $access_key = $keys->access_key;
+    $access_key = $configuration->keys->access_key;
 
-    if ( $site_details->domain ) {
+    if ( ! empty( $site->name ) && $site->name ) {
 
         // Define vars
         $count  = 0;
@@ -207,7 +206,7 @@ if ( $fathom == "" ) {
         $months = '';
 
         // Pull stats from WordPress API
-        $curl = curl_init( "https://public-api.wordpress.com/rest/v1/sites/{$site_details->domain}/stats/visits?unit=month&quantity=12" );
+        $curl = curl_init( "https://public-api.wordpress.com/rest/v1/sites/{$site->name}/stats/visits?unit=month&quantity=12" );
         curl_setopt( $curl, CURLOPT_HTTPHEADER, [ 'Authorization: Bearer ' . $access_key ] );
         curl_setopt( $curl, CURLOPT_RETURNTRANSFER, 1 );
         $response = curl_exec( $curl );
@@ -216,7 +215,7 @@ if ( $fathom == "" ) {
         if ( isset( $stats['error'] ) and $stats['error'] == 'unknown_blog' ) {
             // Attempt to load www version
             // Pull stats from WordPress API
-            $curl = curl_init( "https://public-api.wordpress.com/rest/v1/sites/www.{$site_details->domain}/stats/visits?unit=month&quantity=12" );
+            $curl = curl_init( "https://public-api.wordpress.com/rest/v1/sites/www.{$site->name}/stats/visits?unit=month&quantity=12" );
             curl_setopt( $curl, CURLOPT_HTTPHEADER, [ 'Authorization: Bearer ' . $access_key ] );
             curl_setopt( $curl, CURLOPT_RETURNTRANSFER, 1 );
             $response = curl_exec( $curl );
