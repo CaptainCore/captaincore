@@ -52,6 +52,13 @@ foreach($config_data as $config) {
 // Update current environment with new data.
 ( new CaptainCore\Environments )->update( $environment_update, [ "environment_id" => $environment_id ] );
 
+if ( ! empty ( $system->captaincore_standby ) && $system->captaincore_standby == "true" ) {
+	echo "Standby mode enabled. Skipping remote update.\n";
+	echo json_encode( $environment_update );
+	var_dump( $system );
+	return;
+}
+
 // Prepare request to API
 $request = [
     'method'  => 'POST',
@@ -64,7 +71,7 @@ $request = [
     ] ),
 ];
 
-if ( $system->captaincore_dev ) {
+if ( ! empty ( $system->captaincore_dev ) && $system->captaincore_dev == "true" ) {
     $request['sslverify'] = false;
 }
 
