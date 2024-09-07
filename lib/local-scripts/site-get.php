@@ -137,7 +137,7 @@ if ( empty( $details->auth ) ) {
 }
 
 if ( $format == 'bash' && is_array( $fathom ) ) {
-	if ( $fathom[0]->domain == "" || $fathom[0]->code == "" ) {
+	if ( empty( $fathom[0]->domain ) || empty( $fathom[0]->code ) ) {
 		$fathom = "";
 	} else {
 		$fathom = json_encode( $fathom );
