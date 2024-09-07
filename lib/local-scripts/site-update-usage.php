@@ -55,7 +55,6 @@ foreach($config_data as $config) {
 if ( ! empty ( $system->captaincore_standby ) && $system->captaincore_standby == "true" ) {
 	echo "Standby mode enabled. Skipping remote update.\n";
 	echo json_encode( $environment_update );
-	var_dump( $system );
 	return;
 }
 
