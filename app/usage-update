@@ -29,7 +29,10 @@ run_command() {
   fi
   
   # Load site configs
-  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
+  while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
+
+  folder_size=0
+
   # Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
   if [ -d "$path/${site}_${site_id}/${environment}/backup/" ]; then
     if [[ "$OSTYPE" == "linux-gnu" ]]; then
@@ -39,8 +42,6 @@ run_command() {
     elif [[ "$OSTYPE" == "darwin"* ]]; then
       folder_size=`find $path/${site}_${site_id}/${environment}/backup/ -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}'`
     fi
-    else
-      folder_size=0
   fi
 
   # Views for yearly stats
