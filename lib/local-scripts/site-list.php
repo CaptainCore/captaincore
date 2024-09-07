@@ -21,7 +21,9 @@ foreach($args as $index => $arg) {
 }
 
 // Converts --arguments into $arguments
-parse_str( implode( '&', $args ) );
+parse_str( implode( '&', $args ), $arguments );
+
+$arguments      = (object) $arguments;
 
 if ( !isset( $targets ) ) {
 	echo 'Error: Please specify a target @all, @production or @staging.';
@@ -62,22 +64,22 @@ if ( ! empty( $filter ) && $filter != "core" && $filter != "plugins" && $filter 
 
 $results        = [];
 $site_arguments = [];
-if ( ! empty( $filter ) ) {
+if ( ! empty( $arguments->filter ) ) {
 	$site_arguments[ "filter"] = [
-		"type"    => $filter,
-		"name"    => $filter_name,
-		"version" => $filter_version,
-		"status"  => $filter_status,
+		"type"    => $arguments->filter,
+		"name"    => empty( $arguments->filter_name ) ? "" : $arguments->filter_name,
+		"version" => empty( $arguments->filter_version ) ? "" : $arguments->filter_version,
+		"status"  => empty( $arguments->filter_status ) ? "" : $arguments->filter_status,
 	];
 }
 if ( ! empty( $environment ) ) {
 	$site_arguments[ "environment"] = $environment;
 }
-if ( ! empty( $provider ) ) {
-	$site_arguments[ "provider"] = $provider;
+if ( ! empty( $arguments->provider ) ) {
+	$site_arguments[ "provider"] = $arguments->provider;
 }
-if ( ! empty( $field ) ) {
-	$site_arguments[ "field"] = $field;
+if ( ! empty( $arguments->field ) ) {
+	$site_arguments[ "field"] = $arguments->field;
 }
 if ( ! empty( $targets ) ) {
 	$site_arguments[ "targets"] = $targets;
@@ -91,11 +93,11 @@ if ( ! is_array( $sites ) ) {
 foreach ( $sites as $site ) {
 	$environment = strtolower ( $site->environment );
 	$to_add      = "{$site->site}-{$environment}";
-	if ( ! empty( $field ) ) {
-		$to_add = $site->{$field};
+	if ( ! empty( $arguments->field ) ) {
+		$to_add = $site->{$arguments->field};
 	}
-	if ( ! empty( $field ) && strpos( $field, ',' ) !== false ) {
-		$fields = explode( ",", $field );
+	if ( ! empty( $arguments->field ) && strpos( $arguments->field, ',' ) !== false ) {
+		$fields = explode( ",", $arguments->field );
 		$values = [];
 		foreach ( $fields as $item ) {
 			$values[] = $site->{$item};
@@ -108,15 +110,14 @@ foreach ( $sites as $site ) {
 	$results[]   = $to_add;
 }
 
-
 // Return results
-if ( ! empty( $field ) ) {
-	if ( $field == 'ids' ) {
+if ( ! empty( $arguments->field ) ) {
+	if ( $arguments->field == 'ids' ) {
 		$site = $site->site_id;
-	} elseif ( $field == 'domain' ) {
+	} elseif ( $arguments->field == 'domain' ) {
 		$site = $site->name;
 	} else {
-		$site = $site->{$field};
+		$site = $site->{$arguments->field};
 	}
 	if ( isset( $debug ) ) {
 		$site = "$site|DEBUG|{$site->name}";
