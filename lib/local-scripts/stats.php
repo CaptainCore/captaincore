@@ -106,8 +106,12 @@ if ( empty( $fathom_analytics ) || count( $fathom_ids ) != 1 ) {
     }
 }
 
-if ( empty( $fathom_id ) ) {
+if ( empty( $fathom_id ) && ! empty( $fathom_ids ) ) {
     $fathom_id = $fathom_ids[0];
+}
+if ( empty( $fathom_id ) ) {
+    echo 0;
+    die();
 }
 $after    = date( 'Y-m-d H:i:s' );
 $date     = strtotime("$after -1 year" );
