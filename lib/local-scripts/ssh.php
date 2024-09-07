@@ -23,7 +23,11 @@ foreach( $args as $index => $arg ) {
 }
 
 // Converts --arguments into $arguments
-parse_str( implode( '&', $args ) );
+parse_str( implode( '&', $args ), $parsed_args );
+
+$arguments = empty( $parsed_args["arguments"] ) ? [] : $parsed_args["arguments"];
+$command   = empty( $parsed_args["command"] ) ? "" : $parsed_args["command"];
+$provider  = empty( $parsed_args["provider"] ) ? "" : $parsed_args["provider"];
 
 if ( ! empty( $arguments ) ) {
     $pass_through_args = false;
@@ -151,6 +155,7 @@ if ( $environment->provider == "wpengine" && $environment == "staging" ) {
 $site_data        = json_decode( $site->details );
 $remote_options   = "-q -oStrictHostKeyChecking=no";
 $environment_vars = "";
+$before_ssh       = "";
 
 if ( is_array( $site_data->environment_vars ) ) { 
 	foreach ( $site_data->environment_vars as $item ) { 
