@@ -228,6 +228,10 @@ run_command() {
     echo -n "." >> ${path}/process-${process_id}-progress.log
   fi
 
+  if [ ! -d "$path/${site}_${site_id}/${environment}/backups/" ]; then
+    mkdir -p "$path/${site}_${site_id}/${environment}/backups"
+  fi
+
   cd $path/${site}_${site_id}/${environment}/backups/
   runtime_end=$( date +%s )
   echo "$runtime_start $runtime_end" >> runtime
