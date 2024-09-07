@@ -21,7 +21,11 @@ foreach($args as $index => $arg) {
 }
 
 // Converts --arguments into $arguments
-parse_str( implode( '&', $args ) );
+parse_str( implode( '&', $args ), $arguments );
+$site        = $arguments['site'];
+$environment = $arguments['environment'];
+$storage     = $arguments['storage'];
+$visits      = $arguments['visits'];
 
 // Fetch site details
 $site_details   = json_decode( shell_exec( "captaincore site get $site --captain-id=$captain_id" ) );
