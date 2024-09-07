@@ -36,6 +36,10 @@ run_command() {
 
     while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site-$environment --bash --captain-id=$CAPTAIN_ID)"
 
+    if [[ $address == "" || username == "" ]]; then
+      continue
+    fi
+
     if [[ "$key" != "use_password" ]]; then
       if [[ $key == "" ]]; then
         key=$( captaincore configuration get --field=default_key )
