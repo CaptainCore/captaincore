@@ -18,16 +18,18 @@ foreach($args as $index => $arg) {
 }
 
 // Converts --arguments into $arguments
-parse_str( implode( '&', $args ) );
+parse_str( implode( '&', $args ), $arguments );
+$arguments = (object) $arguments;
+$field     = $arguments->field;
 
 $configuration = ( new CaptainCore\Configurations )->get();
 
 if ( ! empty( $field ) ) {
-    if ( is_array( $configuration->{$field}) ) {
-        echo json_encode( $configuration->{$field} );
+    if ( is_array( $configuration->{$arguments->field}) ) {
+        echo json_encode( $configuration->{$arguments->field} );
         return;
     }
-    echo $configuration->{$field};
+    echo $configuration->{$arguments->field};
     return;
 }
 
