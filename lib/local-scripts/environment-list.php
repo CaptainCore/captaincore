@@ -19,16 +19,16 @@ foreach($args as $index => $arg) {
 }
 
 // Converts --arguments into $arguments
-parse_str( implode( '&', $args ) );
+parse_str( implode( '&', $args ), $arguments );
 
-$site = $args[0];
+$site = array_keys($arguments)[0];
 
 if ( empty( $site ) ) {
 	echo 'Error: Please specify a <site>.';
 	return;
 }
 
-if ( ctype_digit( $site ) ) {
+if (  ctype_digit( $site ) || is_int( $site )  ) {
     $site_id = $site;
 } else {
     $lookup  = ( new CaptainCore\Sites )->where( [ "site" => $site ] );
