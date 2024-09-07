@@ -53,8 +53,7 @@ foreach($config_data as $config) {
 ( new CaptainCore\Environments )->update( $environment_update, [ "environment_id" => $environment_id ] );
 
 if ( ! empty ( $system->captaincore_standby ) && $system->captaincore_standby == "true" ) {
-	echo "Standby mode enabled. Skipping remote update.\n";
-	echo json_encode( $environment_update );
+	echo "Standby mode, local update only: " . json_encode( $environment_update ) . "\n";
 	return;
 }
 
