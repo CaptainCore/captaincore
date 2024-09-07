@@ -137,17 +137,17 @@ if ( $environment->protocol != "sftp" ) {
     return;
 }
 
-if ( $environment->provider != "kinsta" && $environment->address == "" ) {
+if ( $site->provider != "kinsta" && $environment->address == "" ) {
     echo "${COLOR_RED}Error:${COLOR_NORMAL} Missing Kinsta site.";
     return;
 }
 
-if ( $environment->provider == "wpengine" && $environment == "staging" ) {
+if ( $site->provider == "wpengine" && $environment == "staging" ) {
     echo "${COLOR_RED}Error:${COLOR_NORMAL} Missing WP Engine site.";
     return;
 }
 
-if ( $environment->provider == "wpengine" && $environment == "staging" ) {
+if ( $site->provider == "wpengine" && $environment == "staging" ) {
     echo "${COLOR_RED}Error:${COLOR_NORMAL} Missing WP Engine site.";
     return;
 }
