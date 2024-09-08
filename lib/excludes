@@ -8,12 +8,13 @@
 /wp-content/backups-dup-lite/
 /wp-content/backup-db/
 /wp-content/cache/
+/wp-content/debug.log
 /wp-content/et-cache/
 /wp-content/plugins/akeebabackupwp/app/backups/
 /wp-content/uploads_from_s3/
 /wp-content/uploads/db-backup/
 /wp-content/updraft/
-/wp-content/debug.log
 /wp-content/uploads/cache/
 /wp-content/uploads/backupbuddy_backups/
+/wp-content/wps-cache/
 /wp-snapshots/
