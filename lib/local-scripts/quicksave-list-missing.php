@@ -22,8 +22,11 @@ foreach($args as $index => $arg) {
 }
 
 // Converts --arguments into $arguments
-parse_str( implode( '&', $args ) );
-
+parse_str( implode( '&', $args ), $arguments );
+$site        = array_keys( $arguments )[0];
+$environment = "";
+$format      = "";
+$provider    = "";
 if( strpos( $site, "-" ) !== false ) {
 	$split       = explode( "-", $site );
 	$site        = $split[0];
