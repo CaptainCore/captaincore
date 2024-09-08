@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+
+#
+#   Restores quicksave's git repo from latest snapshot
+#
+#   `captaincore quicksave restore-repo <site>`
+#
+#   [<site>...]
+#   One or more sites.
+#
+#   [@<target>]
+#   Target groups of sites like @all @production or @staging.
+#
+#   [--parallel=<number>]
+#   Number of Quicksaves at same time
+#
+#   [--override]
+#   Override existing quicksave repo.
+#
+
+if [ ${#@} -ne 1 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a <site>."
+  exit
+fi
+
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+site=$1
+
+run_command() {
+
+  # Extract environment
+  if [[ "$site" == *"-staging"* ]]; then
+      environment=staging
+  else
+      environment=production
+  fi
+  
+  # Load site configs
+  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
+
+  # Return error if domain not found
+  if [[ "$domain" == "" ]] || [[ "$site" == "" ]]; then
+      echo "Can't locate website for $site"
+      exit
+  fi
+
+  # Append trailing slash if home_directory exist
+  if [ "$home_directory" != "" ]; then
+      home_directory="${home_directory}/"
+  fi
+
+  site_path="${site}_${site_id}/${environment}"
+
+  # Create new git repo if needed
+  if [ -d "$path/$site_path/quicksave/.git" ]; then
+    echo "Git repo already exists $path/$site_path/quicksave/. Please use --override to proceed with the restore."
+    exit
+  fi
+
+  echo "Restoring /quicksave/ from restic repo"
+  if [[ $( restic snapshots --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/quicksave-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key" ) == "" ]]; then
+      echo "Unable to locate restic repo at ${site}_${site_id}/${environment}/quicksave-repo"
+      exit
+  fi
+  restic restore latest --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/quicksave-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key" --target "$path/$site_path/quicksave/"
+
+}
+
+run_command

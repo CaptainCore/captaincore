@@ -53,6 +53,20 @@ var quicksaveGenerateCmd = &cobra.Command{
 	},
 }
 
+var quicksaveRestoreGitCmd = &cobra.Command{
+	Use:   "restore-git <site>",
+	Short: "Restores latest quicksave repo from restic repo",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveCommand(cmd, args)
+	},
+}
+
 var quicksaveGetCmd = &cobra.Command{
 	Use:   "get <site> <hash>",
 	Short: "Get quicksave for a site",
@@ -203,6 +217,7 @@ func init() {
 	quicksaveCmd.AddCommand(quicksaveListGenerateCmd)
 	quicksaveCmd.AddCommand(quicksaveListMissingCmd)
 	quicksaveCmd.AddCommand(quicksaveFileDiffCmd)
+	quicksaveCmd.AddCommand(quicksaveRestoreGitCmd)
 	quicksaveCmd.AddCommand(quicksaveRollbackCmd)
 	quicksaveCmd.AddCommand(quicksaveSearchCmd)
 	quicksaveCmd.AddCommand(quicksaveShowChangesCmd)
