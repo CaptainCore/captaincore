@@ -51,7 +51,7 @@ run_command() {
 
     if [[ "$key" == "use_password" ]]; then
       password=$( captaincore site get ${site}-${environment} --field=password --captain-id=$CAPTAIN_ID )
-      rclone_pass=$( rclone obscure $password )
+      rclone_pass=$( rclone obscure "$password" )
       echo "Generating rclone configs for ${site}-${environment} with password"
       quiet=$( rclone config create $environment $protocol host $address user $username port $port pass --config="$rclone_config_file" -- $rclone_pass )
     fi
@@ -59,9 +59,9 @@ run_command() {
   done
 
   # Add backup remote
-  backup_remote=$( rclone config show ${rclone_backup%:*} ) 
-  echo "[backup]" >> "$rclone_config_file" 
-  echo "${backup_remote#*$'\n'}" >> "$rclone_config_file" 
+  backup_remote=$( rclone config show ${rclone_backup%:*} )
+  echo "[backup]" >> "$rclone_config_file"
+  echo "${backup_remote#*$'\n'}" >> "$rclone_config_file"
 
 }
 
