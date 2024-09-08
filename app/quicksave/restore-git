@@ -59,16 +59,23 @@ run_command() {
 
   # Create new git repo if needed
   if [ -d "$path/$site_path/quicksave/.git" ]; then
-    echo "Git repo already exists $path/$site_path/quicksave/. Please use --override to proceed with the restore."
+    echo "Git repo already exists $path/$site_path/quicksave/. Please remove existing repo 'rm -rf $path/$site_path/quicksave/' to proceed with the restore."
     exit
   fi
 
-  echo "Restoring /quicksave/ from restic repo"
+  echo "Restoring /quicksave/ from ${site}_${site_id}/${environment}/quicksave-repo"
   if [[ $( restic snapshots --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/quicksave-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key" ) == "" ]]; then
       echo "Unable to locate restic repo at ${site}_${site_id}/${environment}/quicksave-repo"
       exit
   fi
   restic restore latest --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/quicksave-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key" --target "$path/$site_path/quicksave/"
+
+  # Refresh index
+  cd "$path/$site_path/quicksave/"
+  git status
+
+  # Generate missing quicksave JSONs from git
+  captaincore quicksave list-missing ${site}-${environment} --captain-id=$CAPTAIN_ID
 
 }
 
