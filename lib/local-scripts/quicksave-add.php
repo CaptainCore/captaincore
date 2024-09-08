@@ -21,9 +21,11 @@ foreach($args as $index => $arg) {
 }
 
 // Converts --arguments into $arguments
-parse_str( implode( '&', $args ) );
-
-$lookup = ( new CaptainCore\Sites )->where( [ "site" => $site ] );
+parse_str( implode( '&', $args ), $arguments );
+$arguments   = (object) $arguments;
+$site        = $arguments->site;
+$environment = $arguments->environment;
+$lookup      = ( new CaptainCore\Sites )->where( [ "site" => $site ] );
 
 // Error if site not found
 if ( count( $lookup ) == 0 ) {
@@ -74,7 +76,7 @@ shell_exec( "cd {$site_path}; git add -A" );
 # Current git status
 $git_status = trim ( shell_exec( "cd {$site_path}; git status -s") );
 
-if ( $git_status == "" and $force != true ) {
+if ( $git_status == "" and ! empty( $arguments->force ) and $arguments->force != true ) {
 	# Skip quicksave as nothing changed
 	echo "Quicksave skipped as nothing changed\n";
 	return;
@@ -130,7 +132,7 @@ $request = [
     'headers' => [ 'Content-Type' => 'application/json' ],
     'body'    => json_encode( [ 
         "command" => "update-environment",
-        "site_id" => $site_id,
+        "site_id" => $site->site_id,
         "token"   => $configuration->keys->token,
         "data"    => $environment_update,
     ] ),

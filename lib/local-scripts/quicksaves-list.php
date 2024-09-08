@@ -21,7 +21,10 @@ foreach($args as $index => $arg) {
 }
 
 // Converts --arguments into $arguments
-parse_str( implode( '&', $args ) );
+parse_str( implode( '&', $args ), $args );
+$site        = $args["site"];
+$site_id     = $args["site_id"];
+$environment = $args["environment"];
 
 // Loads CLI configs
 $json = "{$_SERVER['HOME']}/.captaincore/config.json";
@@ -45,11 +48,15 @@ if ( $system->captaincore_fleet == "true" ) {
     $system->path            = "{$system->path}/${captain_id}";
 }
 
-$command    = "cd $system->path/{$site}_{$site_id}/{$environment}/quicksave/; echo -n \"$( git log --pretty='format:%H %ct' )\"";
+$command    = "cd $system->path/{$site}_{$site_id}/{$environment}/quicksave/; git log --pretty='format:%H %ct'";
 $response   = shell_exec( $command );
-$quicksaves = explode( "\n", $response );
+$quicksaves = explode( "\n", trim( $response ) );
 foreach ( $quicksaves as $key => $quicksave ) {
     $split            = explode( " ", $quicksave );
+    if ( empty(  $split[0] ) || empty(  $split[1] ) || $split[0] == "-n" ) {
+        unset( $quicksaves[$key]);
+        continue;
+    }
     $quicksave_item = (object) [ 
         "hash"       => $split[0],
         "created_at" => $split[1]
