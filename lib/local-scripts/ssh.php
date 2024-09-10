@@ -157,11 +157,10 @@ $remote_options   = "-q -oStrictHostKeyChecking=no";
 $environment_vars = "";
 $before_ssh       = "";
 
-if ( is_array( $site_data->environment_vars ) ) { 
+if ( ! empty( $site_data->environment_vars ) && is_array( $site_data->environment_vars ) ) { 
 	foreach ( $site_data->environment_vars as $item ) { 
 		$environment_vars = "export {$item->key}='{$item->value}' && $environment_vars";
 	}
-	//$environment_vars = "$environment_vars &&";
 }
 
 if ( $site_data->key != 'use_password' && $site_data->key != "" ) {
