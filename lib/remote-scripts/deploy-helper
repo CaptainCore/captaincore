@@ -102,7 +102,7 @@ function captaincore_quick_login_action_callback() {
 		if ( is_plugin_active( 'wps-hide-login/wps-hide-login.php' ) ) {
 			$login_page = get_option( 'whl_page' );
 		}
-		if ( is_plugin_active( 'better-wp-security/better-wp-security.php' ) ) {
+		if ( is_plugin_active( 'better-wp-security/better-wp-security.php' ) and class_exists( 'ITSEC_Modules' ) ) {
 			$hide_backend = (object) ITSEC_Modules::get_settings( 'hide-backend' );
 			if ( $hide_backend->enabled ) {
 				$login_page = $hide_backend->slug;
