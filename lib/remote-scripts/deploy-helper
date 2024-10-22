@@ -194,6 +194,20 @@ add_filter( 'auto_theme_update_send_email', '__return_false' );
 /**
  * Remove clutter from CleanTalk plugin.
  */
+ add_action('admin_menu', function() {
+    global $submenu;
+    if ( empty( $submenu["options-general.php"] ) ) {
+        return;
+    }
+    foreach ($submenu["options-general.php"] as $key => $menu_item) {
+        if ($menu_item[0] == 'Anti-Spam by CleanTalk') {
+            $submenu["options-general.php"][$key][0] = 'CleanTalk';
+            $submenu["options-general.php"][$key][3] = 'CleanTalk';
+            break;
+        }
+    }
+}, 20);
+
 add_action('after_setup_theme', function() {
     remove_filter('plugin_row_meta', 'apbct_admin__register_plugin_links', 10);
 });
