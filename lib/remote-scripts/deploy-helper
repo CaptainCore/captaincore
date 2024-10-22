@@ -61,7 +61,7 @@ read -r -d '' build_mu_plugin << 'heredoc'
  * Plugin Name: CaptainCore Helper
  * Plugin URI: https://captaincore.io
  * Description: Collection of helper functions for CaptainCore
- * Version: 0.2.6
+ * Version: 0.2.7
  * Author: CaptainCore
  * Author URI: https://captaincore.io
  * Text Domain: captaincore-helper
@@ -190,6 +190,36 @@ add_filter( 'auto_plugin_update_send_email', '__return_false' );
  * Disable auto-update email notifications for themes.
  */
 add_filter( 'auto_theme_update_send_email', '__return_false' );
+
+/**
+ * Remove clutter from CleanTalk plugin.
+ */
+add_action('after_setup_theme', function() {
+    remove_filter('plugin_row_meta', 'apbct_admin__register_plugin_links', 10);
+});
+
+add_filter('all_plugins', function($plugins) {
+    $plugin_file = 'cleantalk-spam-protect/cleantalk.php';
+    // Check if the plugin exists in the list and modify the name
+    if (isset($plugins[$plugin_file])) {
+        $plugins[$plugin_file]['Name'] = 'CleanTalk Anti-Spam';
+    }
+    return $plugins;
+});
+
+add_filter('plugin_row_meta', function($plugin_meta, $plugin_file) {
+    $target_plugin = 'cleantalk-spam-protect/cleantalk.php';
+    // Check if the plugin matches the one you want to modify
+    if ($plugin_file === $target_plugin) {
+        // Find the "By" field and replace it
+        foreach ($plugin_meta as &$meta) {
+            if (strpos($meta, 'СleanTalk - Anti-Spam Protection') !== false) {
+                $meta = str_replace('СleanTalk - Anti-Spam Protection', 'CleanTalk', $meta);
+            }
+        }
+    }
+    return $plugin_meta;
+}, 10, 2);
 
 /**
 * The following uses IP ranges provided by the IP2Location LITE database
