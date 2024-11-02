@@ -56,7 +56,7 @@ read -r -d '' gravitysmtp_generic << heredoc
 heredoc
 
 read -r -d '' gravitysmtp_phpmail << heredoc
-{"enabled":true,"is_primary":false,"is_backup":true}
+{"enabled":true,"is_primary":false,"is_backup":true,"from_email":"wordpress@$domain","force_from_email":true,"from_name":"$name","force_from_name":true,"use_return_path":false,"activated":true,"configured":true}
 heredoc
 
 wp option set gravitysmtp_config "$gravitysmtp_config"
