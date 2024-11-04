@@ -98,27 +98,11 @@ function captaincore_quick_login_action_callback() {
 			'user_id'                 => $user->ID,
 			'captaincore_login_token' => $token,
 		];
-		$login_page     = "wp-login.php";
-		if ( is_plugin_active( 'wps-hide-login/wps-hide-login.php' ) ) {
-			$login_page = get_option( 'whl_page' );
-		}
-		if ( is_plugin_active( 'better-wp-security/better-wp-security.php' ) and class_exists( 'ITSEC_Modules' ) ) {
-			$hide_backend = (object) ITSEC_Modules::get_settings( 'hide-backend' );
-			if ( $hide_backend->enabled ) {
-				$login_page = $hide_backend->slug;
-			}
-		}
-		if ( is_plugin_active( 'perfmatters/perfmatters.php' ) ) {
-			$perfmatters_options = get_option('perfmatters_options');
-			$login_page          = empty( $perfmatters_options['login_url'] ) ? 'wp-login.php' : $perfmatters_options['login_url'];
-		}
-		$home_url       = home_url();
-		$login_url      = trim( $home_url, "/" ) . "/$login_page";
-		$one_time_url   = add_query_arg( $query_args, $login_url );
+        $login_url    = wp_login_url();
+		$one_time_url = add_query_arg( $query_args, $login_url );
 	}
 
 	echo $one_time_url;
-
 	wp_die();
 
 }
