@@ -61,7 +61,7 @@ read -r -d '' build_mu_plugin << 'heredoc'
  * Plugin Name: CaptainCore Helper
  * Plugin URI: https://captaincore.io
  * Description: Collection of helper functions for CaptainCore
- * Version: 0.2.7
+ * Version: 0.2.8
  * Author: CaptainCore
  * Author URI: https://captaincore.io
  * Text Domain: captaincore-helper
@@ -80,27 +80,19 @@ function captaincore_quick_login_action_callback() {
 		wp_die();
 	}
 
-	$count = 1;
+	$post->user_login = str_replace( "%20", " ", $post->user_login );
+	$user     = get_user_by( 'login', $post->user_login );
+	$password = wp_generate_password();
+	$token    = sha1( $password );
 
-	$user   = get_user_by( 'login', $post->user_login );
-	$tokens = $new_tokens = [];
+	update_user_meta( $user->ID, 'captaincore_login_token', $token );
 
-	for ( $i = 0; $i < $count; $i++ ) {
-		$password     = wp_generate_password();
-		$token        = sha1( $password );
-		$tokens[]     = $token;
-		$new_tokens[] = $token;
-	}
-
-	update_user_meta( $user->ID, 'captaincore_login_token', $tokens );
-	foreach ( $new_tokens as $token ) {
 		$query_args = [
 			'user_id'                 => $user->ID,
 			'captaincore_login_token' => $token,
 		];
         $login_url    = wp_login_url();
 		$one_time_url = add_query_arg( $query_args, $login_url );
-	}
 
 	echo $one_time_url;
 	wp_die();
@@ -113,6 +105,7 @@ add_action( 'wp_ajax_nopriv_captaincore_quick_login', 'captaincore_quick_login_a
  * Login a request in as a user if the token is valid.
  */
 function captaincore_login_handle_token() {
+
 	global $pagenow;
 
 	if ( 'wp-login.php' !== $pagenow || empty( $_GET['user_id'] ) || empty( $_GET['captaincore_login_token'] ) ) {
@@ -131,22 +124,17 @@ function captaincore_login_handle_token() {
 		wp_die( $error );
 	}
 
-	$tokens   = get_user_meta( $user->ID, 'captaincore_login_token', true );
-	$tokens   = is_string( $tokens ) ? [ $tokens ] : $tokens;
+	$token    = get_user_meta( $user->ID, 'captaincore_login_token', true );
 	$is_valid = false;
-	foreach ( $tokens as $i => $token ) {
 		if ( hash_equals( $token, $_GET['captaincore_login_token'] ) ) {
 			$is_valid = true;
-			unset( $tokens[ $i ] );
-			break;
-		}
 	}
 
 	if ( ! $is_valid ) {
 		wp_die( $error );
 	}
 
-	update_user_meta( $user->ID, 'captaincore_login_token', $tokens );
+	delete_user_meta( $user->ID, 'captaincore_login_token' );
 	wp_set_auth_cookie( $user->ID, 1 );
 	wp_safe_redirect( admin_url() );
 	exit;
@@ -154,6 +142,66 @@ function captaincore_login_handle_token() {
 }
 
 add_action( 'init', 'captaincore_login_handle_token' );
+
+if (defined('WP_CLI') && WP_CLI) {
+
+    /**
+     * Generates a one-time login link for a user based on user ID, email, or login.
+     *
+     * ## OPTIONS
+     *
+     * <user_identifier>
+     * : The user ID, email, or login of the user to generate the login link for.
+     *
+     * ## EXAMPLES
+     *
+     *     wp user login 123
+     *     wp user login user@example.com
+     *     wp user login myusername
+     *
+     * @param array $args The command arguments.
+     */
+    function captaincore_generate_login_link( $args ) {
+
+        $user_identifier = $args[0];
+
+        // Determine if the identifier is a user ID, email, or login
+        if (is_numeric($user_identifier)) {
+            $user = get_user_by('ID', $user_identifier);
+        } elseif (is_email($user_identifier)) {
+            $user = get_user_by('email', $user_identifier);
+        } else {
+            $user = get_user_by('login', $user_identifier);
+        }
+
+        // Check if the user exists
+        if (!$user) {
+            WP_CLI::error("User not found: $user_identifier");
+            return;
+        }
+
+        // Generate tokens
+        $password = wp_generate_password();
+        $token    = sha1($password);
+
+        // Update user meta with the new token
+        update_user_meta( $user->ID, 'captaincore_login_token', $token );
+
+        // Construct the one-time login URL
+        $query_args = [
+            'user_id'                 => $user->ID,
+            'captaincore_login_token' => $token,
+        ];
+        $login_url    = wp_login_url();
+        $one_time_url = add_query_arg($query_args, $login_url);
+
+        // Output the URL to the CLI
+        WP_CLI::log("$one_time_url");
+
+    }
+
+    WP_CLI::add_command( 'user login', 'captaincore_generate_login_link' );
+}
 
 /**
  * Remove site health widget from dashboard.
