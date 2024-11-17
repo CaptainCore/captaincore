@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+
+#
+#   SSH detect connection to a site
+#
+#   `captaincore ssh-detect <username> <address> <site>`
+#
+read -r -d '' php_code << heredoc
+\$arguments = <<<PHPHEREDOC
+$@
+PHPHEREDOC;
+echo base64_encode( \$arguments );
+heredoc
+
+arguments=$( php -r "$php_code" )
+
+if [[ "$1" == "" ]]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Requires a <site>."
+  exit
+fi
+
+cd "$HOME/.captaincore/data"
+
+if [[ "$CAPTAINCORE_DEBUG" == "true" ]]; then
+  wp eval-file ../lib/local-scripts/ssh-detect.php arguments=$arguments
+  echo ""
+  exit
+fi
+
+run_ssh=$( wp eval-file ../lib/local-scripts/ssh-detect.php arguments=$arguments )
+if [[ "$run_ssh" == *"Error:"* ]]; then
+  echo $run_ssh
+  exit
+fi
+eval $run_ssh
