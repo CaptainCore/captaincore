@@ -58,7 +58,7 @@ EOF
   captaincore ssh ${site}-${environment} --script=deploy-helper --captain-id=$CAPTAIN_ID -- --wp_content=$wp_content
 
   # Generate new Fathom code if needed
-  if [[ $captaincore_tracker != "" ]] && [[ $fathom == "" ]]; then
+  if [[ $fathom == "" ]]; then
     # Generate new Fathom tracking code, if needed
     captaincore site stats-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
   fi
