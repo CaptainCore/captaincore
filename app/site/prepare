@@ -57,12 +57,12 @@ EOF
   # Deploy helper plugin
   captaincore ssh ${site}-${environment} --script=deploy-helper --captain-id=$CAPTAIN_ID -- --wp_content=$wp_content
 
+  captaincore sync-data ${site}-${environment} --captain-id=$CAPTAIN_ID
+
   # Generate new Fathom code if needed
   if [[ "$( captaincore site get ${site}-${environment} --field=fathom -captain-id=$CAPTAIN_ID )" == "" ]]; then
     # Generate new Fathom tracking code, if needed
     captaincore site stats-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
   fi
-
-  captaincore sync-data ${site}-${environment} --captain-id=$CAPTAIN_ID
 
 done
