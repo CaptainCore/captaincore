@@ -58,6 +58,10 @@ if ( empty( $environment ) ) {
 }
 
 $environment_key         = array_search( ucfirst($environment), array_column( $site->environments, 'environment' ) );
+if ( $environment_key === false ) {
+	// Environment not found
+	return;
+}
 $address                 = $site->environments[$environment_key]->address;
 $username                = $site->environments[$environment_key]->username;
 $password                = $site->environments[$environment_key]->password;
@@ -69,12 +73,6 @@ $database_password       = $site->environments[$environment_key]->database_passw
 $capture_pages           = $site->environments[$environment_key]->capture_pages;
 $details                 = empty( $site->environments[$environment_key]->details ) ? (object) [] : $site->environments[$environment_key]->details;
 $fathom                  = $site->environments[$environment_key]->fathom;
-$offload_enabled         = $site->environments[$environment_key]->offload_enabled;
-$offload_provider        = $site->environments[$environment_key]->offload_provider;
-$offload_access_key      = $site->environments[$environment_key]->offload_access_key;
-$offload_secret_key      = $site->environments[$environment_key]->offload_secret_key;
-$offload_bucket          = $site->environments[$environment_key]->offload_bucket;
-$offload_path            = $site->environments[$environment_key]->offload_path;
 $home_url                = $site->environments[$environment_key]->home_url;
 $monitor_enabled         = $site->environments[$environment_key]->monitor_enabled;
 $updates_enabled         = $site->environments[$environment_key]->updates_enabled;
@@ -100,7 +98,7 @@ $array = [
 	"provider"                => $site->provider,
 	"key"                     => $site->key,
 	"environment_vars"        => empty( $environment_vars ) ? "" : $environment_vars,
-	"domain"                  => $site->name,
+	"name"                    => $site->name,
 	"home_url"                => $home_url,
 	"defaults"                => empty( $site->account["defaults"] ) ? "[]" : json_encode( $site->account["defaults"] ),
 	"fathom"                  => empty( $details->fathom ) ? "" : json_encode( $details->fathom ),
@@ -118,12 +116,6 @@ $array = [
 	'updates_enabled'         => $updates_enabled,
 	'updates_exclude_themes'  => $updates_exclude_themes,
 	'updates_exclude_plugins' => $updates_exclude_plugins,
-	'offload_enabled'         => $offload_enabled,
-	'offload_provider'        => $offload_provider,
-	'offload_access_key'      => $offload_access_key,
-	'offload_secret_key'      => $offload_secret_key,
-	'offload_bucket'          => $offload_bucket,
-	'offload_path'            => $offload_path,
 ];
 
 if ( $format == 'bash' and $capture_pages != "" ) {
