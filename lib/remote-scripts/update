@@ -91,8 +91,14 @@ heredoc
   echo " "
   if [[ $exclude_plugins == "" ]]; then
     wp plugin update ${flags[@]} --exec="define( 'WP_ADMIN', true );" --skip-plugins=wps-hide-login
+    silent=$( wp cache flush )
+    silent=$( wp plugin list )
+    silent=$( wp plugin update ${flags[@]} --exec="define( 'WP_ADMIN', true );" --skip-plugins=wps-hide-login )
   else
   	wp plugin update ${flags[@]} --exec="define( 'WP_ADMIN', true );" --exclude=$exclude_plugins --skip-plugins=wps-hide-login
+    silent=$( wp cache flush )
+    silent=$( wp plugin list )
+    silent=$( wp plugin update ${flags[@]} --exec="define( 'WP_ADMIN', true );" --exclude=$exclude_plugins --skip-plugins=wps-hide-login )
   fi
 
   # Handle WooCommerce database updates if installed
