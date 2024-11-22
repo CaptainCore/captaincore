@@ -28,7 +28,7 @@ run_command() {
   http_code=$( echo -e "$response_last_line" | perl -ne '/.*\|(\d+)\|(\d+)$/&& print $2' )
 
   # Pull out </html> from bottom if found. Valid code should contain </html> near the bottom.
-  html_end_tag=$( echo -e "$response" | tail -n10 | perl -wnE'say for /<\/html>/g' )
+  html_end_tag=$( echo -e "$response" | tail -n12 | perl -wnE'say for /<\/html>/g' )
 
   # check if </html> found
   if [[ $html_end_tag == "</html>" ]]; then
