@@ -233,7 +233,7 @@ EOM
 	capture_count=$( git rev-list --all --count )
 
 	# Sync site data, pull in new thumbnails
-	captaincore sync-data $site_id
+	captaincore sync-data $site_id --captain-id=$CAPTAIN_ID
 
 	# Clear out variables
 	site=''
