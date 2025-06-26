@@ -2263,75 +2263,80 @@ function clean_disk() {
     "$RCLONE_CMD" ncdu .
 }
 # ----------------------------------------------------
-#  Finds large images and converts them to the WebP format.
+#  Finds large images and converts them to the
+#  WebP format.
 # ----------------------------------------------------
 function convert_to_webp() {
     local all_files_flag="$1"
     echo "🚀 Starting WebP Conversion Process 🚀"
 
-    if ! setup_cwebp; then 
-        echo "Aborting conversion: cwebp setup failed." >&2 
+    if ! setup_cwebp; then
+        echo "Aborting conversion: cwebp setup failed." >&2
         return 1
     fi
 
     local uploads_dir="wp-content/uploads"
     if [ ! -d "$uploads_dir" ]; then
-        echo "❌ Error: Cannot find '$uploads_dir' directory." >&2; return 1; 
-    fi 
+        echo "❌ Error: Cannot find '$uploads_dir' directory." >&2
+        return 1
+    fi
 
-    local before_size;
-    before_size="$(du -sh "$uploads_dir" | awk '{print $1}')";
-    echo "Current uploads size: $before_size" 
+    local before_size
+    before_size="$(du -sh "$uploads_dir" | awk '{print $1}')"
+    echo "Current uploads size: $before_size"
 
     local size_limit_mb=1
     local message="larger than ${size_limit_mb}MB"
     local find_args=("$uploads_dir" -type f)
     if [[ "$all_files_flag" != "true" ]]; then
-        find_args+=(-size "+${size_limit_mb}M") 
+        find_args+=(-size "+${size_limit_mb}M")
     else
         message="of all sizes"
     fi
     find_args+=(\( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" \))
 
-    local files;
-    files=$(find "${find_args[@]}") 
+    local files
+    files=$(find "${find_args[@]}")
 
     if [[ -z "$files" ]]; then
-        echo "✅ No images ${message} found to convert."; 
-        return 0;
+        echo "✅ No images ${message} found to convert."
+        return 0
     fi
-    local count;
-    count=$(echo "$files" | wc -l);
-    echo "Found $count image(s) ${message} to process..."; 
-    echo "" 
+    local count
+    count=$(echo "$files" | wc -l | xargs)
+    echo "Found $count image(s) ${message} to process..."
+    echo ""
 
-    # This loop now calls the new universal helper function
+    local processed_count=0
     echo "$files" | while IFS= read -r file; do
-        if _is_webp "$file"; then 
-            echo "Skipping (already WebP): $file"; continue;
+        processed_count=$((processed_count + 1))
+        if _is_webp "$file"; then
+            echo "⚪️ Skipping ${processed_count}/${count} (already WebP): $file"
+            continue
         fi
 
-        local temp_file="${file}.temp.webp";
-        local before_file_size;
+        local temp_file="${file}.temp.webp"
+        local before_file_size
         before_file_size=$(ls -lh "$file" | awk '{print $5}')
 
-        "$CWEBP_CMD" -q 80 "$file" -o "$temp_file" > /dev/null 2>&1 
+        "$CWEBP_CMD" -q 80 "$file" -o "$temp_file" > /dev/null 2>&1
         if [ -s "$temp_file" ]; then
-            mv "$temp_file" "$file";
-            local after_file_size;
+            mv "$temp_file" "$file"
+            local after_file_size
             after_file_size=$(ls -lh "$file" | awk '{print $5}')
-            echo "✅ Converted ($before_file_size -> $after_file_size): $file" 
+            echo "✅ Converted ${processed_count}/${count} ($before_file_size -> $after_file_size): $file"
         else
-            rm -f "$temp_file";
-            echo "❌ Failed conversion: $file" 
+            rm -f "$temp_file"
+            echo "❌ Failed ${processed_count}/${count}: $file"
         fi
     done
 
-    echo "";
-    local after_size; after_size="$(du -sh "$uploads_dir" | awk '{print $1}')" 
-    echo "✅ Bulk conversion complete!";
-    echo "-----------------------------------------------------";
-    echo "   Uploads folder size reduced from $before_size to $after_size."; 
+    echo ""
+    local after_size
+    after_size="$(du -sh "$uploads_dir" | awk '{print $1}')"
+    echo "✅ Bulk conversion complete!"
+    echo "-----------------------------------------------------"
+    echo "   Uploads folder size reduced from $before_size to $after_size."
     echo "-----------------------------------------------------"
 }
 # ----------------------------------------------------
@@ -4333,96 +4338,86 @@ function run_upgrade() {
     echo "✅ Success! _do version $new_version is now installed at $install_path."
 }
 # ----------------------------------------------------
-#  Performs a full site backup to a Restic repository on B2. 
-#  Credentials can be injected via environment variables or piped via stdin. 
+#  Performs a full site backup to a Restic repository on B2.
+#  Credentials can be injected via environment variables or piped via stdin.
 # ----------------------------------------------------
 function vault_create() {
     echo "🚀 Starting secure snapshot to Restic B2 repository..."
- 
+
     # --- Pre-flight Checks ---
-    if ! setup_restic; then return 1; fi 
-    if ! setup_wp_cli; then return 1; fi 
-    if ! command -v zip &>/dev/null; then echo "❌ Error: The 'zip' command is required for this operation." >&2; return 1; fi 
-    if ! "$WP_CLI_CMD" core is-installed --quiet; 
-    then
-        echo "❌ Error: This does not appear to be a WordPress installation." 
-        >&2 
+    if ! setup_restic; then
         return 1
     fi
- 
+    if ! setup_wp_cli; then
+        return 1
+    fi
+    if ! "$WP_CLI_CMD" core is-installed --quiet; then
+        echo "❌ Error: This does not appear to be a WordPress installation." >&2
+        return 1
+    fi
+
     # --- Setup Restic Environment ---
-    if ! _setup_vault_env; then 
+    if ! _setup_vault_env; then
         return 1 # Error message printed in helper
     fi
- 
+
     # --- Check/Initialize Restic Repository ---
     echo "   - Checking for repository at ${RESTIC_REPOSITORY}..."
-    if ! "$RESTIC_CMD" stats >/dev/null 2>&1; then 
+    if ! "$RESTIC_CMD" stats > /dev/null 2>&1; then
         echo "   - Repository not found or is invalid. Attempting to initialize..."
-        if ! "$RESTIC_CMD" init; then 
-            echo "❌ Error: Failed to initialize Restic repository." 
-            >&2 
+        if ! "$RESTIC_CMD" init; then
+            echo "❌ Error: Failed to initialize Restic repository." >&2
             return 1
         fi
-        echo "   - ✅ Repository initialized successfully." 
+        echo "   - ✅ Repository initialized successfully."
     else
-        echo "   - ✅ Repository found." 
+        echo "   - ✅ Repository found."
     fi
- 
+
     # --- Create Local DB Dump ---
-    local wp_root_dir; 
-    wp_root_dir=$(realpath ".") 
-    local site_slug; site_slug=$(basename "$wp_root_dir") 
-    local random_token; 
-    random_token=$(head /dev/urandom | LC_ALL=C tr -dc 'a-zA-Z0-9' | head -c 7) 
-    local db_filename_base="${site_slug}-db-dump-${random_token}" 
-    local sql_file_path="/tmp/${db_filename_base}.sql" 
-    local zip_file_path="${wp_root_dir}/${db_filename_base}.zip" 
+    local wp_root_dir
+    wp_root_dir=$(realpath ".")
+    local random_token
+    random_token=$(head /dev/urandom | LC_ALL=C tr -dc 'a-zA-Z0-9' | head -c 3)
+    timestamp=$(date +"%Y-%m-%d-%H%M%S")
+    local db_filename_base="database-${timestamp}_${random_token}"
+    local sql_file_path="${wp_root_dir}/${db_filename_base}.sql"
 
     echo "   - Generating temporary database dump: $(basename "$sql_file_path")"
     # Add flags to handle large tables and prevent timeouts, mirroring the db_backup command.
-    if ! "$WP_CLI_CMD" db export "$sql_file_path" --add-drop-table --single-transaction --quick --max_allowed_packet=512M > /dev/null; then 
+    if ! "$WP_CLI_CMD" db export "$sql_file_path" --add-drop-table --single-transaction --quick --max_allowed_packet=512M > /dev/null; then
         echo "❌ Error: Database export failed."
+        rm -f "$sql_file_path"
         return 1
     fi
- 
-    echo "   - Compressing database dump to zip format..."
-    if ! zip -q -j "$zip_file_path" "$sql_file_path"; then 
-        echo "❌ Error: Failed to zip the database dump." 
-        >&2 
-        rm -f "$sql_file_path" 
-        return 1
-    fi
-    
-    rm -f "$sql_file_path" 
 
     # --- Run Restic Backup ---
-    local original_dir; 
-    original_dir=$(pwd) 
+    local original_dir
+    original_dir=$(pwd)
     echo "   - Changing to WordPress root ($wp_root_dir) for clean snapshot paths..."
-    cd "$wp_root_dir" || 
-    { echo "❌ Error: Could not change to WordPress root directory."; rm -f "$zip_file_path"; return 1; 
+    cd "$wp_root_dir" || {
+        echo "❌ Error: Could not change to WordPress root directory."
+        rm -f "$sql_file_path"
+        return 1
     }
 
-    echo "   - Backing up current directory (.), which now includes the zipped database dump..."
-    if ! "$RESTIC_CMD" backup --verbose --tag "$site_slug" --tag "wordpress" "."; 
-    then
-        echo "❌ Error: Restic backup command failed." 
-        >&2 
-        rm -f "$zip_file_path" 
-        cd "$original_dir" 
+    echo "   - Backing up current directory (.), which now includes the SQL database dump..."
+    if ! "$RESTIC_CMD" backup --verbose "."; then
+        echo "❌ Error: Restic backup command failed." >&2
+        rm -f "$sql_file_path"
+        cd "$original_dir"
         return 1
     fi
-    
+
     # --- Cleanup ---
-    cd "$original_dir" 
+    cd "$original_dir"
     echo "   - Cleaning up temporary database dump..."
-    rm -f "$zip_file_path" 
+    rm -f "$sql_file_path"
 
     # Unset variables for security
     unset B2_ACCOUNT_ID B2_ACCOUNT_KEY RESTIC_PASSWORD RESTIC_REPOSITORY
 
-    echo "✅ Vault snapshot complete!" 
+    echo "✅ Vault snapshot complete!"
 }
 
 # ----------------------------------------------------
