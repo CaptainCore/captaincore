@@ -1,0 +1,13 @@
+# Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
+
+folder_size=0
+
+if [[ "$OSTYPE" == "linux-gnu" ]]; then
+    # Begin folder size in bytes without apparent-size flag
+    folder_size=$( du -s --block-size=1 . )
+    folder_size=$( echo $folder_size | cut -d' ' -f 1 )
+elif [[ "$OSTYPE" == "darwin"* ]]; then
+    folder_size=$( find . -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}' )
+fi
+
+echo $folder_size
