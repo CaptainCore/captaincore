@@ -18,7 +18,7 @@ run_command() {
   site=$1
 
   # Load site vars
-  while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
+  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
 
   # Domain not found
   if [[ $domain == "" ]]; then
@@ -30,7 +30,8 @@ run_command() {
   mkdir -p "$path/${site}_${site_id}/"
   echo "" > "$rclone_config_file"
 
-  environments=( $( captaincore environment list $site --captain-id=$CAPTAIN_ID ) )
+  unset IFS
+  environments=($( captaincore environment list $site --captain-id=$CAPTAIN_ID ))
 
   for environment in ${environments[@]}; do
 
@@ -38,6 +39,20 @@ run_command() {
 
     if [[ $address == "" || username == "" ]]; then
       continue
+    fi
+
+    # Add vault file
+    vault_file="$path/${site}_${site_id}/$environment/vault.txt"
+    if [ ! -f "$vault_file" ]; then
+      mkdir -p "$path/${site}_${site_id}/$environment"
+      b2_path="$b2_folder/${CAPTAIN_ID}/${site}_${site_id}/$environment/restic-repo"
+      b2_key_pair=($( b2 key create --bucket="$b2_bucket" --name-prefix="$b2_path" "restic-${site}-${site_id}-$environment" "deleteFiles,listBuckets,listFiles,readBucketEncryption,readBucketLogging,readBucketNotifications,readBucketReplications,readBuckets,readFiles,shareFiles,writeBucketEncryption,writeBucketLogging,writeBucketNotifications,writeBucketReplications,writeFiles" ))
+      echo "$b2_bucket" > "$vault_file"
+      echo "$b2_path" >> "$vault_file"
+      echo "${b2_key_pair[0]}" >> "$vault_file"
+      echo "${b2_key_pair[1]}" >> "$vault_file"
+      cat ${CAPTAINCORE_PATH}/data/restic.key >> "$vault_file"
+      echo "Generating $vault_file"
     fi
 
     if [[ "$key" != "use_password" ]]; then
