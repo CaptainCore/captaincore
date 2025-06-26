@@ -25,6 +25,7 @@ while read config; do
 done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
 
 site=$1
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_path%app*}
 
 run_command() {
 
@@ -48,7 +49,7 @@ run_command() {
   fi
 
   # Load site configs
-  while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
+  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
 
   # Site found, start the backup
   if [[ $domain == "" ]]; then
@@ -61,9 +62,10 @@ run_command() {
     home_directory="${home_directory}/"
   fi
 
-  # Define Rclone config file
+  # Define config file
   rclone_config_file="$path/${site}_${site_id}/rclone.conf"
-  if [ ! -f "$rclone_config_file" ]; then
+  vault_file="$path/${site}_${site_id}/$environment/vault.txt"
+  if [[ ! -f "$rclone_config_file" || ! -f "$vault_file" ]]; then
     captaincore site key-generate $site --captain-id=$CAPTAIN_ID
   fi
 
@@ -87,88 +89,46 @@ run_command() {
 
   if [[ "$backup_mode" == "direct" ]]; then
 
-    echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup ${site}-${environment} to Rclone"
+    # --- 1. Generate a unique, random name for the temporary payload file ---
+    do_script_path="${root_path}lib/remote-scripts/_do"
+    random_token=$(head /dev/urandom | LC_ALL=C tr -dc 'a-zA-Z0-9' | head -c 8)
+    payload_file="$path_tmp/do_vault_payload-${CAPTAIN_ID}-${site}-${environment}_${random_token}.sh"
+    echo "📝 Creating temporary payload file at: $payload_file"
 
-    if [[ $SKIP_DB != true ]] && [[ $wordpress_not_found != true ]]; then
+    # --- 2. Read secrets and write 'export' commands to the payload file ---
+    # This block reads each line from your secrets file and builds the export commands.
+    {
+      echo "export B2_BUCKET='$(sed -n 1p "$vault_file")'"
+      echo "export B2_PATH='$(sed -n 2p "$vault_file")'"
+      echo "export B2_ACCOUNT_ID='$(sed -n 3p "$vault_file")'"
+      echo "export B2_ACCOUNT_KEY='$(sed -n 4p "$vault_file")'"
+      echo "export RESTIC_PASSWORD='$(sed -n 5p "$vault_file")'"
+    } > "$payload_file"
 
-      # Database backup
-      captaincore ssh ${site}-${environment} --script="db-backup" --captain-id=$CAPTAIN_ID
+    # --- 3. Append the main _do script to the payload file ---
+    tail -n +2 "$do_script_path" >> "$payload_file"
 
-      if [[ "$provider" == "wpengine" ]]; then
-        rclone sync ${environment}:_wpeprivate/database-backup.sql backup:${rclone_backup#*:}/${site}_${site_id}/${environment}/backup/ --config="$rclone_config_file" --fast-list
-      fi
-
-      if [[ "$provider" == "kinsta" ]]; then
-        rclone sync ${environment}:private/database-backup.sql backup:${rclone_backup#*:}/${site}_${site_id}/${environment}/backup/ --config="$rclone_config_file" --fast-list
-      fi
-
-      if [[ "$provider" == "rocketdotnet" ]]; then
-        rclone sync ${environment}:tmp/database-backup.sql backup:${rclone_backup#*:}/${site}_${site_id}/${environment}/backup/ --config="$rclone_config_file" --fast-list
-      fi
-
+    # Error handling in case the secrets file is not found
+    if [ $? -ne 0 ]; then
+        echo "❌ Error: Failed to create export commands. Check vault_file path: '$vault_file'" >&2
+        rm -f "$payload_file"
+        exit 1
     fi
 
-    # Backup WordPress site to Rclone backup
-    if [[ "$wp_content" != "wp-content" ]]; then
-      echo "$(date +'%Y-%m-%d %H:%M') Backing up ${site}-${environment} alternative wp-content location ($wp_content)"
-      rclone sync ${environment}:$home_directory backup:${rclone_backup#*:}/${site}_${site_id}/${environment}/backup/ --exclude-from="${CAPTAINCORE_PATH}/lib/excludes" --filter="+ $wp_content/**" --filter="- wp-content/**" --filter="- content/**" --fast-list --config="$rclone_config_file"
-    else
-      rclone sync ${environment}:$home_directory backup:${rclone_backup#*:}/${site}_${site_id}/${environment}/backup/ --exclude-from="${CAPTAINCORE_PATH}/lib/excludes" --filter="- content/**" --fast-list --config="$rclone_config_file"
-    fi
+    ssh_string=$( captaincore ssh ${site}-${environment} --debug --command="bash -s -- vault create" --captain-id=$CAPTAIN_ID )
 
-    # attempt to unmount
-    if [[ "$OSTYPE" == "linux-gnu" ]]; then
-      fusermount -u $path/${site}_${site_id}/${environment}/backup/
-    elif [[ "$OSTYPE" == "darwin"* ]]; then
-      umount $path/${site}_${site_id}/${environment}/backup/
-    fi
-
-    mkdir -p $path/${site}_${site_id}/${environment}/backup/
-    cd $path/${site}_${site_id}/${environment}/
-
-    # if files found, purge backup
-    if [[ "$( ls backup )" != "" ]]; then
-      rm -rf backup/
-      mkdir backup/
-    fi
-
-    echo "Mounting ${environment} to backup/"
-    rclone mount backup:${rclone_backup#*:}/${site}_${site_id}/${environment}/backup/ backup --config="$rclone_config_file" --daemon --read-only --transfers 40
-    echo "rclone mount backup:${rclone_backup#*:}/${site}_${site_id}/${environment}/backup/ backup --config="$rclone_config_file" --daemon --read-only --transfers 40"
-    echo "changing to backup/"
-    cd "backup"
-    mount_point=$(pwd)
-    if [[ "$mount_point/" != "$path/${site}_${site_id}/${environment}/backup/" ]]; then
-      cd $path/${site}_${site_id}/${environment}/
-      if [[ "$OSTYPE" == "linux-gnu" ]]; then
-       fusermount -u backup/
-      elif [[ "$OSTYPE" == "darwin"* ]]; then
-        umount backup/
-      fi
-      
-      echo "Backup cancel. Rclone mounting error."
-      exit
-    fi
-    if [[ $( restic snapshots --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key" ) == "" ]]; then
-      echo "Generating restic repo for $site"
-      restic init --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key"
-    fi
-    if [[ "$wp_content" != "wp-content" ]]; then
-      echo "$(date +'%Y-%m-%d %H:%M') Backing up ${site}-${environment} alternative wp-content location ($wp_content)"
-      restic backup . --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key" --exclude="wp-content/" --exclude="content/*" --exclude="!$wp_content" --exclude-file="${CAPTAINCORE_PATH}/lib/restic-excludes" --no-scan --ignore-inode --read-concurrency=3
-    else
-      restic backup . --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key" --exclude-file="${CAPTAINCORE_PATH}/lib/restic-excludes" --no-scan --ignore-inode --read-concurrency=3
-    fi
-    cd $path/${site}_${site_id}/${environment}/
-    sleep 7
-    if [[ "$OSTYPE" == "linux-gnu" ]]; then
-      fusermount -u backup/
-    elif [[ "$OSTYPE" == "darwin"* ]]; then
-      umount backup/
-    fi
+    # --- Execute the command for real ---
+    echo "🚀 Executing remote vault command..."
+    cat $payload_file | eval $ssh_string
+    
+    # --- 5. Clean up the local temporary file ---
+    echo "🔥 Cleaning up temporary payload file..."
+    rm "$payload_file"
 
     captaincore backup list-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
     captaincore backup get-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
+
+    captaincore usage-update ${site}-${environment} --captain-id=$CAPTAIN_ID
 
     cd $path/${site}_${site_id}/${environment}/backups/
     runtime_end=$( date +%s )
