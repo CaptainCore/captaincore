@@ -1,13 +1,30 @@
-# Calculate folder size in bytes http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
+#!/usr/bin/env bash
 
+# --- Calculate folder size in bytes ---
+# http://superuser.com/questions/22460/how-do-i-get-the-size-of-a-linux-or-mac-os-x-directory-from-the-command-line
 folder_size=0
-
 if [[ "$OSTYPE" == "linux-gnu" ]]; then
-    # Begin folder size in bytes without apparent-size flag
-    folder_size=$( du -s --block-size=1 . )
-    folder_size=$( echo $folder_size | cut -d' ' -f 1 )
+    # Use 'du -sb' which outputs the total size in bytes directly.
+    folder_size=$(du -sb . | cut -f1)
 elif [[ "$OSTYPE" == "darwin"* ]]; then
-    folder_size=$( find . -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}' )
+    # Your original command for macOS
+    folder_size=$(find . -type f -print0 | xargs -0 stat -f%z | awk '{b+=$1} END {print b}')
 fi
 
-echo $folder_size
+# --- Get database size in bytes using WP-CLI ---
+database_size=0
+# First, check if the 'wp' command exists and if we're in a valid WP installation
+if command -v wp &> /dev/null && wp core is-installed --quiet; then
+    # Execute the command and capture the output
+    database_size=$(wp db size --size_format=b --skip-plugins --skip-themes)
+
+    # Simple validation to ensure the output is a number before proceeding
+    if ! [[ "$database_size" =~ ^[0-9]+$ ]]; then
+        database_size=0
+    fi
+fi
+
+# --- Calculate and print the total combined size ---
+total_size=$((folder_size + database_size))
+
+echo $total_size
