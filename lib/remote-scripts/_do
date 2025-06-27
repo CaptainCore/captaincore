@@ -4429,22 +4429,26 @@ function _setup_vault_env() {
 
     # Prioritize stdin: If data is being piped in, read from it.
     if ! [ -t 0 ]; then
-        read -r b2_bucket
-        read -r b2_path
-        read -r b2_key_id
-        read -r b2_app_key
-        read -r restic_password
-    # Fallback to environment variables if stdin is not a pipe.
-    elif [ -n "$B2_ACCOUNT_ID" ]; then
+        read -r stdin_b2_bucket
+        read -r stdin_b2_path
+        read -r stdin_b2_key_id
+        read -r stdin_b2_app_key
+        read -r stdin_restic_password
+        
+        b2_bucket=${stdin_b2_bucket}
+        b2_path=${stdin_b2_path}
+        b2_key_id=${stdin_b2_key_id}
+        b2_app_key=${stdin_b2_app_key}
+        restic_password=${stdin_restic_password}
+    fi
+
+    # If stdin empty or incomplete, then attempt to load from environment variables.
+    if [ -z "$b2_bucket" ] || [ -z "$b2_path" ] || [ -z "$b2_key_id" ] || [ -z "$b2_app_key" ] || [ -z "$restic_password" ]; then
         b2_bucket="$B2_BUCKET"
         b2_path="$B2_PATH"
         b2_key_id="$B2_ACCOUNT_ID"
         b2_app_key="$B2_ACCOUNT_KEY"
         restic_password="$RESTIC_PASSWORD"
-    # If neither method provides credentials, error out.
-    else
-        echo "❌ Error: This command requires credentials piped via stdin or set as environment variables." >&2
-        return 1
     fi
 
     if [ -z "$b2_bucket" ] || [ -z "$b2_path" ] || [ -z "$b2_key_id" ] || [ -z "$b2_app_key" ] || [ -z "$restic_password" ]; then
