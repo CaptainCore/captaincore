@@ -4345,12 +4345,8 @@ function vault_create() {
     echo "🚀 Starting secure snapshot to Restic B2 repository..."
 
     # --- Pre-flight Checks ---
-    if ! setup_restic; then
-        return 1
-    fi
-    if ! setup_wp_cli; then
-        return 1
-    fi
+    if ! setup_restic; then return 1; fi
+    if ! setup_wp_cli; then return 1; fi
     if ! "$WP_CLI_CMD" core is-installed --quiet; then
         echo "❌ Error: This does not appear to be a WordPress installation." >&2
         return 1
@@ -4374,19 +4370,29 @@ function vault_create() {
         echo "   - ✅ Repository found."
     fi
 
-    # --- Create Local DB Dump ---
-    local wp_root_dir
-    wp_root_dir=$(realpath ".")
-    local random_token
-    random_token=$(head /dev/urandom | LC_ALL=C tr -dc 'a-zA-Z0-9' | head -c 3)
-    timestamp=$(date +"%Y-%m-%d-%H%M%S")
-    local db_filename_base="database-${timestamp}_${random_token}"
-    local sql_file_path="${wp_root_dir}/${db_filename_base}.sql"
+    # --- Create DB Dump in Private Directory ---
+    local private_dir
+    if ! private_dir=$(_get_private_dir); then
+        return 1 # Error message handled in helper
+    fi
+    local sql_file_path="${private_dir}/database-backup.sql"
 
-    echo "   - Generating temporary database dump: $(basename "$sql_file_path")"
+    echo "   - Generating database dump at: ${sql_file_path}"
     if ! "$WP_CLI_CMD" db export "$sql_file_path" --add-drop-table --single-transaction --quick --max_allowed_packet=512M > /dev/null; then
         echo "❌ Error: Database export failed."
-        rm -f "$sql_file_path"
+        # No need to remove the file, we can just overwrite next time.
+        return 1
+    fi
+
+    # --- Move DB dump to root for snapshot ---
+    local wp_root_dir
+    wp_root_dir=$(realpath ".")
+    local temporary_sql_path_in_root="${wp_root_dir}/database-backup.sql"
+
+    echo "   - Temporarily moving database dump to web root for snapshotting."
+    # Move the file from its private location to the web root.
+    if ! mv "$sql_file_path" "$temporary_sql_path_in_root"; then
+        echo "❌ Error: Could not move database dump to web root."
         return 1
     fi
 
@@ -4396,11 +4402,14 @@ function vault_create() {
     echo "   - Changing to WordPress root ($wp_root_dir) for clean snapshot paths..."
     cd "$wp_root_dir" || {
         echo "❌ Error: Could not change to WordPress root directory."
-        rm -f "$sql_file_path"
+        # Attempt to move the file back even on cd failure.
+        echo "   - Attempting to move database dump back to private directory..."
+        mv "$temporary_sql_path_in_root" "$sql_file_path"
         return 1
     }
 
-    echo "   - Backing up current directory (.), which now includes the SQL database dump..."
+    echo "   - Backing up current directory (.), which now includes the SQL dump..."
+    # The path to back up is just '.', as the SQL file is now inside it.
     if ! "$RESTIC_CMD" backup --verbose "." \
         --exclude '**.DS_Store' \
         --exclude '*timthumb.txt' \
@@ -4412,15 +4421,17 @@ function vault_create() {
         --exclude 'wp-content/uploads_from_s3' \
         --exclude 'wp-snapshots'; then
         echo "❌ Error: Restic backup command failed." >&2
-        rm -f "$sql_file_path"
+        # Cleanup should happen even on failure. Move the file back.
         cd "$original_dir"
+        echo "   - Moving database dump back to private directory..."
+        mv "$temporary_sql_path_in_root" "$sql_file_path"
         return 1
     fi
 
-    # --- Cleanup ---
+    # --- Cleanup: Move DB dump back to private directory ---
     cd "$original_dir"
-    echo "   - Cleaning up temporary database dump..."
-    rm -f "$sql_file_path"
+    echo "   - Moving database dump back to private directory..."
+    mv "$temporary_sql_path_in_root" "$sql_file_path"
 
     # Unset variables for security
     unset B2_ACCOUNT_ID B2_ACCOUNT_KEY RESTIC_PASSWORD RESTIC_REPOSITORY
