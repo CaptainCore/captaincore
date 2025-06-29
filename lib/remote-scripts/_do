@@ -4384,7 +4384,6 @@ function vault_create() {
     local sql_file_path="${wp_root_dir}/${db_filename_base}.sql"
 
     echo "   - Generating temporary database dump: $(basename "$sql_file_path")"
-    # Add flags to handle large tables and prevent timeouts, mirroring the db_backup command.
     if ! "$WP_CLI_CMD" db export "$sql_file_path" --add-drop-table --single-transaction --quick --max_allowed_packet=512M > /dev/null; then
         echo "❌ Error: Database export failed."
         rm -f "$sql_file_path"
@@ -4402,7 +4401,16 @@ function vault_create() {
     }
 
     echo "   - Backing up current directory (.), which now includes the SQL database dump..."
-    if ! "$RESTIC_CMD" backup --verbose "."; then
+    if ! "$RESTIC_CMD" backup --verbose "." \
+        --exclude '**.DS_Store' \
+        --exclude '*timthumb.txt' \
+        --exclude 'debug.log' \
+        --exclude 'error_log' \
+        --exclude 'phperror_log' \
+        --exclude 'wp-content/updraft' \
+        --exclude 'wp-content/cache' \
+        --exclude 'wp-content/uploads_from_s3' \
+        --exclude 'wp-snapshots'; then
         echo "❌ Error: Restic backup command failed." >&2
         rm -f "$sql_file_path"
         cd "$original_dir"
@@ -4691,8 +4699,13 @@ echo "💾 Download this directory ({$current_path})|download_dir|.\n";
             data_items+=("${type_part}|${name_part}")
         done <<< "$formatted_list"
 
-        local selected_display
-        selected_display=$(printf "%s\n" "${display_items[@]}" | "$GUM_CMD" filter --height=20 --prompt="👇 Select an item" --indicator="→" --placeholder="")
+         local selected_display
+        # Use a for loop to pipe items to gum filter, avoiding argument list limits.
+        selected_display=$(
+            for item in "${display_items[@]}"; do
+                echo "$item"
+            done | "$GUM_CMD" filter --height=20 --prompt="👇 Select a snapshot to browse" --indicator="→" --placeholder=""
+        )
 
         if [ -z "$selected_display" ];
         then
@@ -4794,8 +4807,9 @@ function vault_snapshots() {
     }
 EOF
 
+    # Pipe the JSON data into the PHP script to avoid argument length limits.
     total_count=$("$GUM_CMD" spin --spinner dot --title "Counting total snapshots..." -- \
-        bash -c 'printf "%s" "$1" | php -r "$2"' _ "$snapshots_json" "$php_script"
+        bash -c 'php -r "$1"' _ "$php_script" <<< "$snapshots_json"
     )
 
     echo "🔎 Fetching ${total_count} snapshots..."
