@@ -103,6 +103,7 @@ run_command() {
       echo "export B2_ACCOUNT_ID='$(sed -n 3p "$vault_file")'"
       echo "export B2_ACCOUNT_KEY='$(sed -n 4p "$vault_file")'"
       echo "export RESTIC_PASSWORD='$(sed -n 5p "$vault_file")'"
+      echo "export EMAIL_NOTIFY=$captaincore_admin_email"
     } > "$payload_file"
 
     # --- 3. Append the main _do script to the payload file ---

@@ -4357,6 +4357,35 @@ function vault_create() {
         return 1 # Error message printed in helper
     fi
 
+    # --- Rclone Cache Size Check ---
+    # If the EMAIL_NOTIFY variable is set, check the rclone cache size.
+    if [ -n "$EMAIL_NOTIFY" ]; then
+        local rclone_cache_dir="$HOME/.cache/rclone"
+        if [ -d "$rclone_cache_dir" ]; then
+            local cache_size_bytes
+            cache_size_bytes=$(du -sb "$rclone_cache_dir" | awk '{print $1}')
+            # 10 GB in bytes
+            local size_limit_bytes=10737418240 
+
+            # If the cache is larger than the limit, send an email notification.
+            if (( cache_size_bytes > size_limit_bytes )); then
+                local site_url
+                site_url=$("$WP_CLI_CMD" option get home)
+                local cache_size_gb
+                cache_size_gb=$(awk -v bytes="$cache_size_bytes" 'BEGIN { printf "%.2f", bytes / 1024 / 1024 / 1024 }')
+                
+                local email_subject="Rclone Cache Warning for ${site_url}"
+                local email_message="Warning: The rclone cache folder at ${rclone_cache_dir} is larger than 10GB. Current size: ${cache_size_gb}GB. This might cause issues with 'vault create' operations."
+                
+                echo "   - ⚠️  Rclone cache is large (${cache_size_gb}GB). Sending email notification to $EMAIL_NOTIFY..."
+
+                # Use wp eval to send the email via WordPress.
+                "$WP_CLI_CMD" eval "wp_mail( '$EMAIL_NOTIFY', '$email_subject', '$email_message', ['Content-Type: text/html; charset=UTF-8'] );"
+            fi
+        fi
+    fi
+    # --- End Rclone Cache Size Check ---
+
     # --- Check/Initialize Restic Repository ---
     echo "   - Checking for repository at ${RESTIC_REPOSITORY}..."
     if ! "$RESTIC_CMD" stats > /dev/null 2>&1; then
@@ -4418,6 +4447,7 @@ function vault_create() {
         --exclude 'phperror_log' \
         --exclude 'wp-content/updraft' \
         --exclude 'wp-content/cache' \
+        --exclude 'wp-content/uploads/sessions' \
         --exclude 'wp-content/uploads_from_s3' \
         --exclude 'wp-snapshots'; then
         echo "❌ Error: Restic backup command failed." >&2
