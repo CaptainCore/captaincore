@@ -4439,7 +4439,8 @@ function vault_create() {
 
     echo "   - Backing up current directory (.), which now includes the SQL dump..."
     # The path to back up is just '.', as the SQL file is now inside it.
-    if ! "$RESTIC_CMD" backup --verbose "." \
+    if ! find . -o -print | "$RESTIC_CMD" backup --verbose "." \
+        --files-from - \
         --exclude '**.DS_Store' \
         --exclude '*timthumb.txt' \
         --exclude 'debug.log' \
@@ -4447,6 +4448,9 @@ function vault_create() {
         --exclude 'phperror_log' \
         --exclude 'wp-content/updraft' \
         --exclude 'wp-content/cache' \
+        --exclude 'wp-content/et-cache' \
+        --exclude 'wp-content/.wps-slots' \
+        --exclude 'wp-content/wflogs' \
         --exclude 'wp-content/uploads/sessions' \
         --exclude 'wp-content/uploads_from_s3' \
         --exclude 'wp-snapshots'; then
