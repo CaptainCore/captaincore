@@ -36,7 +36,7 @@ var debug bool
 //go:embed logo*.png
 var staticFiles embed.FS
 
-//var clients = make(map[*websocket.Conn]bool) // connected clients
+// var clients = make(map[*websocket.Conn]bool) // connected clients
 type Client struct {
 	Token string
 	// The websocket connection.
@@ -212,6 +212,23 @@ func newRun(w http.ResponseWriter, r *http.Request) {
 	// Starts running CaptainCore command
 	response := runCommand("captaincore --captain-id="+captainID+" "+task.Command, task)
 	fmt.Fprintf(w, response)
+}
+
+func newRunStream(w http.ResponseWriter, r *http.Request) {
+	var task Task
+	json.NewDecoder(r.Body).Decode(&task)
+	token := r.Header.Get("token")
+	randomToken := generateToken()
+	captainID := fetchCaptainID(token, r)
+
+	task.Status = "Started"
+	task.CaptainID, err = strconv.Atoi(captainID)
+	task.Token = randomToken
+
+	db.Create(&task)
+
+	// Starts running CaptainCore command
+	runStreamCommand(w, "captaincore --captain-id="+captainID+" "+task.Command, task)
 }
 
 func newBackground(w http.ResponseWriter, r *http.Request) {
@@ -446,6 +463,7 @@ func HandleRequests(d bool) {
 	router.HandleFunc("/tasks", checkSecurity(allTasks)).Methods("GET")
 	router.HandleFunc("/tasks/{page}", checkSecurity(allTasks)).Methods("GET")
 	router.HandleFunc("/run", checkSecurity(newRun)).Methods("POST")
+	router.HandleFunc("/run/stream", checkSecurity(newRunStream)).Methods("POST")
 	router.HandleFunc("/run/background", checkSecurity(newBackground)).Methods("POST")
 	router.HandleFunc("/assets/logo-{size}.png", logoHandler)
 	router.HandleFunc("/ws", wsHandler)
@@ -482,6 +500,57 @@ func killCommand(t Task) {
 	log.Println("Process killed ", strconv.Itoa(t.ProcessID))
 }
 
+// runStreamCommand executes a command and streams its binary output directly to the HTTP response.
+func runStreamCommand(w http.ResponseWriter, cmd string, t Task) {
+	// See https://regexr.com/4154h for custom regex to parse commands
+	// Inspired by https://gist.github.com/danesparza/a651ac923d6313b9d1b7563c9245743b
+	pattern := `(--[^\s]+="[^"]+")|"([^"]+)"|'([^']+)'|([^\s]+)`
+	parts := regexp.MustCompile(pattern).FindAllString(cmd, -1)
+
+	// The first part is the command, the rest are the args:
+	head := parts[0]
+	arguments := parts[1:len(parts)]
+
+	// Loop through arguments and remove quotes from ---command="" due to bug
+	for i, v := range arguments {
+		if strings.HasPrefix(v, "--command=") {
+			newArgument := strings.Replace(v, "\"", "", 1)
+			newArgument = strings.Replace(newArgument, "\"", "", -1)
+			arguments[i] = newArgument
+		}
+		if strings.HasPrefix(v, "--name=") {
+			newArgument := strings.Replace(v, "\"", "", 1)
+			newArgument = strings.Replace(newArgument, "\"", "", -1)
+			arguments[i] = newArgument
+		}
+	}
+
+	log.Printf("Running stream command for Task %d: %s", t.ID, t.Command)
+	// if db != nil {
+	// 	db.Model(&task).Update("Status", "Running")
+	// }
+
+	command := exec.Command(head, arguments...)
+	command.Stdout = w
+	command.Stderr = os.Stderr // Pipe stderr to the server log for debugging
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+
+	err := command.Run()
+
+	if err != nil {
+		log.Printf("Error running stream command for Task %d: %v", t.ID, err)
+		// if db != nil {
+		// 	db.Model(&task).Update("Status", "Failed")
+		// }
+	} else {
+		log.Printf("Stream command for Task %d completed successfully.", t.ID)
+		// if db != nil {
+		// 	db.Model(&task).Update("Status", "Completed")
+		// }
+	}
+}
+
 func runCommand(cmd string, t Task) string {
 	// See https://regexr.com/4154h for custom regex to parse commands
 	// Inspired by https://gist.github.com/danesparza/a651ac923d6313b9d1b7563c9245743b
@@ -490,6 +559,9 @@ func runCommand(cmd string, t Task) string {
 
 	// The first part is the command, the rest are the args:
 	head := parts[0]
+	//dirname, err := os.UserHomeDir()
+	//path := dirname + "/.captaincore/app/"
+	//head = "/bin/bash -c " + head
 	arguments := parts[1:len(parts)]
 
 	// log.Println("Hunting for socket with token ", t.Token)
