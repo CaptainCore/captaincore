@@ -52,11 +52,18 @@ read -r -d '' gravitysmtp_config << heredoc
 heredoc
 
 read -r -d '' gravitysmtp_generic << heredoc
-{"host":"smtp.mailgun.org","port":"587","auth":true,"username":"postmaster@mg.$domain","password":"$password","from_email":"no-reply@mg.$domain","force_from_email":true,"from_name":"$name","force_from_name":true,"encryption_type":"tls","auto_tls":true,"activated":true,"configured":true,"enabled":true,"is_primary":true,"is_backup":false}
+{"host":"smtp.mailgun.org","port":"587","auth":true,"username":"postmaster@$domain","password":"$password","from_email":"no-reply@$domain","force_from_email":true,"from_name":"$name","force_from_name":true,"encryption_type":"tls","auto_tls":true,"activated":true,"configured":true,"enabled":true,"is_primary":true,"is_backup":false}
 heredoc
 
+root_domain=$(wp option get home --skip-plugins --skip-themes)
+root_domain=${root_domain/http:\/\/www./}            # removes http://www.
+root_domain=${root_domain/https:\/\/www./}           # removes https://www.
+root_domain=${root_domain/http:\/\//}                # removes https://
+root_domain=${root_domain/https:\/\//}               # removes http://
+root_domain=$( echo $root_domain | awk '{$1=$1};1' ) # Trims whitespace
+
 read -r -d '' gravitysmtp_phpmail << heredoc
-{"enabled":true,"is_primary":false,"is_backup":true,"from_email":"wordpress@$domain","force_from_email":true,"from_name":"$name","force_from_name":true,"use_return_path":false,"activated":true,"configured":true}
+{"enabled":true,"is_primary":false,"is_backup":true,"from_email":"wordpress@$root_domain","force_from_email":true,"from_name":"$name","force_from_name":true,"use_return_path":false,"activated":true,"configured":true}
 heredoc
 
 wp option set gravitysmtp_config "$gravitysmtp_config"
