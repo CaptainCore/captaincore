@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+#
+#   List files in archive
+#
+#   `captaincore archive list`
+#
+
+# Load configuration
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+# Fetch JSON list from Rclone
+rclone lsjson ${rclone_archive}

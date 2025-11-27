@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+#
+#   Share an archived file
+#
+#   `captaincore archive share <file>`
+#
+
+# Load configuration
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+file="$1"
+DURATION=604800 # 7 Days
+
+# Strip the rclone remote name to get the path
+b2_bucket_path="${rclone_archive#*:}"
+
+# Construct the B2 URI
+b2_path="b2://CaptainCoreArchive/Snapshots/${CAPTAIN_ID}/${file}"
+
+# Generate signed URL
+b2 file url --with-auth --duration $DURATION "$b2_path"
