@@ -22,3 +22,4 @@
 /wp-content/uploads/sessions/
 /wp-content/wps-cache/
 /wp-snapshots/
+node_modules/

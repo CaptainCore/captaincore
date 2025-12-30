@@ -8,3 +8,4 @@ wp-content/updraft/
 wp-content/cache/
 wp-content/uploads_from_s3/
 wp-snapshots/
+node_modules/
