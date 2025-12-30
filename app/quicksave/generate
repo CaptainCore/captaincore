@@ -87,9 +87,9 @@ run_command() {
   site_path="${site}_${site_id}/${environment}"
 
   # Updates themes/plugins before Quicksave (Selective backup site locally)
-  rclone sync ${environment}:$home_directory${wp_content}/themes/ $path/$site_path/backup/${wp_content}/themes/ --exclude .DS_Store --exclude *timthumb.txt  --config="$rclone_config_file"
-  rclone sync ${environment}:$home_directory${wp_content}/mu-plugins/ $path/$site_path/backup/${wp_content}/mu-plugins/ --exclude .DS_Store --exclude *timthumb.txt --config="$rclone_config_file"
-  rclone sync ${environment}:$home_directory${wp_content}/plugins/ $path/$site_path/backup/${wp_content}/plugins/ --exclude .DS_Store --exclude *timthumb.txt --config="$rclone_config_file"
+  rclone sync ${environment}:$home_directory${wp_content}/themes/ $path/$site_path/backup/${wp_content}/themes/ --exclude .DS_Store --exclude *timthumb.txt --exclude "node_modules/**" --config="$rclone_config_file"
+  rclone sync ${environment}:$home_directory${wp_content}/mu-plugins/ $path/$site_path/backup/${wp_content}/mu-plugins/ --exclude .DS_Store --exclude *timthumb.txt --exclude "node_modules/**" --config="$rclone_config_file"
+  rclone sync ${environment}:$home_directory${wp_content}/plugins/ $path/$site_path/backup/${wp_content}/plugins/ --exclude .DS_Store --exclude *timthumb.txt --exclude "node_modules/**" --config="$rclone_config_file"
 
   # Sync to git repo
   mkdir -p $path/$site_path/quicksave/mu-plugins
@@ -101,12 +101,12 @@ run_command() {
 
   # Create new git repo if needed
   if [ ! -d ".git" ]; then
-      git init
+    git init
   fi
 
-  rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" $path/$site_path/backup/${wp_content}/mu-plugins/ $path/$site_path/quicksave/mu-plugins
-  rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" $path/$site_path/backup/${wp_content}/plugins/ $path/$site_path/quicksave/plugins
-  rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" $path/$site_path/backup/${wp_content}/themes/ $path/$site_path/quicksave/themes
+  rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude="node_modules" $path/$site_path/backup/${wp_content}/mu-plugins/ $path/$site_path/quicksave/mu-plugins
+  rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude="node_modules" $path/$site_path/backup/${wp_content}/plugins/ $path/$site_path/quicksave/plugins
+  rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude="node_modules" $path/$site_path/backup/${wp_content}/themes/ $path/$site_path/quicksave/themes
 
   cd ${CAPTAINCORE_PATH}/data
 
