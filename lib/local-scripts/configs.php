@@ -41,8 +41,8 @@ foreach($config_data as $config) {
 	}
 }
 
-if ( file_exists( "{$system->path}/${captain_id}/manifest.json" ) ) {
-	$configuration->vars->manifest = json_decode ( file_get_contents ( "{$system->path}/${captain_id}/manifest.json" ) );
+if ( file_exists( "{$system->path}/{$captain_id}/manifest.json" ) ) {
+	$configuration->vars->manifest = json_decode ( file_get_contents ( "{$system->path}/{$captain_id}/manifest.json" ) );
 }
 
 
@@ -60,8 +60,8 @@ if ( $command == "fetch" ) {
 
 	# Adjust path if fleet mode enabled
 	if ( $system->captaincore_fleet == "true" ) {
-		$system->path            = "{$system->path}/${captain_id}";
-		$system->rclone_archive  = "{$system->rclone_archive}/${captain_id}";
+		$system->path            = "{$system->path}/{$captain_id}";
+		$system->rclone_archive  = "{$system->rclone_archive}";
 		$system->rclone_backup   = "{$system->rclone_backup}/{$captain_id}";
 		$system->rclone_logs     = "{$system->rclone_logs}/{$captain_id}";
 		$system->rclone_snapshot = "{$system->rclone_snapshot}/{$captain_id}";
