@@ -50,12 +50,24 @@ function time_elapsed_string( $datetime, $full = false ) {
 function process_log( $action = '' ) {
 
 	global $log_file;
-	$contents = file_get_contents( $log_file );
-	$lines    = explode( "\n", $contents );
-	$output   = array();
-	$errors   = array();
+	$errors = array();
 
-	foreach ( $lines as $line ) {
+	// Open the source log file for reading
+	$handle = fopen( $log_file, "r" );
+	if ( ! $handle ) {
+		return array();
+	}
+
+	// If we are updating, open a temp file to write the "good" lines to
+	$temp_handle = null;
+	$temp_path   = "";
+	if ( $action == 'update' ) {
+		$temp_path   = $log_file . ".tmp";
+		$temp_handle = fopen( $temp_path, "w" );
+	}
+
+	// Read line by line (Memory Safe)
+	while ( ( $line = fgets( $handle ) ) !== false ) {
 
 		$json = json_decode( $line );
 
@@ -80,13 +92,17 @@ function process_log( $action = '' ) {
 
 		// Check if healthy
 		if ( $json->http_code == '200' ) {
-			$output[] = $line;
+			if ( $action == 'update' && $temp_handle ) {
+				fwrite( $temp_handle, $line );
+			}
 			continue;
 		}
 
 		// Check for redirects
 		if ( $json->http_code == '301' ) {
-			$output[] = $line;
+			if ( $action == 'update' && $temp_handle ) {
+				fwrite( $temp_handle, $line );
+			}
 			continue;
 		}
 
@@ -94,12 +110,15 @@ function process_log( $action = '' ) {
 		$errors[] = $record;
 	}
 
-	if ( $action == 'update' ) {
+	// Close handles
+	fclose( $handle );
+	if ( $temp_handle ) {
+		fclose( $temp_handle );
+	}
 
-		// Update log file without errors
-		$contents_updated = implode( "\n", $output );
-		file_put_contents( $log_file, $contents_updated );
-
+	// Atomic swap if updating
+	if ( $action == 'update' && file_exists( $temp_path ) ) {
+		rename( $temp_path, $log_file );
 	}
 
 	return $errors;
