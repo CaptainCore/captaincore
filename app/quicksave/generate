@@ -20,6 +20,9 @@
 #   [--debug]
 #   Debug mode
 #
+#   [--skip-if-recent=<timeframe>]
+#   Skip if quicksave generated or last checked within the specified timeframe (e.g., "24h", "7d").
+#
 
 if [ ${#@} -ne 1 ]; then
   echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a <site>."
@@ -52,6 +55,21 @@ run_command() {
       echo "Can't locate website for $site"
       exit
   fi
+
+  # --------------------------------------------------
+  # Auto-Resume / Skip Logic
+  # Check if we processed this recently based on --skip-if-recent flag
+  # --------------------------------------------------
+  if [[ -n "$SKIP_IF_RECENT" ]]; then
+    quicksave_list_file="$path/${site}_${site_id}/${environment}/quicksaves/list.json"
+    should_skip=$(php ${CAPTAINCORE_PATH}/lib/local-scripts/check-last-run.php "$quicksave_list_file" "$SKIP_IF_RECENT")
+    
+    if [[ "$should_skip" == "true" ]]; then
+      echo "Skipping $site ($environment) - Checked within last $SKIP_IF_RECENT."
+      exit 0
+    fi
+  fi
+  # --------------------------------------------------
 
   rclone_config_file="$path/${site}_${site_id}/rclone.conf"
   if [ ! -f "$rclone_config_file" ]; then
@@ -130,6 +148,16 @@ run_command() {
     fi
     restic backup . --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/quicksave-repo --exclude-file="${CAPTAINCORE_PATH}/lib/restic-excludes" --password-file="${CAPTAINCORE_PATH}/data/restic.key"
   fi
+
+  # --------------------------------------------------
+  # Touch list.json to update its modification timestamp
+  # This marks the time this site was last processed, regardless of content changes.
+  # --------------------------------------------------
+  quicksave_list_file="$path/${site}_${site_id}/${environment}/quicksaves/list.json"
+  if [ -f "$quicksave_list_file" ]; then
+    touch "$quicksave_list_file"
+  fi
+  # --------------------------------------------------
 
   if [ -f "${path}/process-${process_id}-progress.log" ]; then
     echo -n "." >> ${path}/process-${process_id}-progress.log

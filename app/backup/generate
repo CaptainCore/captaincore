@@ -11,6 +11,9 @@
 #   [--skip-db]
 #   Skips database backup
 #
+#   [--skip-if-recent=<timeframe>]
+#   Skip if backup generated or last checked within the specified timeframe (e.g., "24h", "7d").
+#
 
 if [ ${#@} -ne 1 ]; then
   echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Requires a <site>"
@@ -56,6 +59,21 @@ run_command() {
     echo "Error: $site missing domain. Skipping backup."
     exit
   fi
+
+  # --------------------------------------------------
+  # Auto-Resume / Skip Logic
+  # Check if we processed this recently based on --skip-if-recent flag
+  # --------------------------------------------------
+  if [[ -n "$SKIP_IF_RECENT" ]]; then
+     backup_list_file="$path/${site}_${site_id}/${environment}/backups/list.json"
+     should_skip=$(php ${CAPTAINCORE_PATH}/lib/local-scripts/check-last-run.php "$backup_list_file" "$SKIP_IF_RECENT")
+     
+     if [[ "$should_skip" == "true" ]]; then
+       echo "Skipping $site ($environment) - Backup exists/checked within last $SKIP_IF_RECENT."
+       exit 0
+     fi
+  fi
+  # --------------------------------------------------
 
   # Append trailing slash if home_directory exist
   if [ "$home_directory" != "" ]; then
@@ -134,6 +152,13 @@ run_command() {
     cd $path/${site}_${site_id}/${environment}/backups/
     runtime_end=$( date +%s )
     echo "$runtime_start $runtime_end" >> runtime
+
+    # Explicitly touch the list file for direct mode
+    backup_list_file="$path/${site}_${site_id}/${environment}/backups/list.json"
+    if [ -f "$backup_list_file" ]; then
+      touch "$backup_list_file"
+    fi
+
     exit
 
   fi
@@ -196,6 +221,16 @@ run_command() {
   cd $path/${site}_${site_id}/${environment}/backups/
   runtime_end=$( date +%s )
   echo "$runtime_start $runtime_end" >> runtime
+
+  # --------------------------------------------------
+  # Touch list.json to update its modification timestamp
+  # This marks the time this site was last processed.
+  # --------------------------------------------------
+  backup_list_file="$path/${site}_${site_id}/${environment}/backups/list.json"
+  if [ -f "$backup_list_file" ]; then
+    touch "$backup_list_file"
+  fi
+  # --------------------------------------------------
 
 }
 

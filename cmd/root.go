@@ -17,7 +17,7 @@ import (
 var flagDebug, flagSkipDB, flagSkipScreenshot, flagForce, flagBash, flagUpdateExtras, flagSkipRemote, flagFleet bool
 var flagAll, flagHtml, flagPublic, flagSkipAlreadyGenerated, flagGlobalOnly, flagDeleteAfterSnapshot bool
 var flagCode, flagCommand, flagFilter, flagFilterName, flagFilterVersion, flagFilterStatus, flagField, flagPage, flagRecipe, flagScript, flagProvider string
-var captainID, cfgFile, flagTheme, flagPlugin, flagFile, flagLimit, flagEmail, flagName, flagLink, flagNotes, flagUserId, flagFormat, flagVersion string
+var captainID, cfgFile, flagTheme, flagPlugin, flagFile, flagLimit, flagEmail, flagName, flagLink, flagNotes, flagUserId, flagFormat, flagVersion, flagSkipIfRecent string
 var flagParallel, flagRetry int
 
 var colorYellow = "\x1b[33;1m"
@@ -162,6 +162,9 @@ func resolveCommand(c *cobra.Command, args []string) {
 	env = append([]string{"COLOR_RED=\033[31m"}, env...)
 	env = append([]string{"COLOR_NORMAL=\033[39m"}, env...)
 	env = append([]string{"CAPTAINCORE_PATH=" + dirname + "/.captaincore"}, env...)
+	if flagSkipIfRecent != "" {
+		env = append([]string{"SKIP_IF_RECENT=" + flagSkipIfRecent}, env...)
+	}
 	if flagSkipDB == true {
 		env = append([]string{"SKIP_DB=true"}, env...)
 	}

@@ -133,4 +133,5 @@ func init() {
 	backupDownloadCmd.Flags().StringVarP(&flagEmail, "email", "e", "", "Email notify")
 	backupGenerateCmd.Flags().BoolVarP(&flagSkipDB, "skip-db", "", false, "Skip database backup")
 	backupGenerateCmd.Flags().BoolVarP(&flagSkipRemote, "skip-remote", "", false, "Skip remote backup")
+	backupGenerateCmd.Flags().StringVarP(&flagSkipIfRecent, "skip-if-recent", "", "", "Skip if backup generated within timeframe (e.g. 24h)")
 }
