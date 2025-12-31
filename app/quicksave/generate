@@ -57,6 +57,39 @@ run_command() {
   fi
 
   # --------------------------------------------------
+  # Locking Mechanism
+  # Prevent concurrent quicksaves on the same environment
+  # --------------------------------------------------
+  
+  # Ensure the directory exists
+  mkdir -p "$path/${site}_${site_id}/${environment}"
+  lock_file="$path/${site}_${site_id}/${environment}/quicksave.lock"
+
+  # Check if lock file exists
+  if [ -f "$lock_file" ]; then
+    local locked_pid
+    locked_pid=$(cat "$lock_file")
+
+    # Check if the process ID in the lock file is actually running
+    if [ -n "$locked_pid" ] && ps -p "$locked_pid" > /dev/null 2>&1; then
+      echo "Skipping $site ($environment) - Quicksave currently in process (PID: $locked_pid)"
+      exit 0
+    else
+      # Process is dead, lock is stale. Clean up silently and proceed.
+      rm -f "$lock_file"
+    fi
+  fi
+
+  # Create the lock file with the current Process ID
+  echo $$ > "$lock_file"
+
+  # Ensure lock file is removed on script exit (Success, Error, or Interrupt)
+  cleanup_lock() {
+    rm -f "$lock_file"
+  }
+  trap cleanup_lock EXIT INT TERM
+
+  # --------------------------------------------------
   # Auto-Resume / Skip Logic
   # Check if we processed this recently based on --skip-if-recent flag
   # --------------------------------------------------
