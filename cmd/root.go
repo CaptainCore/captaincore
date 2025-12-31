@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-var flagDebug, flagSkipDB, flagSkipScreenshot, flagForce, flagBash, flagUpdateExtras, flagSkipRemote, flagFleet bool
+var flagDebug, flagSkipDB, flagSkipScreenshot, flagForce, flagBash, flagUpdateExtras, flagSkipRemote, flagFleet, flagInit bool
 var flagAll, flagHtml, flagPublic, flagSkipAlreadyGenerated, flagGlobalOnly, flagDeleteAfterSnapshot bool
 var flagCode, flagCommand, flagFilter, flagFilterName, flagFilterVersion, flagFilterStatus, flagField, flagPage, flagRecipe, flagScript, flagProvider string
 var captainID, cfgFile, flagTheme, flagPlugin, flagFile, flagLimit, flagEmail, flagName, flagLink, flagNotes, flagUserId, flagFormat, flagVersion, flagSkipIfRecent string
@@ -131,7 +131,7 @@ func resolveCommand(c *cobra.Command, args []string) {
 		}
 	}
 
-	if c.CommandPath() == "captaincore backup generate" && target_count > 1 {
+	if (c.CommandPath() == "captaincore backup generate" || c.CommandPath() == "captaincore backup check") && target_count > 1 {
 		bulk = true
 	}
 
@@ -167,6 +167,9 @@ func resolveCommand(c *cobra.Command, args []string) {
 	}
 	if flagSkipDB == true {
 		env = append([]string{"SKIP_DB=true"}, env...)
+	}
+	if flagInit == true {
+		env = append([]string{"FLAG_INIT=true"}, env...)
 	}
 	if flagField != "" {
 		env = append([]string{"FIELD=" + flagField}, env...)

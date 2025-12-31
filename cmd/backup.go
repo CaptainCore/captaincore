@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"errors"
+	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -9,6 +10,23 @@ import (
 var backupCmd = &cobra.Command{
 	Use:   "backup",
 	Short: "Backup commands",
+}
+
+var backupCheckCmd = &cobra.Command{
+	Use:   "check <site>",
+	Short: "Checks integrity of backup repo",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		if flagInit {
+			os.Setenv("FLAG_INIT", "true")
+		}
+		resolveCommand(cmd, args)
+	},
 }
 
 var backupDownloadCmd = &cobra.Command{
@@ -121,6 +139,7 @@ var backupRuntimeCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(backupCmd)
+	backupCmd.AddCommand(backupCheckCmd)
 	backupCmd.AddCommand(backupDownloadCmd)
 	backupCmd.AddCommand(backupGenerateCmd)
 	backupCmd.AddCommand(backupGetCmd)
@@ -130,6 +149,7 @@ func init() {
 	backupCmd.AddCommand(backupListMissingCmd)
 	backupCmd.AddCommand(backupShowCmd)
 	backupCmd.AddCommand(backupRuntimeCmd)
+	backupCheckCmd.Flags().BoolVarP(&flagInit, "init", "", false, "Initialize repo if missing")
 	backupDownloadCmd.Flags().StringVarP(&flagEmail, "email", "e", "", "Email notify")
 	backupGenerateCmd.Flags().BoolVarP(&flagSkipDB, "skip-db", "", false, "Skip database backup")
 	backupGenerateCmd.Flags().BoolVarP(&flagSkipRemote, "skip-remote", "", false, "Skip remote backup")

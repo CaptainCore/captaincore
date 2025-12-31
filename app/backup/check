@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+
+#
+#   Checks Restic Repo integrity/initialization status
+#   `captaincore backup check <site>`
+#
+
+# --- 1. Validation & Config Loading ---
+
+if [ ${#@} -ne 1 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Requires a <site>"
+  exit 1
+fi
+
+# Load CaptainCore Configs
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+
+site=$1
+
+# Basic sanitization
+if [[ "$site" == -* ]]; then
+    echo "Error: Site name '$site' starts with a dash."
+    exit 1
+fi
+
+# Extract environment
+if [[ "$site" == *"-staging"* ]]; then
+    environment=staging
+fi
+if [[ "$site" == *"-production"* ]]; then
+    environment=production
+fi
+if [[ "$site" != *"-"* ]]; then
+    environment=production
+fi
+
+# Load specific site details
+IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
+
+if [[ -z "$site_id" ]]; then
+    exit 1
+fi
+
+# --- 2. Setup Logging ---
+
+LOG_FILE="${logs}/backup-check-$(date +%Y-%m-%d).log"
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+log_event() {
+    local status=$1
+    local color=$2
+    local details=$3
+    local timestamp=$(date +'%Y-%m-%d %H:%M:%S')
+    echo -e "${color}[${status}]${NC} $site ($environment) ${details}"
+    echo "$timestamp | $site ($environment) | $status | $details" >> "$LOG_FILE"
+}
+
+# --- 3. Construct Paths ---
+
+# Construct the Rclone path. DO NOT export RCLONE_CONFIG.
+# Restic will use the global rclone config (which has the B2 keys) to access the repo.
+repo_path="rclone:${rclone_backup}/${site}_${site_id}/${environment}/restic-repo"
+password_file="${CAPTAINCORE_PATH}/data/restic.key"
+
+# --- 4. Perform Checks ---
+
+# Try to read the config to verify access and password
+check_output=$(restic cat config --repo "$repo_path" --password-file "$password_file" 2>&1)
+check_status=$?
+
+if [ $check_status -eq 0 ]; then
+    echo -e "${GREEN}OK${NC}: $site ($environment)"
+else
+    # Analyze error to distinguish between Missing and Corrupt
+    if [[ "$check_output" == *"Is there a repository"* ]] || \
+       [[ "$check_output" == *"directory not found"* ]] || \
+       [[ "$check_output" == *"object not found"* ]] || \
+       [[ "$check_output" == *"file does not exist"* ]]; then
+       
+        # Missing
+        if [[ "$FLAG_INIT" == "true" ]]; then
+            echo "   Attempting initialization..."
+            if init_output=$(restic init --repo "$repo_path" --password-file "$password_file" 2>&1); then
+                log_event "FIXED" "$GREEN" "- Repository successfully initialized."
+            else
+                clean_error=$(echo "$init_output" | tr '\n' ' ' | cut -c 1-200)
+                log_event "INIT_FAILED" "$RED" "- Could not initialize: $clean_error"
+            fi
+        else
+            log_event "MISSING" "$YELLOW" "- Repo not found. Run with --init to fix."
+        fi
+
+    elif [[ "$check_output" == *"wrong password"* ]] || [[ "$check_output" == *"keys are not able to decrypt"* ]]; then
+        log_event "WRONG PASSWORD" "$RED" "- Restic key mismatch."
+        
+    else
+        # Other errors (Corrupt/Network)
+        # Use global rclone to check if files actually exist at that path
+        rclone_path="${repo_path#rclone:}"
+        file_check=$(rclone lsf "$rclone_path" --max-depth 1 2>/dev/null)
+        
+        if [[ -n "$file_check" ]]; then
+            clean_error=$(echo "$check_output" | tr '\n' ' ' | cut -c 1-200)
+            log_event "CORRUPT/ERROR" "$RED" "- Repo exists but unreadable: $clean_error"
+        else
+             # Empty but error wasn't standard "missing". Treat as missing.
+             if [[ "$FLAG_INIT" == "true" ]]; then
+                echo "   Attempting initialization..."
+                if init_output=$(restic init --repo "$repo_path" --password-file "$password_file" 2>&1); then
+                    log_event "FIXED" "$GREEN" "- Repository successfully initialized."
+                else
+                    clean_error=$(echo "$init_output" | tr '\n' ' ' | cut -c 1-200)
+                    log_event "INIT_FAILED" "$RED" "- Could not initialize: $clean_error"
+                fi
+            else
+                log_event "MISSING" "$YELLOW" "- Repo not found (Error: $check_output). Run with --init to fix."
+            fi
+        fi
+    fi
+fi
