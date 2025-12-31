@@ -137,12 +137,7 @@ run_command() {
 
   site_path="${site}_${site_id}/${environment}"
 
-  # Updates themes/plugins before Quicksave (Selective backup site locally)
-  rclone sync ${environment}:$home_directory${wp_content}/themes/ $path/$site_path/backup/${wp_content}/themes/ --exclude .DS_Store --exclude *timthumb.txt --exclude "node_modules/**" --config="$rclone_config_file"
-  rclone sync ${environment}:$home_directory${wp_content}/mu-plugins/ $path/$site_path/backup/${wp_content}/mu-plugins/ --exclude .DS_Store --exclude *timthumb.txt --exclude "node_modules/**" --config="$rclone_config_file"
-  rclone sync ${environment}:$home_directory${wp_content}/plugins/ $path/$site_path/backup/${wp_content}/plugins/ --exclude .DS_Store --exclude *timthumb.txt --exclude "node_modules/**" --config="$rclone_config_file"
-
-  # Sync to git repo
+  # Create directory structure
   mkdir -p $path/$site_path/quicksave/mu-plugins
   mkdir -p $path/$site_path/quicksave/plugins
   mkdir -p $path/$site_path/quicksave/themes
@@ -155,9 +150,16 @@ run_command() {
     git init
   fi
 
-  rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude="node_modules" $path/$site_path/backup/${wp_content}/mu-plugins/ $path/$site_path/quicksave/mu-plugins
-  rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude="node_modules" $path/$site_path/backup/${wp_content}/plugins/ $path/$site_path/quicksave/plugins
-  rsync -a --delete --exclude=.git --exclude="log-*.txt" --exclude="*.log.txt" --exclude="*.zip" --exclude=cache.json --exclude="*.log" --exclude="*.log.txt" --exclude="node_modules" $path/$site_path/backup/${wp_content}/themes/ $path/$site_path/quicksave/themes
+  # Sync DIRECTLY to quicksave folders
+  # Note: Added --exclude ".git/**" to prevent rclone from messing with the repo metadata if a plugin contains a git repo.
+  echo "Syncing themes..."
+  rclone sync ${environment}:$home_directory${wp_content}/themes/ $path/$site_path/quicksave/themes/ --exclude .DS_Store --exclude *timthumb.txt --exclude "node_modules/**" --exclude ".git/**" --config="$rclone_config_file"
+
+  echo "Syncing mu-plugins..."
+  rclone sync ${environment}:$home_directory${wp_content}/mu-plugins/ $path/$site_path/quicksave/mu-plugins/ --exclude .DS_Store --exclude *timthumb.txt --exclude "node_modules/**" --exclude ".git/**" --config="$rclone_config_file"
+
+  echo "Syncing plugins..."
+  rclone sync ${environment}:$home_directory${wp_content}/plugins/ $path/$site_path/quicksave/plugins/ --exclude .DS_Store --exclude *timthumb.txt --exclude "node_modules/**" --exclude ".git/**" --config="$rclone_config_file"
 
   cd ${CAPTAINCORE_PATH}/data
 
