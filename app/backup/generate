@@ -105,132 +105,132 @@ run_command() {
     wordpress_not_found=true
   fi
 
-  if [[ "$backup_mode" == "direct" ]]; then
+  if [[ "$backup_mode" == "local" ]]; then
 
-    # --- 1. Generate a unique, random name for the temporary payload file ---
-    do_script_path="${root_path}lib/remote-scripts/_do"
-    random_token=$(head /dev/urandom | LC_ALL=C tr -dc 'a-zA-Z0-9' | head -c 8)
-    payload_file="$path_tmp/do_vault_payload-${CAPTAIN_ID}-${site}-${environment}_${random_token}.sh"
-    echo "📝 Creating temporary payload file at: $payload_file"
+    # Incremental backup locally with rclone
+    echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup ${site}-${environment} to local"
 
-    # --- 2. Read secrets and write 'export' commands to the payload file ---
-    # This block reads each line from your secrets file and builds the export commands.
-    {
-      echo "export B2_BUCKET='$(sed -n 1p "$vault_file")'"
-      echo "export B2_PATH='$(sed -n 2p "$vault_file")'"
-      echo "export B2_ACCOUNT_ID='$(sed -n 3p "$vault_file")'"
-      echo "export B2_ACCOUNT_KEY='$(sed -n 4p "$vault_file")'"
-      echo "export RESTIC_PASSWORD='$(sed -n 5p "$vault_file")'"
-      echo "export EMAIL_NOTIFY=$captaincore_admin_email"
-    } > "$payload_file"
+    if [[ $SKIP_DB != true ]] && [[ $wordpress_not_found != true ]]; then
 
-    # --- 3. Append the main _do script to the payload file ---
-    tail -n +2 "$do_script_path" >> "$payload_file"
+      # Database backup
+      captaincore ssh ${site}-${environment} --script="db-backup" --captain-id=$CAPTAIN_ID
 
-    # Error handling in case the secrets file is not found
-    if [ $? -ne 0 ]; then
-        echo "❌ Error: Failed to create export commands. Check vault_file path: '$vault_file'" >&2
-        rm -f "$payload_file"
-        exit 1
+      if [[ "$provider" == "wpengine" ]]; then
+        rclone sync ${environment}:_wpeprivate/database-backup.sql $path/${site}_${site_id}/${environment}/backup/ --config="$rclone_config_file"
+      fi
+
+      if [[ "$provider" == "kinsta" ]]; then
+        rclone sync ${environment}:private/database-backup.sql $path/${site}_${site_id}/${environment}/backup/ --config="$rclone_config_file"
+      fi
+
+      if [[ "$provider" == "rocketdotnet" ]]; then
+        rclone sync ${environment}:tmp/database-backup.sql $path/${site}_${site_id}/${environment}/backup/ --config="$rclone_config_file"
+      fi
+
     fi
 
-    ssh_string=$( captaincore ssh ${site}-${environment} --debug --command="bash -s -- vault create" --captain-id=$CAPTAIN_ID )
+    mkdir -p $path/${site}_${site_id}/${environment}/backup/
 
-    # --- Execute the command for real ---
-    echo "🚀 Executing remote vault command..."
-    cat $payload_file | eval $ssh_string
-    
-    # --- 5. Clean up the local temporary file ---
-    echo "🔥 Cleaning up temporary payload file..."
-    rm "$payload_file"
+    # Backup site locally
+    if [[ "$wp_content" != "wp-content" ]]; then
+      echo "$(date +'%Y-%m-%d %H:%M') Backing up ${site}-${environment} alternative wp-content location ($wp_content)"
+      rclone sync ${environment}:$home_directory $path/${site}_${site_id}/${environment}/backup/ --exclude-from="${CAPTAINCORE_PATH}/lib/excludes" --filter="+ $wp_content/**" --filter="- wp-content/**" --filter="- content/**" --config="$rclone_config_file"
+    else
+      rclone sync ${environment}:$home_directory $path/${site}_${site_id}/${environment}/backup/ --exclude-from="${CAPTAINCORE_PATH}/lib/excludes" --filter="- content/**" --config="$rclone_config_file"
+    fi
 
-    captaincore backup list-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
-    captaincore backup get-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
+    # Incremental backup upload to Restic
+    if [[ $SKIP_REMOTE != true ]]; then
+      echo "$(date +'%Y-%m-%d %H:%M') Storing $site to backup archive"
+      if [[ $( restic snapshots --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key" ) == "" ]]; then
+        echo "Generating restic repo for $site"
+        restic init --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key"
+      fi
+      cd $path/${site}_${site_id}/${environment}/backup/
+      restic backup . --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --exclude-file="${CAPTAINCORE_PATH}/lib/restic-excludes" --password-file="${CAPTAINCORE_PATH}/data/restic.key"
+      captaincore backup list-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
+      captaincore backup get-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
+    fi
 
     captaincore usage-update ${site}-${environment} --captain-id=$CAPTAIN_ID
+
+    if [ -f "${path}/process-${process_id}-progress.log" ]; then
+      echo -n "." >> ${path}/process-${process_id}-progress.log
+    fi
+
+    if [ ! -d "$path/${site}_${site_id}/${environment}/backups/" ]; then
+      mkdir -p "$path/${site}_${site_id}/${environment}/backups"
+    fi
 
     cd $path/${site}_${site_id}/${environment}/backups/
     runtime_end=$( date +%s )
     echo "$runtime_start $runtime_end" >> runtime
 
-    # Explicitly touch the list file for direct mode
+    # --------------------------------------------------
+    # Touch list.json to update its modification timestamp
+    # This marks the time this site was last processed.
+    # --------------------------------------------------
     backup_list_file="$path/${site}_${site_id}/${environment}/backups/list.json"
     if [ -f "$backup_list_file" ]; then
       touch "$backup_list_file"
     fi
+    # --------------------------------------------------
 
     exit
 
   fi
 
-  # Incremental backup locally with rclone
-  echo "$(date +'%Y-%m-%d %H:%M') Begin incremental backup ${site}-${environment} to local"
+  # --- 1. Generate a unique, random name for the temporary payload file ---
+  do_script_path="${root_path}lib/remote-scripts/_do"
+  random_token=$(head /dev/urandom | LC_ALL=C tr -dc 'a-zA-Z0-9' | head -c 8)
+  payload_file="$path_tmp/do_vault_payload-${CAPTAIN_ID}-${site}-${environment}_${random_token}.sh"
+  echo "📝 Creating temporary payload file at: $payload_file"
 
-  if [[ $SKIP_DB != true ]] && [[ $wordpress_not_found != true ]]; then
+  # --- 2. Read secrets and write 'export' commands to the payload file ---
+  # This block reads each line from your secrets file and builds the export commands.
+  {
+    echo "export B2_BUCKET='$(sed -n 1p "$vault_file")'"
+    echo "export B2_PATH='$(sed -n 2p "$vault_file")'"
+    echo "export B2_ACCOUNT_ID='$(sed -n 3p "$vault_file")'"
+    echo "export B2_ACCOUNT_KEY='$(sed -n 4p "$vault_file")'"
+    echo "export RESTIC_PASSWORD='$(sed -n 5p "$vault_file")'"
+    echo "export EMAIL_NOTIFY=$captaincore_admin_email"
+  } > "$payload_file"
 
-    # Database backup
-    captaincore ssh ${site}-${environment} --script="db-backup" --captain-id=$CAPTAIN_ID
+  # --- 3. Append the main _do script to the payload file ---
+  tail -n +2 "$do_script_path" >> "$payload_file"
 
-    if [[ "$provider" == "wpengine" ]]; then
-      rclone sync ${environment}:_wpeprivate/database-backup.sql $path/${site}_${site_id}/${environment}/backup/ --config="$rclone_config_file"
-    fi
-
-    if [[ "$provider" == "kinsta" ]]; then
-      rclone sync ${environment}:private/database-backup.sql $path/${site}_${site_id}/${environment}/backup/ --config="$rclone_config_file"
-    fi
-
-    if [[ "$provider" == "rocketdotnet" ]]; then
-      rclone sync ${environment}:tmp/database-backup.sql $path/${site}_${site_id}/${environment}/backup/ --config="$rclone_config_file"
-    fi
-
+  # Error handling in case the secrets file is not found
+  if [ $? -ne 0 ]; then
+      echo "❌ Error: Failed to create export commands. Check vault_file path: '$vault_file'" >&2
+      rm -f "$payload_file"
+      exit 1
   fi
 
-  mkdir -p $path/${site}_${site_id}/${environment}/backup/
+  ssh_string=$( captaincore ssh ${site}-${environment} --debug --command="bash -s -- vault create" --captain-id=$CAPTAIN_ID )
 
-  # Backup site locally
-  if [[ "$wp_content" != "wp-content" ]]; then
-    echo "$(date +'%Y-%m-%d %H:%M') Backing up ${site}-${environment} alternative wp-content location ($wp_content)"
-    rclone sync ${environment}:$home_directory $path/${site}_${site_id}/${environment}/backup/ --exclude-from="${CAPTAINCORE_PATH}/lib/excludes" --filter="+ $wp_content/**" --filter="- wp-content/**" --filter="- content/**" --config="$rclone_config_file"
-  else
-    rclone sync ${environment}:$home_directory $path/${site}_${site_id}/${environment}/backup/ --exclude-from="${CAPTAINCORE_PATH}/lib/excludes" --filter="- content/**" --config="$rclone_config_file"
-  fi
+  # --- Execute the command for real ---
+  echo "🚀 Executing remote vault command..."
+  cat $payload_file | eval $ssh_string
+  
+  # --- 5. Clean up the local temporary file ---
+  echo "🔥 Cleaning up temporary payload file..."
+  rm "$payload_file"
 
-  # Incremental backup upload to Restic
-  if [[ $SKIP_REMOTE != true ]]; then
-    echo "$(date +'%Y-%m-%d %H:%M') Storing $site to backup archive"
-    if [[ $( restic snapshots --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key" ) == "" ]]; then
-      echo "Generating restic repo for $site"
-      restic init --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key"
-    fi
-    cd $path/${site}_${site_id}/${environment}/backup/
-    restic backup . --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --exclude-file="${CAPTAINCORE_PATH}/lib/restic-excludes" --password-file="${CAPTAINCORE_PATH}/data/restic.key"
-    captaincore backup list-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
-    captaincore backup get-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
-  fi
+  captaincore backup list-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
+  captaincore backup get-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
 
   captaincore usage-update ${site}-${environment} --captain-id=$CAPTAIN_ID
-
-  if [ -f "${path}/process-${process_id}-progress.log" ]; then
-    echo -n "." >> ${path}/process-${process_id}-progress.log
-  fi
-
-  if [ ! -d "$path/${site}_${site_id}/${environment}/backups/" ]; then
-    mkdir -p "$path/${site}_${site_id}/${environment}/backups"
-  fi
 
   cd $path/${site}_${site_id}/${environment}/backups/
   runtime_end=$( date +%s )
   echo "$runtime_start $runtime_end" >> runtime
 
-  # --------------------------------------------------
-  # Touch list.json to update its modification timestamp
-  # This marks the time this site was last processed.
-  # --------------------------------------------------
+  # Explicitly touch the list file for direct mode
   backup_list_file="$path/${site}_${site_id}/${environment}/backups/list.json"
   if [ -f "$backup_list_file" ]; then
     touch "$backup_list_file"
   fi
-  # --------------------------------------------------
 
 }
 
