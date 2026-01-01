@@ -867,6 +867,7 @@ function show_command_help() {
             echo "Subcommands:"
             echo "  recent-files [days]  Finds files modified within the last <days>. Defaults to 1 day."
             echo "  slow-plugins [path]  Identifies plugins slowing down WP-CLI. Optionally check a specific page path (e.g., \"/contact\")."
+            echo "  stuck-plugin         Identifies a plugin causing WP-CLI commands to hang by timing them out."
             echo "  hidden-plugins       Detects active plugins that may be hidden from the standard list."
             echo "  malware              Scans for malware and verifies core/plugin file integrity."
             echo "  php-tags [dir]       Finds outdated PHP short tags ('<?'). Defaults to 'wp-content/'."
@@ -1066,7 +1067,7 @@ function show_usage() {
     echo "  disembark           Remotely connects to a site to generate a backup."
     echo "  dump                Dumps the content of files matching a pattern into a single text file."
     echo "  email               Sends an email using wp_mail via WP-CLI."
-    echo "  find                Finds files, slow plugins, hidden plugins or outdated PHP tags."
+    echo "  find                Finds files, slow/stuck plugins, hidden plugins or outdated PHP tags."
     echo "  https               Applies HTTPS to all site URLs, with an option for www/non-www."
     echo "  install             Installs helper plugins or premium plugins."
     echo "  launch              Launches a site to a new domain, using a flag or interactively."
@@ -1375,6 +1376,9 @@ function main() {
                 slow-plugins)
                     find_slow_plugins "${positional_args[2]}"
                     ;;
+                stuck-plugin)
+                    find_stuck_plugin
+                    ;;
                 hidden-plugins)
                     find_hidden_plugins
                     ;;
@@ -1571,32 +1575,48 @@ function full_backup() {
     local target_folder="$1"
     local quiet_flag="$2"
     local format_flag="$3"
-    shift 3  # Move past the first two arguments
-    local exclude_patterns=("$@") # The rest of the arguments are the exclude patterns
+    shift 3  # Move past the first three arguments
+    local backup_exclude_patterns=("$@") # The rest of the arguments are the exclude patterns
 
-    # --- 2. Validation ---
-    if [ -z "$target_folder" ]
-    then echo "Error: Please provide a folder path." >&2; echo "Usage: _do backup <folder>" >&2; return 1;
+    # --- 2. Validation & Tool Selection ---
+    local archive_cmd=""
+    local backup_extension=""
+    if command -v zip &> /dev/null; then
+        archive_cmd="zip"
+        backup_extension="zip"
+    elif command -v tar &> /dev/null; then
+        archive_cmd="tar"
+        backup_extension="tar.gz"
+    else
+        echo "Error: Neither 'zip' nor 'tar' command found. Please install one of them." >&2
+        return 1
     fi
-    if ! command -v realpath &> /dev/null; then echo "Error: 'realpath' command not found. Please install it." >&2; return 1; fi
-    if [ ! -d "$target_folder" ]; then echo "Error: Folder '$target_folder' not found." >&2; return 1; fi
+
+    if [ -z "$target_folder" ]; then
+        echo "Error: Please provide a folder path." >&2; echo "Usage: _do backup <folder>" >&2; return 1;
+    fi
+    if ! command -v realpath &> /dev/null; then
+        echo "Error: 'realpath' command not found. Please install it." >&2; return 1;
+    fi
+    if [ ! -d "$target_folder" ]; then
+        echo "Error: Folder '$target_folder' not found." >&2; return 1;
+    fi
 
     # --- 3. Setup Paths and Filenames ---
-    #  Resolve the absolute path to handle cases like "."
     local full_target_path; full_target_path=$(realpath "$target_folder")
     local parent_dir; parent_dir=$(dirname "$full_target_path")
     local site_dir_name; site_dir_name=$(basename "$full_target_path")
-
     local today; today=$(date +"%Y-%m-%d")
     local random; random=$(openssl rand -hex 4 | head -c 7)
-    local backup_filename="${today}_${random}.zip"
+    local backup_filename="${today}_${random}.${backup_extension}"
     local original_dir; original_dir=$(pwd)
 
-    #  Change to the parent directory for consistent relative paths in the zip
     cd "$parent_dir" || return 1
 
     # --- 4. Database Export ---
-    if ! setup_wp_cli; then echo "Error: wp-cli is not installed." >&2; cd "$original_dir"; return 1; fi
+    if ! setup_wp_cli; then
+        echo "Error: wp-cli is not installed." >&2; cd "$original_dir"; return 1;
+    fi
     local home_url; home_url=$("$WP_CLI_CMD" option get home --path="$site_dir_name" --skip-plugins --skip-themes)
     local name; name=$("$WP_CLI_CMD" option get blogname --path="$site_dir_name" --skip-plugins --skip-themes)
     local database_file="db_export.sql"
@@ -1605,58 +1625,75 @@ function full_backup() {
         echo "Exporting database for '$name'...";
     fi
     if ! "$WP_CLI_CMD" db export "$site_dir_name/$database_file" --path="$site_dir_name" --add-drop-table --default-character-set=utf8mb4 > /dev/null; then
-        echo "Error: Database export failed." >&2
-        cd "$original_dir"
-        return 1
+        echo "Error: Database export failed." >&2; cd "$original_dir"; return 1;
     fi
+
+    # --- 5. Archive Creation ---
     if [[ "$quiet_flag" != "true" ]]; then
-        echo "Creating zip archive...";
-        if [ ${#exclude_patterns[@]} -gt 0 ]; then
-            echo "Excluding the following patterns:"
-            for pattern in "${exclude_patterns[@]}"; do
-                echo "  - $pattern"
+        echo "Creating ${backup_extension} archive using '${archive_cmd}'...";
+        if [ ${#backup_exclude_patterns[@]} -gt 0 ]; then
+            echo "Excluding the following patterns:";
+            for pattern in "${backup_exclude_patterns[@]}"; do
+                echo "  - $pattern";
             done
         fi
     fi
 
-    # --- 5. Zip Archive Creation ---
-    local zip_exclude_args=()
-    zip_exclude_args+=(-x "$site_dir_name/wp-content/updraft/*") # Add default exclude
-    for pattern in "${exclude_patterns[@]}"; do
-        zip_exclude_args+=(-x "$site_dir_name/$pattern*") # Add user-defined excludes
-    done
-    #  Create the zip in the parent directory, zipping the site directory
-    if ! zip -r "$backup_filename" "$site_dir_name" "${zip_exclude_args[@]}" > /dev/null; then
-        echo "Error: Failed to zip files." >&2
+    # Define the primary source directory for the archive.
+    local source_paths=("$site_dir_name")
+    # Check for wp-config.php one level up from the WordPress root and add it to the archive if found.
+    if [ -f "wp-config.php" ]; then
+        source_paths+=("wp-config.php")
+        if [[ "$quiet_flag" != "true" ]]; then
+            echo "Including 'wp-config.php' from parent directory."
+        fi
+    fi
+
+    local archive_failed=false
+    if [[ "$archive_cmd" == "zip" ]]; then
+        local zip_exclude_args=()
+        zip_exclude_args+=(-x "$site_dir_name/wp-content/updraft/*") # Default exclude
+        for pattern in "${backup_exclude_patterns[@]}"; do
+            zip_exclude_args+=(-x "$site_dir_name/$pattern*")
+        done
+        # Zip the site directory and the wp-config.php if it exists one level up
+        if ! zip -r "$backup_filename" "${source_paths[@]}" "${zip_exclude_args[@]}" > /dev/null; then
+            archive_failed=true
+        fi
+    elif [[ "$archive_cmd" == "tar" ]]; then
+        local tar_exclude_args=()
+        tar_exclude_args+=(--exclude="$site_dir_name/wp-content/updraft") # Default exclude
+        for pattern in "${backup_exclude_patterns[@]}"; do
+            tar_exclude_args+=(--exclude="$site_dir_name/$pattern")
+        done
+        # Create the tarball including the site directory and wp-config.php if present
+        if ! tar -czf "$backup_filename" "${tar_exclude_args[@]}" "${source_paths[@]}" > /dev/null; then
+            archive_failed=true
+        fi
+    fi
+
+    if [[ "$archive_failed" == "true" ]]; then
+        echo "Error: Failed to create archive." >&2
         rm -f "$site_dir_name/$database_file"
         cd "$original_dir"
         return 1
     fi
 
-    #  Add wp-config.php if it exists in the site directory
-    if [ -f "$site_dir_name/wp-config.php" ]; then
-        zip "$backup_filename" "$site_dir_name/wp-config.php" > /dev/null
-    fi
-
     # --- 6. Cleanup and Final Report ---
-    local size
-    size=$(ls -lh "$backup_filename" | awk '{print $5}')
+    local size; size=$(ls -lh "$backup_filename" | awk '{print $5}')
     rm -f "$site_dir_name/$database_file"
     mv "$backup_filename" "$site_dir_name/"
-
-    local final_backup_location="$site_dir_name/$backup_filename"
-
     cd "$original_dir"
     local final_backup_location="$full_target_path/$backup_filename"
     local final_url="${home_url}/${backup_filename}"
 
     if [[ "$format_flag" == "filename" ]]; then
-        echo "$backup_filename"
-        return 0
+        echo "$backup_filename";
+        return 0;
     fi
     if [[ "$quiet_flag" == "true" ]]; then
-        echo "$final_url"
-        return 0
+        echo "$final_url";
+        return 0;
     fi
 
     echo "-----------------------------------------------------"
@@ -3839,7 +3876,7 @@ function run_dump() {
     if [ ${#exclude_patterns[@]} -gt 0 ]; then
         echo "Excluding user-defined patterns: ${exclude_patterns[*]}"
     fi
-    echo "Automatically excluding: .git directory contents"
+    echo "Automatically excluding: .git directory contents, .DS_Store files"
 
     # Dynamically build the find command
     local find_cmd=("find" "$SEARCH_DIR" "-type" "f" "-name" "$FILE_PATTERN")
@@ -3856,9 +3893,16 @@ function run_dump() {
         fi
     done
 
-    # Add automatic exclusions for the output file and .git directory
+    # Add automatic exclusions
+
+    # Exclude the output file by *both* name and relative path.
+    # This robustly prevents the dump file from including itself.
     find_cmd+=("-not" "-name" "$OUTPUT_FILE")
+    find_cmd+=("-not" "-path" "./$OUTPUT_FILE")
+
+    # Automatically exclude .git and .DS_Store files
     find_cmd+=("-not" "-path" "*/.git/*")
+    find_cmd+=("-not" "-name" ".DS_Store")
 
     # Execute the find command
     "${find_cmd[@]}" -print0 | while IFS= read -r -d '' file; do
@@ -3875,7 +3919,7 @@ function run_dump() {
     fi
 
     local FILE_SIZE
-    FILE_SIZE=$(du -h "$OUTPUT_FILE" | cut -f1 | xargs)
+    FILE_SIZE=$(ls -lh "$OUTPUT_FILE" | awk '{print $5}')
 
     # --- WordPress URL Logic ---
     local dump_url=""
@@ -4319,6 +4363,67 @@ function find_outdated_php_tags() {
         #  Use single quotes instead of backticks to prevent command execution.
         echo "Recommendation: Replace all short tags like '<?' with the full '<?php' tag."
     fi
+}
+
+# ----------------------------------------------------
+#  Identifies a plugin that may be causing WP-CLI commands to hang or time out.
+# ----------------------------------------------------
+function find_stuck_plugin() {
+    # --- Pre-flight Checks ---
+    if ! setup_wp_cli; then echo "  Error: WP-CLI not found." >&2; return 1; fi
+    if ! "$WP_CLI_CMD" core is-installed --quiet; then echo "  Error: This does not appear to be a WordPress installation." >&2; return 1; fi
+    if ! command -v timeout &> /dev/null; then echo "  Error: 'timeout' command not found. This is required to detect hanging processes." >&2; return 1; fi
+
+    # --- Baseline Check ---
+    echo "  Performing a baseline check to confirm WP-CLI is hanging..."
+    timeout 3s "$WP_CLI_CMD" option get home >/dev/null 2>&1
+
+    if [ $? -eq 0 ]; then
+        echo "  Baseline check successful. WP-CLI doesn't appear to be hanging."
+        return 0
+    else
+        echo "  Baseline check timed out. Confirmed that WP-CLI is hanging, proceeding with test."
+    fi
+
+    echo
+    echo "  🚀 Starting stuck plugin check..."
+    echo "  This will test each active plugin to see if skipping it allows WP-CLI to respond quickly."
+    echo
+
+    # --- List of active plugins to test ---
+    local plugins
+    plugins=$("$WP_CLI_CMD" plugin list --field=name --status=active --skip-plugins)
+
+    if [ -z "$plugins" ]; then
+        echo "  No active plugins found to test."
+        return 0
+    fi
+
+    # --- Loop through each plugin ---
+    for plugin in $plugins; do
+        echo -n "  Testing with '$plugin' skipped..."
+
+        # Run the WP-CLI command with a 3-second timeout.
+        # We silence the output since we only care if it succeeds.
+        timeout 3s "$WP_CLI_CMD" option get home --skip-plugins="$plugin" >/dev/null 2>&1
+
+        # Check the exit code of the last command
+        if [ $? -eq 0 ]; then
+            # An exit code of 0 means the command completed successfully within the time limit.
+            echo " ✅ SUCCESS!"
+            echo "--------------------------------------------------------"
+            echo "  Found the culprit! The site responded quickly when skipping:"
+            echo "  ➡️  $plugin"
+            echo "--------------------------------------------------------"
+            return 0
+        else
+            # A non-zero exit code means it timed out or failed.
+            echo " ❌ Timeout."
+        fi
+    done
+
+    echo "--------------------------------------------------------"
+    echo "  ⏹️  Finished testing all plugins. No single plugin could be identified as the culprit."
 }
 # ----------------------------------------------------
 #  Applies HTTPS to a WordPress site's URLs.
@@ -6040,9 +6145,13 @@ function vault_create() {
     # --- Pre-flight Checks ---
     if ! setup_restic; then return 1; fi
     if ! setup_wp_cli; then return 1; fi
-    if ! "$WP_CLI_CMD" core is-installed --quiet; then
-        echo "❌ Error: This does not appear to be a WordPress installation." >&2
-        return 1
+    
+    # Check if WP, but allow proceeding if not
+    local is_wordpress=false
+    if "$WP_CLI_CMD" core is-installed --quiet; then
+        is_wordpress=true
+    else
+        echo "ℹ️  This does not appear to be a WordPress installation. Proceeding with file-only backup." >&2
     fi
 
     # --- Setup Restic Environment ---
@@ -6060,7 +6169,7 @@ function vault_create() {
 
             if (( cache_size_bytes > size_limit_bytes )); then
                 local site_url
-                site_url=$("$WP_CLI_CMD" option get home)
+                site_url=$("$WP_CLI_CMD" option get home 2>/dev/null || echo "Unknown Site")
                 local cache_size_gb
                 cache_size_gb=$(awk -v bytes="$cache_size_bytes" 'BEGIN { printf "%.2f", bytes / 1024 / 1024 / 1024 }')
                 
@@ -6068,7 +6177,7 @@ function vault_create() {
                 local email_message="Warning: The rclone cache folder at ${rclone_cache_dir} is larger than 10GB. Current size: ${cache_size_gb}GB. This might cause issues with 'vault create' operations."
                 echo "   - ⚠️  Rclone cache is large (${cache_size_gb}GB). Sending email notification to $EMAIL_NOTIFY..."
 
-                "$WP_CLI_CMD" eval "wp_mail( '$EMAIL_NOTIFY', '$email_subject', '$email_message', ['Content-Type: text/html; charset=UTF-8'] );"
+                "$WP_CLI_CMD" eval "wp_mail( '$EMAIL_NOTIFY', '$email_subject', '$email_message', ['Content-Type: text/html; charset=UTF-8'] );" 2>/dev/null
             fi
         fi
     fi
@@ -6092,32 +6201,35 @@ function vault_create() {
         return 1
     fi
     local sql_file_path="${private_dir}/database-backup.sql"
-
-    echo "   - Generating database dump at: ${sql_file_path}"
-    if ! "$WP_CLI_CMD" db export "$sql_file_path" --add-drop-table --single-transaction --quick --max_allowed_packet=512M > /dev/null; then
-        echo "❌ Error: Database export failed." >&2
-        return 1
-    fi
-
-    # --- Move DB dump to root for snapshot ---
     local wp_root_dir
     wp_root_dir=$(realpath ".")
     local temporary_sql_path_in_root="${wp_root_dir}/database-backup.sql"
 
-    echo "   - Temporarily moving database dump to web root for snapshotting."
-    if ! mv "$sql_file_path" "$temporary_sql_path_in_root"; then
-        echo "❌ Error: Could not move database dump to web root." >&2
-        return 1
+    if [[ "$is_wordpress" == "true" ]]; then
+        echo "   - Generating database dump at: ${sql_file_path}"
+        if ! "$WP_CLI_CMD" db export "$sql_file_path" --add-drop-table --single-transaction --quick --max_allowed_packet=512M > /dev/null; then
+            echo "❌ Error: Database export failed." >&2
+            return 1
+        fi
+
+        # --- Move DB dump to root for snapshot ---
+        echo "   - Temporarily moving database dump to web root for snapshotting."
+        if ! mv "$sql_file_path" "$temporary_sql_path_in_root"; then
+            echo "❌ Error: Could not move database dump to web root." >&2
+            return 1
+        fi
     fi
 
     # --- Run Restic Backup ---
     local original_dir
     original_dir=$(pwd)
-    echo "   - Changing to WordPress root ($wp_root_dir) for clean snapshot paths..."
+    echo "   - Changing to root ($wp_root_dir) for clean snapshot paths..."
     cd "$wp_root_dir" || {
-        echo "❌ Error: Could not change to WordPress root directory." >&2
-        echo "   - Attempting to move database dump back to private directory..."
-        mv "$temporary_sql_path_in_root" "$sql_file_path"
+        echo "❌ Error: Could not change to root directory." >&2
+        if [[ "$is_wordpress" == "true" ]]; then
+             echo "   - Attempting to move database dump back to private directory..."
+             mv "$temporary_sql_path_in_root" "$sql_file_path"
+        fi
         return 1
     }
     
@@ -6128,7 +6240,7 @@ function vault_create() {
         tag_args+=(--tag "size:${human_readable_size}")
     fi
 
-    echo "   - Backing up current directory (.), which now includes the SQL dump..."
+    echo "   - Backing up current directory (.)..."
     if ! "$RESTIC_CMD" backup "." \
         "${tag_args[@]}" \
         --exclude '**.DS_Store' \
@@ -6142,18 +6254,25 @@ function vault_create() {
         --exclude 'wp-content/.wps-slots' \
         --exclude 'wp-content/wflogs' \
         --exclude 'wp-content/uploads/sessions' \
-        --exclude 'wp-snapshots'; then
+        --exclude 'wp-snapshots' \
+        --exclude 'node_modules'; then
         echo "❌ Error: Restic backup command failed." >&2
         cd "$original_dir"
-        echo "   - Moving database dump back to private directory..."
-        mv "$temporary_sql_path_in_root" "$sql_file_path"
+        
+        if [[ "$is_wordpress" == "true" ]]; then
+            echo "   - Moving database dump back to private directory..."
+            mv "$temporary_sql_path_in_root" "$sql_file_path"
+        fi
         return 1
     fi
 
     # --- Cleanup: Move DB dump back to private directory ---
     cd "$original_dir"
-    echo "   - Moving database dump back to private directory..."
-    mv "$temporary_sql_path_in_root" "$sql_file_path"
+    
+    if [[ "$is_wordpress" == "true" ]]; then
+        echo "   - Moving database dump back to private directory..."
+        mv "$temporary_sql_path_in_root" "$sql_file_path"
+    fi
 
     # Unset variables for security
     unset B2_ACCOUNT_ID B2_ACCOUNT_KEY RESTIC_PASSWORD RESTIC_REPOSITORY
