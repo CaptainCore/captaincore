@@ -21,7 +21,7 @@ DURATION=604800 # 7 Days
 b2_bucket_path="${rclone_archive#*:}"
 
 # Construct the B2 URI
-b2_path="b2://CaptainCoreArchive/Snapshots/${CAPTAIN_ID}/${file}"
+b2_path="b2://CaptainCoreArchive/Snapshots/${file}"
 
 # Generate signed URL
 b2 file url --with-auth --duration $DURATION "$b2_path"
