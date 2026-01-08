@@ -24,4 +24,7 @@ func init() {
 	rootCmd.AddCommand(deactivateCmd)
 	deactivateCmd.Flags().StringVarP(&flagName, "name", "", "", "Business name to show on deactivate page")
 	deactivateCmd.Flags().StringVarP(&flagLink, "link", "", "", "Business link to show on deactivate page")
+	deactivateCmd.Flags().StringVarP(&flagSubject, "subject", "", "", "Heading/Subject to show on deactivate page")
+	deactivateCmd.Flags().StringVarP(&flagStatus, "status", "", "", "Status message to show on deactivate page")
+	deactivateCmd.Flags().StringVarP(&flagAction, "action", "", "", "Action text to show on deactivate page")
 }

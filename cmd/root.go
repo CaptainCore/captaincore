@@ -17,7 +17,7 @@ import (
 var flagDebug, flagSkipDB, flagSkipScreenshot, flagForce, flagBash, flagUpdateExtras, flagSkipRemote, flagFleet, flagInit bool
 var flagAll, flagHtml, flagPublic, flagSkipAlreadyGenerated, flagGlobalOnly, flagDeleteAfterSnapshot bool
 var flagCode, flagCommand, flagFilter, flagFilterName, flagFilterVersion, flagFilterStatus, flagField, flagPage, flagRecipe, flagScript, flagProvider string
-var captainID, cfgFile, flagTheme, flagPlugin, flagFile, flagLimit, flagEmail, flagName, flagLink, flagNotes, flagUserId, flagFormat, flagVersion, flagSkipIfRecent string
+var captainID, cfgFile, flagTheme, flagPlugin, flagFile, flagLimit, flagEmail, flagName, flagLink, flagNotes, flagUserId, flagFormat, flagVersion, flagSkipIfRecent, flagSubject, flagStatus, flagAction string
 var flagParallel, flagRetry int
 
 var colorYellow = "\x1b[33;1m"
@@ -215,6 +215,15 @@ func resolveCommand(c *cobra.Command, args []string) {
 	}
 	if flagLink != "" {
 		env = append([]string{"FLAG_LINK=" + flagLink}, env...)
+	}
+	if flagSubject != "" {
+		env = append([]string{"FLAG_SUBJECT=" + flagSubject}, env...)
+	}
+	if flagStatus != "" {
+		env = append([]string{"FLAG_STATUS=" + flagStatus}, env...)
+	}
+	if flagAction != "" {
+		env = append([]string{"FLAG_ACTION=" + flagAction}, env...)
 	}
 	if flagEmail != "" {
 		env = append([]string{"FLAG_EMAIL=" + flagEmail}, env...)

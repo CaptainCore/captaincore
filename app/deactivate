@@ -14,6 +14,15 @@
 #    [--link=<business-link>]
 #    Custom link to display on deactivate page.
 #
+#    [--subject=<subject>]
+#    Heading/Subject to show on deactivate page.
+#
+#    [--status=<status>]
+#    Status message to show on deactivate page.
+#
+#    [--action=<action>]
+#    Action text to show on deactivate page.
+#
 
 while read config; do
   if [[ "$config" == "Error:"* ]]; then
@@ -39,12 +48,33 @@ run_command() {
 	fi
 
 	# Load site configs
-	while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
+	IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
 
 	if [[ $domain == "" ]]; then
 		echo "Domain not found"
 		continue
 	fi
+
+	# Remove surrounding quotes and unescape
+	FLAG_NAME=${FLAG_NAME%\"}
+	FLAG_NAME=${FLAG_NAME#\"}
+	FLAG_NAME=${FLAG_NAME//\\\'/\'}
+
+	FLAG_LINK=${FLAG_LINK%\"}
+	FLAG_LINK=${FLAG_LINK#\"}
+	FLAG_LINK=${FLAG_LINK//\\\'/\'}
+
+	FLAG_SUBJECT=${FLAG_SUBJECT%\"}
+	FLAG_SUBJECT=${FLAG_SUBJECT#\"}
+	FLAG_SUBJECT=${FLAG_SUBJECT//\\\'/\'}
+
+	FLAG_STATUS=${FLAG_STATUS%\"}
+	FLAG_STATUS=${FLAG_STATUS#\"}
+	FLAG_STATUS=${FLAG_STATUS//\\\'/\'}
+
+	FLAG_ACTION=${FLAG_ACTION%\"}
+	FLAG_ACTION=${FLAG_ACTION#\"}
+	FLAG_ACTION=${FLAG_ACTION//\\\'/\'}
 
 	read -r -d '' php_code << heredoc
 \$run_code = <<<PHPHEREDOC
@@ -52,6 +82,9 @@ wp_content=$wp_content
 provider=$provider
 name=$FLAG_NAME
 link=$FLAG_LINK
+subject=$FLAG_SUBJECT
+status=$FLAG_STATUS
+action=$FLAG_ACTION
 PHPHEREDOC;
 
 echo base64_encode( \$run_code );

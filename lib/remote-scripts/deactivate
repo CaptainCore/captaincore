@@ -3,7 +3,7 @@
 #
 #   Deactivaate
 #
-#   `deactivate --wp_content=<wp-content-dir> --name=<business-name> --link=<business-link>`
+#   `deactivate --wp_content=<wp-content-dir> --name=<business-name> --link=<business-link> [--subject=<subject>] [--status=<status>] [--action=<action>]`
 #
 
 # Loop through arguments and separate regular arguments from flags
@@ -50,6 +50,19 @@ while read -r line; do
     declare "$line"
 done <<< "$arguments"
 
+# Set defaults if arguments are not supplied
+if [[ -z "$subject" ]]; then
+    subject="Website Inactive"
+fi
+
+if [[ -z "$status" ]]; then
+    status="This website is currently unavailable."
+fi
+
+if [[ -z "$action" ]]; then
+    action="Site owners may contact"
+fi
+
 if [[ "$wp_content" == "" ]]; then
 	wp_content="wp-content"
 fi
@@ -63,68 +76,137 @@ fi
 cat <<EOF > captaincore-deactivated.php
 <?php
 
-function captaincore_template_redirect() { ?><html>
+function captaincore_template_redirect() { 
+    // Do not run if in admin or CLI
+    if ( is_admin() || ( defined( 'WP_CLI' ) && WP_CLI ) ) {
+        return;
+    }
+
+    // Set proper header so SEO doesn't index this page
+    if ( ! headers_sent() ) {
+        header( 'HTTP/1.1 503 Service Unavailable' );
+        header( 'Status: 503 Service Unavailable' );
+    }
+?><!DOCTYPE html>
+<html lang="en">
   <head>
-	<meta charset="utf-8">
-	<title>Website Deactivated</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>${subject}</title>
+    <style>
+        :root {
+            --bg-color: #f3f4f6;
+            --card-bg: #ffffff;
+            --text-main: #1f2937;
+            --text-sub: #6b7280;
+            --accent: #2563eb;
+            --accent-hover: #1d4ed8;
+            --font-stack: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+        }
 
-	<!-- Compiled and minified CSS -->
-	<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
-	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0-beta/css/materialize.min.css">
+        * {
+            box-sizing: border-box;
+        }
 
-	<!-- Compiled and minified JavaScript -->
-	<script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0-beta/js/materialize.min.js"></script>
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: var(--font-stack);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
 
-	<style>
-		@import url('https://fonts.googleapis.com/css?family=Roboto');
-		body {
-			text-align: center;
-			margin: 10% auto;
-			padding: 0%;
-			font-family: 'Roboto', sans-serif;
-			overflow: hidden;
-			display: block;
-			max-width: 450px;
-			background: #eeeeee;
-		}
-		p {
-		  margin-top: 3%;
-		  line-height: 1.4em;
-		  display: block;
-		}
-		img {
-		  margin-top: 1%;
-		}
-		a {
-			color:#27c3f3;
-		}
-	</style>
+        .card {
+            background: var(--card-bg);
+            padding: 48px 32px;
+            border-radius: 16px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.025);
+            text-align: center;
+            max-width: 420px;
+            width: 100%;
+            border: 1px solid rgba(0,0,0,0.05);
+        }
+
+        .icon-wrapper {
+            background-color: #eff6ff;
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+        }
+
+        .icon {
+            width: 40px;
+            height: 40px;
+            color: var(--accent);
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 700;
+            margin: 0 0 12px;
+            letter-spacing: -0.025em;
+            color: var(--text-main);
+        }
+
+        p {
+            color: var(--text-sub);
+            font-size: 16px;
+            line-height: 1.5;
+            margin: 0 0 32px;
+        }
+
+        .contact-box {
+            background: #f9fafb;
+            padding: 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            color: var(--text-sub);
+            border: 1px solid #e5e7eb;
+        }
+
+        a {
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 600;
+            display: block;
+            margin-top: 4px;
+            transition: color 0.2s;
+        }
+
+        a:hover {
+            color: var(--accent-hover);
+            text-decoration: underline;
+        }
+    </style>
   </head>
   <body>
-		<div class="row">
-	<div class="col s12">
-	  <div class="card">
-		<div class="card-content">
-					<span class="card-title">Website Deactivated</span>
-						<p>This website is no longer active.</p>
-		</div>
-				<div class="card-content grey lighten-4">
-					<p>Site owners contact <a href="${link}">${name}</a></p>
-				</div>
-	  </div>
-	</div>
-  </div>
-
-
-	</body>
+    <div class="card">
+        <div class="icon-wrapper">
+            <svg class="icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+        </div>
+        <h1>${subject}</h1>
+        <p>${status}</p>
+        <div class="contact-box">
+            ${action}<br>
+            <a href="${link}">${name}</a>
+        </div>
+    </div>
+  </body>
 </html>
-
 <?php
-
   die();
-
 }
-add_action( 'template_redirect', 'captaincore_template_redirect' );
+add_action( 'template_redirect', 'captaincore_template_redirect', 1 );
 EOF
 
 mv captaincore-deactivated.php $wp_content/mu-plugins/
