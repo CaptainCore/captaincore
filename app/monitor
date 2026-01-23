@@ -30,7 +30,118 @@ while read config; do
   declare "$config"
 done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
 
+# --- CONFIGURATION ---
+DB_FILE="$HOME/.captaincore/data/monitor_stats.db"
+# Use configured tmp directory, fallback to /tmp
+LOCK_DIR="${path_tmp:-/tmp}"
+LOCK_FILE="$LOCK_DIR/captaincore-monitor.lock"
+
+# --- HELPER FUNCTIONS ---
+
+function cleanup() {
+    # Remove lock file on exit
+    if [[ -f "$LOCK_FILE" ]]; then
+        rm -f "$LOCK_FILE"
+    fi
+}
+
+# Register the cleanup trap immediately for Exit, Interrupt (Ctrl+C), and Terminate signals
+trap cleanup EXIT INT TERM
+
+function init_db() {
+    sqlite3 "$DB_FILE" "CREATE TABLE IF NOT EXISTS runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        command TEXT,
+        start_time INTEGER,
+        end_time INTEGER,
+        duration INTEGER,
+        site_count INTEGER,
+        parallelism INTEGER,
+        system_load REAL,
+        status TEXT
+    );"
+}
+
+function get_system_load() {
+    # Robust OS detection using uname
+    local os_name=$(uname -s)
+    if [[ "$os_name" == "Darwin" ]]; then
+        # macOS
+        sysctl -n vm.loadavg | awk '{print $2}'
+    else
+        # Linux
+        if [ -f /proc/loadavg ]; then
+            cat /proc/loadavg | awk '{print $1}'
+        else
+            echo "0.00"
+        fi
+    fi
+}
+
+function log_run_start() {
+    local cmd="$1"
+    local start="$2"
+    local para="$3"
+    local load=$(get_system_load)
+    
+    sqlite3 "$DB_FILE" "INSERT INTO runs (command, start_time, parallelism, system_load, status) VALUES ('$cmd', $start, $para, '$load', 'running'); SELECT last_insert_rowid();"
+}
+
+function log_run_end() {
+    local run_id="$1"
+    local count="$2"
+    local end_time=$(date +%s)
+    
+    sqlite3 "$DB_FILE" "UPDATE runs SET end_time=$end_time, duration=($end_time - start_time), site_count=$count, status='completed' WHERE id=$run_id;"
+}
+
+function log_run_skipped() {
+    local start=$(date +%s)
+    local load=$(get_system_load)
+    local para="$1"
+    sqlite3 "$DB_FILE" "INSERT INTO runs (command, start_time, end_time, duration, parallelism, system_load, status) VALUES ('monitor', $start, $start, 0, $para, '$load', 'skipped_locked');"
+}
+
 run_command() {
+  
+  # Initialize DB
+  init_db
+
+  # Default Parallelism
+  if [[ $FLAG_PARALLEL == "" ]]; then
+    FLAG_PARALLEL=15
+  fi
+
+  # ----------------------------------------------------------------
+  # LOCKING MECHANISM
+  # ----------------------------------------------------------------
+  if [ -f "$LOCK_FILE" ]; then
+    local locked_pid
+    locked_pid=$(cat "$LOCK_FILE")
+    
+    # Check if the process ID in the lock file is actually running
+    if ps -p "$locked_pid" > /dev/null 2>&1; then
+      echo "Skipping monitor run: Previous monitor job (PID $locked_pid) is currently running."
+      log_run_skipped "$FLAG_PARALLEL"
+      exit 0
+    else
+      echo "Found stale lock file. Previous job (PID $locked_pid) died without cleanup. Proceeding."
+      if [[ -n "$captaincore_admin_email" ]]; then
+          local alert_subject="Monitor Alert: Stale Lock File Detected (Previous Crash)"
+          local alert_body="A stale lock file was detected for PID $locked_pid.<br /><br />This indicates the previous monitor job crashed or was killed abruptly.<br /><br />The lock file has been cleared and the monitor job is restarting."
+          echo "$alert_body" | mutt -e 'set content_type=text/html' -s "$alert_subject" -- "$captaincore_admin_email"
+      fi
+    fi
+  fi
+
+  # Create the lock file
+  echo $$ > "$LOCK_FILE"
+  # ----------------------------------------------------------------
+
+  # Start Logging
+  local start_time=$(date +%s)
+  local run_id=$(log_run_start "monitor" "$start_time" "$FLAG_PARALLEL")
+
   if [[ ${#@} != "1" ]]; then
     echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Required <site> or <target>."
     return 1
@@ -41,11 +152,6 @@ run_command() {
   # Assign default retry
   if [[ $RETRY == "" ]]; then
     RETRY=3
-  fi
-
-  # Assign default parallel
-  if [[ $FLAG_PARALLEL == "" ]]; then
-    FLAG_PARALLEL=15
   fi
 
   # See if any sites are specifed
@@ -79,6 +185,9 @@ run_command() {
   fi
 
   orignal_urls_to_check=$urls_to_check
+
+  # Count sites for logging
+  local site_count=$(echo "$urls_to_check" | wc -w)
 
   # Generate random auth
   auth=''; for count in {0..6}; do auth+=$(printf "%x" $(($RANDOM%16)) ); done;
@@ -152,6 +261,12 @@ run_command() {
     echo $email_content | mutt -e 'set content_type=text/html' -s "Monitor: $error_count errors" -- $captaincore_admin_email
 
   fi
+
+  # Finalize Log
+  log_run_end "$run_id" "$site_count"
+  
+  # Explicit cleanup just in case
+  cleanup
 
 }
 run_command $@
