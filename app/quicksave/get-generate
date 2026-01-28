@@ -39,6 +39,13 @@ while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; dec
 
 cd ${CAPTAINCORE_PATH}/data
 
-hash_file="$path/${site}_${site_id}/${environment}/quicksaves/commit-${hash}.json"
+hash_dir="$path/${site}_${site_id}/${environment}/quicksaves"
+hash_file="${hash_dir}/commit-${hash}.json"
+
+if [[ ! -d "$hash_dir" ]]; then
+    echo "Creating quicksaves directory for ${site}_${site_id}/${environment}"
+    mkdir -p "$hash_dir"
+fi
+
 echo "Generating ${site}_${site_id}/${environment}/quicksaves/commit-${hash}.json"
 wp eval-file ${CAPTAINCORE_PATH}/lib/local-scripts/quicksave-get.php hash=$hash site=$site site_id=$site_id environment=$environment > "$hash_file"
