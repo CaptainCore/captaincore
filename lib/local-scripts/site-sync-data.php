@@ -81,7 +81,7 @@ $environment_update = [
     "core_verify_checksums" => $responses[8],
     "subsite_count"         => $responses[9],
     "php_memory"            => $responses[10],
-    "token"                 => $responses[11],
+    "token"                 => $responses[13],
     "updated_at"            => date("Y-m-d H:i:s"),
 ];
 
@@ -110,6 +110,27 @@ foreach($config_data as $config) {
 		break;
 	}
 }
+
+// Store extra fields in environment details JSON
+$environment_record = ( new CaptainCore\Environments )->get( $environment_id );
+$details            = json_decode( $environment_record->details ) ?: (object) [];
+
+if ( isset( $responses[11] ) && $responses[11] !== '' ) {
+    $details->default_role = $responses[11];
+}
+if ( isset( $responses[12] ) && $responses[12] !== '' ) {
+    $details->registration = $responses[12];
+}
+
+$checksum_details_json = isset( $responses[14] ) ? $responses[14] : null;
+if ( $checksum_details_json ) {
+    $checksum_details = json_decode( $checksum_details_json );
+    if ( json_last_error() === JSON_ERROR_NONE ) {
+        $details->core_checksum_details = $checksum_details;
+    }
+}
+
+$environment_update["details"] = json_encode( $details );
 
 // Update current environment with new data.
 ( new CaptainCore\Environments )->update( $environment_update, [ "environment_id" => $environment_id ] );
