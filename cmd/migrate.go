@@ -24,7 +24,7 @@ var migrateWPToSQLiteCmd = &cobra.Command{
 2. Inserts into the new SQLite database via GORM
 3. Verifies row counts`,
 	Run: func(cmd *cobra.Command, args []string) {
-		if models.DB == nil {
+		if !ensureDB() {
 			fmt.Fprintln(os.Stderr, "Error: Database not initialized")
 			os.Exit(1)
 		}
