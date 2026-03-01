@@ -39,7 +39,7 @@ run_command() {
   IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
 
   backup_list="$path/${site}_${site_id}/${environment}/backups/list.json"
-  if [ ! -f "$backup_list" ] || [[ $( stat -f%z $path/${site}_${site_id}/${environment}/backups/list.json ) == "0" ]]; then
+  if [ ! -f "$backup_list" ] || [[ $( stat -c%s "$backup_list" 2>/dev/null || stat -f%z "$backup_list" 2>/dev/null ) == "0" ]]; then
     captaincore backup list-generate $site-$environment --captain-id=$CAPTAIN_ID
   fi
   cat "$backup_list"
