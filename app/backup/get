@@ -11,7 +11,7 @@ while read config; do
     continue
   fi
   declare "$config"
-done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+done <<< "$(captaincore config fetch --captain-id=$CAPTAIN_ID)"
 
 if [ ${#@} -ne 2 ]; then
   echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify <site> and <backup-id>."
@@ -45,7 +45,7 @@ if [[ "$http_status" != "200" ]]; then
     silent=$( captaincore backup get-generate $site-$environment $backup_id --captain-id=$CAPTAIN_ID )
    
     # check if backup file exists
-     http_status=$( curl --write-out "%{http_code}" -o /dev/null -sI $backup_files_link )
+    http_status=$( curl --write-out "%{http_code}" -o /dev/null -sI $backup_files_link )
     if [[ "$http_status" != "200" ]]; then
         exit
     fi

@@ -45,7 +45,7 @@ for arg in "$@"; do
 
 done
 
-plugins=( $plugins )
+IFS=',' read -ra plugins <<< "$plugins"
 
 cd wp-content/plugins
 

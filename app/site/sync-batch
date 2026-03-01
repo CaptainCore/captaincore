@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+
+#
+#   Syncs multiple sites sequentially to CaptainCore CLI.
+#
+#   `captaincore site sync-batch <site-id>...`
+#
+#   [--update-extras]
+#
+
+if [ ${#@} -eq 0 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify at least one site ID."
+  exit
+fi
+
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(captaincore config fetch --captain-id=$CAPTAIN_ID)"
+
+site_ids=("$@")
+total=${#site_ids[@]}
+
+run_command() {
+
+  # Phase 1: Basic sync for all sites (registers in CLI DB + generates keys)
+  local current=0
+  for site_id in "${site_ids[@]}"; do
+    current=$((current + 1))
+    echo "Syncing site ${current}/${total}: ${site_id}"
+    captaincore site sync $site_id --captain-id=$CAPTAIN_ID
+  done
+
+  echo "Phase 1 complete: ${total} site(s) synced."
+
+  # Phase 2: Run extras for all sites (prepare, deploy-defaults, capture)
+  if [ "$CAPTAINCORE_UPDATE_EXTRAS" ]; then
+    current=0
+    for site_id in "${site_ids[@]}"; do
+      current=$((current + 1))
+      echo "Updating extras ${current}/${total}: ${site_id}"
+      captaincore site prepare $site_id --captain-id=$CAPTAIN_ID
+      captaincore site deploy-defaults ${site_id}-production --global-only --captain-id=$CAPTAIN_ID
+      captaincore capture ${site_id}-production --captain-id=$CAPTAIN_ID
+    done
+    echo "Phase 2 complete: extras applied to ${total} site(s)."
+  fi
+
+  echo "Batch sync complete."
+
+}
+
+run_command

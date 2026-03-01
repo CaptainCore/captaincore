@@ -27,7 +27,7 @@ while read config; do
     continue
   fi
   declare "$config"
-done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+done <<< "$(captaincore config fetch --captain-id=$CAPTAIN_ID)"
 
 site=$1
 
@@ -54,22 +54,81 @@ run_command() {
 
   cd ${CAPTAINCORE_PATH}/data
 
-  captaincore quicksave generate $site-$environment --captain-id=$CAPTAIN_ID
+  echo "Quicksave before update..."
+  captaincore quicksave generate $site-$environment --captain-id=$CAPTAIN_ID > /dev/null 2>&1
   quicksave_id_before=$( captaincore quicksave latest $site-$environment --field=hash --captain-id=$CAPTAIN_ID )
   plugin_count_before=$( captaincore ssh $site-$environment --command="wp plugin list --format=csv --fields=name --skip-plugins --skip-themes | tail -n +2 | wc -l" --captain-id=$CAPTAIN_ID )
-  wp eval-file ../lib/local-scripts/site-run-updates.php site=$site environment=$environment updates_enabled=$updates_enabled updates_exclude_themes=$updates_exclude_themes updates_exclude_plugins=$updates_exclude_plugins
-  captaincore quicksave generate $site-$environment --captain-id=$CAPTAIN_ID
+
+  update_args="--all --format=json --provider=${provider}"
+  [[ -n "$updates_exclude_themes" ]] && update_args="$update_args --exclude_themes=$updates_exclude_themes"
+  [[ -n "$updates_exclude_plugins" ]] && update_args="$update_args --exclude_plugins=$updates_exclude_plugins"
+
+  echo "Updating ${site}-${environment}..."
+  update_output=$( captaincore ssh ${site}-${environment} --script=update --captain-id=$CAPTAIN_ID -- $update_args 2>/dev/null )
+
+  # Parse and display update results
+  if command -v python3 &>/dev/null; then
+    formatted=$( echo "$update_output" | python3 -c "
+import sys, json
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        items = json.loads(line)
+        if isinstance(items, list):
+            for item in items:
+                name = item.get('name', '')
+                old_v = item.get('old_version', '')
+                new_v = item.get('new_version', '')
+                status = item.get('status', '')
+                if status == 'Updated':
+                    print(f'  Updated {name} {old_v} \u2192 {new_v}')
+                elif status and name:
+                    print(f'  {name}: {status}')
+    except:
+        pass
+" 2>/dev/null )
+    if [[ -n "$formatted" ]]; then
+      echo "$formatted"
+    else
+      echo "  Everything up to date"
+    fi
+  else
+    echo "$update_output"
+  fi
+
+  echo "Quicksave after update..."
+  captaincore quicksave generate $site-$environment --captain-id=$CAPTAIN_ID > /dev/null 2>&1
   quicksave_id_after=$( captaincore quicksave latest $site-$environment --field=hash --captain-id=$CAPTAIN_ID )
   plugin_count_after=$( captaincore ssh $site-$environment --command="wp plugin list --format=csv --fields=name --skip-plugins --skip-themes | tail -n +2 | wc -l" --captain-id=$CAPTAIN_ID )
 
   if [[ $plugin_count_before != $plugin_count_after ]]; then
-    echo "Sending Email"
-    echo "Updating plugins on $home_url ($site-$environment) resulted in a mismatch count.<br /><br />Before updating there were $plugin_count_before plugins.<br />After updating there were $plugin_count_after plugins." | mutt -e 'set content_type=text/html' -s "Plugin update mismatch ($plugin_count_before:$plugin_count_after) on $home_url" -- $captaincore_admin_email
+    mismatch_subject="Plugin update mismatch ($plugin_count_before:$plugin_count_after) on $home_url"
+    mismatch_body="Updating plugins on $home_url ($site-$environment) resulted in a mismatch count.<br /><br />Before updating there were $plugin_count_before plugins.<br />After updating there were $plugin_count_after plugins."
+    mismatch_content_json=$( echo "$mismatch_body" | php -r 'echo json_encode(file_get_contents("php://stdin"));' )
+
+    if [[ $captaincore_dev == true ]]; then
+        curl_argument="-k"
+    fi
+
+    curl ${curl_argument} --silent --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
+{
+	"command": "monitor-notify",
+	"token": "$token",
+	"data": {
+		"email": "$captaincore_admin_email",
+		"subject": "$mismatch_subject",
+		"content": $mismatch_content_json
+	}
+}
+EOF
   fi
 
   if [[ $quicksave_id_before != $quicksave_id_after ]]; then
-    captaincore update-log generate $site-$environment $quicksave_id_before $quicksave_id_after --captain-id=$CAPTAIN_ID
-    captaincore update-log list-generate $site-$environment --captain-id=$CAPTAIN_ID
+    captaincore update-log generate $site-$environment $quicksave_id_before $quicksave_id_after --captain-id=$CAPTAIN_ID > /dev/null
+    captaincore update-log list-generate $site-$environment --captain-id=$CAPTAIN_ID > /dev/null
+    echo "Update log saved"
   fi
 
   if [ -f "${path}/process-${process_id}-progress.log" ]; then

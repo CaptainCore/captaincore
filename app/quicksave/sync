@@ -37,7 +37,7 @@ run_command() {
 		fi
 
 		# Load site configs
-		while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain_id=$captain_id)"
+		while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $website --bash --captain-id=$captain_id)"
 
 		echo "${INDEX}/$# - $domain"
 
@@ -133,7 +133,7 @@ fi
 
 # Runs on targeted sites
 if [ ${#targets[*]} -gt 0 ]; then
-  run_command $(captaincore site list ${targets[*]/targets=/@} --captain_id=$captain_id)
+  run_command $(captaincore site list ${targets[*]/targets=/@} --captain-id=$captain_id)
 fi
 
 # Error if no sites specifed

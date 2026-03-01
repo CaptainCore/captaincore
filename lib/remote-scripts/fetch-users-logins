@@ -1,0 +1,202 @@
+#!/usr/bin/env bash
+
+#
+#   Fetches WordPress user info for security analysis
+#
+#   Usage:
+#   captaincore ssh <site> --script=fetch-users-logins
+#
+#   Flags:
+#   --role=administrator    Only show users with this role (default: all)
+#   --json                  Output as JSON instead of formatted text
+#
+
+# Load arguments
+for arg in "$@"; do
+  if [[ $arg != --* ]]; then
+    count=1+${#arguments[*]}
+    arguments[$count]=$arg
+    continue
+  fi
+  flag_name=$( echo $arg | cut -c 3- )
+  count=1+${#flags[*]}
+  flags[$count]=$arg
+  if [[ $arg != *"="* ]]; then
+    flag_name=${flag_name//-/_}
+    declare "$flag_name"=true
+  fi
+  if [[ $arg == *"="* ]]; then
+    flag_value=$( echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1' )
+    flag_name=$( echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1' )
+    flag_name=${flag_name/-/_}
+    flag_value="${flag_value%\"}"
+    flag_value="${flag_value#\"}"
+    declare "$flag_name"="$flag_value"
+    continue
+  fi
+done
+
+wp_flags="--skip-themes --skip-plugins --skip-packages"
+
+# Build role filter
+role_filter=""
+if [ -n "$role" ]; then
+    role_filter="--role=$role"
+fi
+
+echo "=== WordPress Users & Login Sessions ==="
+echo ""
+
+# Fetch all users with key fields
+echo "--- User Accounts ---"
+echo ""
+
+user_list=$( wp user list --fields=ID,user_login,user_email,display_name,roles,user_registered $role_filter --format=json $wp_flags 2>/dev/null )
+
+if [ -z "$user_list" ] || [ "$user_list" = "[]" ]; then
+    echo "No users found."
+    exit
+fi
+
+user_count=$( echo "$user_list" | wp eval-file - $wp_flags 2>/dev/null <<'PHPCOUNT' || echo "$user_list" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null
+<?php
+$data = json_decode( file_get_contents('php://stdin'), true );
+echo count( $data );
+PHPCOUNT
+)
+
+echo "Total users: ${user_count:-unknown}"
+echo ""
+
+if [ "$json" = "true" ]; then
+    # JSON output mode - comprehensive data via WP-CLI eval
+    wp eval '$users = get_users(); $output = []; foreach ($users as $u) { $meta = get_user_meta($u->ID); $sessions = get_user_meta($u->ID, "session_tokens", true); $session_data = []; if (is_array($sessions)) { foreach ($sessions as $token => $s) { $session_data[] = ["ip" => isset($s["ip"]) ? $s["ip"] : "", "login" => isset($s["login"]) ? $s["login"] : "", "expiration" => isset($s["expiration"]) ? date("Y-m-d H:i:s", $s["expiration"]) : "", "ua" => isset($s["ua"]) ? $s["ua"] : ""]; } } $output[] = ["ID" => $u->ID, "user_login" => $u->user_login, "user_email" => $u->user_email, "display_name" => $u->display_name, "roles" => $u->roles, "user_registered" => $u->user_registered, "sessions" => $session_data, "last_activity" => isset($meta["last_activity"][0]) ? $meta["last_activity"][0] : ""]; } echo json_encode($output, JSON_PRETTY_PRINT);' $wp_flags 2>/dev/null
+    exit
+fi
+
+# Formatted text output
+wp user list --fields=ID,user_login,user_email,roles,user_registered $role_filter --format=table $wp_flags 2>/dev/null
+
+echo ""
+echo "--- Active Sessions ---"
+echo ""
+
+# Extract session data for each user via a single WP eval call
+wp eval '
+$users = get_users();
+$has_sessions = false;
+foreach ( $users as $user ) {
+    $sessions = get_user_meta( $user->ID, "session_tokens", true );
+    if ( empty( $sessions ) || ! is_array( $sessions ) ) {
+        continue;
+    }
+    $has_sessions = true;
+    $count = count( $sessions );
+    echo "User: {$user->user_login} (ID: {$user->ID}) - {$count} active session(s)\n";
+    foreach ( $sessions as $token_hash => $session ) {
+        $ip         = isset( $session["ip"] ) ? $session["ip"] : "unknown";
+        $login_time = isset( $session["login"] ) ? date( "Y-m-d H:i:s", $session["login"] ) : "unknown";
+        $expiration = isset( $session["expiration"] ) ? date( "Y-m-d H:i:s", $session["expiration"] ) : "unknown";
+        $ua         = isset( $session["ua"] ) ? $session["ua"] : "unknown";
+        $expired    = isset( $session["expiration"] ) && $session["expiration"] < time() ? " [EXPIRED]" : "";
+        echo "  IP: {$ip} | Login: {$login_time} | Expires: {$expiration}{$expired}\n";
+        echo "  UA: {$ua}\n";
+        echo "\n";
+    }
+}
+if ( ! $has_sessions ) {
+    echo "No active sessions found.\n";
+}
+' $wp_flags 2>/dev/null
+
+echo ""
+echo "--- Security Flags ---"
+echo ""
+
+# Check for suspicious patterns via a single WP eval call
+wp eval '
+$flags = [];
+
+// Check for default "admin" username
+$admin_user = get_user_by( "login", "admin" );
+if ( $admin_user ) {
+    $flags[] = "Default \"admin\" username exists (ID: {$admin_user->ID})";
+}
+
+// Check for administrators with suspicious email patterns
+$admins = get_users( [ "role" => "administrator" ] );
+$disposable_domains = [ "mailinator.com", "guerrillamail.com", "tempmail.com", "throwaway.email", "yopmail.com", "sharklasers.com", "guerrillamailblock.com", "grr.la", "dispostable.com", "maildrop.cc", "temp-mail.org" ];
+foreach ( $admins as $admin ) {
+    $domain = strtolower( substr( $admin->user_email, strpos( $admin->user_email, "@" ) + 1 ) );
+    if ( in_array( $domain, $disposable_domains ) ) {
+        $flags[] = "Admin \"{$admin->user_login}\" uses disposable email domain: {$domain}";
+    }
+}
+
+// Check for recently registered users (last 7 days)
+$recent_users = get_users( [
+    "date_query" => [ [ "after" => "7 days ago" ] ],
+] );
+// Fallback: manual date check since date_query may not work on all WP versions
+$seven_days_ago = date( "Y-m-d H:i:s", strtotime( "-7 days" ) );
+$all_users = get_users();
+$recent = [];
+foreach ( $all_users as $u ) {
+    if ( $u->user_registered >= $seven_days_ago ) {
+        $recent[] = $u;
+    }
+}
+if ( ! empty( $recent ) ) {
+    foreach ( $recent as $u ) {
+        $roles = implode( ", ", $u->roles );
+        $flags[] = "Recently registered: \"{$u->user_login}\" ({$roles}) on {$u->user_registered}";
+    }
+}
+
+// Check for multiple administrator accounts
+if ( count( $admins ) > 3 ) {
+    $flags[] = "High number of administrators: " . count( $admins );
+}
+
+// Check for users with no role (subscriber with no content could be injected)
+$no_role = get_users( [ "role" => "" ] );
+if ( ! empty( $no_role ) ) {
+    foreach ( $no_role as $u ) {
+        $flags[] = "User with no role: \"{$u->user_login}\" (ID: {$u->ID})";
+    }
+}
+
+// Check for administrator sessions from multiple IPs
+foreach ( $admins as $admin ) {
+    $sessions = get_user_meta( $admin->ID, "session_tokens", true );
+    if ( is_array( $sessions ) && count( $sessions ) > 1 ) {
+        $ips = [];
+        foreach ( $sessions as $s ) {
+            if ( isset( $s["ip"] ) ) {
+                $ips[] = $s["ip"];
+            }
+        }
+        $unique_ips = array_unique( $ips );
+        if ( count( $unique_ips ) > 1 ) {
+            $ip_list = implode( ", ", $unique_ips );
+            $flags[] = "Admin \"{$admin->user_login}\" has sessions from multiple IPs: {$ip_list}";
+        }
+    }
+}
+
+if ( empty( $flags ) ) {
+    echo "No suspicious patterns detected.\n";
+} else {
+    foreach ( $flags as $flag ) {
+        echo "  ** {$flag}\n";
+    }
+}
+' $wp_flags 2>/dev/null
+
+echo ""
+echo "=== Summary ==="
+echo ""
+
+admin_count=$( wp user list --role=administrator --format=count $wp_flags 2>/dev/null )
+echo "Total users:          ${user_count:-unknown}"
+echo "Administrators:       ${admin_count:-unknown}"

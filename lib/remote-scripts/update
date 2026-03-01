@@ -88,7 +88,6 @@ heredoc
   else
   	wp theme update ${flags[@]} --exec="define( 'WP_ADMIN', true );" --exclude=$exclude_themes --skip-plugins=wps-hide-login
   fi
-  echo " "
   if [[ $exclude_plugins == "" ]]; then
     wp plugin update ${flags[@]} --exec="define( 'WP_ADMIN', true );" --skip-plugins=wps-hide-login
     silent=$( wp cache flush )
@@ -165,7 +164,7 @@ heredoc
   silent=$( wp language plugin update --all )
   silent=$( wp language theme update --all )
 
-  silent=$( wp maintenance-mode deactivate --skip-plugins --skip-themes )
+  silent=$( wp maintenance-mode deactivate --skip-plugins --skip-themes 2>&1 )
 
 }
 run_command

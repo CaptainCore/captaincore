@@ -21,7 +21,7 @@ while read config; do
     continue
   fi
   declare "$config"
-done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+done <<< "$(captaincore config fetch --captain-id=$CAPTAIN_ID)"
 
 site=$1
 commit=$2
@@ -36,7 +36,7 @@ run_command() {
 		environment=production
 	fi
 
-	while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
+	IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
 
 	# Return error if domain not found
 	if [[ "$domain" == "" ]] || [[ "$site" == "" ]]; then

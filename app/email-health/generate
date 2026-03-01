@@ -23,7 +23,7 @@ while read config; do
     continue
   fi
   declare "$config"
-done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+done <<< "$(captaincore config fetch --captain-id=$CAPTAIN_ID)"
 
 if [[ "${#CAPTAINCORE_ARGS}" == "0" ]]; then
   echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Required <site> or <target>."
@@ -99,8 +99,24 @@ run_command() {
 
     undelivered_count=$( php $HOME/.captaincore/lib/local-scripts/email-health.php undelivered $health_check_directory )
 
-    # output "Response code $response for $address" per each item in array
-    echo $email_content | mutt -e 'set content_type=text/html' -s "Email Monitor: $undelivered_count failed deliveries" -- $captaincore_admin_email
+    email_subject="Email Monitor: $undelivered_count failed deliveries"
+    email_content_json=$( echo $email_content | php -r 'echo json_encode(file_get_contents("php://stdin"));' )
+
+    if [[ $captaincore_dev == true ]]; then
+        curl_argument="-k"
+    fi
+
+    curl ${curl_argument} --silent --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
+{
+	"command": "monitor-notify",
+	"token": "$token",
+	"data": {
+		"email": "$captaincore_admin_email",
+		"subject": "$email_subject",
+		"content": $email_content_json
+	}
+}
+EOF
 
   fi
 

@@ -25,11 +25,24 @@ while read config; do
     continue
   fi
   declare "$config"
-done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+done <<< "$(captaincore config fetch --captain-id=$CAPTAIN_ID)"
+
+# Check for API keys
+if [[ -z "$screenshots_cloud_api_key" || -z "$screenshots_cloud_api_secret" ]]; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Screenshots Cloud API keys not configured."
+    exit 1
+fi
 
 site=$1
 
 user_agent="captaincore/1.0 (CaptainCore Capture by CaptainCore.io)"
+
+# Use 'magick' (IMv7) if available, fall back to 'convert' (IMv6)
+if command -v magick &>/dev/null; then
+	im_convert="magick"
+else
+	im_convert="convert"
+fi
 
 urlencode() {
     local _length="${#1}"
@@ -53,7 +66,7 @@ run_command() {
 	fi
 	
 	# Load site configs
-	while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
+	IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
 
 	# Return error if domain not found
 	if [[ "$domain" == "" ]] || [[ "$site" == "" ]]; then
@@ -137,13 +150,45 @@ run_command() {
 		if [[ "$check_status_again" == "A"* || "$check_status_again" == "M"* || "$check_status_again" == "R"*  ]]; then
 			captured_pages="${captured_pages}${page},"
 			mkdir -p ".screenshots/"
-			query="url=$( urlencode "${home_url}${page}" )&full_page=true&viewport_width=1280&force=true&user_agent=$( urlencode "$user_agent" )&format=jpg&pixel_ratio=2"
-			if [[ "$auth" != "" ]]; then
-				query="url=$( urlencode "${home_url}${page}" )&authorization=$( urlencode "Basic $auth" )&full_page=true&viewport_width=1280&force=true&user_agent=$( urlencode "$user_agent" )&format=jpg&pixel_ratio=2"
-			fi
-			screenshots_cloud_token=$( printf '%s' "$query" | openssl sha1 -hmac "$screenshots_cloud_api_secret" | sed 's/^.* //' )
-			echo "Downloading https://api.screenshots.cloud/v1/screenshot/$screenshots_cloud_api_key/$screenshots_cloud_token/?$query"
-			curl --silent "https://api.screenshots.cloud/v1/screenshot/$screenshots_cloud_api_key/$screenshots_cloud_token/?$query" > ".screenshots/${page//\//#}_working.jpg"
+			
+			target_file=".screenshots/${page//\//#}_working.jpg"
+			max_retries=5
+			attempt=1
+
+			while [ $attempt -le $max_retries ]; do
+				query="url=$( urlencode "${home_url}${page}" )&full_page=true&viewport_width=1280&force=true&user_agent=$( urlencode "$user_agent" )&format=jpg&pixel_ratio=2"
+				if [[ "$auth" != "" ]]; then
+					query="url=$( urlencode "${home_url}${page}" )&authorization=$( urlencode "Basic $auth" )&full_page=true&viewport_width=1280&force=true&user_agent=$( urlencode "$user_agent" )&format=jpg&pixel_ratio=2"
+				fi
+				screenshots_cloud_token=$( printf '%s' "$query" | openssl sha1 -hmac "$screenshots_cloud_api_secret" | sed 's/^.* //' )
+
+				echo "Downloading screenshot for ${home_url}${page} (Attempt $attempt of $max_retries)"
+				http_code=$(curl --silent --output "$target_file" --write-out "%{http_code}" --max-time 60 "https://api.screenshots.cloud/v1/screenshot/$screenshots_cloud_api_key/$screenshots_cloud_token/?$query")
+
+				# Validate the downloaded file
+				file_size=0
+				mime_type="unknown"
+				if [ -f "$target_file" ]; then
+					file_size=$(wc -c < "$target_file" | tr -d ' ')
+					mime_type=$(file --mime-type -b "$target_file")
+				fi
+
+				if [ "$http_code" = "200" ] && [ "$file_size" -gt 1000 ] && [[ "$mime_type" == "image/"* ]]; then
+					echo "Screenshot captured successfully (${file_size} bytes)"
+					break
+				fi
+
+				echo "Attempt $attempt failed (HTTP: $http_code, size: ${file_size} bytes, type: $mime_type)"
+
+				if [ $attempt -lt $max_retries ]; then
+					echo "Retrying in 10 seconds..."
+					sleep 10
+				else
+					echo "Failed to capture valid screenshot after $max_retries attempts. Skipping."
+					rm -f "$target_file"
+				fi
+				attempt=$((attempt + 1))
+			done
 		fi
 
 	done
@@ -171,21 +216,36 @@ run_command() {
 	files_changed=$( git show $git_commit --name-status --format= )
 
 	# Organize new screenshots. Rename all files working_* to ${date}_${git_commit_short}_
-	for image in $( ls .screenshots/*_working.jpg ); do
+	for image in $( ls .screenshots/*_working.jpg 2>/dev/null ); do
 		new_ending="_${created_at}_${git_commit_short}"
 		new_image_name=${image/_working/$new_ending}
-		# Generate home page thumbnails
-		if [[ "$image" == ".screenshots/#_working.jpg" ]]; then
-			convert ".screenshots/#_working.jpg" -thumbnail 800 -gravity North -crop 800x500+0+0 ".screenshots/${created_at}_${git_commit_short}_thumb-800.jpg"
-			convert ".screenshots/${created_at}_${git_commit_short}_thumb-800.jpg" -thumbnail 100 ".screenshots/${created_at}_${git_commit_short}_thumb-100.jpg"
-			rclone move ".screenshots/${created_at}_${git_commit_short}_thumb-100.jpg" ${rclone_upload}${remote_path_screenshots}/ --fast-list --transfers=32 --no-update-modtime --progress --stats-one-line --stats=1m
-			rclone move ".screenshots/${created_at}_${git_commit_short}_thumb-800.jpg" ${rclone_upload}${remote_path_screenshots}/ --fast-list --transfers=32 --no-update-modtime --progress --stats-one-line --stats=1m
+		
+		# Ensure we only process if the file has content and is a valid image
+		if [ -s "$image" ] && identify "$image" >/dev/null 2>&1; then
+			# Generate home page thumbnails
+			if [[ "$image" == ".screenshots/#_working.jpg" ]]; then
+				$im_convert ".screenshots/#_working.jpg" -thumbnail 800 -gravity North -crop 800x500+0+0 ".screenshots/${created_at}_${git_commit_short}_thumb-800.jpg"
+				$im_convert ".screenshots/${created_at}_${git_commit_short}_thumb-800.jpg" -thumbnail 100 ".screenshots/${created_at}_${git_commit_short}_thumb-100.jpg"
+				
+				# Check if files exist before moving to prevent rclone errors
+				if [ -f ".screenshots/${created_at}_${git_commit_short}_thumb-100.jpg" ]; then
+					rclone move ".screenshots/${created_at}_${git_commit_short}_thumb-100.jpg" ${rclone_upload}${remote_path_screenshots}/ --fast-list --transfers=32 --no-update-modtime --progress --stats-one-line --stats=1m
+				fi
+				if [ -f ".screenshots/${created_at}_${git_commit_short}_thumb-800.jpg" ]; then
+					rclone move ".screenshots/${created_at}_${git_commit_short}_thumb-800.jpg" ${rclone_upload}${remote_path_screenshots}/ --fast-list --transfers=32 --no-update-modtime --progress --stats-one-line --stats=1m
+				fi
+			fi
+			mv "$image" "$new_image_name"
+		else
+			echo "Skipping/Removing invalid image: $image"
+			rm -f "$image"
 		fi
-		mv "$image" "$new_image_name"
 	done
 	
-	# Copy to remote storage 
-	rclone move .screenshots/ ${rclone_upload}${remote_path_captures}/ --fast-list --transfers=32 --no-update-modtime --progress --stats-one-line --stats=1m
+	# Copy to remote storage if directory is not empty
+	if [ -d ".screenshots/" ] && [ "$(ls -A .screenshots/)" ]; then
+		rclone move .screenshots/ ${rclone_upload}${remote_path_captures}/ --fast-list --transfers=32 --no-update-modtime --progress --stats-one-line --stats=1m
+	fi
 
 	# Build json for capture
 	read -r -d '' capture << EOM

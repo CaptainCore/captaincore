@@ -64,6 +64,11 @@ for i in "${!flags[@]}"; do
 
   # Defines variables for boolean flags
   flag_name=${flag_name//-/_}
+
+  if [[ "$flag_name" == "\"" ]]; then
+    continue
+  fi
+
   declare "$flag_name"=true
 
 done
@@ -74,7 +79,7 @@ while read config; do
     continue
   fi
   declare "$config"
-done <<< "$(php ${root_path}lib/local-scripts/configs.php fetch --captain_id=$captain_id)"
+done <<< "$(captaincore config fetch --captain-id=$captain_id)"
 
 # Pass Captain ID as environment variable
 export CAPTAIN_ID=$captain_id

@@ -1,23 +1,29 @@
 package cmd
 
 import (
+	"encoding/base64"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 
+	"github.com/CaptainCore/captaincore/config"
+	"github.com/CaptainCore/captaincore/models"
 	"github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
-var flagDebug, flagSkipDB, flagSkipScreenshot, flagForce, flagBash, flagUpdateExtras, flagSkipRemote, flagFleet, flagInit bool
-var flagAll, flagHtml, flagPublic, flagSkipAlreadyGenerated, flagGlobalOnly, flagDeleteAfterSnapshot bool
+var flagDebug, flagSkipDB, flagSkipScreenshot, flagForce, flagBash, flagUpdateExtras, flagSkipRemote, flagFleet, flagInit, flagLabel bool
+var flagAll, flagHtml, flagPublic, flagSkipAlreadyGenerated, flagGlobalOnly, flagDeleteAfterSnapshot, flagCached bool
 var flagCode, flagCommand, flagFilter, flagFilterName, flagFilterVersion, flagFilterStatus, flagField, flagPage, flagRecipe, flagScript, flagProvider string
 var captainID, cfgFile, flagTheme, flagPlugin, flagFile, flagLimit, flagEmail, flagName, flagLink, flagNotes, flagUserId, flagFormat, flagVersion, flagSkipIfRecent, flagSubject, flagStatus, flagAction string
+var flagSearchField string
+var flagCredentials, flagAccountID, flagSiteIDs string
 var flagParallel, flagRetry int
 
 var colorYellow = "\x1b[33;1m"
@@ -65,6 +71,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	rootCmd.PersistentFlags().StringVar(&captainID, "captain-id", "1", "Captain ID")
 	rootCmd.PersistentFlags().BoolVar(&flagFleet, "fleet", false, "Fleet mode")
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "~/.captaincore/config.json", "config file")
+	rootCmd.PersistentFlags().BoolVar(&flagLabel, "label", false, "Print colored site name headers in bulk mode")
 }
 
 // initConfig reads in config file and ENV variables if set.
@@ -90,6 +97,45 @@ func initConfig() {
 	}
 }
 
+var dbOnce sync.Once
+var dbInitErr error
+
+// ensureDB lazily initializes the SQLite database on first use.
+func ensureDB() bool {
+	dbOnce.Do(func() {
+		dbInitErr = models.InitDB()
+	})
+	return dbInitErr == nil && models.DB != nil
+}
+
+// resolveNativeOrWP routes to a native Go handler if the database is available
+// AND populated, otherwise returns an error.
+func resolveNativeOrWP(c *cobra.Command, args []string, native func(*cobra.Command, []string)) {
+	if ensureDB() && dbHasData() {
+		native(c, args)
+		return
+	}
+	fmt.Println("Error: Database not available. Run 'captaincore connect' to set up your CaptainCore CLI.")
+	os.Exit(1)
+}
+
+// dbHasData checks whether the SQLite database has been populated with site data.
+func dbHasData() bool {
+	var count int64
+	models.DB.Table("captaincore_sites").Count(&count)
+	return count > 0
+}
+
+// fetchCaptainIDsNative returns captain IDs using Go config instead of PHP.
+func fetchCaptainIDsNative() ([]string, error) {
+	configs, err := config.LoadConfig()
+	if err != nil {
+		return nil, err
+	}
+	ids := config.FetchCaptainIDs(configs)
+	return strings.Split(ids, " "), nil
+}
+
 func runCommand(c *cobra.Command, args []string) {
 	command := c.CommandPath()
 	command = strings.Replace(command, "captaincore ", "", -1)
@@ -98,6 +144,11 @@ func runCommand(c *cobra.Command, args []string) {
 	//data, _ := scriptFiles.ReadFile("scripts/" + command)
 	//print(string(data))
 	//fmt.Printf(data)
+}
+
+func basicAuth(username, password string) string {
+	auth := username + ":" + password
+	return base64.StdEncoding.EncodeToString([]byte(auth))
 }
 
 func resolveCommand(c *cobra.Command, args []string) {
@@ -122,7 +173,7 @@ func resolveCommand(c *cobra.Command, args []string) {
 	}
 
 	if target_count > 0 && c.CommandPath() != "captaincore monitor" &&
-		c.CommandPath() != "captaincore bulk" && c.CommandPath() != "captaincore site sync" && c.CommandPath() != "captaincore ssh-detect" && c.CommandPath() != "captaincore plugin-zip" && c.CommandPath() != "captaincore upload" &&
+		c.CommandPath() != "captaincore bulk" && c.CommandPath() != "captaincore site sync" && c.CommandPath() != "captaincore site sync-batch" && c.CommandPath() != "captaincore ssh-detect" && c.CommandPath() != "captaincore plugin-zip" && c.CommandPath() != "captaincore upload" &&
 		c.CommandPath() != "captaincore backup get" && c.CommandPath() != "captaincore backup get-generate" && c.CommandPath() != "captaincore backup download" && c.CommandPath() != "captaincore backup show" && c.CommandPath() != "captaincore email-health send" && c.CommandPath() != "captaincore email-health response" && c.CommandPath() != "captaincore email-health generate" &&
 		c.CommandPath() != "captaincore quicksave show-changes" && c.CommandPath() != "captaincore quicksave file-diff" && c.CommandPath() != "captaincore quicksave rollback" && c.CommandPath() != "captaincore quicksave get-generate" && c.CommandPath() != "captaincore quicksave get" &&
 		c.CommandPath() != "captaincore update-log generate" && c.CommandPath() != "captaincore update-log list-generate" && c.CommandPath() != "captaincore update-log get" && c.CommandPath() != "captaincore capture" {
@@ -158,8 +209,12 @@ func resolveCommand(c *cobra.Command, args []string) {
 	if flagScript != "" {
 		args = append(args, "--script="+flagScript)
 	}
+	for _, passArg := range flagScriptPassthrough {
+		args = append(args, passArg)
+	}
 
 	env = append([]string{"COLOR_RED=\033[31m"}, env...)
+	env = append([]string{"COLOR_GREEN=\033[32;1m"}, env...)
 	env = append([]string{"COLOR_NORMAL=\033[39m"}, env...)
 	env = append([]string{"CAPTAINCORE_PATH=" + dirname + "/.captaincore"}, env...)
 	if flagSkipIfRecent != "" {
@@ -246,17 +301,18 @@ func resolveCommand(c *cobra.Command, args []string) {
 	if flagDebug == true {
 		env = append([]string{"CAPTAINCORE_DEBUG=true"}, env...)
 	}
+	if flagLabel {
+		env = append([]string{"FLAG_LABEL=true"}, env...)
+	}
 	if flagSkipAlreadyGenerated == true {
 		env = append([]string{"SKIP_ALREADY_GENERATED=true"}, env...)
 	}
 	if flagFleet == true {
-		// Fetch CaptainIDs
-		cmd := exec.Command("php", dirname+"/.captaincore/lib/local-scripts/configs.php", "fetch-captain-ids")
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			log.Fatalf("cmd.Run() failed with %s\n", err)
+		// Fetch CaptainIDs using native Go config
+		captainIds, nativeErr := fetchCaptainIDsNative()
+		if nativeErr != nil {
+			log.Fatalf("Error fetching captain IDs: %s\n", nativeErr)
 		}
-		captainIds := strings.Split(string(out), " ")
 		// Loop through CaptainIDs
 		for _, fleetCaptainID := range captainIds {
 			//fmt.Println(path+command, args, fleetCaptainID)
@@ -274,89 +330,6 @@ func resolveCommand(c *cobra.Command, args []string) {
 	}
 	env = append([]string{"CAPTAIN_ID=" + captainID}, env...)
 	err = syscall.Exec(path+command, args, env)
-	log.Println(err)
-}
-
-func resolveCommandWP(c *cobra.Command, args []string) {
-	dirname, err := os.UserHomeDir()
-	if err != nil {
-		log.Fatal(err)
-	}
-	target_count := 0
-
-	for _, arg := range args {
-		if strings.Contains(arg, "--") == false {
-			target_count = target_count + 1
-		}
-	}
-
-	if len(args) > 0 && c.CommandPath() != "captaincore site list" {
-		if strings.HasPrefix(args[0], "@production") || strings.HasPrefix(args[0], "@staging") || strings.HasPrefix(args[0], "@all") {
-			resolveCommand(c, args)
-			return
-		}
-	}
-
-	if c.CommandPath() == "captaincore sync-data" && target_count > 1 {
-		resolveCommand(c, args)
-		return
-	}
-
-	command := c.CommandPath()
-	command = strings.Replace(command, "captaincore ", "", -1)
-	command = strings.Replace(command, " ", "-", -1)
-	home := dirname + "/.captaincore/"
-	path := "/usr/local/bin/wp"
-
-	if flagProvider != "" {
-		args = append(args, "provider="+flagProvider)
-	}
-	if flagFormat != "" {
-		args = append(args, "format="+flagFormat)
-	}
-	if flagBash == true {
-		args = append(args, "format=bash")
-	}
-	if flagGlobalOnly == true {
-		args = append(args, "global-only=true")
-	}
-	if flagFilter != "" {
-		args = append(args, "filter="+flagFilter)
-	}
-	if flagFilterName != "" {
-		args = append(args, "filter-name="+flagFilterName)
-	}
-	if flagFilterVersion != "" {
-		args = append(args, "filter-version="+flagFilterVersion)
-	}
-	if flagField != "" {
-		args = append(args, "field="+flagField)
-	}
-	args = append(args, "--path="+home+"data")
-	args = append([]string{home + "lib/local-scripts/" + command + ".php"}, args...)
-	args = append([]string{"eval-file"}, args...)
-	args = append([]string{"wp"}, args...)
-	env := os.Environ()
-
-	if flagFleet == true {
-		// Fetch CaptainIDs
-		cmd := exec.Command("php", dirname+"/.captaincore/lib/local-scripts/configs.php", "fetch-captain-ids")
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			log.Fatalf("cmd.Run() failed with %s\n", err)
-		}
-		captainIds := strings.Split(string(out), " ")
-		// Loop through CaptainIDs
-		for _, fleetCaptainID := range captainIds {
-			cmdRun(path, args, env, fleetCaptainID)
-		}
-		return
-	}
-	env = append([]string{"CAPTAIN_ID=" + captainID}, env...)
-	if flagSkipAlreadyGenerated == true {
-		env = append([]string{"SKIP_ALREADY_GENERATED=true"}, env...)
-	}
-	err = syscall.Exec(path, args, env)
 	log.Println(err)
 }
 

@@ -18,7 +18,7 @@ while read config; do
     continue
   fi
   declare "$config"
-done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+done <<< "$(captaincore config fetch --captain-id=$CAPTAIN_ID)"
 
 site=$1
 backup_id=$2
@@ -40,17 +40,17 @@ mkdir -p "${CAPTAINCORE_PATH}/data/payload/"
 payload_file="${CAPTAINCORE_PATH}/data/payload/${payload_id}.txt"
 
 # Load site configs
-while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
+IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
 
 timestamp=$( date +'%Y-%m-%d_%H-%M-%S' )
 restore_path="$path/${site}_${site_id}/${environment}/restores/${timestamp}-${backup_id:0:8}"
-mount_name="${timestamp}-${backup_id:0:3}"
 zip_name="${site}_${environment}_${backup_id:0:8}_at_$timestamp.zip"
-mkdir -p "$restore_path/$mount_name"
+mkdir -p "$restore_path"
 
+if [[ -n "$payload_id" && -f "$payload_file" ]]; then
 read -r -d '' php_code << heredoc
 \$data        = json_decode( base64_decode( file_get_contents ( "$payload_file" ) ) );
-\$files       = \$data->files; 
+\$files       = \$data->files;
 \$directories = \$data->directories;
 if ( ! empty( \$directories ) ) {
     file_put_contents ( "$restore_path/directories_to_restore.txt", implode( PHP_EOL, \$directories ) );
@@ -59,54 +59,36 @@ file_put_contents ( "$restore_path/files_to_restore.txt", implode( PHP_EOL, \$fi
 heredoc
 
 php -r "$php_code"
-
-rclone_config_file="$path/${site}_${site_id}/rclone.conf"
-echo "Mounting Restic repo"
-command="mount ${restore_path}/$mount_name/ --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file=${CAPTAINCORE_PATH}/data/restic.key"
-restic $command > $restore_path/restic-mount.log 2>&1 &
-count=0
-
-while true; do
-
-    echo -n "."
-    reading_mount_progress=""
-
-    # Assume something didn't work if takes longer then 10 minutes
-    if [ $count -gt 600 ]; then
-        echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Mounting Restic repo failed."
-        exit 1
-    fi
-
-    if [ -f "$restore_path/restic-mount.log" ]; then
-        reading_mount_progress=$( cat $restore_path/restic-mount.log )
-    fi
-
-    if [[ "$reading_mount_progress" == *"Now serving the repository at"* ]]; then
-        break
-    fi
-
-    sleep 1
-    let count+=1
-
-done
-
-echo ""
-timestamp=$( stat -c %Y ${restore_path}/$mount_name/ids/${backup_id:0:8}/ )
-read -r -d '' php_code << heredoc
-\$dt = new DateTime("@$timestamp"); echo \$dt->format("Y-m-d g:i:s a");
-heredoc
-timestamp=$( php -r "$php_code" )
-rclone copy --files-from ${restore_path}/files_to_restore.txt ${restore_path}/$mount_name/ids/${backup_id:0:8}/ ${restore_path}/restore/ --transfers 32
-if [ -f "${restore_path}/directories_to_restore.txt" ]; then
-    lines=$( cat "${restore_path}/directories_to_restore.txt" )
-    for line in $lines; do
-        rclone copy ${restore_path}/$mount_name/ids/${backup_id:0:8}${line} ${restore_path}/restore${line} --transfers 32
-    done
 fi
 
-# Unmount Restic repo
-fusermount -u ${restore_path}/$mount_name/
-rmdir ${restore_path}/$mount_name/
+restic_repo="rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo"
+restic_args=(--repo "$restic_repo" --password-file "${CAPTAINCORE_PATH}/data/restic.key")
+
+# Get snapshot timestamp
+read -r -d '' php_code << heredoc
+\$snapshots = json_decode( file_get_contents( "php://stdin" ) );
+\$dt = new DateTime( \$snapshots[0]->time );
+echo \$dt->format( "Y-m-d g:i:s a" );
+heredoc
+timestamp=$( restic snapshots ${backup_id:0:8} --json "${restic_args[@]}" | php -r "$php_code" )
+
+# Build --include flags from files and directories
+include_args=()
+if [ -f "${restore_path}/files_to_restore.txt" ]; then
+    while IFS= read -r file || [ -n "$file" ]; do
+        include_args+=(--include "$file")
+    done < "${restore_path}/files_to_restore.txt"
+fi
+
+if [ -f "${restore_path}/directories_to_restore.txt" ]; then
+    while IFS= read -r dir || [ -n "$dir" ]; do
+        include_args+=(--include "${dir}/**")
+    done < "${restore_path}/directories_to_restore.txt"
+fi
+
+# Restore files directly from restic (no FUSE mount needed)
+echo "Restoring from Restic repo"
+restic restore ${backup_id:0:8} --target "${restore_path}/restore/" "${restic_args[@]}" "${include_args[@]}"
 
 cd $restore_path
 zip -qr ${zip_name} restore/
@@ -115,11 +97,28 @@ rm -rf ${restore_path}/restore/
 # Moves snapshot to Backblaze archive folder
 rclone move $zip_name $rclone_snapshot/${site}_${site_id}/
 
-cd ${CAPTAINCORE_PATH}/data
-backup_url=$( wp eval-file ../lib/local-scripts/restore-fetch-download-link.php zip_name="$zip_name" site=$site site_id=$site_id )
+backup_url=$( captaincore backup fetch-link --zip-name="$zip_name" --site=$site --site-id=$site_id --captain-id=$CAPTAIN_ID )
 echo $backup_url
 
 if [[ $FLAG_EMAIL != "" ]]; then
     count=$(( $( wc -l "$restore_path/files_to_restore.txt" | awk '{ print $1 }' ) + 1 ))
-    printf "Contains files from $domain $environment environment as of $timestamp.<br><a href='$backup_url'>Download zip</a><br><br>" | mutt -e 'set content_type=text/html' -s "Downloadable zip with $count items" -- $FLAG_EMAIL
+
+    if [[ $captaincore_dev == true ]]; then
+        curl_argument="-k"
+    fi
+
+    curl ${curl_argument} --silent --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
+{
+	"command": "backup-download-notify",
+	"token": "$token",
+	"site_id": "$site_id",
+	"data": {
+		"email": "$FLAG_EMAIL",
+		"environment": "$environment",
+		"file_count": $count,
+		"timestamp": "$timestamp",
+		"download_url": "$backup_url"
+	}
+}
+EOF
 fi

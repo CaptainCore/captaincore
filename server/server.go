@@ -22,7 +22,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -211,7 +211,7 @@ func newRun(w http.ResponseWriter, r *http.Request) {
 
 	// Starts running CaptainCore command
 	response := runCommand("captaincore --captain-id="+captainID+" "+task.Command, task)
-	fmt.Fprintf(w, response)
+	fmt.Fprint(w, response)
 }
 
 func newRunStream(w http.ResponseWriter, r *http.Request) {
@@ -258,7 +258,9 @@ func newBackground(w http.ResponseWriter, r *http.Request) {
 			log.Fatal(err)
 		}
 
-		writeerr := WriteToFile(usr.HomeDir+"/.captaincore/data/payload/"+task.Token+".txt", payload_data[1])
+		payloadDir := usr.HomeDir + "/.captaincore/data/payload"
+		os.MkdirAll(payloadDir, 0755)
+		writeerr := WriteToFile(payloadDir+"/"+task.Token+".txt", payload_data[1])
 		if writeerr != nil {
 			log.Fatal(writeerr)
 		}
@@ -268,7 +270,9 @@ func newBackground(w http.ResponseWriter, r *http.Request) {
 
 	// Starts running CaptainCore command
 	go runCommand("captaincore --captain-id="+captainID+" "+task.Command, task)
-	fmt.Fprintf(w, "Successfully Started Task "+task.Token)
+	taskID := strconv.FormatUint(uint64(task.ID), 10)
+	response := "{ \"task_id\" : " + taskID + ", \"token\" : \"" + task.Token + "\" }"
+	fmt.Fprint(w, response)
 }
 
 func newTask(w http.ResponseWriter, r *http.Request) {
@@ -297,7 +301,9 @@ func newTask(w http.ResponseWriter, r *http.Request) {
 			log.Fatal(err)
 		}
 
-		writeerr := WriteToFile(usr.HomeDir+"/.captaincore/data/payload/"+task.Token+".txt", payload_data[1])
+		payloadDir := usr.HomeDir + "/.captaincore/data/payload"
+		os.MkdirAll(payloadDir, 0755)
+		writeerr := WriteToFile(payloadDir+"/"+task.Token+".txt", payload_data[1])
 		if writeerr != nil {
 			log.Fatal(writeerr)
 		}
@@ -306,7 +312,7 @@ func newTask(w http.ResponseWriter, r *http.Request) {
 	db.Create(&task)
 	taskID := strconv.FormatUint(uint64(task.ID), 10)
 	response := "{ \"task_id\" : " + taskID + ", \"token\" : \"" + randomToken + "\" }"
-	fmt.Fprintf(w, response)
+	fmt.Fprint(w, response)
 }
 
 func WriteToFile(filename string, data string) error {
@@ -643,6 +649,7 @@ func runCommand(cmd string, t Task) string {
 	}
 
 	t.Status = "Completed"
+	t.Response = strings.Join(lines, "\n")
 
 	// If origin set then make request to mark that completed
 	if t.Origin != "" {

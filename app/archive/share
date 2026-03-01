@@ -12,16 +12,9 @@ while read config; do
     continue
   fi
   declare "$config"
-done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+done <<< "$(captaincore config fetch --captain-id=$CAPTAIN_ID)"
 
 file="$1"
-DURATION=604800 # 7 Days
 
-# Strip the rclone remote name to get the path
-b2_bucket_path="${rclone_archive#*:}"
-
-# Construct the B2 URI
-b2_path="b2://CaptainCoreArchive/Snapshots/${file}"
-
-# Generate signed URL
-b2 file url --with-auth --duration $DURATION "$b2_path"
+# Generate signed URL (7 day expiry) using rclone
+rclone link "${rclone_archive}${file}" --expire 168h

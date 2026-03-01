@@ -16,7 +16,7 @@ while read config; do
     continue
   fi
   declare "$config"
-done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+done <<< "$(captaincore config fetch --captain-id=$CAPTAIN_ID)"
 
 site=$1
 
@@ -40,11 +40,9 @@ run_command() {
 	captaincore snapshot generate $site --delete-after-snapshot --email=$captaincore_admin_email --captain-id=$CAPTAIN_ID
 
 	# Load site configs
-	while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
+	IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
 
-	if [[ "$site" != "" ]] && [[ "$site_id" != "" ]]; then
-		wp eval-file ../lib/local-scripts/site-delete.php site_id=$site_id
-	fi
+	echo "Error: 'site delete' should now be handled natively in Go. If you see this, the native handler did not run."
 
 	# Update configs
 	captaincore configs update-websites --captain-id=$CAPTAIN_ID

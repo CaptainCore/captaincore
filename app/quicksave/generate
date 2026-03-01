@@ -34,7 +34,7 @@ while read config; do
     continue
   fi
   declare "$config"
-done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+done <<< "$(captaincore config fetch --captain-id=$CAPTAIN_ID)"
 
 site=$1
 
@@ -48,7 +48,7 @@ run_command() {
   fi
   
   # Load site configs
-  while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
+  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
 
   # Return error if domain not found
   if [[ "$domain" == "" ]] || [[ "$site" == "" ]]; then
@@ -161,10 +161,9 @@ run_command() {
   echo "Syncing plugins..."
   rclone sync ${environment}:$home_directory${wp_content}/plugins/ $path/$site_path/quicksave/plugins/ --exclude .DS_Store --exclude *timthumb.txt --exclude "node_modules/**" --exclude ".git/**" --config="$rclone_config_file"
 
-  cd ${CAPTAINCORE_PATH}/data
-
-  wp eval-file ../lib/local-scripts/sync-data.php $site-${environment}
-  wp eval-file ../lib/local-scripts/quicksave-add.php site=$site environment=$environment
+  captaincore sync-data $site-${environment} --captain-id=$CAPTAIN_ID
+  captaincore quicksave add $site-$environment --captain-id=$CAPTAIN_ID
+  captaincore site vuln-scan $site-$environment --captain-id=$CAPTAIN_ID
 
   # Remove git lock if found
   if [ -f "$path/$site_path/quicksave/.git/index.lock" ]; then

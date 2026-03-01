@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+
+#
+#   Scans for PHP files and suspicious patterns in wp-content/uploads
+#
+#   Usage:
+#   captaincore ssh <site> --script="php-in-uploads"
+#
+
+uploads_dir="wp-content/uploads"
+
+if [ ! -d "$uploads_dir" ]; then
+    echo "No uploads directory found."
+    exit
+fi
+
+echo "=== PHP File Scan ==="
+echo ""
+
+# Find PHP and executable script files in uploads
+php_files=$( find "$uploads_dir" -type f \( -name "*.php" -o -name "*.php5" -o -name "*.php7" -o -name "*.phtml" -o -name "*.phar" -o -name "*.phps" \) 2>/dev/null )
+
+if [ -z "$php_files" ]; then
+    echo "No PHP files found in uploads. Looking good."
+else
+    php_count=$( echo "$php_files" | wc -l | tr -d ' ' )
+    echo "Found $php_count PHP file(s) in uploads:"
+    echo ""
+    echo "$php_files" | while read -r file; do
+        size=$( ls -lh "$file" 2>/dev/null | awk '{print $5}' )
+        modified=$( stat -c '%y' "$file" 2>/dev/null || stat -f '%Sm' "$file" 2>/dev/null )
+        echo "  $file ($size, modified: $modified)"
+    done
+    echo ""
+
+    # Check for obfuscation patterns within found PHP files
+    echo "--- Obfuscation Check ---"
+    suspicious=$( grep -rl "eval\s*(base64_decode\|eval\s*(gzinflate\|eval\s*(str_rot13\|eval\s*(gzuncompress\|assert\s*(base64\|preg_replace\s*(.*/e" $php_files 2>/dev/null )
+    if [ -n "$suspicious" ]; then
+        echo "Obfuscated code found in:"
+        echo "$suspicious" | while read -r file; do
+            echo "  $file"
+        done
+    else
+        echo "No common obfuscation patterns detected in PHP files."
+    fi
+fi
+
+echo ""
+echo "=== Suspicious Non-PHP Files ==="
+echo ""
+
+# Files with PHP code hidden inside non-PHP extensions (e.g. .ico, .jpg)
+hidden_php=$( find "$uploads_dir" -type f \( -name "*.ico" -o -name "*.jpg" -o -name "*.png" -o -name "*.gif" -o -name "*.txt" -o -name "*.css" \) -exec grep -l "<?php" {} \; 2>/dev/null )
+
+if [ -z "$hidden_php" ]; then
+    echo "No PHP code hidden in non-PHP files."
+else
+    hidden_count=$( echo "$hidden_php" | wc -l | tr -d ' ' )
+    echo "Found PHP code embedded in $hidden_count non-PHP file(s):"
+    echo "$hidden_php" | while read -r file; do
+        echo "  $file"
+    done
+fi
+
+echo ""
+echo "=== .htaccess Check ==="
+echo ""
+
+# Look for .htaccess files in uploads that could enable PHP execution
+htaccess_files=$( find "$uploads_dir" -name ".htaccess" 2>/dev/null )
+
+if [ -z "$htaccess_files" ]; then
+    echo "No .htaccess files in uploads."
+else
+    echo "Found .htaccess file(s) in uploads (could enable PHP execution):"
+    echo "$htaccess_files" | while read -r file; do
+        echo ""
+        echo "  $file:"
+        cat "$file" | sed 's/^/    /'
+    done
+fi
+
+echo ""
+echo "=== Plugin/Theme Checksum Verification ==="
+echo ""
+
+plugin_checksums=$( wp plugin verify-checksums --all --skip-themes --skip-plugins --skip-packages 2>&1 )
+if echo "$plugin_checksums" | grep -q "Error\|Warning"; then
+    echo "Plugin checksum issues:"
+    echo "$plugin_checksums" | grep "Error\|Warning" | head -20
+else
+    echo "All wordpress.org plugins pass checksum verification."
+fi
+
+echo ""
+
+theme_checksums=$( wp theme verify-checksums --all --skip-themes --skip-plugins --skip-packages 2>&1 )
+if echo "$theme_checksums" | grep -q "Error\|Warning"; then
+    echo "Theme checksum issues:"
+    echo "$theme_checksums" | grep "Error\|Warning" | head -20
+else
+    echo "All wordpress.org themes pass checksum verification."
+fi
+
+echo ""
+echo "=== Summary ==="
+echo ""
+
+php_count=${php_count:-0}
+hidden_count=${hidden_count:-0}
+htaccess_count=0
+[ -n "$htaccess_files" ] && htaccess_count=$( echo "$htaccess_files" | wc -l | tr -d ' ' )
+
+echo "PHP files in uploads:          $php_count"
+echo "Hidden PHP in other files:     $hidden_count"
+echo ".htaccess files in uploads:    $htaccess_count"
+
+if [ "$php_count" -gt 0 ] || [ "$hidden_count" -gt 0 ] || [ "$htaccess_count" -gt 0 ]; then
+    echo ""
+    echo "** Issues detected. Review findings above. **"
+fi

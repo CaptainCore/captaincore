@@ -1,0 +1,11 @@
+- Download `git clone https://github.com/captaincore/captaincore-cli.git ~/.captaincore/`
+- Install `captaincore` command globally by running `sudo ln -s ~/.captaincore/cli /usr/local/bin/captaincore`
+- Download [latest rclone](https://rclone.org/downloads/) and install system wide by running `curl https://rclone.org/install.sh | sudo bash`
+- Run `rclone config` and add your [cloud storage providers](https://rclone.org/overview/) which will be used for site backups, site thumbnails, quicksaves and snapshots. Recommend using Backblaze B2.
+- Install PHP: `sudo apt-get install -y php7.4 php7.4-fpm php7.4-cli php7.4-common php7.4-mbstring php7.4-gd php7.4-intl php7.4-xml php7.4-mysql php7.4-zip`
+- Install WP-CLI: [Refer to Official Docs](https://make.wordpress.org/cli/handbook/installing/)
+- Install inotifywait `sudo apt-get install -y inotify-tools`
+- Install MariaDB: `sudo apt-get install mariadb-server mariadb-client && sudo systemctl enable mysql.service && sudo systemctl start mysql.service && sudo mysql_secure_installation`
+- Copy MariaDB root password to `~/.captaincore/config` as `local_wp_db_pw="<db-password>"`
+- Copy `config.sample` to `config` and configure `Local Paths`, `Remote Paths` and `Vars`
+- Run `captaincore cli install`

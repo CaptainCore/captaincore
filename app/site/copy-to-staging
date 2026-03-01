@@ -11,7 +11,7 @@ while read config; do
     continue
   fi
   declare "$config"
-done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+done <<< "$(captaincore config fetch --captain-id=$CAPTAIN_ID)"
 
 if [ ${#@} -ne 1 ]; then
   echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a site."
@@ -23,7 +23,7 @@ site=$1
 run_command() {
 
   # Load site configs
-  while read site_configs; do declare "$site_configs"; done <<< "$(captaincore site get $site --bash --captain-id=$CAPTAIN_ID)"
+  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
 
   # Vars found, proceed
   if [ -z "$domain" ]; then
@@ -52,8 +52,7 @@ run_command() {
   captaincore snapshot generate ${site}-production --notes="Deploy to staging." --filter=database,themes,plugins,everything-else --captain-id=$CAPTAIN_ID
 
   # Fetch snapshop id
-  cd ${CAPTAINCORE_PATH}/data
-  snapshot_id=$( wp eval-file ../lib/local-scripts/snapshot-list.php site_id=$site_id environment=production limit=1 )
+  snapshot_id=$( captaincore snapshot list $site_id --environment=production --limit=1 --field=snapshot_id --captain-id=$CAPTAIN_ID )
 
   # Fetch new snapshot
   snapshot_link=$( captaincore snapshot fetch-link $snapshot_id --captain-id=$CAPTAIN_ID )

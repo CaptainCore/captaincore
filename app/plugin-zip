@@ -11,7 +11,7 @@ while read config; do
     continue
   fi
   declare "$config"
-done <<< "$(php ${CAPTAINCORE_PATH}/lib/local-scripts/configs.php fetch)"
+done <<< "$(captaincore config fetch --captain-id=$CAPTAIN_ID)"
 
 if [ ${#@} -eq 0 ]; then
   echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Requires a <site>"
@@ -22,4 +22,7 @@ site=$1
 count=( $@ )
 plugins=${@:2:${#@}}
 
-captaincore ssh $site --script=plugins-zip -- --plugins="$plugins"
+# Join plugins with commas so they survive SSH command string interpolation
+plugins_csv=$(echo "$plugins" | tr ' ' ',')
+
+captaincore ssh $site --script=plugins-zip -- --plugins="$plugins_csv"

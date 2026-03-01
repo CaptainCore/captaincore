@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+
+#
+#   Fetch database tables
+#
+#   `fetch-database-tables`
+#
+read -r -d '' php_code << heredoc
+<?php
+global \$wpdb;
+if ( defined( "DB_ENGINE" ) && DB_ENGINE == "sqlite" ) {
+    \$all_tables = [];
+    \$results    = \$wpdb->get_results( "SHOW TABLES");
+    \$tables     = array_column( \$results, "name" );
+    foreach( \$tables as \$table ) {
+        \$response = \$wpdb->get_results( 'SELECT SUM("pgsize") as size FROM "dbstat" WHERE name="' . \$table . '";' );
+        \$all_tables[] = (object) [ "table" => \$table, "size" => \$response[0]->size ];
+    }
+    return \$all_tables;
+}
+
+\$sql      = "SELECT table_name AS \"table\", data_length + index_length AS \"size\" FROM information_schema.TABLES WHERE table_schema = '" . DB_NAME . "' ORDER BY (data_length + index_length) DESC;";
+\$response = \$wpdb->get_results( \$sql );
+foreach( \$response as \$row ) {
+    \$row->row_count = \$wpdb->get_var( "SELECT COUNT(*) FROM " . \$row->table );
+}
+
+echo json_encode( \$response, JSON_PRETTY_PRINT );
+heredoc
+
+echo "$php_code" | wp eval-file -

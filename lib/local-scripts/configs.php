@@ -20,7 +20,7 @@ if ( ! isset($argv[1]) ) {
 }
 
 $command    = $argv[1];
-$captain_id = getenv('CAPTAIN_ID');
+$captain_id = empty( getenv('CAPTAIN_ID') ) ? 1 : getenv('CAPTAIN_ID');
 
 // Assign arguments to variables
 foreach ($argv as $key => $argument) {

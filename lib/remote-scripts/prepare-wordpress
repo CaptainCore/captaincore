@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+
+#
+#   Prepares new WordPress site
+#
+#   `prepare-wordpress --url=<wordpress-url> --dbname=<database_name> --dbuser=<database_user> --dbpass=$database_password>`
+#
+#   [--force]
+#   Prepares new site over top existing WordPress site.
+#
+
+# Loop through arguments and separate regular arguments from flags
+for arg in "$@"; do
+
+  # Add to arguments array. (Does not starts with "--")
+  if [[ $arg != --* ]]; then
+    count=1+${#arguments[*]}
+    arguments[$count]=$arg
+    continue
+  fi
+
+  # Remove leading "--"
+  flag_name=$( echo $arg | cut -c 3- )
+
+  # Add to flags array
+  count=1+${#flags[*]}
+  flags[$count]=$arg
+
+  # Process flags without data (Assign to variable)
+  if [[ $arg != *"="* ]]; then
+    flag_name=${flag_name//-/_}
+    declare "$flag_name"=true
+  fi
+
+  # Process flags with data (Assign to variable)
+  if [[ $arg == *"="* ]]; then
+    flag_value=$( echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1' ) # extract value
+    flag_name=$( echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1' ) # extract name
+    flag_name=${flag_name/-/_}
+
+    # Remove first and last quote if found
+    flag_value="${flag_value%\"}"
+    flag_value="${flag_value#\"}"
+
+    declare "$flag_name"="$flag_value"
+    continue
+  fi
+
+done
+
+# Store current path
+home_directory=$(pwd)
+private_directory=""
+
+# Find private folder
+if [ -d "_wpeprivate" ]; then
+    private_directory=${home_directory}/_wpeprivate
+fi
+
+if [ -d "../private" ]; then
+    cd ../private
+    private_directory=$(pwd)
+    cd $home_directory
+fi
+
+if [[ "$private_directory" == "" ]]; then
+    echo "Can't find private folder. Cancelling prepare WordPress.";
+    exit
+fi
+
+if $( wp core is-installed --skip-plugins --skip-themes ) && [[ "$force" != "true" ]]; then
+    echo "WordPress already prepared."
+    exit
+fi
+
+echo "Preparing WordPres at $url"
+wp core download --force
+wp config create --dbname=$dbname --dbuser=$dbuser --dbpass=$dbpass --force
+wp db reset --yes
+wp core install --url=$url --admin_user=$admin_user --admin_email=$admin_email --title=""

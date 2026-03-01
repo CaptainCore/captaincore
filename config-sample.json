@@ -10,6 +10,7 @@
             "path_tmp": "\/Users\/username\/Tmp",
             "path_scripts": "\/Users\/username\/Scripts",
             "rclone_cli_backup": "B2:Backup\/Services\/core",
+            "path_email_health": "\/Users\/username\/EmailHealth",
             "local_wp_db_pw": "###########"
         }
     },
@@ -19,15 +20,16 @@
             "access_key": "###########",
             "token": "###########",
             "auth": "###########",
-            "WPCOM_API_KEY": "###########",
-            "GF_LICENSE_KEY": "###########",
-            "ACF_PRO_KEY": "###########"
+            "b2_account_id": "###########",
+            "b2_account_key": "###########",
+            "b2_bucket_id": "###########"
         },
         "remotes": {
-            "rclone_archive": "Dropbox:Backup\/Archive\/",
+            "rclone_archive": "B2:Backup\/Archive\/",
             "rclone_backup": "B2:Backup\/Sites",
             "rclone_logs": "Dropbox:Backup\/Logs",
-            "rclone_snapshot": "B2:Backup\/Snapshots"
+            "rclone_snapshot": "B2:Backup\/Snapshots",
+            "b2_snapshots": "captaincore-snapshots"
         },
         "vars": {
             "captaincore_branding_name": "CaptainCore Client",
