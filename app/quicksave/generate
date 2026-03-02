@@ -118,7 +118,7 @@ run_command() {
   fi
 
   # Captures FTP errors in $ftp_output and file listing to log file
-  ftp_output=$( { rclone lsd ${environment}:$home_directory --config="$rclone_config_file" ; } 2>&1 )
+  ftp_output=$( { timeout 30 rclone lsd ${environment}:$home_directory --config="$rclone_config_file" --contimeout=15s --timeout=30s ; } 2>&1 )
   ftp_search_for_wordpress=$( echo "$ftp_output" | perl -wnE'say for /wp-admin/g' )
 
   # Handle FTP errors
@@ -170,7 +170,7 @@ run_command() {
     rm "$path/$site_path/quicksave/.git/index.lock"
   fi
 
-  captaincore quicksave list-generate $site-${environment} --captain-id=$CAPTAIN_ID
+  captaincore quicksave list-generate $site-${environment} --captain-id=$CAPTAIN_ID > /dev/null
   quicksave_id_after=$( captaincore quicksave latest $site-$environment --field=hash --captain-id=$CAPTAIN_ID )
 
   if [[ "$quicksave_id_before" != "$quicksave_id_after" ]]; then

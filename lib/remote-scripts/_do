@@ -41,7 +41,7 @@ function _get_private_dir() {
     # Check if wp-cli is set up and if we are in a WP installation.
     if setup_wp_cli && "$WP_CLI_CMD" core is-installed --quiet &>/dev/null; then
         local wp_config_path
-        wp_config_path=$("$WP_CLI_CMD" config path --quiet 2>/dev/null)
+        wp_config_path=$("$WP_CLI_CMD" config path --quiet 2>/dev/null | tail -1)
         if [ -n "$wp_config_path" ] && [ -f "$wp_config_path" ]; then
             wp_root=$(dirname "$wp_config_path")
             parent_dir=$(dirname "$wp_root")

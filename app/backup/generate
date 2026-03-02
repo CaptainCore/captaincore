@@ -139,13 +139,13 @@ run_command() {
 
   # Captures FTP errors in $ftp_output and file listing to log file
   echo "$(date +'%Y-%m-%d %H:%M') Connecting to $site ($environment)..."
-  ftp_output=$( { rclone lsd ${environment}:$home_directory --config="$rclone_config_file" --contimeout=15s --timeout=60s ; } 2>&1 )
+  ftp_output=$( { timeout 30 rclone lsd ${environment}:$home_directory --config="$rclone_config_file" --contimeout=15s --timeout=30s ; } 2>&1 )
 
   # If connection failed, regenerate rclone config and retry once
   if [[ $? -ne 0 ]]; then
     echo "$(date +'%Y-%m-%d %H:%M') Connection failed for $site ($environment). Regenerating configs..."
     captaincore site key-generate $site --captain-id=$CAPTAIN_ID
-    ftp_output=$( { rclone lsd ${environment}:$home_directory --config="$rclone_config_file" --contimeout=15s --timeout=60s ; } 2>&1 )
+    ftp_output=$( { timeout 30 rclone lsd ${environment}:$home_directory --config="$rclone_config_file" --contimeout=15s --timeout=30s ; } 2>&1 )
   fi
 
   ftp_search_for_wordpress=$( echo "$ftp_output" | perl -wnE'say for /wp-admin/g' )

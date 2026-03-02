@@ -279,7 +279,7 @@ EOM
 	fi
 
 	# Adds capture to CaptainCore
-	curl --silent ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOM
+	curl --silent --output /dev/null ${curl_argument} --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOM
 {
 	"command": "new-capture",
 	"site_id":"$site_id",
