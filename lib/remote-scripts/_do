@@ -6237,7 +6237,7 @@ function vault_create() {
     fi
 
     # --- Check/Initialize Restic Repository ---
-    echo "   - Checking for repository at ${RESTIC_REPOSITORY}..."
+    echo "   - Checking for repository at $(echo "$RESTIC_REPOSITORY" | sed 's/account=[^,]*/account=***/;s/key=[^:]*/key=***/')..."
     if ! "$RESTIC_CMD" stats > /dev/null 2>&1; then
         echo "   - Repository not found or is invalid. Attempting to initialize..."
         if ! "$RESTIC_CMD" init; then
@@ -6952,7 +6952,7 @@ function vault_prune() {
     fi
 
     # --- User Confirmation ---
-    echo "Repository: ${RESTIC_REPOSITORY}"
+    echo "Repository: $(echo "$RESTIC_REPOSITORY" | sed 's/account=[^,]*/account=***/;s/key=[^:]*/key=***/')"
     if ! "$GUM_CMD" confirm "Are you sure you want to prune this repository?"; then
         echo "Prune operation cancelled."
         unset B2_ACCOUNT_ID B2_ACCOUNT_KEY RESTIC_PASSWORD RESTIC_REPOSITORY

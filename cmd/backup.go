@@ -485,6 +485,143 @@ func sortFileTree(nodes []FileNode) {
 	}
 }
 
+var backupVerifyCmd = &cobra.Command{
+	Use:   "verify <site>",
+	Short: "Verifies backup health for a site",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveNativeOrWP(cmd, args, backupVerifyNative)
+	},
+}
+
+// resticSnapshot represents a snapshot entry from restic snapshots --json output.
+type resticSnapshot struct {
+	ID   string `json:"id"`
+	Time string `json:"time"`
+}
+
+// backupVerifyNative implements `captaincore backup verify <site>` natively in Go.
+func backupVerifyNative(cmd *cobra.Command, args []string) {
+	sa := parseSiteArgument(args[0])
+	site, err := sa.LookupSite()
+	if err != nil || site == nil {
+		fmt.Println("Error: Site not found.")
+		return
+	}
+
+	env, err := sa.LookupEnvironment(site.SiteID)
+	if err != nil || env == nil {
+		fmt.Println("Error: Environment not found.")
+		return
+	}
+
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Println("Error: Configuration file not found.")
+		return
+	}
+
+	rcloneBackup := getRcloneBackup(captain, system)
+	resticKey := getResticKeyPath()
+	siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+	envName := strings.ToLower(env.Environment)
+	resticRepo := fmt.Sprintf("rclone:%s/%s/%s/restic-repo", rcloneBackup, siteDir, envName)
+
+	var issues []string
+
+	// Check 1: Snapshot freshness — query latest snapshot per host, then find the newest
+	resticCmd := exec.Command("restic", "snapshots", "--repo", resticRepo, "--password-file="+resticKey, "--json", "--latest", "1")
+	output, err := resticCmd.Output()
+	if err != nil {
+		issues = append(issues, "Backup repo not accessible or not initialized")
+	} else {
+		var snapshots []resticSnapshot
+		if json.Unmarshal(output, &snapshots) != nil || len(snapshots) == 0 {
+			issues = append(issues, "No snapshots found in backup repo")
+		} else {
+			// --latest 1 returns one per host/path combo; find the newest
+			var latestSnapshot resticSnapshot
+			var latestTime time.Time
+			for _, snap := range snapshots {
+				t, parseErr := time.Parse(time.RFC3339Nano, snap.Time)
+				if parseErr != nil {
+					t, parseErr = time.Parse("2006-01-02T15:04:05Z07:00", snap.Time)
+				}
+				if parseErr == nil && t.After(latestTime) {
+					latestTime = t
+					latestSnapshot = snap
+				}
+			}
+			if latestTime.IsZero() {
+				issues = append(issues, "Unable to parse snapshot times")
+			} else {
+				age := time.Since(latestTime)
+				if age > 36*time.Hour {
+					issues = append(issues, fmt.Sprintf("Latest snapshot is stale (%.1f hours old, threshold 36h)", age.Hours()))
+				}
+
+				// Check 2: Database presence — only for WordPress sites
+				if env.Core != "" {
+					lsCmd := exec.Command("restic", "ls", latestSnapshot.ID, "/database-backup.sql", "--repo", resticRepo, "--password-file="+resticKey)
+					lsOutput, lsErr := lsCmd.Output()
+					if lsErr != nil || !strings.Contains(string(lsOutput), "database-backup.sql") {
+						issues = append(issues, "Database backup (database-backup.sql) missing from latest snapshot")
+					}
+				}
+			}
+		}
+	}
+
+	siteEnvLabel := fmt.Sprintf("%s-%s", site.Site, envName)
+
+	if len(issues) > 0 {
+		fmt.Printf("Backup verify FAILED for %s:\n", siteEnvLabel)
+		for _, issue := range issues {
+			fmt.Printf("  - %s\n", issue)
+		}
+
+		// Update environment details with backup_health: failed
+		updateEnvironmentDetails(env.EnvironmentID, site.SiteID, map[string]interface{}{
+			"backup_health":        "failed",
+			"backup_health_issues": issues,
+		}, system, captain)
+
+		// Send alert email via monitor-notify
+		adminEmail := getVarString(captain, "captaincore_admin_email")
+		if adminEmail != "" {
+			emailContent := fmt.Sprintf("<div style=\"text-align: left;\">Backup verification failed for <strong>%s</strong>.<br /><br />", siteEnvLabel)
+			emailContent += "Issues found:<br /><ul style=\"text-align: left;\">"
+			for _, issue := range issues {
+				emailContent += fmt.Sprintf("<li>%s</li>", issue)
+			}
+			emailContent += "</ul></div>"
+
+			contentJSON, _ := json.Marshal(emailContent)
+			client := newAPIClient(system, captain)
+			client.Post("monitor-notify", map[string]interface{}{
+				"data": map[string]interface{}{
+					"email":   adminEmail,
+					"subject": "Backup Alert: " + siteEnvLabel,
+					"content": json.RawMessage(contentJSON),
+				},
+			})
+		}
+	} else {
+		fmt.Printf("Backup verify OK for %s\n", siteEnvLabel)
+
+		// Update environment details with backup_health: ok
+		updateEnvironmentDetails(env.EnvironmentID, site.SiteID, map[string]interface{}{
+			"backup_health":        "ok",
+			"backup_health_issues": nil,
+		}, system, captain)
+	}
+}
+
 var backupShowCmd = &cobra.Command{
 	Use:   "show <site> <backup-id> <file-id>",
 	Short: "Retrieve individual file from site backup",
@@ -595,6 +732,7 @@ func init() {
 	backupCmd.AddCommand(backupListCmd)
 	backupCmd.AddCommand(backupListGenerateCmd)
 	backupCmd.AddCommand(backupListMissingCmd)
+	backupCmd.AddCommand(backupVerifyCmd)
 	backupCmd.AddCommand(backupShowCmd)
 	backupCmd.AddCommand(backupRuntimeCmd)
 	backupCmd.AddCommand(backupFetchLinkCmd)

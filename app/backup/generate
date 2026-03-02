@@ -200,6 +200,7 @@ run_command() {
       restic backup . --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --exclude-file="${CAPTAINCORE_PATH}/lib/restic-excludes" --password-file="${CAPTAINCORE_PATH}/data/restic.key"
       captaincore backup list-generate ${site}-${environment} --captain-id=$CAPTAIN_ID > /dev/null
       captaincore backup get-generate ${site}-${environment} --captain-id=$CAPTAIN_ID > /dev/null
+      captaincore backup verify ${site}-${environment} --captain-id=$CAPTAIN_ID
     fi
 
     captaincore usage-update ${site}-${environment} --captain-id=$CAPTAIN_ID
@@ -269,6 +270,7 @@ run_command() {
 
   captaincore backup list-generate ${site}-${environment} --captain-id=$CAPTAIN_ID > /dev/null
   captaincore backup get-generate ${site}-${environment} --captain-id=$CAPTAIN_ID > /dev/null
+  captaincore backup verify ${site}-${environment} --captain-id=$CAPTAIN_ID
 
   captaincore usage-update ${site}-${environment} --captain-id=$CAPTAIN_ID
 
