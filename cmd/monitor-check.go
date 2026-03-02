@@ -42,7 +42,12 @@ var sharedTransport = &http.Transport{
 // monitorCheckSingle performs an HTTP health check on a single URL.
 // It is safe to call from goroutines — no shared state is accessed.
 // HTTP URLs are upgraded to HTTPS first; if the connection fails, it falls back to HTTP.
-func monitorCheckSingle(url, name string) MonitorCheckResult {
+// The timeout parameter controls how long to wait for a response (0 uses the default 15s).
+func monitorCheckSingle(url, name string, timeout time.Duration) MonitorCheckResult {
+	if timeout == 0 {
+		timeout = 15 * time.Second
+	}
+
 	// Normalize: try HTTPS first for http:// URLs
 	originalURL := url
 	upgraded := false
@@ -51,19 +56,19 @@ func monitorCheckSingle(url, name string) MonitorCheckResult {
 		upgraded = true
 	}
 
-	result := doHTTPCheck(url, name)
+	result := doHTTPCheck(url, name, timeout)
 
 	// If we upgraded to HTTPS and the connection failed entirely (000),
 	// fall back to the original HTTP URL.
 	if upgraded && result.HTTPCode == "000" {
-		result = doHTTPCheck(originalURL, name)
+		result = doHTTPCheck(originalURL, name, timeout)
 	}
 
 	return result
 }
 
 // doHTTPCheck performs the actual HTTP request and response validation.
-func doHTTPCheck(url, name string) MonitorCheckResult {
+func doHTTPCheck(url, name string, timeout time.Duration) MonitorCheckResult {
 	result := MonitorCheckResult{
 		URL:          url,
 		Name:         name,
@@ -74,7 +79,7 @@ func doHTTPCheck(url, name string) MonitorCheckResult {
 
 	redirectCount := 0
 	client := &http.Client{
-		Timeout: 15 * time.Second,
+		Timeout: timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 20 {
 				return http.ErrUseLastResponse
@@ -145,7 +150,7 @@ func monitorCheckNative(cmd *cobra.Command, args []string) {
 		name = parts[1]
 	}
 
-	result := monitorCheckSingle(url, name)
+	result := monitorCheckSingle(url, name, 0)
 
 	out, _ := json.Marshal(result)
 	fmt.Println(string(out))

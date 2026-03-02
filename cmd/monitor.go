@@ -44,7 +44,8 @@ type MonitorEmailItem struct {
 // monitorRunChecks runs health checks in parallel using a bounded worker pool.
 // Results are returned in the same order as the input URLs.
 // The optional onResult callback is invoked for each result as it arrives.
-func monitorRunChecks(urls []string, parallelism int, onResult func(MonitorCheckResult)) []MonitorCheckResult {
+// The timeout parameter controls per-request timeout (0 uses the default 15s).
+func monitorRunChecks(urls []string, parallelism int, timeout time.Duration, onResult func(MonitorCheckResult)) []MonitorCheckResult {
 	type indexedResult struct {
 		index  int
 		result MonitorCheckResult
@@ -68,7 +69,7 @@ func monitorRunChecks(urls []string, parallelism int, onResult func(MonitorCheck
 			if len(parts) > 1 {
 				name = parts[1]
 			}
-			ch <- indexedResult{index: idx, result: monitorCheckSingle(url, name)}
+			ch <- indexedResult{index: idx, result: monitorCheckSingle(url, name, timeout)}
 		}(i, entry)
 	}
 
@@ -290,7 +291,13 @@ func monitorNative(cmd *cobra.Command, args []string) {
 			time.Sleep(10 * time.Second)
 		}
 
-		results := monitorRunChecks(urlsToCheck, parallelism, streamResult)
+		// Use 15s timeout for early attempts, 60s for the final attempt
+		checkTimeout := 15 * time.Second
+		if attempt == retryMax {
+			checkTimeout = 60 * time.Second
+		}
+
+		results := monitorRunChecks(urlsToCheck, parallelism, checkTimeout, streamResult)
 
 		// On first attempt, store full results
 		if attempt == 1 {
