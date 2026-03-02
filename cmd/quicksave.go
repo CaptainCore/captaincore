@@ -63,6 +63,10 @@ var quicksaveGenerateCmd = &cobra.Command{
 		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
+		if flagDryRun {
+			dryRunGenerate(args[0], "quicksaves")
+			return
+		}
 		resolveCommand(cmd, args)
 	},
 }
@@ -1164,4 +1168,5 @@ func init() {
 	quicksaveGenerateCmd.Flags().BoolVarP(&flagForce, "force", "f", false, "Force a new Quicksave")
 	quicksaveGenerateCmd.Flags().BoolVarP(&flagDebug, "debug", "d", false, "Preview ssh command")
 	quicksaveGenerateCmd.Flags().StringVarP(&flagSkipIfRecent, "skip-if-recent", "", "", "Skip if quicksave generated within timeframe (e.g. 24h)")
+	quicksaveGenerateCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "Preview which environments would be processed without executing")
 }

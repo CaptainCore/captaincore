@@ -59,6 +59,10 @@ var backupGenerateCmd = &cobra.Command{
 	Use:   "generate <site>",
 	Short: "Generates new backup for a site",
 	Run: func(cmd *cobra.Command, args []string) {
+		if flagDryRun && len(args) > 0 {
+			dryRunGenerate(args[0], "backups")
+			return
+		}
 		resolveCommand(cmd, args)
 	},
 }
@@ -742,6 +746,7 @@ func init() {
 	backupGenerateCmd.Flags().BoolVarP(&flagSkipDB, "skip-db", "", false, "Skip database backup")
 	backupGenerateCmd.Flags().BoolVarP(&flagSkipRemote, "skip-remote", "", false, "Skip remote backup")
 	backupGenerateCmd.Flags().StringVarP(&flagSkipIfRecent, "skip-if-recent", "", "", "Skip if backup generated within timeframe (e.g. 24h)")
+	backupGenerateCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "Preview which environments would be processed without executing")
 	backupFetchLinkCmd.Flags().StringVarP(&flagBackupZipName, "zip-name", "", "", "Name of the zip file")
 	backupFetchLinkCmd.Flags().StringVarP(&flagBackupSite, "site", "", "", "Site slug")
 	backupFetchLinkCmd.Flags().StringVarP(&flagBackupSiteID, "site-id", "", "", "Site ID")

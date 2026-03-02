@@ -308,6 +308,189 @@ func b2AuthorizeDownload(accountID, accountKey, bucketID, fileNamePrefix string)
 	return dlResp.AuthorizationToken, nil
 }
 
+// parseThresholdDuration converts a human-friendly threshold string into a time.Duration.
+// Supports "24h" (hours), "7d" (days), "30m" (minutes).
+func parseThresholdDuration(threshold string) (time.Duration, error) {
+	threshold = strings.TrimSpace(strings.ToLower(threshold))
+	if len(threshold) < 2 {
+		return 0, fmt.Errorf("invalid threshold: %s", threshold)
+	}
+	unit := threshold[len(threshold)-1]
+	numStr := threshold[:len(threshold)-1]
+	num, err := strconv.Atoi(numStr)
+	if err != nil {
+		return 0, fmt.Errorf("invalid threshold number: %s", threshold)
+	}
+	switch unit {
+	case 'h':
+		return time.Duration(num) * time.Hour, nil
+	case 'd':
+		return time.Duration(num) * 24 * time.Hour, nil
+	case 'm':
+		return time.Duration(num) * time.Minute, nil
+	default:
+		return 0, fmt.Errorf("unsupported threshold unit: %c", unit)
+	}
+}
+
+// checkLastRun replicates lib/local-scripts/check-last-run.php in Go.
+// Returns true if the site should be skipped (was run recently within threshold).
+func checkLastRun(listFilePath string, threshold string) bool {
+	dur, err := parseThresholdDuration(threshold)
+	if err != nil {
+		return false
+	}
+
+	info, err := os.Stat(listFilePath)
+	if err != nil {
+		return false
+	}
+	fileMtime := info.ModTime()
+
+	// Parse JSON content for timestamps
+	data, err := os.ReadFile(listFilePath)
+	if err != nil {
+		return false
+	}
+
+	var lastEntryTime time.Time
+
+	var items []map[string]interface{}
+	if json.Unmarshal(data, &items) == nil && len(items) > 0 {
+		for _, item := range items {
+			if createdAt, ok := item["created_at"]; ok {
+				var ts int64
+				switch v := createdAt.(type) {
+				case float64:
+					ts = int64(v)
+				case string:
+					ts, _ = strconv.ParseInt(v, 10, 64)
+				}
+				if ts > 0 {
+					t := time.Unix(ts, 0)
+					if t.After(lastEntryTime) {
+						lastEntryTime = t
+					}
+				}
+			} else if timeStr, ok := item["time"].(string); ok && timeStr != "" {
+				t, parseErr := time.Parse(time.RFC3339Nano, timeStr)
+				if parseErr != nil {
+					t, parseErr = time.Parse("2006-01-02T15:04:05Z07:00", timeStr)
+				}
+				if parseErr == nil && t.After(lastEntryTime) {
+					lastEntryTime = t
+				}
+			}
+		}
+	}
+
+	// Determine most recent activity
+	lastActivity := fileMtime
+	if lastEntryTime.After(lastActivity) {
+		lastActivity = lastEntryTime
+	}
+
+	cutoff := time.Now().Add(-dur)
+	return lastActivity.After(cutoff)
+}
+
+// dryRunGenerate previews which environments would be processed by generate commands.
+// listSubdir is "quicksaves" or "backups".
+func dryRunGenerate(target string, listSubdir string) {
+	if !ensureDB() || !dbHasData() {
+		fmt.Println("Error: Database not available. Run 'captaincore connect' to set up your CaptainCore CLI.")
+		return
+	}
+
+	// Check if target looks like a bulk target (@all, @production, @staging) or single site
+	isBulk := strings.HasPrefix(target, "@")
+
+	if isBulk {
+		environment, minorTargets := models.ParseTargetString(target)
+		queryArgs := models.FetchSiteMatchingArgs{
+			Environment: environment,
+			Targets:     minorTargets,
+		}
+		results, err := models.FetchSitesMatching(queryArgs)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+
+		_, system, _, err := loadCaptainConfig()
+		if err != nil || system == nil {
+			fmt.Println("Error: Configuration file not found.")
+			return
+		}
+
+		var toDo []string
+		skipped := 0
+
+		for _, r := range results {
+			envLower := strings.ToLower(r.Environment)
+			siteEnv := fmt.Sprintf("%s-%s", r.Site, envLower)
+			siteDir := fmt.Sprintf("%s_%d", r.Site, r.SiteID)
+			listPath := filepath.Join(system.Path, siteDir, envLower, listSubdir, "list.json")
+
+			if flagSkipIfRecent != "" && checkLastRun(listPath, flagSkipIfRecent) {
+				skipped++
+			} else {
+				toDo = append(toDo, siteEnv)
+			}
+		}
+
+		if flagSkipIfRecent != "" {
+			fmt.Println("\nEnvironments to process:")
+			for _, env := range toDo {
+				fmt.Printf("  %s\n", env)
+			}
+			fmt.Printf("\nenvironments skipped: %d\n", skipped)
+			fmt.Printf("environments to do: %d\n", len(toDo))
+		} else {
+			fmt.Printf("\nenvironments to do: %d\n", len(toDo))
+			fmt.Println("(no --skip-if-recent specified, all environments would be processed)")
+		}
+	} else {
+		// Single site target
+		sa := parseSiteArgument(target)
+		site, err := sa.LookupSite()
+		if err != nil || site == nil {
+			fmt.Printf("Error: Site '%s' not found.\n", sa.SiteName)
+			return
+		}
+
+		env, err := sa.LookupEnvironment(site.SiteID)
+		if err != nil || env == nil {
+			fmt.Printf("Error: Environment not found for '%s'.\n", target)
+			return
+		}
+
+		_, system, _, err := loadCaptainConfig()
+		if err != nil || system == nil {
+			fmt.Println("Error: Configuration file not found.")
+			return
+		}
+
+		envLower := strings.ToLower(env.Environment)
+		siteEnv := fmt.Sprintf("%s-%s", site.Site, envLower)
+		siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+		listPath := filepath.Join(system.Path, siteDir, envLower, listSubdir, "list.json")
+
+		if flagSkipIfRecent != "" && checkLastRun(listPath, flagSkipIfRecent) {
+			fmt.Printf("\n%s would be skipped (recent activity within %s)\n", siteEnv, flagSkipIfRecent)
+			fmt.Printf("\nenvironments skipped: 1\n")
+			fmt.Printf("environments to do: 0\n")
+		} else {
+			fmt.Println("\nEnvironments to process:")
+			fmt.Printf("  %s\n", siteEnv)
+			if flagSkipIfRecent != "" {
+				fmt.Printf("\nenvironments skipped: 0\n")
+			}
+			fmt.Printf("environments to do: 1\n")
+		}
+	}
+}
+
 // getB2SnapshotsPath returns the B2 snapshots bucket path and the folder prefix
 // used for download authorization. Adjusts for fleet mode.
 func getB2SnapshotsPath(captain *config.CaptainConfig, system *config.SystemConfig) (b2Snapshots, b2Folder string) {
