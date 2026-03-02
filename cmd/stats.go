@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -109,7 +110,7 @@ func statsNative(cmd *cobra.Command, args []string) {
 
 	body, _ := io.ReadAll(resp.Body)
 	var stats []struct {
-		Pageviews int `json:"pageviews"`
+		Pageviews string `json:"pageviews"`
 	}
 	if json.Unmarshal(body, &stats) != nil {
 		fmt.Print("0")
@@ -118,7 +119,9 @@ func statsNative(cmd *cobra.Command, args []string) {
 
 	totalPageviews := 0
 	for _, s := range stats {
-		totalPageviews += s.Pageviews
+		if v, err := strconv.Atoi(s.Pageviews); err == nil {
+			totalPageviews += v
+		}
 	}
 
 	if totalPageviews > 0 {
