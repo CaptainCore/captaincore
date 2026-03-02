@@ -8,9 +8,12 @@ $format  = $argv[2];
 $data    = file_get_contents ( $argv[1] );
 $data    = explode( PHP_EOL, $data );
 $details = json_decode( $data[0] );
+if ( $details === null ) {
+    return;
+}
 $total   = (int) $details->count;
 $current = isset( $data[1] ) ? strlen( $data[1] ) : 0;
-$percent = $current / $total;
+$percent = $total > 0 ? $current / $total : 0;
 
 $percent_friendly = number_format( $percent * 100, 2 );
 
@@ -28,4 +31,4 @@ if ( $format == "json" ) {
     echo json_encode( $response ) . "\n";
     return;
 }
-echo "${percent_friendly}% - $current / $total completed\n";
+echo "{$percent_friendly}% - $current / $total completed\n";

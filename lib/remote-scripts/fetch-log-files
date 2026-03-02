@@ -10,7 +10,7 @@ $debugger        = empty( WP_DEBUG ) ? false : WP_DEBUG;
 $files           = [];
 $home_path       = get_home_path();
 $parent_path     = dirname( $home_path );
-$wp_content      = empty( WP_CONTENT_DIR ) ? "${home_path}wp-content" : WP_CONTENT_DIR;
+$wp_content      = empty( WP_CONTENT_DIR ) ? "{$home_path}wp-content" : WP_CONTENT_DIR;
 $wp_content_base = basename( $wp_content );
 
 if (! function_exists('str_ends_with')) {
@@ -21,17 +21,17 @@ if (! function_exists('str_ends_with')) {
     }
 }
 
-if ( is_file( "${home_path}error_log" ) ) {
+if ( is_file( "{$home_path}error_log" ) ) {
     $files[] = [
         "name"        => "error_log",
-        "path"        => "${home_path}error_log",
-        "created_at"  => filectime( "${home_path}error_log" ),
-        "modified_at" => filemtime( "${home_path}error_log" ),
-        "size"        => filesize( "${home_path}error_log" )
+        "path"        => "{$home_path}error_log",
+        "created_at"  => filectime( "{$home_path}error_log" ),
+        "modified_at" => filemtime( "{$home_path}error_log" ),
+        "size"        => filesize( "{$home_path}error_log" )
     ];
 }
 
-foreach (glob("${parent_path}/logs/*error.log*") as $file) {
+foreach (glob("{$parent_path}/logs/*error.log*") as $file) {
     if ( filesize( $file ) == 0 || str_ends_with( $file, '.gz' ) ) {
         continue;
     }
@@ -44,17 +44,17 @@ foreach (glob("${parent_path}/logs/*error.log*") as $file) {
     ];
 }
 
-if ( is_file( "${home_path}wp-content/debug.log" ) ) {
+if ( is_file( "{$home_path}wp-content/debug.log" ) ) {
     $files[] = [
-        "name"        => "${wp_content_base}/debug.log",
-        "path"        => "${wp_content}/debug.log",
-        "created_at"  => filectime( "${wp_content}/debug.log" ),
-        "modified_at" => filemtime( "${wp_content}/debug.log" ),
-        "size"        => filesize( "${wp_content}/debug.log" )
+        "name"        => "{$wp_content_base}/debug.log",
+        "path"        => "{$wp_content}/debug.log",
+        "created_at"  => filectime( "{$wp_content}/debug.log" ),
+        "modified_at" => filemtime( "{$wp_content}/debug.log" ),
+        "size"        => filesize( "{$wp_content}/debug.log" )
     ];
 }
 
-foreach (glob("${parent_path}/logs/*access.log*") as $file) {
+foreach (glob("{$parent_path}/logs/*access.log*") as $file) {
     if ( filesize( $file ) == 0 || str_ends_with( $file, '.gz' ) ) {
         continue;
     }
@@ -67,7 +67,7 @@ foreach (glob("${parent_path}/logs/*access.log*") as $file) {
     ];
 }
 
-foreach (glob("${parent_path}/access-logs/*_log") as $file) {
+foreach (glob("{$parent_path}/access-logs/*_log") as $file) {
     if ( filesize( $file ) == 0 ) {
         continue;
     }
@@ -80,7 +80,7 @@ foreach (glob("${parent_path}/access-logs/*_log") as $file) {
     ];
 }
 
-foreach (glob("${parent_path}/logs/*mail.log*") as $file) {
+foreach (glob("{$parent_path}/logs/*mail.log*") as $file) {
     if ( filesize( $file ) == 0 || str_ends_with( $file, '.gz' ) ) {
         continue;
     }
@@ -93,7 +93,7 @@ foreach (glob("${parent_path}/logs/*mail.log*") as $file) {
     ];
 }
 
-foreach (glob("${parent_path}/logs/*cache*.log*") as $file) {
+foreach (glob("{$parent_path}/logs/*cache*.log*") as $file) {
     if ( filesize( $file ) == 0 || str_ends_with( $file, '.gz' ) ) {
         continue;
     }
@@ -106,7 +106,7 @@ foreach (glob("${parent_path}/logs/*cache*.log*") as $file) {
     ];
 }
 
-foreach (glob("${wp_content}/uploads/wc-logs/*.log") as $file) {
+foreach (glob("{$wp_content}/uploads/wc-logs/*.log") as $file) {
     if ( filesize( $file ) == 0 ) {
         continue;
     }
@@ -119,7 +119,7 @@ foreach (glob("${wp_content}/uploads/wc-logs/*.log") as $file) {
     ];
 }
 
-foreach (glob("${wp_content}/uploads/gravity_forms/logs/*.txt") as $file) {
+foreach (glob("{$wp_content}/uploads/gravity_forms/logs/*.txt") as $file) {
     if ( filesize( $file ) == 0 ) {
         continue;
     }
