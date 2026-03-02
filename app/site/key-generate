@@ -17,6 +17,15 @@ run_command() {
 
   site=$1
 
+  # Derive b2_bucket and b2_folder from rclone_backup if not set
+  # rclone_backup format: Remote:Bucket/Folder/CaptainID
+  if [[ -z "$b2_bucket" && -n "$rclone_backup" ]]; then
+    _rclone_path="${rclone_backup#*:}"
+    b2_bucket="${_rclone_path%%/*}"
+    _remainder="${_rclone_path#*/}"
+    b2_folder="${_remainder%/$CAPTAIN_ID}"
+  fi
+
   # Load site vars
   IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
 

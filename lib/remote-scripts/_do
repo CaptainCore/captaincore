@@ -11,7 +11,8 @@
 CAPTAINCORE_DO_VERSION="1.4"
 GUM_VERSION="0.14.4"
 CWEBP_VERSION="1.5.0"
-RCLONE_VERSION="1.69.3"
+RCLONE_VERSION="1.73.1"
+RESTIC_VERSION="0.18.1"
 GIT_VERSION="2.50.0"
 GUM_CMD=""
 CWEBP_CMD=""
@@ -38,7 +39,7 @@ function _get_private_dir() {
 
     # --- Tier 1: Preferred WP-CLI Method (if in a WP directory) ---
     # Check if wp-cli is set up and if we are in a WP installation.
-    if setup_wp_cli && "$WP_CLI_CMD" core is-installed --quiet 2>/dev/null; then
+    if setup_wp_cli && "$WP_CLI_CMD" core is-installed --quiet &>/dev/null; then
         local wp_config_path
         wp_config_path=$("$WP_CLI_CMD" config path --quiet 2>/dev/null)
         if [ -n "$wp_config_path" ] && [ -f "$wp_config_path" ]; then
@@ -450,24 +451,54 @@ function setup_imagemagick() {
 #  Checks for and installs 'rclone' if not present. Sets RCLONE_CMD on success.
 # ----------------------------------------------------
 function setup_rclone() {
-    # Return if already found
+    # Return if already found and version-checked
     if [[ -n "$RCLONE_CMD" ]]; then return 0; fi
 
-    if command -v rclone &> /dev/null; then RCLONE_CMD="rclone"; return 0; fi
+    # Helper: extract version number from "rclone vX.Y.Z" output
+    _rclone_ver() { "$1" --version 2>/dev/null | head -n1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1; }
+
+    # Helper: returns 0 if $1 >= $2 using version comparison
+    _ver_gte() {
+        [ "$1" = "$2" ] && return 0
+        local IFS='.'; local i a=($1) b=($2)
+        for ((i=0; i<3; i++)); do
+            if (( ${a[i]:-0} > ${b[i]:-0} )); then return 0; fi
+            if (( ${a[i]:-0} < ${b[i]:-0} )); then return 1; fi
+        done
+        return 0
+    }
+
+    # Check system rclone
+    if command -v rclone &> /dev/null; then
+        local sys_ver; sys_ver=$(_rclone_ver rclone)
+        if [[ -n "$sys_ver" ]] && _ver_gte "$sys_ver" "$RCLONE_VERSION"; then
+            RCLONE_CMD="rclone"; return 0
+        fi
+        echo "System rclone v${sys_ver} is outdated (need v${RCLONE_VERSION}). Upgrading..." >&2
+    fi
+
     if ! command -v unzip &>/dev/null; then echo "Error: 'unzip' command is required for rclone installation." >&2; return 1; fi
 
     local private_dir
-    if ! private_dir=$(_get_private_dir); then
+    if ! private_dir=$(_get_private_dir </dev/null); then
         echo "Error: Cannot find a writable directory to install rclone." >&2; return 1;
     fi
-    
+
+    # Check existing private dir copy
     local existing_executable
     existing_executable=$(find "$private_dir" -name rclone -type f 2>/dev/null | head -n 1)
-    if [ -n "$existing_executable" ] && [ -x "$existing_executable" ] && "$existing_executable" --version &> /dev/null; then
-        RCLONE_CMD="$existing_executable"; return 0;
+    if [ -n "$existing_executable" ] && [ -x "$existing_executable" ]; then
+        local existing_ver; existing_ver=$(_rclone_ver "$existing_executable")
+        if [[ -n "$existing_ver" ]] && _ver_gte "$existing_ver" "$RCLONE_VERSION"; then
+            RCLONE_CMD="$existing_executable"; return 0
+        fi
+        echo "Local rclone v${existing_ver} is outdated (need v${RCLONE_VERSION}). Upgrading..." >&2
     fi
 
-    echo "Required tool 'rclone' not found. Installing to '${private_dir}'..." >&2
+    # Download target version
+    if [ -z "$existing_executable" ]; then
+        echo "Required tool 'rclone' not found. Installing to '${private_dir}'..." >&2
+    fi
     local original_dir; original_dir=$(pwd)
     cd "$private_dir" || { echo "Error: Could not enter private directory '${private_dir}'." >&2; return 1; }
 
@@ -475,7 +506,7 @@ function setup_rclone() {
     if ! curl -sSL "https://github.com/rclone/rclone/releases/download/v${RCLONE_VERSION}/${rclone_zip}" -o "${rclone_zip}"; then
         echo "Error: Failed to download rclone." >&2; cd "$original_dir" > /dev/null 2>&1; return 1;
     fi
-    
+
     local rclone_path_in_zip
     rclone_path_in_zip=$(unzip -l "${rclone_zip}" | grep '/rclone$' | awk '{print $4}' | head -n 1)
     if [ -z "$rclone_path_in_zip" ]; then
@@ -487,20 +518,20 @@ function setup_rclone() {
         echo "Error: Failed to extract rclone." >&2; rm -f "${rclone_zip}"; cd "$original_dir" > /dev/null 2>&1; return 1;
     fi
     rm -f "${rclone_zip}"
-    
+
     local rclone_executable="${private_dir}/${rclone_path_in_zip}"
     if [ -f "$rclone_executable" ]; then
         chmod +x "$rclone_executable";
     else
         echo "Error: rclone executable not found at expected path: ${rclone_executable}" >&2; cd "$original_dir" > /dev/null 2>&1; return 1;
     fi
-    
+
     if [ -x "$rclone_executable" ] && "$rclone_executable" --version &> /dev/null; then
-        echo "'rclone' installed successfully." >&2; RCLONE_CMD="$rclone_executable";
+        echo "rclone v${RCLONE_VERSION} installed successfully." >&2; RCLONE_CMD="$rclone_executable";
     else
         echo "Error: rclone installation failed." >&2; cd "$original_dir" > /dev/null 2>&1; return 1;
     fi
-    
+
     cd "$original_dir" > /dev/null 2>&1; return 0;
 }
 
@@ -509,34 +540,53 @@ function setup_rclone() {
 #  Sets RESTIC_CMD on success.
 # ----------------------------------------------------
 function setup_restic() {
-    #  Return if already found
+    # Return if already found and version-checked
     if [[ -n "$RESTIC_CMD" ]]; then return 0; fi
 
-    #  If restic is already in the PATH, we're good.
-    if command -v restic &> /dev/null; then
-        RESTIC_CMD="restic"
+    # Helper: extract version number from "restic X.Y.Z ..." output
+    _restic_ver() { "$1" version 2>/dev/null | head -n1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1; }
+
+    # Helper: returns 0 if $1 >= $2 using version comparison
+    _ver_gte() {
+        [ "$1" = "$2" ] && return 0
+        local IFS='.'; local i a=($1) b=($2)
+        for ((i=0; i<3; i++)); do
+            if (( ${a[i]:-0} > ${b[i]:-0} )); then return 0; fi
+            if (( ${a[i]:-0} < ${b[i]:-0} )); then return 1; fi
+        done
         return 0
+    }
+
+    # Check system restic
+    if command -v restic &> /dev/null; then
+        local sys_ver; sys_ver=$(_restic_ver restic)
+        if [[ -n "$sys_ver" ]] && _ver_gte "$sys_ver" "$RESTIC_VERSION"; then
+            RESTIC_CMD="restic"; return 0
+        fi
+        echo "System restic v${sys_ver} is outdated (need v${RESTIC_VERSION}). Upgrading..." >&2
     fi
 
     # Check for local installation in private dir
     local restic_executable="$HOME/private/restic"
-    if [ -f "$restic_executable" ] && "$restic_executable" version &> /dev/null; then
-        RESTIC_CMD="$restic_executable"
-        return 0
+    if [ -f "$restic_executable" ] && [ -x "$restic_executable" ]; then
+        local existing_ver; existing_ver=$(_restic_ver "$restic_executable")
+        if [[ -n "$existing_ver" ]] && _ver_gte "$existing_ver" "$RESTIC_VERSION"; then
+            RESTIC_CMD="$restic_executable"; return 0
+        fi
+        echo "Local restic v${existing_ver} is outdated (need v${RESTIC_VERSION}). Upgrading..." >&2
     fi
 
-    #  If not found, download it
-    echo "Required tool 'restic' not found. Installing..." >&2
+    # Download target version
     if ! command -v bunzip2 &>/dev/null; then echo "Error: 'bunzip2' command is required for installation." >&2; return 1; fi
     mkdir -p "$HOME/private"
+    local original_dir; original_dir=$(pwd)
     cd "$HOME/private" || { echo "Error: Could not enter ~/private." >&2; return 1; }
 
-    local restic_version="0.18.0"
-    local restic_archive="restic_${restic_version}_linux_amd64.bz2"
-    if ! curl -sL "https://github.com/restic/restic/releases/download/v${restic_version}/${restic_archive}" -o "${restic_archive}"; then
+    echo "Installing restic v${RESTIC_VERSION}..." >&2
+    local restic_archive="restic_${RESTIC_VERSION}_linux_amd64.bz2"
+    if ! curl -sL "https://github.com/restic/restic/releases/download/v${RESTIC_VERSION}/${restic_archive}" -o "${restic_archive}"; then
         echo "Error: Failed to download restic." >&2
-        cd - > /dev/null
-        return 1
+        cd "$original_dir" > /dev/null 2>&1; return 1
     fi
 
     # Decompress and extract the binary
@@ -544,16 +594,16 @@ function setup_restic() {
     rm -f "${restic_archive}"
     chmod +x restic
 
-    #  Final check
+    # Final check
+    restic_executable="$HOME/private/restic"
     if [ -f "$restic_executable" ] && "$restic_executable" version &> /dev/null; then
-        echo "'restic' installed successfully." >&2
+        echo "restic v${RESTIC_VERSION} installed successfully." >&2
         RESTIC_CMD="$restic_executable"
     else
         echo "Error: restic installation failed." >&2
-        cd - > /dev/null
-        return 1
+        cd "$original_dir" > /dev/null 2>&1; return 1
     fi
-    cd - > /dev/null
+    cd "$original_dir" > /dev/null 2>&1; return 0
 }
 
 # ----------------------------------------------------
@@ -6144,8 +6194,12 @@ function vault_create() {
 
     # --- Pre-flight Checks ---
     if ! setup_restic; then return 1; fi
+    if ! setup_rclone; then return 1; fi
+    if [[ -n "$RCLONE_CMD" && "$RCLONE_CMD" != "rclone" ]]; then
+        export PATH="$(dirname "$RCLONE_CMD"):$PATH"
+    fi
     if ! setup_wp_cli; then return 1; fi
-    
+
     # Check if WP, but allow proceeding if not
     local is_wordpress=false
     if "$WP_CLI_CMD" core is-installed --quiet; then
@@ -6319,7 +6373,10 @@ function _setup_vault_env() {
     export B2_ACCOUNT_ID="$b2_key_id"
     export B2_ACCOUNT_KEY="$b2_app_key"
     export RESTIC_PASSWORD="$restic_password"
-    export RESTIC_REPOSITORY="b2:${b2_bucket}:${b2_path}"
+    export RESTIC_REPOSITORY="rclone::b2,account=${b2_key_id},key=${b2_app_key}:${b2_bucket}/${b2_path}"
+    export RCLONE_CONFIG=/dev/null
+    export B2_BUCKET="$b2_bucket"
+    export B2_PATH="$b2_path"
 
     return 0
 }
@@ -6617,6 +6674,10 @@ function vault_snapshots() {
     local output_mode="$1"
 
     if ! setup_restic; then return 1; fi
+    if ! setup_rclone; then return 1; fi
+    if [[ -n "$RCLONE_CMD" && "$RCLONE_CMD" != "rclone" ]]; then
+        export PATH="$(dirname "$RCLONE_CMD"):$PATH"
+    fi
     if ! setup_gum; then return 1; fi
     if ! command -v php &>/dev/null; then echo "❌ Error: The 'php' command is required for this operation." >&2; return 1; fi
     if ! command -v mktemp &>/dev/null; then echo "❌ Error: The 'mktemp' command is required for this operation." >&2; return 1; fi
@@ -6749,10 +6810,12 @@ if (defined("STDIN")) {
 # ----------------------------------------------------
 function vault_mount() {
     echo "🚀 Preparing to mount Restic repository..."
-    if ! setup_restic; 
-    then return 1; fi
-    if ! _setup_vault_env; then return 1; 
+    if ! setup_restic; then return 1; fi
+    if ! setup_rclone; then return 1; fi
+    if [[ -n "$RCLONE_CMD" && "$RCLONE_CMD" != "rclone" ]]; then
+        export PATH="$(dirname "$RCLONE_CMD"):$PATH"
     fi
+    if ! _setup_vault_env; then return 1; fi
 
     local mount_point="/tmp/restic_mount_$(date +%s)"
     mkdir -p "$mount_point"
@@ -6773,6 +6836,9 @@ function vault_info() {
     if ! setup_restic; then return 1; fi
     if ! setup_gum; then return 1; fi
     if ! setup_rclone; then return 1; fi
+    if [[ -n "$RCLONE_CMD" && "$RCLONE_CMD" != "rclone" ]]; then
+        export PATH="$(dirname "$RCLONE_CMD"):$PATH"
+    fi
     if ! command -v php &>/dev/null; then echo "❌ Error: The 'php' command is required for this operation." >&2; return 1; fi
 
     if ! _setup_vault_env; then
@@ -6780,10 +6846,7 @@ function vault_info() {
     fi
 
     # --- Get repo size and file count using rclone ---
-    local temp_repo_string="${RESTIC_REPOSITORY#b2:}"
-    local b2_bucket="${temp_repo_string%%:*}"
-    local b2_path="${temp_repo_string#*:}"
-    local rclone_remote_string=":b2,account='${B2_ACCOUNT_ID}',key='${B2_ACCOUNT_KEY}':${b2_bucket}/${b2_path}"
+    local rclone_remote_string=":b2,account='${B2_ACCOUNT_ID}',key='${B2_ACCOUNT_KEY}':${B2_BUCKET}/${B2_PATH}"
     
     local size_json
     size_json=$("$GUM_CMD" spin --spinner dot --title "Calculating repository size with rclone..." -- \
@@ -6877,6 +6940,10 @@ function vault_prune() {
 
     # --- Pre-flight Checks ---
     if ! setup_restic; then return 1; fi
+    if ! setup_rclone; then return 1; fi
+    if [[ -n "$RCLONE_CMD" && "$RCLONE_CMD" != "rclone" ]]; then
+        export PATH="$(dirname "$RCLONE_CMD"):$PATH"
+    fi
     if ! setup_gum; then return 1; fi
 
     # --- Setup Restic Environment ---
@@ -6954,6 +7021,10 @@ function vault_delete() {
 
     # --- Pre-flight Checks ---
     if ! setup_restic; then return 1; fi
+    if ! setup_rclone; then return 1; fi
+    if [[ -n "$RCLONE_CMD" && "$RCLONE_CMD" != "rclone" ]]; then
+        export PATH="$(dirname "$RCLONE_CMD"):$PATH"
+    fi
     if ! setup_gum; then return 1; fi
 
     # --- Setup Restic Environment ---
@@ -7023,8 +7094,7 @@ function vault_delete() {
 function vault_snapshot_info() {
     local snapshot_id="$1"
 
-    if [ -z "$snapshot_id" ];
-    then
+    if [ -z "$snapshot_id" ]; then
         echo "❌ Error: You must provide a snapshot ID."
         show_command_help "vault" >&2
         return 1
@@ -7032,6 +7102,10 @@ function vault_snapshot_info() {
 
     # --- Pre-flight Checks ---
     if ! setup_restic; then return 1; fi
+    if ! setup_rclone; then return 1; fi
+    if [[ -n "$RCLONE_CMD" && "$RCLONE_CMD" != "rclone" ]]; then
+        export PATH="$(dirname "$RCLONE_CMD"):$PATH"
+    fi
     if ! setup_gum; then return 1; fi
     if ! command -v php &>/dev/null; then
         echo "❌ Error: The 'php' command is required for this operation."

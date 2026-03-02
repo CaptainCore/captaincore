@@ -226,8 +226,6 @@ func backupListGenerateNative(cmd *cobra.Command, args []string) {
 	fmt.Printf("Generating %s/%s/backups/list.json\n", siteDir, envName)
 	os.WriteFile(listPath, result, 0644)
 
-	fmt.Print(string(result))
-
 	// Update environment details with backup_count
 	updateEnvironmentDetails(env.EnvironmentID, site.SiteID, map[string]interface{}{
 		"backup_count": len(snapshots),

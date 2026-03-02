@@ -47,8 +47,6 @@ if [[ $cmd == "" ]] || [[ $target == "" ]]; then
 fi
 
 run_command() {
-    # Kill all child processes (xargs, rclone, ssh, etc.) on interrupt
-    trap 'trap - INT TERM; kill 0' INT TERM
 
     if [[ $target == "@all"* ]] || [[ $target == "@production"* ]] || [[ $target == "@staging"* ]]; then
       target=$( captaincore site list $target --captain-id=$CAPTAIN_ID )
@@ -62,7 +60,10 @@ run_command() {
     if [[ "$parallel" == "" ]]; then
         parallel=10
     fi
-  
+
+    site_count=( $target )
+    echo "Running '$cmd' on ${#site_count[@]} sites (parallel: $parallel)..."
+
     if [[ "$FLAG_LABEL" == "true" ]]; then
         export CC_CMD="$cmd"
         export CC_ARGS="$args"
@@ -70,7 +71,7 @@ run_command() {
         labeled_run() {
             local site="$1"
             local raw_output output
-            raw_output=$(eval "captaincore $CC_CMD $CC_ARGS --captain-id=$CC_CAPTAIN_ID $site" 2>/dev/null)
+            raw_output=$(captaincore $CC_CMD $CC_ARGS --captain-id=$CC_CAPTAIN_ID $site 2>/dev/null)
             # Extract content between markers, stripping SSH MOTD/banner
             output=$(echo "$raw_output" | sed -n '/____CC_OUTPUT_START____/,/____CC_OUTPUT_END____/{/____CC_OUTPUT_START____/d;/____CC_OUTPUT_END____/d;p;}')
             if [[ -n "$output" ]]; then
@@ -79,9 +80,9 @@ run_command() {
         }
         export -f labeled_run
         export COLOR_GREEN COLOR_NORMAL
-        echo "$target" | xargs -P "$parallel" -n 1 bash -c 'labeled_run "$@"' _
+        printf '%s\n' $target | xargs -P "$parallel" -n 1 bash -c 'labeled_run "$@"' _
     else
-        eval "echo $target | xargs -P $parallel -n 1 captaincore $cmd $args --captain-id=$CAPTAIN_ID"
+        printf '%s\n' $target | xargs -P "$parallel" -n 1 captaincore $cmd $args --captain-id="$CAPTAIN_ID"
     fi
 
     # End progress tracking

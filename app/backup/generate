@@ -91,7 +91,8 @@ run_command() {
   cleanup_lock() {
     rm -f "$lock_file"
   }
-  trap cleanup_lock EXIT INT TERM
+  trap cleanup_lock EXIT
+  trap 'exit 130' INT TERM
 
   # --------------------------------------------------
   # Auto-Resume / Skip Logic
@@ -120,6 +121,13 @@ run_command() {
     captaincore site key-generate $site --captain-id=$CAPTAIN_ID
   fi
 
+  # Detect broken vault.txt (missing B2 bucket on line 1)
+  if [[ -f "$vault_file" ]] && [[ -z "$(sed -n '1p' "$vault_file")" ]]; then
+    echo "$(date +'%Y-%m-%d %H:%M') Broken vault.txt for $site ($environment). Regenerating..."
+    rm -f "$vault_file"
+    captaincore site key-generate $site --captain-id=$CAPTAIN_ID
+  fi
+
   # Lookup rclone
   remote_check=$( rclone config show $environment --config="$rclone_config_file" )
   remote_backup_check=$( rclone config show backup --config="$rclone_config_file" )
@@ -130,7 +138,16 @@ run_command() {
   fi
 
   # Captures FTP errors in $ftp_output and file listing to log file
-  ftp_output=$( { rclone lsd ${environment}:$home_directory --config="$rclone_config_file" ; } 2>&1 )
+  echo "$(date +'%Y-%m-%d %H:%M') Connecting to $site ($environment)..."
+  ftp_output=$( { rclone lsd ${environment}:$home_directory --config="$rclone_config_file" --contimeout=15s --timeout=60s ; } 2>&1 )
+
+  # If connection failed, regenerate rclone config and retry once
+  if [[ $? -ne 0 ]]; then
+    echo "$(date +'%Y-%m-%d %H:%M') Connection failed for $site ($environment). Regenerating configs..."
+    captaincore site key-generate $site --captain-id=$CAPTAIN_ID
+    ftp_output=$( { rclone lsd ${environment}:$home_directory --config="$rclone_config_file" --contimeout=15s --timeout=60s ; } 2>&1 )
+  fi
+
   ftp_search_for_wordpress=$( echo "$ftp_output" | perl -wnE'say for /wp-admin/g' )
 
   # Handle FTP errors
@@ -181,8 +198,8 @@ run_command() {
       fi
       cd $path/${site}_${site_id}/${environment}/backup/
       restic backup . --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --exclude-file="${CAPTAINCORE_PATH}/lib/restic-excludes" --password-file="${CAPTAINCORE_PATH}/data/restic.key"
-      captaincore backup list-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
-      captaincore backup get-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
+      captaincore backup list-generate ${site}-${environment} --captain-id=$CAPTAIN_ID > /dev/null
+      captaincore backup get-generate ${site}-${environment} --captain-id=$CAPTAIN_ID > /dev/null
     fi
 
     captaincore usage-update ${site}-${environment} --captain-id=$CAPTAIN_ID
@@ -250,8 +267,8 @@ run_command() {
   echo "🔥 Cleaning up temporary payload file..."
   rm "$payload_file"
 
-  captaincore backup list-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
-  captaincore backup get-generate ${site}-${environment} --captain-id=$CAPTAIN_ID
+  captaincore backup list-generate ${site}-${environment} --captain-id=$CAPTAIN_ID > /dev/null
+  captaincore backup get-generate ${site}-${environment} --captain-id=$CAPTAIN_ID > /dev/null
 
   captaincore usage-update ${site}-${environment} --captain-id=$CAPTAIN_ID
 
