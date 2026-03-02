@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -66,8 +67,7 @@ func usageUpdateNative(cmd *cobra.Command, args []string) {
 	})
 
 	if system.CaptainCoreStandby == "true" {
-		fmt.Printf("Standby mode, local update only: {\"environment_id\":%d,\"storage\":\"%s\",\"visits\":\"%s\",\"updated_at\":\"%s\"}\n",
-			env.EnvironmentID, storage, visits, timeNow)
+		fmt.Printf("%-40s %s  %10s  %s visits\n", siteEnvArg, "standby", formatBytes(storage), visits)
 		return
 	}
 
@@ -79,12 +79,33 @@ func usageUpdateNative(cmd *cobra.Command, args []string) {
 		"visits":         visits,
 		"updated_at":     timeNow,
 	}
-	resp, err := client.Post("usage-update", map[string]interface{}{
+	_, err = client.Post("usage-update", map[string]interface{}{
 		"site_id": site.SiteID,
 		"data":    envUpdate,
 	})
-	if err == nil {
-		fmt.Print(string(resp))
+	if err != nil {
+		fmt.Printf("%-40s %s\n", siteEnvArg, "error")
+		return
+	}
+	fmt.Printf("%-40s %10s  %s visits\n", siteEnvArg, formatBytes(storage), visits)
+}
+
+func formatBytes(s string) string {
+	b, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return s
+	}
+	switch {
+	case b >= 1e12:
+		return fmt.Sprintf("%.1f TB", b/1e12)
+	case b >= 1e9:
+		return fmt.Sprintf("%.1f GB", b/1e9)
+	case b >= 1e6:
+		return fmt.Sprintf("%.1f MB", b/1e6)
+	case b >= 1e3:
+		return fmt.Sprintf("%.1f KB", b/1e3)
+	default:
+		return fmt.Sprintf("%.0f B", b)
 	}
 }
 
