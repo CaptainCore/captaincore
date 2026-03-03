@@ -52,11 +52,6 @@ run_command() {
       target=$( captaincore site list $target --captain-id=$CAPTAIN_ID )
     fi
 
-    # Start progress tracking
-    if [[ $progress == "true" ]]; then
-        php ${root_path}lib/local-scripts/process-start.php ${process_id} ${#count[@]} "${path}/process-${process_id}-progress.log"
-    fi
-
     if [[ "$parallel" == "" ]]; then
         parallel=10
     fi
@@ -64,30 +59,52 @@ run_command() {
     site_count=( $target )
     echo "Running '$cmd' on ${#site_count[@]} sites (parallel: $parallel)..."
 
+    # Set up progress tracking
+    progress_dir="$HOME/.captaincore/data/progress"
+    mkdir -p "$progress_dir"
+    bulk_pid=$$
+    progress_meta="$progress_dir/${bulk_pid}.json"
+    progress_log="$progress_dir/${bulk_pid}.log"
+
+    printf '{"command":"%s","total":%d,"pid":%d,"started_at":%d,"captain_id":"%s","parallel":%d}\n' \
+        "$cmd" "${#site_count[@]}" "$bulk_pid" "$(date +%s)" "$CAPTAIN_ID" "$parallel" \
+        > "$progress_meta"
+    > "$progress_log"
+    export CC_PROGRESS_LOG="$progress_log"
+
+    cleanup_progress() { rm -f "$progress_meta" "$progress_log"; }
+    trap cleanup_progress EXIT
+
     if [[ "$FLAG_LABEL" == "true" ]]; then
         export CC_CMD="$cmd"
         export CC_ARGS="$args"
         export CC_CAPTAIN_ID="$CAPTAIN_ID"
         labeled_run() {
             local site="$1"
-            local raw_output output
+            local raw_output output exit_code
             raw_output=$(captaincore $CC_CMD $CC_ARGS --captain-id=$CC_CAPTAIN_ID $site 2>/dev/null)
+            exit_code=$?
             # Extract content between markers, stripping SSH MOTD/banner
             output=$(echo "$raw_output" | sed -n '/____CC_OUTPUT_START____/,/____CC_OUTPUT_END____/{/____CC_OUTPUT_START____/d;/____CC_OUTPUT_END____/d;p;}')
             if [[ -n "$output" ]]; then
                 printf "${COLOR_GREEN}== %s ==${COLOR_NORMAL}\n%s\n\n" "$site" "$output"
             fi
+            printf '%s %d %d\n' "$site" "$exit_code" "$(date +%s)" >> "$CC_PROGRESS_LOG"
         }
         export -f labeled_run
         export COLOR_GREEN COLOR_NORMAL
         printf '%s\n' $target | xargs -P "$parallel" -n 1 bash -c 'labeled_run "$@"' _
     else
-        printf '%s\n' $target | xargs -P "$parallel" -n 1 captaincore $cmd $args --captain-id="$CAPTAIN_ID"
-    fi
-
-    # End progress tracking
-    if [ -f "${path}/process-${process_id}-progress.log" ]; then
-        sleep 10 && rm "${path}/process-${process_id}-progress.log" &
+        export CC_CMD="$cmd"
+        export CC_ARGS="$args"
+        export CC_CAPTAIN_ID="$CAPTAIN_ID"
+        tracked_run() {
+            local site="$1"
+            captaincore $CC_CMD $CC_ARGS --captain-id=$CC_CAPTAIN_ID $site
+            printf '%s %d %d\n' "$site" "$?" "$(date +%s)" >> "$CC_PROGRESS_LOG"
+        }
+        export -f tracked_run
+        printf '%s\n' $target | xargs -P "$parallel" -n 1 bash -c 'tracked_run "$@"' _
     fi
 
 }

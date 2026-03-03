@@ -131,9 +131,6 @@ EOF
     echo "Update log saved"
   fi
 
-  if [ -f "${path}/process-${process_id}-progress.log" ]; then
-    echo -n "." >> ${path}/process-${process_id}-progress.log
-  fi
 
 }
 

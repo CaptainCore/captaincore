@@ -205,9 +205,6 @@ run_command() {
 
     captaincore usage-update ${site}-${environment} --captain-id=$CAPTAIN_ID
 
-    if [ -f "${path}/process-${process_id}-progress.log" ]; then
-      echo -n "." >> ${path}/process-${process_id}-progress.log
-    fi
 
     if [ ! -d "$path/${site}_${site_id}/${environment}/backups/" ]; then
       mkdir -p "$path/${site}_${site_id}/${environment}/backups"
