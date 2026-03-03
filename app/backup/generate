@@ -32,8 +32,6 @@ root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"; root_path=${root_
 
 run_command() {
 
-  runtime_start=$( date +%s )
-
   if [[ $SKIP_REMOTE == true ]]; then
     echo "Skipping remote"
   fi
@@ -206,14 +204,6 @@ run_command() {
     captaincore usage-update ${site}-${environment} --captain-id=$CAPTAIN_ID
 
 
-    if [ ! -d "$path/${site}_${site_id}/${environment}/backups/" ]; then
-      mkdir -p "$path/${site}_${site_id}/${environment}/backups"
-    fi
-
-    cd $path/${site}_${site_id}/${environment}/backups/
-    runtime_end=$( date +%s )
-    echo "$runtime_start $runtime_end" >> runtime
-
     # --------------------------------------------------
     # Touch list.json to update its modification timestamp
     # This marks the time this site was last processed.
@@ -270,10 +260,6 @@ run_command() {
   captaincore backup verify ${site}-${environment} --captain-id=$CAPTAIN_ID
 
   captaincore usage-update ${site}-${environment} --captain-id=$CAPTAIN_ID
-
-  cd $path/${site}_${site_id}/${environment}/backups/
-  runtime_end=$( date +%s )
-  echo "$runtime_start $runtime_end" >> runtime
 
   # Explicitly touch the list file for direct mode
   backup_list_file="$path/${site}_${site_id}/${environment}/backups/list.json"
