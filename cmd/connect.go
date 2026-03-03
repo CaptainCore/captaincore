@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"syscall"
 	"time"
@@ -163,6 +164,8 @@ func connectRun() {
 
 	home, _ := os.UserHomeDir()
 	fmt.Printf("Config: %s/config.json (%s)\n", home+"/.captaincore", configAction)
+
+	checkDependencies()
 }
 
 func connectSyncRun() {
@@ -236,6 +239,8 @@ func connectSyncRun() {
 	updateConfigFile(resp)
 
 	fmt.Printf("\nSynced: %d sites, %d accounts, %d providers\n", siteCount, accountCount, providerCount)
+
+	checkDependencies()
 }
 
 func connectPostWithToken(url, token string, skipSSL bool) ([]byte, error) {
@@ -565,4 +570,29 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return s[:max] + "..."
+}
+
+func checkDependencies() {
+	type dep struct {
+		name    string
+		purpose string
+		url     string
+	}
+	deps := []dep{
+		{"rclone", "cloud storage sync", "https://rclone.org/install/"},
+		{"restic", "encrypted backups", "https://restic.net"},
+		{"git", "quicksave version tracking", "https://git-scm.com"},
+	}
+	var missing []dep
+	for _, d := range deps {
+		if _, err := exec.LookPath(d.name); err != nil {
+			missing = append(missing, d)
+		}
+	}
+	if len(missing) > 0 {
+		fmt.Println("\nWarning: Missing dependencies:")
+		for _, d := range missing {
+			fmt.Printf("  - %s (%s) — install: %s\n", d.name, d.purpose, d.url)
+		}
+	}
 }
