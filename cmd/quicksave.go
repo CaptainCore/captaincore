@@ -1169,4 +1169,5 @@ func init() {
 	quicksaveGenerateCmd.Flags().BoolVarP(&flagDebug, "debug", "d", false, "Preview ssh command")
 	quicksaveGenerateCmd.Flags().StringVarP(&flagSkipIfRecent, "skip-if-recent", "", "", "Skip if quicksave generated within timeframe (e.g. 24h)")
 	quicksaveGenerateCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "Preview which environments would be processed without executing")
+	quicksaveGenerateCmd.Flags().IntVarP(&flagParallel, "parallel", "p", 10, "Number of sites to run at same time")
 }

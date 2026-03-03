@@ -119,13 +119,21 @@ var progressCmd = &cobra.Command{
 			if !r.Running {
 				status = " " + colorYellow + "(stale - process not running)" + colorNormal
 			}
-			fmt.Printf("%s: %s/%s (%.1f%%) - running for %s (parallel: %d)%s\n",
+			eta := ""
+			if r.Completed > 0 && r.Running && r.Completed < r.Total {
+				remaining := r.Total - r.Completed
+				secsPerItem := float64(r.ElapsedSeconds) / float64(r.Completed)
+				etaSecs := int64(float64(remaining) * secsPerItem)
+				eta = fmt.Sprintf(" - eta %s", formatElapsed(etaSecs))
+			}
+			fmt.Printf("%s: %d/%d (%.1f%%) - running for %s (parallel: %d)%s%s\n",
 				r.Command,
-				formatNumber(r.Completed),
-				formatNumber(r.Total),
+				r.Completed,
+				r.Total,
 				r.Percent,
 				elapsed,
 				r.Parallel,
+				eta,
 				status,
 			)
 			if r.Failed > 0 {
