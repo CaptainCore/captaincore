@@ -509,6 +509,59 @@ type resticSnapshot struct {
 	Time string `json:"time"`
 }
 
+// backupVerifyChecks runs the restic verification checks and returns any issues found.
+func backupVerifyChecks(resticRepo, resticKey, envCore string) []string {
+	var issues []string
+
+	// Check 1: Snapshot freshness — query latest snapshot per host, then find the newest
+	resticCmd := exec.Command("restic", "snapshots", "--repo", resticRepo, "--password-file="+resticKey, "--json", "--latest", "1")
+	output, err := resticCmd.Output()
+	if err != nil {
+		issues = append(issues, "Backup repo not accessible or not initialized")
+		return issues
+	}
+
+	var snapshots []resticSnapshot
+	if json.Unmarshal(output, &snapshots) != nil || len(snapshots) == 0 {
+		issues = append(issues, "No snapshots found in backup repo")
+		return issues
+	}
+
+	// --latest 1 returns one per host/path combo; find the newest
+	var latestSnapshot resticSnapshot
+	var latestTime time.Time
+	for _, snap := range snapshots {
+		t, parseErr := time.Parse(time.RFC3339Nano, snap.Time)
+		if parseErr != nil {
+			t, parseErr = time.Parse("2006-01-02T15:04:05Z07:00", snap.Time)
+		}
+		if parseErr == nil && t.After(latestTime) {
+			latestTime = t
+			latestSnapshot = snap
+		}
+	}
+	if latestTime.IsZero() {
+		issues = append(issues, "Unable to parse snapshot times")
+		return issues
+	}
+
+	age := time.Since(latestTime)
+	if age > 36*time.Hour {
+		issues = append(issues, fmt.Sprintf("Latest snapshot is stale (%.1f hours old, threshold 36h)", age.Hours()))
+	}
+
+	// Check 2: Database presence — only for WordPress sites
+	if envCore != "" {
+		lsCmd := exec.Command("restic", "ls", latestSnapshot.ID, "/database-backup.sql", "--repo", resticRepo, "--password-file="+resticKey)
+		lsOutput, lsErr := lsCmd.Output()
+		if lsErr != nil || !strings.Contains(string(lsOutput), "database-backup.sql") {
+			issues = append(issues, "Database backup (database-backup.sql) missing from latest snapshot")
+		}
+	}
+
+	return issues
+}
+
 // backupVerifyNative implements `captaincore backup verify <site>` natively in Go.
 func backupVerifyNative(cmd *cobra.Command, args []string) {
 	sa := parseSiteArgument(args[0])
@@ -536,48 +589,17 @@ func backupVerifyNative(cmd *cobra.Command, args []string) {
 	envName := strings.ToLower(env.Environment)
 	resticRepo := fmt.Sprintf("rclone:%s/%s/%s/restic-repo", rcloneBackup, siteDir, envName)
 
+	// Run checks with up to 3 attempts, 5s delay between retries
+	maxAttempts := 3
 	var issues []string
-
-	// Check 1: Snapshot freshness — query latest snapshot per host, then find the newest
-	resticCmd := exec.Command("restic", "snapshots", "--repo", resticRepo, "--password-file="+resticKey, "--json", "--latest", "1")
-	output, err := resticCmd.Output()
-	if err != nil {
-		issues = append(issues, "Backup repo not accessible or not initialized")
-	} else {
-		var snapshots []resticSnapshot
-		if json.Unmarshal(output, &snapshots) != nil || len(snapshots) == 0 {
-			issues = append(issues, "No snapshots found in backup repo")
-		} else {
-			// --latest 1 returns one per host/path combo; find the newest
-			var latestSnapshot resticSnapshot
-			var latestTime time.Time
-			for _, snap := range snapshots {
-				t, parseErr := time.Parse(time.RFC3339Nano, snap.Time)
-				if parseErr != nil {
-					t, parseErr = time.Parse("2006-01-02T15:04:05Z07:00", snap.Time)
-				}
-				if parseErr == nil && t.After(latestTime) {
-					latestTime = t
-					latestSnapshot = snap
-				}
-			}
-			if latestTime.IsZero() {
-				issues = append(issues, "Unable to parse snapshot times")
-			} else {
-				age := time.Since(latestTime)
-				if age > 36*time.Hour {
-					issues = append(issues, fmt.Sprintf("Latest snapshot is stale (%.1f hours old, threshold 36h)", age.Hours()))
-				}
-
-				// Check 2: Database presence — only for WordPress sites
-				if env.Core != "" {
-					lsCmd := exec.Command("restic", "ls", latestSnapshot.ID, "/database-backup.sql", "--repo", resticRepo, "--password-file="+resticKey)
-					lsOutput, lsErr := lsCmd.Output()
-					if lsErr != nil || !strings.Contains(string(lsOutput), "database-backup.sql") {
-						issues = append(issues, "Database backup (database-backup.sql) missing from latest snapshot")
-					}
-				}
-			}
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		issues = backupVerifyChecks(resticRepo, resticKey, env.Core)
+		if len(issues) == 0 {
+			break
+		}
+		if attempt < maxAttempts {
+			fmt.Printf("Backup verify attempt #%d failed, retrying in 5s...\n", attempt)
+			time.Sleep(5 * time.Second)
 		}
 	}
 

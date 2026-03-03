@@ -250,6 +250,9 @@ func resolveCommand(c *cobra.Command, args []string) {
 	if flagAll == true {
 		env = append([]string{"FLAG_ALL=true"}, env...)
 	}
+	if flagForce == true {
+		env = append([]string{"FLAG_FORCE=true"}, env...)
+	}
 	if flagHtml == true {
 		env = append([]string{"FLAG_HTML=true"}, env...)
 	}
