@@ -132,10 +132,43 @@ run_command() {
       home_directory="${home_directory}/"
   fi
 
+  # --------------------------------------------------
+  # Remote Fingerprint Check
+  # Generate content fingerprint on remote server and compare against stored fingerprint.
+  # If unchanged and not --force, skip rclone sync to save disk I/O.
+  # --------------------------------------------------
+  site_path="${site}_${site_id}/${environment}"
+  fingerprint_file="$path/$site_path/.fingerprint"
+
+  remote_fingerprint=$(captaincore ssh $site-$environment \
+      --script=quicksave-fingerprint \
+      --captain-id=$CAPTAIN_ID \
+      -- --wp_content=$wp_content 2>/dev/null)
+
+  if [[ -n "$remote_fingerprint" ]] && [[ -f "$fingerprint_file" ]]; then
+    stored_fingerprint=$(cat "$fingerprint_file")
+    if [[ "$remote_fingerprint" == "$stored_fingerprint" ]] && [[ "$FLAG_FORCE" != "true" ]]; then
+      echo "$(date +'%Y-%m-%d %H:%M') No file changes detected for ${site}-${environment}. Skipping rclone sync."
+      captaincore sync-data $site-${environment} --captain-id=$CAPTAIN_ID
+      captaincore site vuln-scan $site-$environment --captain-id=$CAPTAIN_ID
+
+      # Touch list.json to mark site as recently checked
+      quicksave_list_file="$path/${site}_${site_id}/${environment}/quicksaves/list.json"
+      if [ -f "$quicksave_list_file" ]; then
+        touch "$quicksave_list_file"
+      fi
+
+      if [ -f "${path}/process-${process_id}-progress.log" ]; then
+        echo -n "." >> ${path}/process-${process_id}-progress.log
+      fi
+
+      exit 0
+    fi
+  fi
+  # --------------------------------------------------
+
   quicksave_id_before=$( captaincore quicksave latest $site-$environment --field=hash --captain-id=$CAPTAIN_ID )
   echo "$(date +'%Y-%m-%d %H:%M') Begin quicksave for ${site}-${environment}"
-
-  site_path="${site}_${site_id}/${environment}"
 
   # Create directory structure
   mkdir -p $path/$site_path/quicksave/mu-plugins
@@ -164,6 +197,11 @@ run_command() {
   captaincore sync-data $site-${environment} --captain-id=$CAPTAIN_ID
   captaincore quicksave add $site-$environment --captain-id=$CAPTAIN_ID
   captaincore site vuln-scan $site-$environment --captain-id=$CAPTAIN_ID
+
+  # Save remote fingerprint after successful sync
+  if [[ -n "$remote_fingerprint" ]]; then
+    echo "$remote_fingerprint" > "$fingerprint_file"
+  fi
 
   # Remove git lock if found
   if [ -f "$path/$site_path/quicksave/.git/index.lock" ]; then
