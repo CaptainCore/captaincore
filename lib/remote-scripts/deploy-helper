@@ -61,7 +61,7 @@ read -r -d '' build_mu_plugin << 'heredoc'
  * Plugin Name: CaptainCore Helper
  * Plugin URI: https://captaincore.io
  * Description: Collection of helper functions for CaptainCore
- * Version: 0.3.0
+ * Version: 0.4.0
  * Author: CaptainCore
  * Author URI: https://captaincore.io
  * Text Domain: captaincore-helper
@@ -961,7 +961,7 @@ class TGMPAUpdater {
 	 * Registers hooks if TGM Plugin Activation is active and has registered plugins.
 	 */
 	public function register_hooks() {
-		if ( class_exists( '\TGM_Plugin_Activation' ) && has_action( 'tgmpa_register' ) ) {
+		if ( class_exists( '\TGM_Plugin_Activation' ) && method_exists( '\TGM_Plugin_Activation', 'get_instance' ) && has_action( 'tgmpa_register' ) ) {
 			// Ensure TGMPA has had a chance to register its plugins before we try to access them.
 			// The 'tgmpa_register' action itself might be too early for get_instance()->plugins to be populated.
 			// A later action like 'init' with a high priority or 'wp_loaded' (as used in constructor) is safer.
@@ -977,6 +977,10 @@ class TGMPAUpdater {
 	 */
 	private function get_tgmpa_plugins() {
 		if ( ! class_exists( '\TGM_Plugin_Activation' ) ) {
+			return [];
+		}
+
+		if ( ! method_exists( '\TGM_Plugin_Activation', 'get_instance' ) ) {
 			return [];
 		}
 
@@ -1122,9 +1126,876 @@ class TGMPAUpdater {
 	}
 }
 
+class SecurityLogger {
+    private static $table_checked = false;
+    private static $initial_plugins = null;
+    private static $initial_themes_data = [];
+    private static $deleted_plugin_data = [];
+    private static $deleted_theme_data = [];
+    private static $old_superadmins = null;
+    private static $logged_installs_this_request = [];
+    private static $logged_deletes_this_request = [];
+
+    private static $tracked_options = [
+        'users_can_register', 'default_role', 'admin_email', 'new_admin_email',
+    ];
+
+    public static function init() {
+        // User lifecycle
+        add_action( 'user_register', [ __CLASS__, 'log_user_register' ], 10, 1 );
+        add_action( 'delete_user', [ __CLASS__, 'log_delete_user' ], 10, 1 );
+        add_action( 'wpmu_delete_user', [ __CLASS__, 'log_delete_user' ], 10, 1 );
+        add_action( 'set_user_role', [ __CLASS__, 'log_user_role_changed' ], 10, 3 );
+
+        if ( is_multisite() ) {
+            add_action( 'grant_super_admin', [ __CLASS__, 'capture_old_super_admins' ] );
+            add_action( 'revoke_super_admin', [ __CLASS__, 'capture_old_super_admins' ] );
+            add_action( 'granted_super_admin', [ __CLASS__, 'log_super_admin_granted' ], 10, 1 );
+            add_action( 'revoked_super_admin', [ __CLASS__, 'log_super_admin_revoked' ], 10, 1 );
+        }
+
+        // Plugin & theme lifecycle
+        add_action( 'admin_init', [ __CLASS__, 'log_admin_init' ] );
+        add_action( 'activated_plugin', [ __CLASS__, 'log_plugin_activated' ], 10, 1 );
+        add_action( 'deactivated_plugin', [ __CLASS__, 'log_plugin_deactivated' ], 10, 1 );
+        add_filter( 'install_plugin_complete_actions', [ __CLASS__, 'log_plugin_installed_via_install_actions' ], 10, 4 );
+        add_action( 'upgrader_process_complete', [ __CLASS__, 'log_upgrader_process_complete' ], 10, 2 );
+        add_action( 'delete_plugin', [ __CLASS__, 'log_before_delete_plugin' ], 10, 1 );
+        add_action( 'deleted_plugin', [ __CLASS__, 'log_after_delete_plugin' ], 10, 2 );
+        add_action( 'switch_theme', [ __CLASS__, 'log_theme_activated' ], 10, 1 );
+        add_action( 'delete_theme', [ __CLASS__, 'log_before_delete_theme' ], 10, 1 );
+        add_action( 'deleted_theme', [ __CLASS__, 'log_after_delete_theme' ], 10, 2 );
+        add_action( '_core_updated_successfully', [ __CLASS__, 'log_core_update' ], 10, 1 );
+        add_action( 'automatic_updates_complete', [ __CLASS__, 'log_automatic_updates_complete' ], 10, 1 );
+
+        // Security-critical options
+        add_action( 'added_option', [ __CLASS__, 'log_option_added' ], 10, 2 );
+        add_action( 'updated_option', [ __CLASS__, 'log_option_updated' ], 10, 3 );
+
+        // File editor (hook into AJAX action at priority 1, before WP's handler at priority 10)
+        add_action( 'wp_ajax_edit-theme-plugin-file', [ __CLASS__, 'log_file_editor_saved' ], 1 );
+
+        // Application passwords
+        add_action( 'wp_create_application_password', [ __CLASS__, 'log_app_password_created' ], 10, 4 );
+        add_action( 'wp_delete_application_password', [ __CLASS__, 'log_app_password_deleted' ], 10, 2 );
+
+        // WP-CLI hooks
+        if ( defined( 'WP_CLI' ) && WP_CLI ) {
+            \WP_CLI::add_hook( 'before_invoke:plugin update', [ __CLASS__, 'cli_capture_initial_state' ] );
+            \WP_CLI::add_hook( 'before_invoke:plugin install', [ __CLASS__, 'cli_capture_initial_state' ] );
+            \WP_CLI::add_hook( 'before_invoke:plugin delete', [ __CLASS__, 'cli_capture_initial_state' ] );
+            \WP_CLI::add_hook( 'before_invoke:theme update', [ __CLASS__, 'cli_capture_initial_state' ] );
+            \WP_CLI::add_hook( 'before_invoke:theme install', [ __CLASS__, 'cli_capture_initial_state' ] );
+            \WP_CLI::add_hook( 'before_invoke:theme delete', [ __CLASS__, 'cli_capture_initial_state' ] );
+
+            \WP_CLI::add_hook( 'after_invoke:plugin install', [ __CLASS__, 'cli_log_plugin_install_actions' ] );
+            \WP_CLI::add_hook( 'after_invoke:plugin delete', [ __CLASS__, 'cli_log_plugin_delete_actions' ] );
+            \WP_CLI::add_hook( 'after_invoke:plugin update', [ __CLASS__, 'cli_log_plugin_update_actions' ] );
+
+            \WP_CLI::add_hook( 'after_invoke:theme install', [ __CLASS__, 'cli_log_theme_install_actions' ] );
+            \WP_CLI::add_hook( 'after_invoke:theme delete', [ __CLASS__, 'cli_log_theme_delete_actions' ] );
+            \WP_CLI::add_hook( 'after_invoke:theme update', [ __CLASS__, 'cli_log_theme_update_actions' ] );
+
+            \WP_CLI::add_command( 'captaincore security-log list', [ __CLASS__, 'cli_list_logs' ] );
+            \WP_CLI::add_command( 'captaincore security-log get', [ __CLASS__, 'cli_get_log' ] );
+        }
+    }
+
+    private static function get_table_name() {
+        global $wpdb;
+        return $wpdb->prefix . 'captaincore_security_log';
+    }
+
+    private static function ensure_table_exists() {
+        if ( self::$table_checked ) { return; }
+        global $wpdb;
+        $table_name = self::get_table_name();
+        $charset_collate = $wpdb->get_charset_collate();
+        $table_exists = $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s", DB_NAME, $table_name ) );
+        if ( ! $table_exists ) {
+            if ( ! function_exists( 'dbDelta' ) ) { require_once ABSPATH . 'wp-admin/includes/upgrade.php'; }
+            $sql = "CREATE TABLE $table_name (
+                log_id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                log_time DATETIME NOT NULL,
+                action VARCHAR(100) NOT NULL,
+                user_type VARCHAR(30) NULL,
+                user_id BIGINT(20) UNSIGNED NULL,
+                user_login VARCHAR(60) NULL,
+                ip_address VARCHAR(100) NULL,
+                log_data LONGTEXT NULL,
+                PRIMARY KEY  (log_id),
+                INDEX idx_log_time (log_time),
+                INDEX idx_action (action)
+            ) $charset_collate;";
+            dbDelta( $sql );
+        }
+        self::$table_checked = true;
+    }
+
+    private static function log( $action, $data = [], $user_id = null ) {
+        global $wpdb;
+        self::ensure_table_exists();
+        if ( ! self::$table_checked ) { return; }
+
+        $user_type = null;
+        $log_user_id = null;
+        $log_user_login = null;
+        $ip_address = null;
+
+        if ( defined( 'WP_CLI' ) && WP_CLI ) {
+            $user_type = 'wp_cli';
+        } else {
+            $current_user = null;
+            if ( $user_id !== null ) {
+                $current_user = get_userdata( $user_id );
+            } elseif ( function_exists( 'wp_get_current_user' ) ) {
+                $current_user = wp_get_current_user();
+            }
+
+            if ( $current_user && $current_user->ID > 0 ) {
+                $user_type = 'wp_user';
+                $log_user_id = $current_user->ID;
+                $log_user_login = $current_user->user_login;
+            } else {
+                $user_type = 'system_or_anonymous';
+            }
+
+            if ( isset( $_SERVER['REMOTE_ADDR'] ) ) {
+                $ip = filter_var( $_SERVER['REMOTE_ADDR'], FILTER_VALIDATE_IP );
+                $ip_address = $ip ?: null;
+            }
+        }
+
+        $table_name = self::get_table_name();
+        $wpdb->insert( $table_name, [
+            'log_time'   => current_time( 'mysql', true ),
+            'action'     => $action,
+            'user_type'  => $user_type,
+            'user_id'    => $log_user_id ? (int) $log_user_id : null,
+            'user_login' => $log_user_login,
+            'ip_address' => $ip_address,
+            'log_data'   => json_encode( $data, JSON_UNESCAPED_SLASHES | JSON_PARTIAL_OUTPUT_ON_ERROR ),
+        ]);
+    }
+
+    private static function get_plugin_details( $plugin_file ) {
+        if ( ! function_exists( 'get_plugin_data' ) ) {
+            require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        }
+        $plugin_path = WP_PLUGIN_DIR . '/' . $plugin_file;
+        if ( ! file_exists( $plugin_path ) ) {
+            return self::$deleted_plugin_data[$plugin_file] ?? null;
+        }
+        $plugin_data = get_plugin_data( $plugin_path, false, false );
+        if ( empty( $plugin_data['Name'] ) ) { return null; }
+        return [
+            'name'       => $plugin_data['Name'],
+            'version'    => $plugin_data['Version'],
+            'plugin_uri' => $plugin_data['PluginURI'] ?? '',
+            'author'     => $plugin_data['Author'] ?? '',
+            'file_path'  => $plugin_file,
+        ];
+    }
+
+    private static function get_theme_details( $stylesheet ) {
+        $theme = wp_get_theme( $stylesheet );
+        if ( ! $theme->exists() ) {
+            return self::$deleted_theme_data[$stylesheet] ?? null;
+        }
+        return [
+            'name'       => $theme->get( 'Name' ),
+            'version'    => $theme->get( 'Version' ),
+            'theme_uri'  => $theme->get( 'ThemeURI' ),
+            'author'     => $theme->get( 'Author' ),
+            'stylesheet' => $stylesheet,
+            'template'   => $theme->get_template(),
+        ];
+    }
+
+    private static function is_tracked_option( $option_name ) {
+        if ( in_array( $option_name, self::$tracked_options, true ) ) {
+            return true;
+        }
+        global $wpdb;
+        return $option_name === $wpdb->prefix . 'user_roles';
+    }
+
+    private static function truncate_value( $value, $length = 200 ) {
+        if ( is_string( $value ) ) { return mb_strimwidth( $value, 0, $length, '...' ); }
+        if ( is_scalar( $value ) ) { return $value; }
+        if ( is_array( $value ) || is_object( $value ) ) {
+            $json = json_encode( $value, JSON_UNESCAPED_SLASHES | JSON_PARTIAL_OUTPUT_ON_ERROR );
+            return mb_strimwidth( $json, 0, $length, '...' );
+        }
+        return '(' . gettype( $value ) . ')';
+    }
+
+    // --- User lifecycle handlers ---
+
+    public static function log_user_register( $user_id ) {
+        $user = get_userdata( $user_id );
+        if ( $user ) {
+            self::log( 'user_registered', [
+                'user_id'    => $user_id,
+                'user_login' => $user->user_login,
+                'user_email' => $user->user_email,
+                'user_roles' => $user->roles,
+            ]);
+        }
+    }
+
+    public static function log_delete_user( $user_id ) {
+        $user = get_userdata( $user_id );
+        $reassign_id = isset( $_POST['reassign_user'] ) ? (int) $_POST['reassign_user'] : null;
+        self::log( 'user_deleted', [
+            'deleted_user_id'       => $user_id,
+            'deleted_user_login'    => $user ? $user->user_login : '(unknown)',
+            'deleted_user_roles'    => $user ? $user->roles : [],
+            'reassigned_to_user_id' => $reassign_id,
+        ]);
+    }
+
+    public static function log_user_role_changed( $user_id, $new_role, $old_roles ) {
+        $user = get_userdata( $user_id );
+        if ( ! $user ) { return; }
+        $new_roles = $user->roles;
+        $old_roles_array = is_array( $old_roles ) ? $old_roles : (array) $old_roles;
+        sort( $old_roles_array );
+        sort( $new_roles );
+        if ( $old_roles_array !== $new_roles ) {
+            self::log( 'user_role_changed', [
+                'target_user_id'    => $user_id,
+                'target_user_login' => $user->user_login,
+                'old_roles'         => $old_roles_array,
+                'new_roles'         => $new_roles,
+            ]);
+        }
+    }
+
+    public static function capture_old_super_admins() {
+        if ( is_multisite() && self::$old_superadmins === null ) {
+            self::$old_superadmins = get_super_admins();
+        }
+    }
+
+    public static function log_super_admin_granted( $user_id ) {
+        $user = get_userdata( $user_id );
+        if ( $user && is_array( self::$old_superadmins ) && ! in_array( $user->user_login, self::$old_superadmins, true ) ) {
+            self::log( 'user_super_admin_granted', [ 'target_user_id' => $user_id, 'target_user_login' => $user->user_login ] );
+        }
+        self::$old_superadmins = null;
+    }
+
+    public static function log_super_admin_revoked( $user_id ) {
+        $user = get_userdata( $user_id );
+        if ( $user && is_array( self::$old_superadmins ) && in_array( $user->user_login, self::$old_superadmins, true ) ) {
+            self::log( 'user_super_admin_revoked', [ 'target_user_id' => $user_id, 'target_user_login' => $user->user_login ] );
+        }
+        self::$old_superadmins = null;
+    }
+
+    // --- Plugin & theme lifecycle handlers ---
+
+    public static function log_admin_init() {
+        if ( self::$initial_plugins === null ) {
+            if ( ! function_exists( 'get_plugins' ) ) { require_once ABSPATH . 'wp-admin/includes/plugin.php'; }
+            self::$initial_plugins = get_plugins();
+        }
+        if ( empty( self::$initial_themes_data ) && ! ( defined( 'WP_CLI' ) && WP_CLI ) ) {
+            if ( ! function_exists( 'wp_get_themes' ) ) { require_once ABSPATH . 'wp-includes/theme.php'; }
+            $themes = wp_get_themes();
+            if ( is_array( $themes ) ) {
+                foreach ( $themes as $stylesheet => $theme_obj ) {
+                    if ( $theme_obj instanceof \WP_Theme ) {
+                        self::$initial_themes_data[$stylesheet] = [
+                            'Name'    => $theme_obj->get( 'Name' ),
+                            'Version' => $theme_obj->get( 'Version' ),
+                        ];
+                    }
+                }
+            }
+        }
+        if ( is_multisite() && self::$old_superadmins === null ) {
+            self::$old_superadmins = get_super_admins();
+        }
+    }
+
+    public static function log_plugin_activated( $plugin_file ) {
+        $details = self::get_plugin_details( $plugin_file );
+        if ( $details ) { self::log( 'plugin_activated', [ 'plugin' => $details ] ); }
+    }
+
+    public static function log_plugin_deactivated( $plugin_file ) {
+        $details = self::get_plugin_details( $plugin_file );
+        if ( $details ) { self::log( 'plugin_deactivated', [ 'plugin' => $details ] ); }
+    }
+
+    public static function log_upgrader_process_complete( $upgrader_object, $options ) {
+        $type   = $options['type'] ?? null;
+        $action = $options['action'] ?? null;
+
+        if ( 'plugin' === $type ) {
+            $plugins_to_process = [];
+            if ( isset( $options['plugins'] ) && is_array( $options['plugins'] ) ) {
+                $plugins_to_process = $options['plugins'];
+            } elseif ( isset( $options['plugin'] ) && is_string( $options['plugin'] ) ) {
+                $plugins_to_process = [ $options['plugin'] ];
+            }
+            if ( 'install' === $action && empty( $plugins_to_process ) && isset( $upgrader_object->result['destination_name'] ) ) {
+                $plugin_slug = $upgrader_object->result['destination_name'];
+                if ( ! function_exists( 'get_plugins' ) ) { require_once ABSPATH . 'wp-admin/includes/plugin.php'; }
+                $_found = get_plugins( '/' . $plugin_slug );
+                if ( ! empty( $_found ) ) { $plugins_to_process = [ array_key_first( $_found ) ]; }
+            }
+            if ( empty( $plugins_to_process ) ) { return; }
+
+            foreach ( $plugins_to_process as $plugin_file ) {
+                $details = self::get_plugin_details( $plugin_file );
+                if ( 'install' === $action ) {
+                    if ( isset( self::$logged_installs_this_request[$plugin_file] ) ) { continue; }
+                    $log_data = $details
+                        ? [ 'plugin' => $details ]
+                        : [ 'plugin' => [ 'name' => $upgrader_object->new_plugin_data['Name'] ?? basename( dirname( $plugin_file ) ), 'version' => $upgrader_object->new_plugin_data['Version'] ?? 'N/A', 'file_path' => $plugin_file ] ];
+                    self::log( 'plugin_installed', $log_data );
+                    self::$logged_installs_this_request[$plugin_file] = true;
+                } elseif ( 'update' === $action && $details ) {
+                    $old_version = self::$initial_plugins[$plugin_file]['Version'] ?? 'unknown';
+                    self::log( 'plugin_updated', [ 'plugin' => $details, 'old_version' => $old_version, 'new_version' => $details['version'] ] );
+                }
+            }
+            if ( ! function_exists( 'get_plugins' ) ) { require_once ABSPATH . 'wp-admin/includes/plugin.php'; }
+            self::$initial_plugins = get_plugins();
+
+        } elseif ( 'theme' === $type ) {
+            $themes_to_process = [];
+            if ( isset( $options['themes'] ) && is_array( $options['themes'] ) ) {
+                $themes_to_process = $options['themes'];
+            } elseif ( isset( $options['theme'] ) && is_string( $options['theme'] ) ) {
+                $themes_to_process = [ $options['theme'] ];
+            }
+            if ( empty( $themes_to_process ) ) { return; }
+
+            foreach ( $themes_to_process as $stylesheet ) {
+                $details = self::get_theme_details( $stylesheet );
+                if ( ! $details ) { continue; }
+                if ( 'install' === $action ) {
+                    self::log( 'theme_installed', [ 'theme' => $details ] );
+                } elseif ( 'update' === $action ) {
+                    $old_version = self::$initial_themes_data[$stylesheet]['Version'] ?? 'unknown';
+                    self::log( 'theme_updated', [ 'theme' => $details, 'old_version' => $old_version, 'new_version' => $details['version'] ] );
+                }
+            }
+            self::refresh_theme_snapshot();
+        }
+    }
+
+    public static function log_plugin_installed_via_install_actions( $actions, $api, $plugin_file, $install_result ) {
+        if ( ! is_wp_error( $install_result ) && ! empty( $plugin_file ) ) {
+            if ( isset( self::$logged_installs_this_request[$plugin_file] ) ) { return $actions; }
+            $details = self::get_plugin_details( $plugin_file );
+            $log_data = $details
+                ? [ 'plugin' => $details ]
+                : [ 'plugin' => [ 'name' => $plugin_file, 'version' => 'N/A', 'file_path' => $plugin_file ] ];
+            self::log( 'plugin_installed', $log_data );
+            self::$logged_installs_this_request[$plugin_file] = true;
+        }
+        return $actions;
+    }
+
+    public static function log_before_delete_plugin( $plugin_file ) {
+        $details = self::get_plugin_details( $plugin_file );
+        if ( $details ) { self::$deleted_plugin_data[$plugin_file] = $details; }
+        if ( ! function_exists( 'get_plugins' ) ) { require_once ABSPATH . 'wp-admin/includes/plugin.php'; }
+        self::$initial_plugins = get_plugins();
+    }
+
+    public static function log_after_delete_plugin( $plugin_file, $deleted ) {
+        if ( $deleted && isset( self::$deleted_plugin_data[$plugin_file] ) ) {
+            self::log( 'plugin_deleted', [ 'plugin' => self::$deleted_plugin_data[$plugin_file] ] );
+            self::$logged_deletes_this_request[$plugin_file] = true;
+        }
+        unset( self::$deleted_plugin_data[$plugin_file] );
+        if ( ! function_exists( 'get_plugins' ) ) { require_once ABSPATH . 'wp-admin/includes/plugin.php'; }
+        self::$initial_plugins = get_plugins();
+    }
+
+    public static function log_theme_activated( $theme_name ) {
+        $activated_theme = wp_get_theme();
+        if ( $activated_theme->exists() && $activated_theme->get( 'Name' ) === $theme_name ) {
+            $details = self::get_theme_details( $activated_theme->get_stylesheet() );
+            if ( $details ) { self::log( 'theme_activated', [ 'theme' => $details ] ); }
+        }
+    }
+
+    public static function log_before_delete_theme( $stylesheet ) {
+        $details = self::get_theme_details( $stylesheet );
+        if ( $details ) { self::$deleted_theme_data[$stylesheet] = $details; }
+    }
+
+    public static function log_after_delete_theme( $stylesheet, $deleted ) {
+        if ( $deleted && isset( self::$deleted_theme_data[$stylesheet] ) ) {
+            self::log( 'theme_deleted', [ 'theme' => self::$deleted_theme_data[$stylesheet] ] );
+            self::$logged_deletes_this_request[$stylesheet] = true;
+        }
+        unset( self::$deleted_theme_data[$stylesheet] );
+    }
+
+    // --- Options handlers ---
+
+    public static function log_option_added( $option_name, $option_value ) {
+        if ( ! self::is_tracked_option( $option_name ) ) { return; }
+        self::log( 'option_added', [
+            'option_name'   => $option_name,
+            'value_preview' => self::truncate_value( $option_value ),
+        ]);
+    }
+
+    public static function log_option_updated( $option_name, $old_value, $new_value ) {
+        if ( ! self::is_tracked_option( $option_name ) ) { return; }
+        if ( $old_value === $new_value ) { return; }
+        self::log( 'option_updated', [
+            'option_name'       => $option_name,
+            'old_value_preview' => self::truncate_value( $old_value ),
+            'new_value_preview' => self::truncate_value( $new_value ),
+        ]);
+    }
+
+    // --- System & file editor handlers ---
+
+    public static function log_core_update( $update_results ) {
+        self::log( 'system_core_updated', [ 'new_version' => $update_results, 'update_method' => 'manual' ] );
+    }
+
+    public static function log_automatic_updates_complete( $results ) {
+        if ( empty( $results ) ) { return; }
+        if ( isset( $results['core'][0] ) ) {
+            $core = $results['core'][0];
+            self::log( 'system_core_updated', [
+                'new_version'   => $core->item->version,
+                'old_version'   => $core->item->current_version ?? 'unknown',
+                'update_method' => 'automatic',
+            ]);
+        }
+        foreach ( [ 'plugin', 'theme' ] as $type ) {
+            if ( ! empty( $results[$type] ) ) {
+                foreach ( $results[$type] as $item_result ) {
+                    self::log( 'system_auto_updated', [
+                        'update_type'  => $type,
+                        'item_name'    => $item_result->item->name ?? ( $item_result->item->slug ?? 'N/A' ),
+                        'item_version' => $item_result->item->new_version ?? ( $item_result->item->version ?? 'N/A' ),
+                        'old_version'  => $item_result->item->current_version ?? 'unknown',
+                        'successful'   => $item_result->result !== false,
+                    ]);
+                }
+            }
+        }
+    }
+
+    public static function log_file_editor_saved() {
+        $file = isset( $_POST['file'] ) ? sanitize_text_field( wp_unslash( $_POST['file'] ) ) : '';
+        $plugin = isset( $_POST['plugin'] ) ? sanitize_text_field( wp_unslash( $_POST['plugin'] ) ) : '';
+        $theme = isset( $_POST['theme'] ) ? sanitize_text_field( wp_unslash( $_POST['theme'] ) ) : '';
+        $component_type = $plugin ? 'plugin' : ( $theme ? 'theme' : 'unknown' );
+        $component_name = $plugin ?: $theme;
+        if ( $file ) {
+            self::log( 'file_editor_saved', [
+                'file_path'      => $file,
+                'component_type' => $component_type,
+                'component_name' => $component_name,
+            ]);
+        }
+    }
+
+    // --- Application password handlers ---
+
+    public static function log_app_password_created( $user_id, $item, $new_password, $args ) {
+        $user = get_userdata( $user_id );
+        self::log( 'app_password_created', [
+            'target_user_id'    => $user_id,
+            'target_user_login' => $user ? $user->user_login : '(unknown)',
+            'app_name'          => $item['name'] ?? 'N/A',
+            'app_uuid'          => $item['uuid'] ?? 'N/A',
+        ]);
+    }
+
+    public static function log_app_password_deleted( $user_id, $item ) {
+        $user = get_userdata( $user_id );
+        self::log( 'app_password_deleted', [
+            'target_user_id'    => $user_id,
+            'target_user_login' => $user ? $user->user_login : '(unknown)',
+            'app_name'          => $item['name'] ?? 'N/A',
+            'app_uuid'          => $item['uuid'] ?? 'N/A',
+        ]);
+    }
+
+    // --- WP-CLI capture and lifecycle handlers ---
+
+    public static function cli_capture_initial_state() {
+        if ( ! function_exists( 'get_plugins' ) ) { require_once ABSPATH . 'wp-admin/includes/plugin.php'; }
+        self::$initial_plugins = get_plugins();
+        if ( ! function_exists( 'wp_get_themes' ) ) { require_once ABSPATH . 'wp-includes/theme.php'; }
+        $themes = wp_get_themes();
+        self::$initial_themes_data = [];
+        if ( is_array( $themes ) ) {
+            foreach ( $themes as $stylesheet => $theme_obj ) {
+                if ( $theme_obj instanceof \WP_Theme ) {
+                    self::$initial_themes_data[$stylesheet] = [
+                        'Name'    => $theme_obj->get( 'Name' ),
+                        'Version' => $theme_obj->get( 'Version' ),
+                    ];
+                }
+            }
+        }
+    }
+
+    public static function cli_log_plugin_install_actions() {
+        if ( ! function_exists( 'get_plugins' ) ) { require_once ABSPATH . 'wp-admin/includes/plugin.php'; }
+        $current_plugins = get_plugins();
+        $initial = self::$initial_plugins ?? [];
+        if ( ! is_array( $initial ) ) { $initial = []; }
+        $installed = array_diff_key( $current_plugins, $initial );
+        foreach ( array_keys( $installed ) as $plugin_file ) {
+            if ( isset( self::$logged_installs_this_request[$plugin_file] ) ) { continue; }
+            $details = self::get_plugin_details( $plugin_file );
+            self::log( 'plugin_installed', [
+                'plugin'  => $details ?: [ 'name' => $plugin_file, 'version' => 'N/A', 'file_path' => $plugin_file ],
+                'context' => 'wp_cli',
+            ]);
+            self::$logged_installs_this_request[$plugin_file] = true;
+        }
+        self::$initial_plugins = $current_plugins;
+    }
+
+    public static function cli_log_plugin_delete_actions() {
+        $initial = self::$initial_plugins ?? [];
+        if ( empty( $initial ) ) {
+            if ( ! function_exists( 'get_plugins' ) ) { require_once ABSPATH . 'wp-admin/includes/plugin.php'; }
+            $initial = get_plugins();
+        }
+        if ( function_exists( 'wp_clean_plugins_cache' ) ) { wp_clean_plugins_cache( true ); }
+        if ( ! function_exists( 'get_plugins' ) ) { require_once ABSPATH . 'wp-admin/includes/plugin.php'; }
+        $current_plugins = get_plugins();
+        if ( ! is_array( $initial ) ) { $initial = []; }
+
+        $deleted = array_diff_key( $initial, $current_plugins );
+        $logged_by_diff = false;
+        foreach ( $deleted as $plugin_file => $plugin_data ) {
+            if ( isset( self::$logged_deletes_this_request[$plugin_file] ) ) { continue; }
+            self::log( 'plugin_deleted', [
+                'plugin'  => [ 'name' => $plugin_data['Name'] ?? basename( dirname( $plugin_file ) ), 'version' => $plugin_data['Version'] ?? 'N/A', 'file_path' => $plugin_file ],
+                'context' => 'wp_cli',
+            ]);
+            unset( self::$deleted_plugin_data[$plugin_file] );
+            $logged_by_diff = true;
+        }
+
+        if ( ! $logged_by_diff && ! empty( $initial ) ) {
+            foreach ( $initial as $plugin_file => $initial_data ) {
+                if ( isset( $deleted[$plugin_file] ) ) { continue; }
+                if ( isset( self::$logged_deletes_this_request[$plugin_file] ) ) { continue; }
+                $plugin_path = WP_PLUGIN_DIR . '/' . $plugin_file;
+                if ( ! isset( $current_plugins[$plugin_file] ) && ! file_exists( $plugin_path ) ) {
+                    self::log( 'plugin_deleted', [
+                        'plugin'  => [ 'name' => $initial_data['Name'] ?? basename( dirname( $plugin_file ) ), 'version' => $initial_data['Version'] ?? 'N/A', 'file_path' => $plugin_file ],
+                        'context' => 'wp_cli_fs_check',
+                    ]);
+                    unset( self::$deleted_plugin_data[$plugin_file] );
+                }
+            }
+        }
+        self::$initial_plugins = $current_plugins;
+    }
+
+    public static function cli_log_plugin_update_actions() {
+        if ( ! function_exists( 'get_plugins' ) ) { require_once ABSPATH . 'wp-admin/includes/plugin.php'; }
+        $current_plugins = get_plugins();
+        $initial = self::$initial_plugins ?? [];
+        if ( ! is_array( $initial ) ) { $initial = []; }
+        foreach ( $current_plugins as $plugin_file => $new_data ) {
+            if ( isset( $initial[$plugin_file] ) && version_compare( $initial[$plugin_file]['Version'], $new_data['Version'], '!=' ) ) {
+                $details = self::get_plugin_details( $plugin_file );
+                if ( $details ) {
+                    self::log( 'plugin_updated', [
+                        'plugin'      => $details,
+                        'old_version' => $initial[$plugin_file]['Version'],
+                        'new_version' => $new_data['Version'],
+                        'context'     => 'wp_cli',
+                    ]);
+                }
+            }
+        }
+        self::$initial_plugins = $current_plugins;
+    }
+
+    public static function cli_log_theme_install_actions() {
+        if ( function_exists( 'wp_clean_themes_cache' ) ) { wp_clean_themes_cache( true ); }
+        if ( ! function_exists( 'wp_get_themes' ) ) { require_once ABSPATH . 'wp-includes/theme.php'; }
+        $current = wp_get_themes();
+        $initial = self::$initial_themes_data ?? [];
+        if ( ! is_array( $initial ) ) { $initial = []; }
+        $installed = array_diff_key( $current, $initial );
+        foreach ( array_keys( $installed ) as $stylesheet ) {
+            $details = self::get_theme_details( $stylesheet );
+            self::log( 'theme_installed', [
+                'theme'   => $details ?: [ 'name' => $stylesheet, 'version' => 'N/A', 'stylesheet' => $stylesheet ],
+                'context' => 'wp_cli',
+            ]);
+        }
+        self::refresh_theme_snapshot( $current );
+    }
+
+    public static function cli_log_theme_delete_actions() {
+        $initial = self::$initial_themes_data ?? [];
+        if ( empty( $initial ) ) {
+            if ( ! function_exists( 'wp_get_themes' ) ) { require_once ABSPATH . 'wp-includes/theme.php'; }
+            $themes_now = wp_get_themes();
+            if ( is_array( $themes_now ) ) {
+                foreach ( $themes_now as $stylesheet => $theme_obj ) {
+                    if ( $theme_obj instanceof \WP_Theme ) {
+                        $initial[$stylesheet] = [ 'Name' => $theme_obj->get( 'Name' ), 'Version' => $theme_obj->get( 'Version' ) ];
+                    }
+                }
+            }
+        }
+        if ( function_exists( 'wp_clean_themes_cache' ) ) { wp_clean_themes_cache( true ); }
+        if ( ! function_exists( 'wp_get_themes' ) ) { require_once ABSPATH . 'wp-includes/theme.php'; }
+        $current = wp_get_themes();
+        if ( ! is_array( $initial ) ) { $initial = []; }
+
+        $deleted = array_diff_key( $initial, $current );
+        $logged_by_diff = false;
+        foreach ( $deleted as $stylesheet => $theme_data ) {
+            if ( isset( self::$logged_deletes_this_request[$stylesheet] ) ) { continue; }
+            self::log( 'theme_deleted', [
+                'theme'   => [ 'name' => $theme_data['Name'] ?? $stylesheet, 'version' => $theme_data['Version'] ?? 'N/A', 'stylesheet' => $stylesheet ],
+                'context' => 'wp_cli',
+            ]);
+            unset( self::$deleted_theme_data[$stylesheet] );
+            $logged_by_diff = true;
+        }
+
+        if ( ! $logged_by_diff && ! empty( $initial ) ) {
+            $theme_root = get_theme_root();
+            foreach ( $initial as $stylesheet => $theme_data ) {
+                if ( isset( $deleted[$stylesheet] ) ) { continue; }
+                if ( isset( self::$logged_deletes_this_request[$stylesheet] ) ) { continue; }
+                if ( ! isset( $current[$stylesheet] ) && ! is_dir( $theme_root . '/' . $stylesheet ) ) {
+                    self::log( 'theme_deleted', [
+                        'theme'   => [ 'name' => $theme_data['Name'] ?? $stylesheet, 'version' => $theme_data['Version'] ?? 'N/A', 'stylesheet' => $stylesheet ],
+                        'context' => 'wp_cli_fs_check',
+                    ]);
+                    unset( self::$deleted_theme_data[$stylesheet] );
+                }
+            }
+        }
+        self::refresh_theme_snapshot( $current );
+    }
+
+    public static function cli_log_theme_update_actions() {
+        if ( function_exists( 'wp_clean_themes_cache' ) ) { wp_clean_themes_cache( true ); }
+        if ( ! function_exists( 'wp_get_themes' ) ) { require_once ABSPATH . 'wp-includes/theme.php'; }
+        $current = wp_get_themes();
+        $initial = self::$initial_themes_data ?? [];
+        if ( ! is_array( $initial ) ) { $initial = []; }
+        foreach ( $current as $stylesheet => $theme_obj ) {
+            if ( isset( $initial[$stylesheet] ) && $theme_obj instanceof \WP_Theme ) {
+                $old_version = $initial[$stylesheet]['Version'];
+                $new_version = $theme_obj->get( 'Version' );
+                if ( version_compare( $old_version, $new_version, '!=' ) ) {
+                    $details = self::get_theme_details( $stylesheet );
+                    if ( $details ) {
+                        self::log( 'theme_updated', [
+                            'theme'       => $details,
+                            'old_version' => $old_version,
+                            'new_version' => $new_version,
+                            'context'     => 'wp_cli',
+                        ]);
+                    }
+                }
+            }
+        }
+        self::refresh_theme_snapshot( $current );
+    }
+
+    private static function refresh_theme_snapshot( $themes_objs = null ) {
+        if ( $themes_objs === null ) {
+            if ( ! function_exists( 'wp_get_themes' ) ) { require_once ABSPATH . 'wp-includes/theme.php'; }
+            $themes_objs = wp_get_themes();
+        }
+        $snapshot = [];
+        if ( is_array( $themes_objs ) ) {
+            foreach ( $themes_objs as $stylesheet => $theme_obj ) {
+                if ( $theme_obj instanceof \WP_Theme ) {
+                    $snapshot[$stylesheet] = [ 'Name' => $theme_obj->get( 'Name' ), 'Version' => $theme_obj->get( 'Version' ) ];
+                }
+            }
+        }
+        self::$initial_themes_data = $snapshot;
+    }
+
+    // --- WP-CLI commands ---
+
+    public static function cli_list_logs( $args, $assoc_args ) {
+        global $wpdb;
+        self::ensure_table_exists();
+        $table_name = self::get_table_name();
+        $limit  = isset( $assoc_args['limit'] ) && is_numeric( $assoc_args['limit'] ) && $assoc_args['limit'] > 0 ? (int) $assoc_args['limit'] : 25;
+        $offset = isset( $assoc_args['offset'] ) && is_numeric( $assoc_args['offset'] ) && $assoc_args['offset'] >= 0 ? (int) $assoc_args['offset'] : 0;
+
+        $logs = $wpdb->get_results( $wpdb->prepare(
+            "SELECT log_id, log_time, action, user_type, user_id, user_login, ip_address, log_data FROM $table_name ORDER BY log_id DESC LIMIT %d OFFSET %d",
+            $limit, $offset
+        ));
+
+        if ( empty( $logs ) ) {
+            \WP_CLI::log( $offset > 0 ? 'No more security logs at this offset.' : 'No security logs found.' );
+            return;
+        }
+
+        $table_data = [];
+        foreach ( $logs as $log ) {
+            $data = json_decode( $log->log_data, true ) ?: [];
+            $table_data[] = [
+                'ID'      => $log->log_id,
+                'Time'    => $log->log_time,
+                'Action'  => $log->action,
+                'User'    => $log->user_login ?: ( $log->user_type ?: 'N/A' ),
+                'IP'      => $log->ip_address ?: 'N/A',
+                'Details' => mb_strimwidth( self::generate_summary( $log->action, $data ), 0, 80, '...' ),
+            ];
+        }
+        \WP_CLI\Utils\format_items( 'table', $table_data, [ 'ID', 'Time', 'Action', 'User', 'IP', 'Details' ] );
+        \WP_CLI::log( "\nShowing " . ( $offset + 1 ) . ' to ' . ( $offset + count( $logs ) ) . '. Use --limit=N --offset=N to paginate.' );
+        \WP_CLI::log( "Use 'wp captaincore security-log get <ID>' for full details." );
+    }
+
+    public static function cli_get_log( $args, $assoc_args ) {
+        global $wpdb;
+        if ( empty( $args[0] ) || ! is_numeric( $args[0] ) ) {
+            \WP_CLI::error( 'Provide a numeric log ID. Usage: wp captaincore security-log get <id>' );
+            return;
+        }
+        self::ensure_table_exists();
+        $table_name = self::get_table_name();
+        $log = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM $table_name WHERE log_id = %d", (int) $args[0] ) );
+        if ( ! $log ) {
+            \WP_CLI::error( "Log entry #{$args[0]} not found." );
+            return;
+        }
+
+        \WP_CLI::log( \WP_CLI::colorize( "%YSecurity Log #{$log->log_id}%n" ) );
+        \WP_CLI::log( '-----------------------------' );
+        \WP_CLI::log( 'Time:       ' . $log->log_time );
+        \WP_CLI::log( 'Action:     ' . $log->action );
+        \WP_CLI::log( 'User Type:  ' . ( $log->user_type ?: 'N/A' ) );
+        if ( $log->user_id ) { \WP_CLI::log( 'User ID:    ' . $log->user_id ); }
+        if ( $log->user_login ) { \WP_CLI::log( 'User Login: ' . $log->user_login ); }
+        if ( $log->ip_address ) { \WP_CLI::log( 'IP Address: ' . $log->ip_address ); }
+        $data = json_decode( $log->log_data, true );
+        if ( ! empty( $data ) && is_array( $data ) ) {
+            \WP_CLI::log( 'Details:' );
+            self::display_data_recursive( $data, 2 );
+        } else {
+            \WP_CLI::log( 'Details:    (none)' );
+        }
+        \WP_CLI::log( '-----------------------------' );
+    }
+
+    private static function generate_summary( $action, $data ) {
+        switch ( $action ) {
+            case 'user_registered':
+                return "User '" . ( $data['user_login'] ?? 'N/A' ) . "' registered (ID: " . ( $data['user_id'] ?? 'N/A' ) . ")";
+            case 'user_deleted':
+                $s = "User '" . ( $data['deleted_user_login'] ?? 'N/A' ) . "' (ID: " . ( $data['deleted_user_id'] ?? 'N/A' ) . ") deleted";
+                if ( ! empty( $data['reassigned_to_user_id'] ) ) { $s .= ", posts -> ID:{$data['reassigned_to_user_id']}"; }
+                return $s;
+            case 'user_role_changed':
+                $old = implode( ', ', $data['old_roles'] ?? [] );
+                $new = implode( ', ', $data['new_roles'] ?? [] );
+                return "User '" . ( $data['target_user_login'] ?? 'N/A' ) . "' roles: [{$old}] -> [{$new}]";
+            case 'user_super_admin_granted':
+                return "Super Admin granted to '" . ( $data['target_user_login'] ?? 'N/A' ) . "'";
+            case 'user_super_admin_revoked':
+                return "Super Admin revoked from '" . ( $data['target_user_login'] ?? 'N/A' ) . "'";
+            case 'plugin_installed': case 'plugin_activated': case 'plugin_deactivated': case 'plugin_deleted':
+                $name = $data['plugin']['name'] ?? 'N/A';
+                $ver  = $data['plugin']['version'] ?? '';
+                return "Plugin '{$name}'" . ( $ver ? " v{$ver}" : '' );
+            case 'plugin_updated':
+                return "Plugin '" . ( $data['plugin']['name'] ?? 'N/A' ) . "': " . ( $data['old_version'] ?? '?' ) . " -> " . ( $data['new_version'] ?? '?' );
+            case 'theme_installed': case 'theme_activated': case 'theme_deleted':
+                $name = $data['theme']['name'] ?? 'N/A';
+                $ver  = $data['theme']['version'] ?? '';
+                return "Theme '{$name}'" . ( $ver ? " v{$ver}" : '' );
+            case 'theme_updated':
+                return "Theme '" . ( $data['theme']['name'] ?? 'N/A' ) . "': " . ( $data['old_version'] ?? '?' ) . " -> " . ( $data['new_version'] ?? '?' );
+            case 'option_added': case 'option_updated':
+                return "Option '" . ( $data['option_name'] ?? 'N/A' ) . "'";
+            case 'system_core_updated':
+                $method = $data['update_method'] ?? '';
+                return "Core updated to " . ( $data['new_version'] ?? 'N/A' ) . ( $method ? " ({$method})" : '' );
+            case 'system_auto_updated':
+                $name = $data['item_name'] ?? 'N/A';
+                $ver  = $data['item_version'] ?? 'N/A';
+                $s    = "Auto-update: " . ( $data['update_type'] ?? '' ) . " '{$name}' to v{$ver}";
+                if ( isset( $data['successful'] ) && ! $data['successful'] ) { $s .= ' (Failed)'; }
+                return $s;
+            case 'file_editor_saved':
+                return ( $data['component_type'] ?? '' ) . " file '" . ( $data['file_path'] ?? 'N/A' ) . "'";
+            case 'app_password_created':
+                return "App password '" . ( $data['app_name'] ?? 'N/A' ) . "' for user '" . ( $data['target_user_login'] ?? 'N/A' ) . "'";
+            case 'app_password_deleted':
+                return "App password '" . ( $data['app_name'] ?? 'N/A' ) . "' deleted for '" . ( $data['target_user_login'] ?? 'N/A' ) . "'";
+            default:
+                return '';
+        }
+    }
+
+    private static function display_data_recursive( $data, $indent = 2 ) {
+        foreach ( $data as $key => $value ) {
+            $prefix = str_repeat( ' ', $indent );
+            $label  = str_replace( '_', ' ', ucwords( (string) $key, '_' ) );
+            if ( is_array( $value ) ) {
+                if ( empty( $value ) ) {
+                    \WP_CLI::log( "{$prefix}{$label}: []" );
+                } elseif ( array_keys( $value ) === range( 0, count( $value ) - 1 ) && count( $value ) < 5 ) {
+                    $items = array_map( function( $v ) { return is_scalar( $v ) ? (string) $v : '(array)'; }, $value );
+                    \WP_CLI::log( "{$prefix}{$label}: [ " . implode( ', ', $items ) . ' ]' );
+                } else {
+                    \WP_CLI::log( "{$prefix}{$label}:" );
+                    self::display_data_recursive( $value, $indent + 2 );
+                }
+            } elseif ( is_bool( $value ) ) {
+                \WP_CLI::log( "{$prefix}{$label}: " . ( $value ? 'true' : 'false' ) );
+            } elseif ( is_null( $value ) ) {
+                \WP_CLI::log( "{$prefix}{$label}: null" );
+            } else {
+                $display = (string) $value;
+                if ( strlen( $display ) > 500 ) { $display = substr( $display, 0, 500 ) . '... (truncated)'; }
+                \WP_CLI::log( "{$prefix}{$label}: {$display}" );
+            }
+        }
+    }
+}
+
 MagicLogin::init();
 Helpers::init();
 new TGMPAUpdater();
+SecurityLogger::init();
+
+if ( defined( 'WP_CLI' ) && WP_CLI ) {
+    /**
+     * CaptainCore site management and security commands.
+     */
+    class CaptainCore_CLI extends \WP_CLI\Dispatcher\CommandNamespace {}
+    \WP_CLI::add_command( 'captaincore', __NAMESPACE__ . '\CaptainCore_CLI' );
+
+    /**
+     * Security audit log for tracking user, plugin, theme, and system changes.
+     */
+    class SecurityLog_CLI extends \WP_CLI\Dispatcher\CommandNamespace {}
+    \WP_CLI::add_command( 'captaincore security-log', __NAMESPACE__ . '\SecurityLog_CLI' );
+}
 heredoc
 
 echo "Generating '$wp_content/mu-plugins/captaincore-helper.php'"
