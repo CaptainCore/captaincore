@@ -33,6 +33,13 @@ var colorNormal = "\x1b[0m"
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use: "captaincore",
+	Run: func(cmd *cobra.Command, args []string) {
+		if !ensureDB() || !dbHasData() {
+			fmt.Println(colorYellow + "Getting Started:" + colorNormal + " Run " + colorGreen + "captaincore connect" + colorNormal + " to set up your CaptainCore CLI.")
+			fmt.Println()
+		}
+		cmd.Help()
+	},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
