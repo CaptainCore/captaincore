@@ -30,10 +30,6 @@ for environment in ${environments[@]}; do
   # Deploy SSH keys
   captaincore site deploy-keys ${site}-${environment} --captain-id=$CAPTAIN_ID
 
-  # Pull down wp-config.php
-  mkdir -p "$path/${site}_${site_id}/${environment}/backup/"
-  captaincore ssh $site-$environment --command="cat wp-config.php" --captain-id=$CAPTAIN_ID > $path/${site}_${site_id}/${environment}/backup/wp-config.php
-
   # Generate token
   token_key=$( captaincore ssh $site-$environment --script=fetch-token --captain-id=$CAPTAIN_ID )
 
