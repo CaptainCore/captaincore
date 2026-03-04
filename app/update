@@ -152,6 +152,12 @@ EOF
     captaincore update-log generate $site-$environment $quicksave_id_before $quicksave_id_after --captain-id=$CAPTAIN_ID > /dev/null
     captaincore update-log list-generate $site-$environment --captain-id=$CAPTAIN_ID > /dev/null
     echo "Update log saved"
+  else
+    # Touch list.json so --skip-if-recent knows this site was checked
+    update_list_file="$path/${site}_${site_id}/${environment}/update-logs/list.json"
+    mkdir -p "$(dirname "$update_list_file")"
+    [[ ! -f "$update_list_file" ]] && echo "[]" > "$update_list_file"
+    touch "$update_list_file"
   fi
 
 
