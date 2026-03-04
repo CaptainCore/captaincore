@@ -24,7 +24,7 @@ for arg in "$@"; do
 
   # Add to flags array
   count=1+${#flags[*]}
-  if [[ "$arg" != "--script"* ]] && [[ "$arg" != *"--exclude_plugins"* ]] && [[ "$arg" != "--exclude_themes"* ]] && [[ "$arg" != "--site"* ]] && [[ "$arg" != "--provider"* ]] && [[ "$arg" != "--captain_id"* ]] && [[ "$arg" != "--process_id"* ]]; then
+  if [[ "$arg" != "--script"* ]] && [[ "$arg" != *"--exclude_plugins"* ]] && [[ "$arg" != "--exclude_themes"* ]] && [[ "$arg" != "--site"* ]] && [[ "$arg" != "--provider"* ]] && [[ "$arg" != "--captain_id"* ]] && [[ "$arg" != "--process_id"* ]] && [[ "$arg" != "--debug"* ]]; then
     # Remove first and last quote if found
     arg_for_flag="${arg%\"}"
     arg_for_flag="${arg_for_flag/=\"/=}"
@@ -58,6 +58,7 @@ home_directory=$(pwd)
 
 run_command() {
 
+  [[ "$debug" == "true" ]] && echo "[debug] Checking Newspaper theme..."
   if $( wp theme is-active Newspaper ); then
     required_theme_plugins=()
     active_plugins=( $( wp plugin list --field=name ) )
@@ -83,24 +84,32 @@ heredoc
     fi
   fi
 
+  # 5 minute timeout prevents zombie processes from hung update servers
+  update_timeout="timeout 300"
+
+  [[ "$debug" == "true" ]] && echo "[debug] Updating themes..."
   if [[ $exclude_themes == "" ]]; then
-  	wp theme update ${flags[@]} --exec="define( 'WP_ADMIN', true );" --skip-plugins=wps-hide-login
+  	$update_timeout wp theme update ${flags[@]} --exec="define( 'WP_ADMIN', true );" --skip-plugins=wps-hide-login
   else
-  	wp theme update ${flags[@]} --exec="define( 'WP_ADMIN', true );" --exclude=$exclude_themes --skip-plugins=wps-hide-login
+  	$update_timeout wp theme update ${flags[@]} --exec="define( 'WP_ADMIN', true );" --exclude=$exclude_themes --skip-plugins=wps-hide-login
   fi
+  [[ "$debug" == "true" ]] && echo "[debug] Updating plugins..."
   if [[ $exclude_plugins == "" ]]; then
-    wp plugin update ${flags[@]} --exec="define( 'WP_ADMIN', true );" --skip-plugins=wps-hide-login
+    $update_timeout wp plugin update ${flags[@]} --exec="define( 'WP_ADMIN', true );" --skip-plugins=wps-hide-login
     silent=$( wp cache flush )
     silent=$( wp plugin list )
-    silent=$( wp plugin update ${flags[@]} --exec="define( 'WP_ADMIN', true );" --skip-plugins=wps-hide-login )
+    [[ "$debug" == "true" ]] && echo "[debug] Running second plugin update pass..."
+    silent=$( timeout 120 wp plugin update ${flags[@]} --exec="define( 'WP_ADMIN', true );" --skip-plugins=wps-hide-login 2>&1 )
   else
-  	wp plugin update ${flags[@]} --exec="define( 'WP_ADMIN', true );" --exclude=$exclude_plugins --skip-plugins=wps-hide-login
+  	$update_timeout wp plugin update ${flags[@]} --exec="define( 'WP_ADMIN', true );" --exclude=$exclude_plugins --skip-plugins=wps-hide-login
     silent=$( wp cache flush )
     silent=$( wp plugin list )
-    silent=$( wp plugin update ${flags[@]} --exec="define( 'WP_ADMIN', true );" --exclude=$exclude_plugins --skip-plugins=wps-hide-login )
+    [[ "$debug" == "true" ]] && echo "[debug] Running second plugin update pass..."
+    silent=$( timeout 120 wp plugin update ${flags[@]} --exec="define( 'WP_ADMIN', true );" --exclude=$exclude_plugins --skip-plugins=wps-hide-login 2>&1 )
   fi
 
   # Handle WooCommerce database updates if installed
+  [[ "$debug" == "true" ]] && echo "[debug] Checking WooCommerce..."
   if $( wp plugin is-installed woocommerce --skip-plugins --skip-themes ); then 
     silent=$( wp wc update 2>&1 )
     # Handle WooCommerce database updates on multisite if installed
@@ -114,6 +123,7 @@ heredoc
     fi
   fi
 
+  [[ "$debug" == "true" ]] && echo "[debug] Checking Newspaper theme plugins..."
   if $( wp theme is-active Newspaper ); then
     for slug in ${required_theme_plugins[@]}; do
       command="\$key = array_search( \"$slug\", array_column( tagdiv_global::\$theme_plugins_list, \"slug\" ) ); echo tagdiv_global::\$theme_plugins_list[\$key][\"source\"];"; 
@@ -122,16 +132,19 @@ heredoc
   fi
 
   # Handle AdRotate Professional database updates if installed
+  [[ "$debug" == "true" ]] && echo "[debug] Checking AdRotate Pro..."
   if $( wp plugin is-installed adrotate-pro --skip-plugins --skip-themes ); then 
     silent=$( wp eval "adrotate_check_upgrade();" 2>&1 )
   fi
 
   # Purge Autoptimize cache if installed
+  [[ "$debug" == "true" ]] && echo "[debug] Checking Autoptimize..."
   if $( wp plugin is-installed autoptimize --skip-plugins --skip-themes ); then 
     silent=$( wp autoptimize clear 2>&1 )
   fi
 
   # Handle Elementor database updates if installed
+  [[ "$debug" == "true" ]] && echo "[debug] Checking Elementor..."
   if $( wp plugin is-installed elementor --skip-plugins --skip-themes ); then 
     silent=$( wp elementor update db 2>&1 )
     silent=$( wp elementor flush_css 2>&1 )
@@ -142,6 +155,7 @@ heredoc
   fi
 
   # Handle Elementor Pro database updates if installed
+  [[ "$debug" == "true" ]] && echo "[debug] Checking Elementor Pro..."
   if $( wp plugin is-installed elementor-pro --skip-plugins --skip-themes ); then 
     silent=$( wp elementor-pro update db 2>&1 )
     # Handle Elementor Pro database updates on multisite if installed
@@ -151,20 +165,25 @@ heredoc
   fi
 
   # Handle redirection database updates if installed
+  [[ "$debug" == "true" ]] && echo "[debug] Checking Redirection..."
   if $( wp plugin is-installed redirection --skip-plugins --skip-themes ); then 
     silent=$( wp redirection database upgrade 2>&1 )
   fi
+  [[ "$debug" == "true" ]] && echo "[debug] Flushing cache..."
   silent=$( wp cache flush )
   if [[ $provider == "kinsta" ]]; then
     silent=$( wp kinsta cache purge --all )
   fi
 
   # Update language packs
+  [[ "$debug" == "true" ]] && echo "[debug] Updating language packs..."
   silent=$( wp language core update )
   silent=$( wp language plugin update --all )
   silent=$( wp language theme update --all )
 
+  [[ "$debug" == "true" ]] && echo "[debug] Deactivating maintenance mode..."
   silent=$( wp maintenance-mode deactivate --skip-plugins --skip-themes 2>&1 )
+  [[ "$debug" == "true" ]] && echo "[debug] Update complete."
 
 }
 run_command

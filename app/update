@@ -72,12 +72,20 @@ run_command() {
   quicksave_id_before=$( captaincore quicksave latest $site-$environment --field=hash --captain-id=$CAPTAIN_ID )
   plugin_count_before=$( captaincore ssh $site-$environment --command="wp plugin list --format=csv --fields=name --skip-plugins --skip-themes | tail -n +2 | wc -l" --captain-id=$CAPTAIN_ID )
 
+  [[ "$CAPTAINCORE_DEBUG" == "true" ]] && echo "[debug] quicksave_id_before=$quicksave_id_before plugin_count_before=$plugin_count_before"
+
   update_args="--all --format=json --provider=${provider}"
   [[ -n "$updates_exclude_themes" ]] && update_args="$update_args --exclude_themes=$updates_exclude_themes"
   [[ -n "$updates_exclude_plugins" ]] && update_args="$update_args --exclude_plugins=$updates_exclude_plugins"
+  [[ "$CAPTAINCORE_DEBUG" == "true" ]] && update_args="$update_args --debug"
 
   echo "Updating ${site}-${environment}..."
-  update_output=$( captaincore ssh ${site}-${environment} --script=update --captain-id=$CAPTAIN_ID -- $update_args 2>/dev/null )
+  [[ "$CAPTAINCORE_DEBUG" == "true" ]] && echo "[debug] Running remote update script with args: $update_args"
+  if [[ "$CAPTAINCORE_DEBUG" == "true" ]]; then
+    update_output=$( captaincore ssh ${site}-${environment} --script=update --captain-id=$CAPTAIN_ID -- $update_args )
+  else
+    update_output=$( captaincore ssh ${site}-${environment} --script=update --captain-id=$CAPTAIN_ID -- $update_args 2>/dev/null )
+  fi
 
   # Parse and display update results
   if command -v python3 &>/dev/null; then
@@ -115,6 +123,8 @@ for line in sys.stdin:
   captaincore quicksave generate $site-$environment --captain-id=$CAPTAIN_ID > /dev/null 2>&1
   quicksave_id_after=$( captaincore quicksave latest $site-$environment --field=hash --captain-id=$CAPTAIN_ID )
   plugin_count_after=$( captaincore ssh $site-$environment --command="wp plugin list --format=csv --fields=name --skip-plugins --skip-themes | tail -n +2 | wc -l" --captain-id=$CAPTAIN_ID )
+
+  [[ "$CAPTAINCORE_DEBUG" == "true" ]] && echo "[debug] quicksave_id_after=$quicksave_id_after plugin_count_after=$plugin_count_after"
 
   if [[ $plugin_count_before != $plugin_count_after ]]; then
     mismatch_subject="Plugin update mismatch ($plugin_count_before:$plugin_count_after) on $home_url"
