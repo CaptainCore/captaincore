@@ -19,6 +19,8 @@ type progressMeta struct {
 	StartedAt int64  `json:"started_at"`
 	CaptainID string `json:"captain_id"`
 	Parallel  int    `json:"parallel"`
+	Target    string `json:"target"`
+	Args      string `json:"args"`
 }
 
 type progressOutput struct {

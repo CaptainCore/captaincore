@@ -66,14 +66,19 @@ run_command() {
     progress_meta="$progress_dir/${bulk_pid}.json"
     progress_log="$progress_dir/${bulk_pid}.log"
 
-    printf '{"command":"%s","total":%d,"pid":%d,"started_at":%d,"captain_id":"%s","parallel":%d}\n' \
-        "$cmd" "${#site_count[@]}" "$bulk_pid" "$(date +%s)" "$CAPTAIN_ID" "$parallel" \
+    # JSON-escape the args string
+    args_escaped=$(printf '%s' "$args" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    target_escaped=$(printf '%s' "$target" | tr '\n' ' ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+
+    printf '{"command":"%s","total":%d,"pid":%d,"started_at":%d,"captain_id":"%s","parallel":%d,"target":"%s","args":"%s"}\n' \
+        "$cmd" "${#site_count[@]}" "$bulk_pid" "$(date +%s)" "$CAPTAIN_ID" "$parallel" "$target_escaped" "$args_escaped" \
         > "$progress_meta"
     > "$progress_log"
     export CC_PROGRESS_LOG="$progress_log"
 
-    cleanup_progress() { rm -f "$progress_meta" "$progress_log"; }
+    cleanup_progress() { rm -f "$progress_meta" "$progress_log"; rmdir "$progress_dir/${bulk_pid}.lock" 2>/dev/null; }
     trap cleanup_progress EXIT
+    export CC_OUTPUT_LOCK="$progress_dir/${bulk_pid}.lock"
 
     if [[ "$FLAG_LABEL" == "true" ]]; then
         export CC_CMD="$cmd"
@@ -87,7 +92,9 @@ run_command() {
             # Extract content between markers, stripping SSH MOTD/banner
             output=$(echo "$raw_output" | sed -n '/____CC_OUTPUT_START____/,/____CC_OUTPUT_END____/{/____CC_OUTPUT_START____/d;/____CC_OUTPUT_END____/d;p;}')
             if [[ -n "$output" ]]; then
+                while ! mkdir "$CC_OUTPUT_LOCK" 2>/dev/null; do sleep 0.05; done
                 printf "${COLOR_GREEN}== %s ==${COLOR_NORMAL}\n%s\n\n" "$site" "$output"
+                rmdir "$CC_OUTPUT_LOCK"
             fi
             printf '%s %d %d\n' "$site" "$exit_code" "$(date +%s)" >> "$CC_PROGRESS_LOG"
         }
@@ -100,8 +107,15 @@ run_command() {
         export CC_CAPTAIN_ID="$CAPTAIN_ID"
         tracked_run() {
             local site="$1"
-            captaincore $CC_CMD $CC_ARGS --captain-id=$CC_CAPTAIN_ID $site
-            printf '%s %d %d\n' "$site" "$?" "$(date +%s)" >> "$CC_PROGRESS_LOG"
+            local output
+            output=$(captaincore $CC_CMD $CC_ARGS --captain-id=$CC_CAPTAIN_ID $site 2>&1)
+            local exit_code=$?
+            if [[ -n "$output" ]]; then
+                while ! mkdir "$CC_OUTPUT_LOCK" 2>/dev/null; do sleep 0.01; done
+                printf '%s\n' "$output"
+                rmdir "$CC_OUTPUT_LOCK"
+            fi
+            printf '%s %d %d\n' "$site" "$exit_code" "$(date +%s)" >> "$CC_PROGRESS_LOG"
         }
         export -f tracked_run
         printf '%s\n' $target | xargs -P "$parallel" -n 1 bash -c 'tracked_run "$@"' _

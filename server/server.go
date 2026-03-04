@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -472,6 +473,9 @@ func HandleRequests(d bool) {
 	router.HandleFunc("/run", checkSecurity(newRun)).Methods("POST")
 	router.HandleFunc("/run/stream", checkSecurity(newRunStream)).Methods("POST")
 	router.HandleFunc("/run/background", checkSecurity(newBackground)).Methods("POST")
+	router.HandleFunc("/progress", checkSecurity(handleProgress)).Methods("GET")
+	router.HandleFunc("/progress/{pid}", checkSecurity(handleProgressDetail)).Methods("GET")
+	router.HandleFunc("/progress/{pid}", checkSecurity(handleProgressKill)).Methods("DELETE")
 	router.HandleFunc("/assets/logo-{size}.png", logoHandler)
 	router.HandleFunc("/ws", wsHandler)
 	router.HandleFunc("/", handleIndex)
@@ -489,6 +493,295 @@ func HandleRequests(d bool) {
 
 func handleIndex(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, fmt.Sprintf(htmlIndexTemplate, version.Version))
+}
+
+type progressMeta struct {
+	Command   string `json:"command"`
+	Total     int    `json:"total"`
+	PID       int    `json:"pid"`
+	StartedAt int64  `json:"started_at"`
+	CaptainID string `json:"captain_id"`
+	Parallel  int    `json:"parallel"`
+	Target    string `json:"target"`
+	Args      string `json:"args"`
+}
+
+type progressOutput struct {
+	Command        string  `json:"command"`
+	Completed      int     `json:"completed"`
+	Failed         int     `json:"failed"`
+	Total          int     `json:"total"`
+	Percent        float64 `json:"percent"`
+	PID            int     `json:"pid"`
+	Running        bool    `json:"running"`
+	StartedAt      int64   `json:"started_at"`
+	ElapsedSeconds int64   `json:"elapsed_seconds"`
+	Parallel       int     `json:"parallel"`
+	ETA            string  `json:"eta"`
+	Elapsed        string  `json:"elapsed"`
+	Target         string  `json:"target"`
+	Args           string  `json:"args"`
+}
+
+func handleProgress(w http.ResponseWriter, r *http.Request) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	progressDir := home + "/.captaincore/data/progress"
+	entries, err := filepath.Glob(progressDir + "/*.json")
+	if err != nil || len(entries) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, "[]")
+		return
+	}
+
+	var results []progressOutput
+	now := time.Now().Unix()
+
+	for _, metaPath := range entries {
+		data, err := os.ReadFile(metaPath)
+		if err != nil {
+			continue
+		}
+
+		var meta progressMeta
+		if err := json.Unmarshal(data, &meta); err != nil {
+			continue
+		}
+
+		logPath := strings.TrimSuffix(metaPath, ".json") + ".log"
+		completed, failed := progressCountLogLines(logPath)
+		running := syscall.Kill(meta.PID, 0) == nil && meta.PID > 0
+		elapsed := now - meta.StartedAt
+
+		var pct float64
+		if meta.Total > 0 {
+			pct = float64(completed) / float64(meta.Total) * 100
+			pct = float64(int(pct*10)) / 10
+		}
+
+		eta := ""
+		if completed > 0 && running && completed < meta.Total {
+			remaining := meta.Total - completed
+			secsPerItem := float64(elapsed) / float64(completed)
+			etaSecs := int64(float64(remaining) * secsPerItem)
+			eta = progressFormatElapsed(etaSecs)
+		}
+
+		results = append(results, progressOutput{
+			Command:        meta.Command,
+			Completed:      completed,
+			Failed:         failed,
+			Total:          meta.Total,
+			Percent:        pct,
+			PID:            meta.PID,
+			Running:        running,
+			StartedAt:      meta.StartedAt,
+			ElapsedSeconds: elapsed,
+			Parallel:       meta.Parallel,
+			ETA:            eta,
+			Elapsed:        progressFormatElapsed(elapsed),
+			Target:         meta.Target,
+			Args:           meta.Args,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(results)
+}
+
+type progressLogEntry struct {
+	Site      string `json:"site"`
+	ExitCode  int    `json:"exit_code"`
+	Timestamp int64  `json:"timestamp"`
+}
+
+type progressDetailOutput struct {
+	progressOutput
+	Completed_Sites []progressLogEntry `json:"completed_sites"`
+	Pending_Sites   []string           `json:"pending_sites"`
+}
+
+func handleProgressDetail(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	pid := vars["pid"]
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	progressDir := home + "/.captaincore/data/progress"
+	metaPath := filepath.Join(progressDir, pid+".json")
+
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	var meta progressMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		http.Error(w, "invalid meta", http.StatusInternalServerError)
+		return
+	}
+
+	logPath := strings.TrimSuffix(metaPath, ".json") + ".log"
+	completed, failed := progressCountLogLines(logPath)
+	running := syscall.Kill(meta.PID, 0) == nil && meta.PID > 0
+	now := time.Now().Unix()
+	elapsed := now - meta.StartedAt
+
+	var pct float64
+	if meta.Total > 0 {
+		pct = float64(completed) / float64(meta.Total) * 100
+		pct = float64(int(pct*10)) / 10
+	}
+
+	eta := ""
+	if completed > 0 && running && completed < meta.Total {
+		remaining := meta.Total - completed
+		secsPerItem := float64(elapsed) / float64(completed)
+		etaSecs := int64(float64(remaining) * secsPerItem)
+		eta = progressFormatElapsed(etaSecs)
+	}
+
+	// Parse log entries
+	var logEntries []progressLogEntry
+	completedSet := make(map[string]bool)
+	if f, err := os.Open(logPath); err == nil {
+		defer f.Close()
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if line == "" {
+				continue
+			}
+			parts := strings.Fields(line)
+			entry := progressLogEntry{Site: parts[0]}
+			if len(parts) >= 2 {
+				entry.ExitCode, _ = strconv.Atoi(parts[1])
+			}
+			if len(parts) >= 3 {
+				entry.Timestamp, _ = strconv.ParseInt(parts[2], 10, 64)
+			}
+			logEntries = append(logEntries, entry)
+			completedSet[parts[0]] = true
+		}
+	}
+
+	// Determine pending sites from target list
+	var pending []string
+	if meta.Target != "" {
+		targets := strings.Fields(meta.Target)
+		for _, t := range targets {
+			if !completedSet[t] {
+				pending = append(pending, t)
+			}
+		}
+	}
+
+	result := progressDetailOutput{
+		progressOutput: progressOutput{
+			Command:        meta.Command,
+			Completed:      completed,
+			Failed:         failed,
+			Total:          meta.Total,
+			Percent:        pct,
+			PID:            meta.PID,
+			Running:        running,
+			StartedAt:      meta.StartedAt,
+			ElapsedSeconds: elapsed,
+			Parallel:       meta.Parallel,
+			ETA:            eta,
+			Elapsed:        progressFormatElapsed(elapsed),
+			Target:         meta.Target,
+			Args:           meta.Args,
+		},
+		Completed_Sites: logEntries,
+		Pending_Sites:   pending,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+func handleProgressKill(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	pid, err := strconv.Atoi(vars["pid"])
+	if err != nil || pid <= 0 {
+		http.Error(w, "invalid pid", http.StatusBadRequest)
+		return
+	}
+
+	home, _ := os.UserHomeDir()
+	progressDir := home + "/.captaincore/data/progress"
+	metaPath := filepath.Join(progressDir, vars["pid"]+".json")
+	logPath := filepath.Join(progressDir, vars["pid"]+".log")
+	lockPath := filepath.Join(progressDir, vars["pid"]+".lock")
+
+	running := syscall.Kill(pid, 0) == nil
+	status := "cleaned"
+
+	if running {
+		// Kill the process group (negative PID) to stop xargs children too
+		err = syscall.Kill(-pid, syscall.SIGTERM)
+		if err != nil {
+			// Fallback: kill just the process
+			err = syscall.Kill(pid, syscall.SIGTERM)
+		}
+		if err != nil {
+			http.Error(w, "failed to kill process", http.StatusInternalServerError)
+			return
+		}
+		status = "killed"
+	}
+
+	// Clean up progress files
+	os.Remove(metaPath)
+	os.Remove(logPath)
+	os.Remove(lockPath)
+
+	w.Header().Set("Content-Type", "application/json")
+	io.WriteString(w, fmt.Sprintf(`{"status":"%s"}`, status))
+}
+
+func progressCountLogLines(path string) (completed, failed int) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, 0
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		completed++
+		parts := strings.Fields(line)
+		if len(parts) >= 2 && parts[1] != "0" {
+			failed++
+		}
+	}
+	return completed, failed
+}
+
+func progressFormatElapsed(seconds int64) string {
+	if seconds < 60 {
+		return fmt.Sprintf("%ds", seconds)
+	}
+	hours := seconds / 3600
+	minutes := (seconds % 3600) / 60
+	if hours > 0 {
+		return fmt.Sprintf("%dh %dm", hours, minutes)
+	}
+	return fmt.Sprintf("%dm", minutes)
 }
 
 func initialMigration() {
