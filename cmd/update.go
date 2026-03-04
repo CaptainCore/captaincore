@@ -16,6 +16,10 @@ var updateCmd = &cobra.Command{
 		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
+		if flagDryRun {
+			dryRunGenerate(args[0], "update-logs")
+			return
+		}
 		resolveCommand(cmd, args)
 	},
 }
@@ -25,4 +29,5 @@ func init() {
 	updateCmd.Flags().BoolVarP(&flagDebug, "debug", "d", false, "Debug mode. No updates will run.")
 	updateCmd.Flags().IntVarP(&flagParallel, "parallel", "p", 5, "Number of sites to update at same time")
 	updateCmd.Flags().StringVarP(&flagSkipIfRecent, "skip-if-recent", "", "", "Skip if updated within timeframe (e.g. 24h)")
+	updateCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "Preview which environments would be updated without executing")
 }
