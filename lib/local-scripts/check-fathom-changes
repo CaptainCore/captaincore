@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+
+#
+#   Checks https://cdn.usefathom.com/script.js for changes.
+#   Sends an email notification via CaptainCore Manager when the file changes.
+#
+#   Usage: Run via cron, e.g.:
+#     0 */6 * * * /Users/austin/.captaincore/lib/local-scripts/check-fathom-changes
+#
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CAPTAINCORE_PATH="$(cd "$SCRIPT_DIR/../.." && pwd)"
+DATA_DIR="$CAPTAINCORE_PATH/data"
+HASH_FILE="$DATA_DIR/fathom-script.sha256"
+FATHOM_URL="https://cdn.usefathom.com/script.js"
+
+# Load CaptainCore config
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(captaincore config fetch)"
+
+if [[ -z "$captaincore_api" ]] || [[ -z "$token" ]] || [[ -z "$captaincore_admin_email" ]]; then
+  echo "Error: Missing CaptainCore config (captaincore_api, token, or captaincore_admin_email)"
+  exit 1
+fi
+
+# Fetch current script
+current_content=$(curl -sf "$FATHOM_URL")
+if [[ -z "$current_content" ]]; then
+  echo "Error: Failed to fetch $FATHOM_URL"
+  exit 1
+fi
+
+current_hash=$(echo "$current_content" | shasum -a 256 | awk '{print $1}')
+
+# Compare against stored hash
+if [[ -f "$HASH_FILE" ]]; then
+  stored_hash=$(cat "$HASH_FILE")
+else
+  # First run — store hash and exit
+  echo "$current_hash" > "$HASH_FILE"
+  echo "First run. Stored hash: $current_hash"
+  exit 0
+fi
+
+if [[ "$current_hash" == "$stored_hash" ]]; then
+  exit 0
+fi
+
+# Hash changed — send notification
+echo "Fathom script changed. Old: $stored_hash New: $current_hash"
+
+subject="Fathom Analytics script.js has changed"
+content="<div style='text-align: left;'>The file at <a href=\"$FATHOM_URL\">$FATHOM_URL</a> has changed.<br><br><strong>Previous hash:</strong> $stored_hash<br><strong>New hash:</strong> $current_hash<br><strong>Detected at:</strong> $(date +'%Y-%m-%d %H:%M:%S %Z')</div>"
+content_json=$(echo "$content" | php -r 'echo json_encode(file_get_contents("php://stdin"));')
+
+if [[ "$captaincore_dev" == true ]]; then
+  curl_argument="-k"
+fi
+
+curl ${curl_argument} --silent --request POST "$captaincore_api" --header "Content-Type: application/json" --data @- << EOF
+{
+  "command": "monitor-notify",
+  "token": "$token",
+  "data": {
+    "email": "$captaincore_admin_email",
+    "subject": "$subject",
+    "content": $content_json
+  }
+}
+EOF
+
+# Update stored hash
+echo "$current_hash" > "$HASH_FILE"
+echo "Notification sent."
