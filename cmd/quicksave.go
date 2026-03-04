@@ -71,6 +71,20 @@ var quicksaveGenerateCmd = &cobra.Command{
 	},
 }
 
+var quicksaveBackupCmd = &cobra.Command{
+	Use:   "backup <site>",
+	Short: "Backup quicksave git repo to restic",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveCommand(cmd, args)
+	},
+}
+
 var quicksaveRestoreGitCmd = &cobra.Command{
 	Use:   "restore-git <site>",
 	Short: "Restores latest quicksave repo from restic repo",
@@ -1140,6 +1154,7 @@ func quicksaveSearchNative(cmd *cobra.Command, args []string) {
 func init() {
 	rootCmd.AddCommand(quicksaveCmd)
 	quicksaveCmd.AddCommand(quicksaveAddCmd)
+	quicksaveCmd.AddCommand(quicksaveBackupCmd)
 	quicksaveCmd.AddCommand(quicksaveGetCmd)
 	quicksaveCmd.AddCommand(quicksaveGetGenerateCmd)
 	quicksaveCmd.AddCommand(quicksaveGenerateCmd)
@@ -1165,6 +1180,8 @@ func init() {
 	quicksaveRollbackCmd.Flags().BoolVar(&flagAll, "all", false, "All themes and plugins")
 	quicksaveAddCmd.Flags().BoolVarP(&flagForce, "force", "f", false, "Force even if no changes")
 	quicksaveFileDiffCmd.Flags().BoolVar(&flagHtml, "html", false, "Returns HTML format")
+	quicksaveBackupCmd.Flags().IntVarP(&flagParallel, "parallel", "p", 10, "Number of sites to run at same time")
+	quicksaveBackupCmd.Flags().StringVarP(&flagSkipIfRecent, "skip-if-recent", "", "", "Skip if restic snapshot exists within timeframe (e.g. 24h, 7d)")
 	quicksaveGenerateCmd.Flags().BoolVarP(&flagForce, "force", "f", false, "Force a new Quicksave")
 	quicksaveGenerateCmd.Flags().BoolVarP(&flagDebug, "debug", "d", false, "Preview ssh command")
 	quicksaveGenerateCmd.Flags().StringVarP(&flagSkipIfRecent, "skip-if-recent", "", "", "Skip if quicksave generated within timeframe (e.g. 24h)")

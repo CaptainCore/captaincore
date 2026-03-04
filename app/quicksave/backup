@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+
+#
+#   Backs up quicksave git repo to restic (Backblaze B2).
+#
+#   `captaincore quicksave backup <site>`
+#
+#   [<site>...]
+#   One or more sites.
+#
+#   [@<target>]
+#   Target groups of sites like @all @production or @staging.
+#
+#   [--parallel=<number>]
+#   Number of backups at same time
+#
+#   [--skip-if-recent=<timeframe>]
+#   Skip if restic snapshot exists within the specified timeframe (e.g., "24h", "7d").
+#
+
+if [ ${#@} -ne 1 ]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a <site>."
+  exit
+fi
+
+while read config; do
+  if [[ "$config" == "Error:"* ]]; then
+    continue
+  fi
+  declare "$config"
+done <<< "$(captaincore config fetch --captain-id=$CAPTAIN_ID)"
+
+site=$1
+
+run_command() {
+
+  # Extract environment
+  if [[ "$site" == *"-staging"* ]]; then
+      environment=staging
+  else
+      environment=production
+  fi
+
+  # Load site configs
+  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
+
+  # Return error if domain not found
+  if [[ "$domain" == "" ]] || [[ "$site" == "" ]]; then
+      echo "Can't locate website for $site"
+      exit
+  fi
+
+  site_path="${site}_${site_id}/${environment}"
+
+  # Check quicksave repo exists
+  if [ ! -d "$path/$site_path/quicksave/.git" ]; then
+    echo "No quicksave repo found for $site ($environment). Skipping."
+    exit 0
+  fi
+
+  # --------------------------------------------------
+  # Skip if recent restic snapshot exists
+  # --------------------------------------------------
+  if [[ -n "$SKIP_IF_RECENT" ]]; then
+    restic_repo="rclone:$rclone_backup/${site}_${site_id}/${environment}/quicksave-repo"
+    restic_key="${CAPTAINCORE_PATH}/data/restic.key"
+
+    latest_snapshot=$( restic snapshots --repo "$restic_repo" --password-file="$restic_key" --json --latest 1 2>/dev/null )
+
+    if [[ -n "$latest_snapshot" ]] && [[ "$latest_snapshot" != "null" ]] && [[ "$latest_snapshot" != "[]" ]]; then
+      snapshot_time=$( echo "$latest_snapshot" | php -r '
+        $json = json_decode(file_get_contents("php://stdin"), true);
+        if (!empty($json[0]["time"])) {
+          echo $json[0]["time"];
+        }
+      ' )
+
+      if [[ -n "$snapshot_time" ]]; then
+        should_skip=$( php -r '
+          $snapshot_time = strtotime($argv[1]);
+          $threshold = $argv[2];
+          $unit = substr($threshold, -1);
+          $value = (int) substr($threshold, 0, -1);
+          switch ($unit) {
+            case "h": $seconds = $value * 3600; break;
+            case "d": $seconds = $value * 86400; break;
+            case "w": $seconds = $value * 604800; break;
+            default:  $seconds = $value; break;
+          }
+          echo (time() - $snapshot_time < $seconds) ? "true" : "false";
+        ' "$snapshot_time" "$SKIP_IF_RECENT" )
+
+        if [[ "$should_skip" == "true" ]]; then
+          echo "Skipping $site ($environment) - Restic snapshot within last $SKIP_IF_RECENT."
+          exit 0
+        fi
+      fi
+    fi
+  fi
+  # --------------------------------------------------
+
+  cd "$path/$site_path/quicksave/"
+  echo "$(date +'%Y-%m-%d %H:%M') Backing up /quicksave/ to restic repo for $site ($environment)"
+
+  restic_repo="rclone:$rclone_backup/${site}_${site_id}/${environment}/quicksave-repo"
+  restic_key="${CAPTAINCORE_PATH}/data/restic.key"
+
+  # Initialize restic repo if needed
+  if [[ $( restic snapshots --repo "$restic_repo" --password-file="$restic_key" 2>&1 ) == "" ]]; then
+    echo "Generating new restic repo ${site}_${site_id}/${environment}/quicksave-repo"
+    restic init --quiet --repo "$restic_repo" --password-file="$restic_key"
+  fi
+
+  restic backup . --quiet --repo "$restic_repo" --exclude-file="${CAPTAINCORE_PATH}/lib/restic-excludes" --password-file="$restic_key"
+
+  if [ -f "${path}/process-${process_id}-progress.log" ]; then
+    echo -n "." >> ${path}/process-${process_id}-progress.log
+  fi
+
+}
+
+run_command
