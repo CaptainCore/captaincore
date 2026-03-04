@@ -150,7 +150,6 @@ run_command() {
     if [[ "$remote_fingerprint" == "$stored_fingerprint" ]] && [[ "$FLAG_FORCE" != "true" ]]; then
       echo "$(date +'%Y-%m-%d %H:%M') No file changes detected for ${site}-${environment}. Skipping rclone sync."
       captaincore sync-data $site-${environment} --captain-id=$CAPTAIN_ID
-      captaincore site vuln-scan $site-$environment --captain-id=$CAPTAIN_ID
 
       # Touch list.json to mark site as recently checked
       quicksave_list_file="$path/${site}_${site_id}/${environment}/quicksaves/list.json"
@@ -196,7 +195,6 @@ run_command() {
 
   captaincore sync-data $site-${environment} --captain-id=$CAPTAIN_ID
   captaincore quicksave add $site-$environment --captain-id=$CAPTAIN_ID
-  captaincore site vuln-scan $site-$environment --captain-id=$CAPTAIN_ID
 
   # Save remote fingerprint after successful sync
   if [[ -n "$remote_fingerprint" ]]; then
@@ -211,14 +209,9 @@ run_command() {
   captaincore quicksave list-generate $site-${environment} --captain-id=$CAPTAIN_ID > /dev/null
   quicksave_id_after=$( captaincore quicksave latest $site-$environment --field=hash --captain-id=$CAPTAIN_ID )
 
+  # Only run vuln-scan if quicksave actually changed
   if [[ "$quicksave_id_before" != "$quicksave_id_after" ]]; then
-    cd $path/$site_path/quicksave/
-    echo "$(date +'%Y-%m-%d %H:%M') Backing up /quicksave/ to restic repo"
-    if [[ $( restic snapshots --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/quicksave-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key" ) == "" ]]; then
-      echo "Generating new restic repo ${site}_${site_id}/${environment}/quicksave-repo"
-      restic init --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/quicksave-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key"
-    fi
-    restic backup . --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/quicksave-repo --exclude-file="${CAPTAINCORE_PATH}/lib/restic-excludes" --password-file="${CAPTAINCORE_PATH}/data/restic.key"
+    captaincore site vuln-scan $site-$environment --captain-id=$CAPTAIN_ID
   fi
 
   # --------------------------------------------------
