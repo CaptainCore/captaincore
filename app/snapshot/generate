@@ -18,7 +18,7 @@
 #   Filter options include one or more of the following: database, themes, plugins, uploads, everything-else. Example --filter=database,themes,plugins will generate a zip with only the database, themes and plugins. Without filter a snapshot will include everything.
 #
 #   [--skip-backup]
-#   Skips backup and makes snapshot based on local backup
+#   Skips generating a fresh backup before snapshot
 #
 #   [--skip-remote]
 #   Skips sending to rclone remote
@@ -69,10 +69,10 @@ run_command() {
     use_staging=true
   fi
 
-#  if [[ "$skip_backup" != "true" ]]; then
-    # Generate fresh backup
-#    captaincore backup generate $site --skip-remote --captain-id=$CAPTAIN_ID
-#  fi
+  if [[ "$SKIP_BACKUP" != "true" ]]; then
+    # Generate fresh backup via vault
+    captaincore backup generate $site --captain-id=$CAPTAIN_ID
+  fi
 
   # Generates snapshot archive
   timedate="$(date +'%Y-%m-%d-%H-%M-%S')-$( php -r 'echo bin2hex(openssl_random_pseudo_bytes( 4 ));' )"
@@ -90,7 +90,14 @@ run_command() {
   fi
 
   if [[ $DELETE_AFTER_SNAPSHOT != true ]]; then
-    ln -s $environment/backup/ $snapshot_path # create directory shortcut for naming purposes
+    # Restore latest snapshot from restic to a temp directory
+    restic_repo="rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo"
+    restic_args=(--repo "$restic_repo" --password-file "${CAPTAINCORE_PATH}/data/restic.key")
+    restore_dir="$path/${site}_${site_id}/${environment}/snapshot-staging-$$"
+
+    restic restore latest --target "$restore_dir" "${restic_args[@]}"
+
+    ln -s "$restore_dir" "$snapshot_path" # create directory shortcut for naming purposes
 
     if [[ "$FLAG_FILTER" != "" ]]; then
 
@@ -127,8 +134,12 @@ run_command() {
       # Add everything to ZIP
       zip --test -q -r $snapshot_name $snapshot_path/ --exclude=$snapshot_path/_wpeprivate/\* --exclude=\*.git\* --exclude=$snapshot_path/wp-content/advanced-cache.php --exclude=$snapshot_path/wp-content/mu-plugins/mu-plugin.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$snapshot_path/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$snapshot_path/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$snapshot_path/wp-content/mu-plugins/wpengine-common/\*
     fi
-    
+
     rm $snapshot_path  # remove directory shortcut
+    # Cleanup temp restore (safeguard: only remove if path is non-empty and inside the site directory)
+    if [[ -n "$restore_dir" && "$restore_dir" == "$path/${site}_${site_id}/${environment}/snapshot-staging-"* ]]; then
+      rm -rf "$restore_dir"
+    fi
     mkdir -p ${environment}/snapshots
     mv $snapshot_name ${environment}/snapshots
     cd ${environment}/snapshots
