@@ -190,6 +190,10 @@ func FetchSitesMatching(args FetchSiteMatchingArgs) ([]SiteEnvironmentResult, er
 			query = query.Where("captaincore_environments.offload_enabled = ?", "0")
 		case "monitor-on":
 			query = query.Where("captaincore_environments.monitor_enabled = ?", "1")
+		case "backup-local":
+			query = query.Where("json_extract(captaincore_sites.details, '$.backup_settings.mode') = ?", "local")
+		case "backup-remote":
+			query = query.Where("(json_extract(captaincore_sites.details, '$.backup_settings.mode') = ? OR json_extract(captaincore_sites.details, '$.backup_settings.mode') IS NULL)", "direct")
 		}
 	}
 
@@ -338,7 +342,7 @@ func ParseTargetString(target string) (environment string, minorTargets []string
 			environment = "Staging"
 		case "@all":
 			environment = "all"
-		case "monitor-on", "updates-on", "updates-off", "offload-on", "offload-off":
+		case "monitor-on", "updates-on", "updates-off", "offload-on", "offload-off", "backup-local", "backup-remote":
 			minorTargets = append(minorTargets, p)
 		}
 	}
