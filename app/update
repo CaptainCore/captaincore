@@ -43,6 +43,19 @@ run_command() {
   # Load site configs
   IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
 
+  # --------------------------------------------------
+  # Skip if recently updated
+  # --------------------------------------------------
+  if [[ -n "$SKIP_IF_RECENT" ]]; then
+    update_list_file="$path/${site}_${site_id}/${environment}/update-logs/list.json"
+    should_skip=$(php ${CAPTAINCORE_PATH}/lib/local-scripts/check-last-run.php "$update_list_file" "$SKIP_IF_RECENT")
+    if [[ "$should_skip" == "true" ]]; then
+      echo "Skipping $site ($environment) - Updated within last $SKIP_IF_RECENT."
+      return
+    fi
+  fi
+  # --------------------------------------------------
+
   rclone_config_file="$path/${site}_${site_id}/rclone.conf"
   ftp_output=$( { rclone lsd ${environment}:$home_directory --config="$rclone_config_file" ; } 2>&1 )
   ftp_search_for_wordpress=$( echo "$ftp_output" | perl -wnE'say for /wp-admin/g' )

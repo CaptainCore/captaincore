@@ -24,4 +24,5 @@ func init() {
 	rootCmd.AddCommand(updateCmd)
 	updateCmd.Flags().BoolVarP(&flagDebug, "debug", "d", false, "Debug mode. No updates will run.")
 	updateCmd.Flags().IntVarP(&flagParallel, "parallel", "p", 5, "Number of sites to update at same time")
+	updateCmd.Flags().StringVarP(&flagSkipIfRecent, "skip-if-recent", "", "", "Skip if updated within timeframe (e.g. 24h)")
 }
