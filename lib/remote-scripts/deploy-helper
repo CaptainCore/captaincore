@@ -46,7 +46,7 @@ for arg in "$@"; do
 done
 
 if [[ "$wp_content" == "" ]]; then
-	wp_content=$( wp eval "echo WP_CONTENT_DIR;" --skip-themes --skip-plugins )
+	wp_content=$( wp eval "echo WP_CONTENT_DIR;" --skip-themes --skip-plugins | tail -1 )
 fi
 
 if [[ "$wp_content" == "" ]]; then
@@ -61,7 +61,7 @@ read -r -d '' build_mu_plugin << 'heredoc'
  * Plugin Name: CaptainCore Helper
  * Plugin URI: https://captaincore.io
  * Description: Collection of helper functions for CaptainCore
- * Version: 0.4.0
+ * Version: 0.4.1
  * Author: CaptainCore
  * Author URI: https://captaincore.io
  * Text Domain: captaincore-helper
@@ -1631,190 +1631,206 @@ class SecurityLogger {
     // --- WP-CLI capture and lifecycle handlers ---
 
     public static function cli_capture_initial_state() {
-        if ( ! function_exists( 'get_plugins' ) ) { require_once ABSPATH . 'wp-admin/includes/plugin.php'; }
-        self::$initial_plugins = get_plugins();
-        if ( ! function_exists( 'wp_get_themes' ) ) { require_once ABSPATH . 'wp-includes/theme.php'; }
-        $themes = wp_get_themes();
-        self::$initial_themes_data = [];
-        if ( is_array( $themes ) ) {
-            foreach ( $themes as $stylesheet => $theme_obj ) {
-                if ( $theme_obj instanceof \WP_Theme ) {
-                    self::$initial_themes_data[$stylesheet] = [
-                        'Name'    => $theme_obj->get( 'Name' ),
-                        'Version' => $theme_obj->get( 'Version' ),
-                    ];
+        try {
+            if ( ! function_exists( 'get_plugins' ) ) { require_once ABSPATH . 'wp-admin/includes/plugin.php'; }
+            self::$initial_plugins = get_plugins();
+            if ( ! function_exists( 'wp_get_themes' ) ) { require_once ABSPATH . 'wp-includes/theme.php'; }
+            $themes = wp_get_themes();
+            self::$initial_themes_data = [];
+            if ( is_array( $themes ) ) {
+                foreach ( $themes as $stylesheet => $theme_obj ) {
+                    if ( $theme_obj instanceof \WP_Theme ) {
+                        self::$initial_themes_data[$stylesheet] = [
+                            'Name'    => $theme_obj->get( 'Name' ),
+                            'Version' => $theme_obj->get( 'Version' ),
+                        ];
+                    }
                 }
             }
+        } catch ( \Throwable $e ) {
+            // Never block WP-CLI commands if SecurityLogger fails
         }
     }
 
     public static function cli_log_plugin_install_actions() {
-        if ( ! function_exists( 'get_plugins' ) ) { require_once ABSPATH . 'wp-admin/includes/plugin.php'; }
-        $current_plugins = get_plugins();
-        $initial = self::$initial_plugins ?? [];
-        if ( ! is_array( $initial ) ) { $initial = []; }
-        $installed = array_diff_key( $current_plugins, $initial );
-        foreach ( array_keys( $installed ) as $plugin_file ) {
-            if ( isset( self::$logged_installs_this_request[$plugin_file] ) ) { continue; }
-            $details = self::get_plugin_details( $plugin_file );
-            self::log( 'plugin_installed', [
-                'plugin'  => $details ?: [ 'name' => $plugin_file, 'version' => 'N/A', 'file_path' => $plugin_file ],
-                'context' => 'wp_cli',
-            ]);
-            self::$logged_installs_this_request[$plugin_file] = true;
-        }
-        self::$initial_plugins = $current_plugins;
+        try {
+            if ( ! function_exists( 'get_plugins' ) ) { require_once ABSPATH . 'wp-admin/includes/plugin.php'; }
+            $current_plugins = get_plugins();
+            $initial = self::$initial_plugins ?? [];
+            if ( ! is_array( $initial ) ) { $initial = []; }
+            $installed = array_diff_key( $current_plugins, $initial );
+            foreach ( array_keys( $installed ) as $plugin_file ) {
+                if ( isset( self::$logged_installs_this_request[$plugin_file] ) ) { continue; }
+                $details = self::get_plugin_details( $plugin_file );
+                self::log( 'plugin_installed', [
+                    'plugin'  => $details ?: [ 'name' => $plugin_file, 'version' => 'N/A', 'file_path' => $plugin_file ],
+                    'context' => 'wp_cli',
+                ]);
+                self::$logged_installs_this_request[$plugin_file] = true;
+            }
+            self::$initial_plugins = $current_plugins;
+        } catch ( \Throwable $e ) {}
     }
 
     public static function cli_log_plugin_delete_actions() {
-        $initial = self::$initial_plugins ?? [];
-        if ( empty( $initial ) ) {
+        try {
+            $initial = self::$initial_plugins ?? [];
+            if ( empty( $initial ) ) {
+                if ( ! function_exists( 'get_plugins' ) ) { require_once ABSPATH . 'wp-admin/includes/plugin.php'; }
+                $initial = get_plugins();
+            }
+            if ( function_exists( 'wp_clean_plugins_cache' ) ) { wp_clean_plugins_cache( true ); }
             if ( ! function_exists( 'get_plugins' ) ) { require_once ABSPATH . 'wp-admin/includes/plugin.php'; }
-            $initial = get_plugins();
-        }
-        if ( function_exists( 'wp_clean_plugins_cache' ) ) { wp_clean_plugins_cache( true ); }
-        if ( ! function_exists( 'get_plugins' ) ) { require_once ABSPATH . 'wp-admin/includes/plugin.php'; }
-        $current_plugins = get_plugins();
-        if ( ! is_array( $initial ) ) { $initial = []; }
+            $current_plugins = get_plugins();
+            if ( ! is_array( $initial ) ) { $initial = []; }
 
-        $deleted = array_diff_key( $initial, $current_plugins );
-        $logged_by_diff = false;
-        foreach ( $deleted as $plugin_file => $plugin_data ) {
-            if ( isset( self::$logged_deletes_this_request[$plugin_file] ) ) { continue; }
-            self::log( 'plugin_deleted', [
-                'plugin'  => [ 'name' => $plugin_data['Name'] ?? basename( dirname( $plugin_file ) ), 'version' => $plugin_data['Version'] ?? 'N/A', 'file_path' => $plugin_file ],
-                'context' => 'wp_cli',
-            ]);
-            unset( self::$deleted_plugin_data[$plugin_file] );
-            $logged_by_diff = true;
-        }
-
-        if ( ! $logged_by_diff && ! empty( $initial ) ) {
-            foreach ( $initial as $plugin_file => $initial_data ) {
-                if ( isset( $deleted[$plugin_file] ) ) { continue; }
+            $deleted = array_diff_key( $initial, $current_plugins );
+            $logged_by_diff = false;
+            foreach ( $deleted as $plugin_file => $plugin_data ) {
                 if ( isset( self::$logged_deletes_this_request[$plugin_file] ) ) { continue; }
-                $plugin_path = WP_PLUGIN_DIR . '/' . $plugin_file;
-                if ( ! isset( $current_plugins[$plugin_file] ) && ! file_exists( $plugin_path ) ) {
-                    self::log( 'plugin_deleted', [
-                        'plugin'  => [ 'name' => $initial_data['Name'] ?? basename( dirname( $plugin_file ) ), 'version' => $initial_data['Version'] ?? 'N/A', 'file_path' => $plugin_file ],
-                        'context' => 'wp_cli_fs_check',
-                    ]);
-                    unset( self::$deleted_plugin_data[$plugin_file] );
-                }
+                self::log( 'plugin_deleted', [
+                    'plugin'  => [ 'name' => $plugin_data['Name'] ?? basename( dirname( $plugin_file ) ), 'version' => $plugin_data['Version'] ?? 'N/A', 'file_path' => $plugin_file ],
+                    'context' => 'wp_cli',
+                ]);
+                unset( self::$deleted_plugin_data[$plugin_file] );
+                $logged_by_diff = true;
             }
-        }
-        self::$initial_plugins = $current_plugins;
-    }
 
-    public static function cli_log_plugin_update_actions() {
-        if ( ! function_exists( 'get_plugins' ) ) { require_once ABSPATH . 'wp-admin/includes/plugin.php'; }
-        $current_plugins = get_plugins();
-        $initial = self::$initial_plugins ?? [];
-        if ( ! is_array( $initial ) ) { $initial = []; }
-        foreach ( $current_plugins as $plugin_file => $new_data ) {
-            if ( isset( $initial[$plugin_file] ) && version_compare( $initial[$plugin_file]['Version'], $new_data['Version'], '!=' ) ) {
-                $details = self::get_plugin_details( $plugin_file );
-                if ( $details ) {
-                    self::log( 'plugin_updated', [
-                        'plugin'      => $details,
-                        'old_version' => $initial[$plugin_file]['Version'],
-                        'new_version' => $new_data['Version'],
-                        'context'     => 'wp_cli',
-                    ]);
-                }
-            }
-        }
-        self::$initial_plugins = $current_plugins;
-    }
-
-    public static function cli_log_theme_install_actions() {
-        if ( function_exists( 'wp_clean_themes_cache' ) ) { wp_clean_themes_cache( true ); }
-        if ( ! function_exists( 'wp_get_themes' ) ) { require_once ABSPATH . 'wp-includes/theme.php'; }
-        $current = wp_get_themes();
-        $initial = self::$initial_themes_data ?? [];
-        if ( ! is_array( $initial ) ) { $initial = []; }
-        $installed = array_diff_key( $current, $initial );
-        foreach ( array_keys( $installed ) as $stylesheet ) {
-            $details = self::get_theme_details( $stylesheet );
-            self::log( 'theme_installed', [
-                'theme'   => $details ?: [ 'name' => $stylesheet, 'version' => 'N/A', 'stylesheet' => $stylesheet ],
-                'context' => 'wp_cli',
-            ]);
-        }
-        self::refresh_theme_snapshot( $current );
-    }
-
-    public static function cli_log_theme_delete_actions() {
-        $initial = self::$initial_themes_data ?? [];
-        if ( empty( $initial ) ) {
-            if ( ! function_exists( 'wp_get_themes' ) ) { require_once ABSPATH . 'wp-includes/theme.php'; }
-            $themes_now = wp_get_themes();
-            if ( is_array( $themes_now ) ) {
-                foreach ( $themes_now as $stylesheet => $theme_obj ) {
-                    if ( $theme_obj instanceof \WP_Theme ) {
-                        $initial[$stylesheet] = [ 'Name' => $theme_obj->get( 'Name' ), 'Version' => $theme_obj->get( 'Version' ) ];
+            if ( ! $logged_by_diff && ! empty( $initial ) ) {
+                foreach ( $initial as $plugin_file => $initial_data ) {
+                    if ( isset( $deleted[$plugin_file] ) ) { continue; }
+                    if ( isset( self::$logged_deletes_this_request[$plugin_file] ) ) { continue; }
+                    $plugin_path = WP_PLUGIN_DIR . '/' . $plugin_file;
+                    if ( ! isset( $current_plugins[$plugin_file] ) && ! file_exists( $plugin_path ) ) {
+                        self::log( 'plugin_deleted', [
+                            'plugin'  => [ 'name' => $initial_data['Name'] ?? basename( dirname( $plugin_file ) ), 'version' => $initial_data['Version'] ?? 'N/A', 'file_path' => $plugin_file ],
+                            'context' => 'wp_cli_fs_check',
+                        ]);
+                        unset( self::$deleted_plugin_data[$plugin_file] );
                     }
                 }
             }
-        }
-        if ( function_exists( 'wp_clean_themes_cache' ) ) { wp_clean_themes_cache( true ); }
-        if ( ! function_exists( 'wp_get_themes' ) ) { require_once ABSPATH . 'wp-includes/theme.php'; }
-        $current = wp_get_themes();
-        if ( ! is_array( $initial ) ) { $initial = []; }
-
-        $deleted = array_diff_key( $initial, $current );
-        $logged_by_diff = false;
-        foreach ( $deleted as $stylesheet => $theme_data ) {
-            if ( isset( self::$logged_deletes_this_request[$stylesheet] ) ) { continue; }
-            self::log( 'theme_deleted', [
-                'theme'   => [ 'name' => $theme_data['Name'] ?? $stylesheet, 'version' => $theme_data['Version'] ?? 'N/A', 'stylesheet' => $stylesheet ],
-                'context' => 'wp_cli',
-            ]);
-            unset( self::$deleted_theme_data[$stylesheet] );
-            $logged_by_diff = true;
-        }
-
-        if ( ! $logged_by_diff && ! empty( $initial ) ) {
-            $theme_root = get_theme_root();
-            foreach ( $initial as $stylesheet => $theme_data ) {
-                if ( isset( $deleted[$stylesheet] ) ) { continue; }
-                if ( isset( self::$logged_deletes_this_request[$stylesheet] ) ) { continue; }
-                if ( ! isset( $current[$stylesheet] ) && ! is_dir( $theme_root . '/' . $stylesheet ) ) {
-                    self::log( 'theme_deleted', [
-                        'theme'   => [ 'name' => $theme_data['Name'] ?? $stylesheet, 'version' => $theme_data['Version'] ?? 'N/A', 'stylesheet' => $stylesheet ],
-                        'context' => 'wp_cli_fs_check',
-                    ]);
-                    unset( self::$deleted_theme_data[$stylesheet] );
-                }
-            }
-        }
-        self::refresh_theme_snapshot( $current );
+            self::$initial_plugins = $current_plugins;
+        } catch ( \Throwable $e ) {}
     }
 
-    public static function cli_log_theme_update_actions() {
-        if ( function_exists( 'wp_clean_themes_cache' ) ) { wp_clean_themes_cache( true ); }
-        if ( ! function_exists( 'wp_get_themes' ) ) { require_once ABSPATH . 'wp-includes/theme.php'; }
-        $current = wp_get_themes();
-        $initial = self::$initial_themes_data ?? [];
-        if ( ! is_array( $initial ) ) { $initial = []; }
-        foreach ( $current as $stylesheet => $theme_obj ) {
-            if ( isset( $initial[$stylesheet] ) && $theme_obj instanceof \WP_Theme ) {
-                $old_version = $initial[$stylesheet]['Version'];
-                $new_version = $theme_obj->get( 'Version' );
-                if ( version_compare( $old_version, $new_version, '!=' ) ) {
-                    $details = self::get_theme_details( $stylesheet );
+    public static function cli_log_plugin_update_actions() {
+        try {
+            if ( ! function_exists( 'get_plugins' ) ) { require_once ABSPATH . 'wp-admin/includes/plugin.php'; }
+            $current_plugins = get_plugins();
+            $initial = self::$initial_plugins ?? [];
+            if ( ! is_array( $initial ) ) { $initial = []; }
+            foreach ( $current_plugins as $plugin_file => $new_data ) {
+                if ( isset( $initial[$plugin_file] ) && version_compare( $initial[$plugin_file]['Version'], $new_data['Version'], '!=' ) ) {
+                    $details = self::get_plugin_details( $plugin_file );
                     if ( $details ) {
-                        self::log( 'theme_updated', [
-                            'theme'       => $details,
-                            'old_version' => $old_version,
-                            'new_version' => $new_version,
+                        self::log( 'plugin_updated', [
+                            'plugin'      => $details,
+                            'old_version' => $initial[$plugin_file]['Version'],
+                            'new_version' => $new_data['Version'],
                             'context'     => 'wp_cli',
                         ]);
                     }
                 }
             }
+            self::$initial_plugins = $current_plugins;
+        } catch ( \Throwable $e ) {}
+    }
+
+    public static function cli_log_theme_install_actions() {
+        try {
+            if ( function_exists( 'wp_clean_themes_cache' ) ) { wp_clean_themes_cache( true ); }
+            if ( ! function_exists( 'wp_get_themes' ) ) { require_once ABSPATH . 'wp-includes/theme.php'; }
+            $current = wp_get_themes();
+            $initial = self::$initial_themes_data ?? [];
+            if ( ! is_array( $initial ) ) { $initial = []; }
+            $installed = array_diff_key( $current, $initial );
+            foreach ( array_keys( $installed ) as $stylesheet ) {
+                $details = self::get_theme_details( $stylesheet );
+                self::log( 'theme_installed', [
+                    'theme'   => $details ?: [ 'name' => $stylesheet, 'version' => 'N/A', 'stylesheet' => $stylesheet ],
+                    'context' => 'wp_cli',
+                ]);
+            }
+            self::refresh_theme_snapshot( $current );
+        } catch ( \Throwable $e ) {}
+    }
+
+    public static function cli_log_theme_delete_actions() {
+        try {
+            $initial = self::$initial_themes_data ?? [];
+            if ( empty( $initial ) ) {
+                if ( ! function_exists( 'wp_get_themes' ) ) { require_once ABSPATH . 'wp-includes/theme.php'; }
+                $themes_now = wp_get_themes();
+                if ( is_array( $themes_now ) ) {
+                    foreach ( $themes_now as $stylesheet => $theme_obj ) {
+                        if ( $theme_obj instanceof \WP_Theme ) {
+                            $initial[$stylesheet] = [ 'Name' => $theme_obj->get( 'Name' ), 'Version' => $theme_obj->get( 'Version' ) ];
+                        }
+                    }
+                }
+            }
+            if ( function_exists( 'wp_clean_themes_cache' ) ) { wp_clean_themes_cache( true ); }
+            if ( ! function_exists( 'wp_get_themes' ) ) { require_once ABSPATH . 'wp-includes/theme.php'; }
+            $current = wp_get_themes();
+            if ( ! is_array( $initial ) ) { $initial = []; }
+
+            $deleted = array_diff_key( $initial, $current );
+            $logged_by_diff = false;
+            foreach ( $deleted as $stylesheet => $theme_data ) {
+                if ( isset( self::$logged_deletes_this_request[$stylesheet] ) ) { continue; }
+                self::log( 'theme_deleted', [
+                    'theme'   => [ 'name' => $theme_data['Name'] ?? $stylesheet, 'version' => $theme_data['Version'] ?? 'N/A', 'stylesheet' => $stylesheet ],
+                    'context' => 'wp_cli',
+                ]);
+                unset( self::$deleted_theme_data[$stylesheet] );
+                $logged_by_diff = true;
+            }
+
+            if ( ! $logged_by_diff && ! empty( $initial ) ) {
+                $theme_root = get_theme_root();
+                foreach ( $initial as $stylesheet => $theme_data ) {
+                    if ( isset( $deleted[$stylesheet] ) ) { continue; }
+                    if ( isset( self::$logged_deletes_this_request[$stylesheet] ) ) { continue; }
+                    if ( ! isset( $current[$stylesheet] ) && ! is_dir( $theme_root . '/' . $stylesheet ) ) {
+                        self::log( 'theme_deleted', [
+                            'theme'   => [ 'name' => $theme_data['Name'] ?? $stylesheet, 'version' => $theme_data['Version'] ?? 'N/A', 'stylesheet' => $stylesheet ],
+                            'context' => 'wp_cli_fs_check',
+                        ]);
+                        unset( self::$deleted_theme_data[$stylesheet] );
+                    }
+            }
         }
-        self::refresh_theme_snapshot( $current );
+            self::refresh_theme_snapshot( $current );
+        } catch ( \Throwable $e ) {}
+    }
+
+    public static function cli_log_theme_update_actions() {
+        try {
+            if ( function_exists( 'wp_clean_themes_cache' ) ) { wp_clean_themes_cache( true ); }
+            if ( ! function_exists( 'wp_get_themes' ) ) { require_once ABSPATH . 'wp-includes/theme.php'; }
+            $current = wp_get_themes();
+            $initial = self::$initial_themes_data ?? [];
+            if ( ! is_array( $initial ) ) { $initial = []; }
+            foreach ( $current as $stylesheet => $theme_obj ) {
+                if ( isset( $initial[$stylesheet] ) && $theme_obj instanceof \WP_Theme ) {
+                    $old_version = $initial[$stylesheet]['Version'];
+                    $new_version = $theme_obj->get( 'Version' );
+                    if ( version_compare( $old_version, $new_version, '!=' ) ) {
+                        $details = self::get_theme_details( $stylesheet );
+                        if ( $details ) {
+                            self::log( 'theme_updated', [
+                                'theme'       => $details,
+                                'old_version' => $old_version,
+                                'new_version' => $new_version,
+                                'context'     => 'wp_cli',
+                            ]);
+                        }
+                    }
+                }
+            }
+            self::refresh_theme_snapshot( $current );
+        } catch ( \Throwable $e ) {}
     }
 
     private static function refresh_theme_snapshot( $themes_objs = null ) {
