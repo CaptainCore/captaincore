@@ -228,10 +228,16 @@ func sshNative(cmd *cobra.Command, args []string) {
 		remoteServer = fmt.Sprintf("%s %s@%s -p %s", remoteOptions, env.Username, env.Address, env.Port)
 	}
 
-	// Format additional args for passing through
+	// Format additional args for passing through, shell-quoting each
+	// arg so special characters (apostrophes, spaces, etc.) survive
+	// the remote shell invocation.
 	additionalArgsStr := ""
 	if len(additionalArgs) > 0 {
-		additionalArgsStr = strings.Join(additionalArgs, " ")
+		quoted := make([]string, len(additionalArgs))
+		for i, arg := range additionalArgs {
+			quoted[i] = "'" + strings.ReplaceAll(arg, "'", "'\\''") + "'"
+		}
+		additionalArgsStr = strings.Join(quoted, " ")
 	}
 
 	sshFailSuffix := fmt.Sprintf(" || captaincore site ssh-fail %s --captain-id=%s", site.Site, captainID)
