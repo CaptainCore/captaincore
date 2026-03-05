@@ -802,6 +802,23 @@ func backupCleanupNative(cmd *cobra.Command, args []string) {
 		}
 
 		backupPath := filepath.Join(system.Path, t.SiteDir, t.Environment, "backup")
+
+		// Safety: resolve symlinks and verify the path is within system.Path
+		absSystemPath, _ := filepath.Abs(system.Path)
+		realBackupPath, err := filepath.EvalSymlinks(backupPath)
+		if err == nil {
+			// Path exists — verify it's under the data directory
+			if !strings.HasPrefix(realBackupPath, absSystemPath+string(os.PathSeparator)) {
+				fmt.Printf("Skipping %s/%s/backup/ (resolves outside data directory)\n", t.SiteDir, t.Environment)
+				continue
+			}
+		}
+
+		// Verify the path ends with /backup as expected
+		if filepath.Base(backupPath) != "backup" {
+			continue
+		}
+
 		info, err := os.Stat(backupPath)
 		if err != nil || !info.IsDir() {
 			continue
