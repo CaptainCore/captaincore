@@ -51,7 +51,7 @@ run_command() {
   fi
 
   # Load site info
-  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
+  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done; unset IFS
 
   rclone_config_file="$path/${site}_${site_id}/rclone.conf"
   if [ ! -f "$rclone_config_file" ]; then

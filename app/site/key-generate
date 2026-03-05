@@ -27,7 +27,7 @@ run_command() {
   fi
 
   # Load site vars
-  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
+  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done; unset IFS
 
   # Domain not found
   if [[ $domain == "" ]]; then

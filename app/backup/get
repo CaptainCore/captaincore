@@ -35,7 +35,7 @@ if [[ "$site" != *"-"* ]]; then
 fi
 
 # Load site configs
-IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
+IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done; unset IFS
 
 backup_files_link="$rclone_upload_uri/${site}_${site_id}/${environment}/backups/snapshot-$backup_id.json"
 http_status=$( curl --write-out "%{http_code}" -o /dev/null -sI $backup_files_link )

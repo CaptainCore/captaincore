@@ -40,7 +40,7 @@ mkdir -p "${CAPTAINCORE_PATH}/data/payload/"
 payload_file="${CAPTAINCORE_PATH}/data/payload/${payload_id}.txt"
 
 # Load site configs
-IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
+IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done; unset IFS
 
 timestamp=$( date +'%Y-%m-%d_%H-%M-%S' )
 restore_path="$path/${site}_${site_id}/${environment}/restores/${timestamp}-${backup_id:0:8}"

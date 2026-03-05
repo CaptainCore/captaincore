@@ -36,7 +36,7 @@ run_command() {
   fi
 
   # Load site configs
-  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
+  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done; unset IFS
 
   update_log_list="$path/${site}_${site_id}/${environment}/update-logs/list.json"
 

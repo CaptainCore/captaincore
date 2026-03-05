@@ -40,7 +40,7 @@ run_command() {
 	captaincore snapshot generate $site --delete-after-snapshot --email=$captaincore_admin_email --captain-id=$CAPTAIN_ID
 
 	# Load site configs
-	IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
+	IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done; unset IFS
 
 	echo "Error: 'site delete' should now be handled natively in Go. If you see this, the native handler did not run."
 

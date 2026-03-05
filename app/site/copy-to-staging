@@ -23,7 +23,7 @@ site=$1
 run_command() {
 
   # Load site configs
-  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
+  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done; unset IFS
 
   # Vars found, proceed
   if [ -z "$domain" ]; then

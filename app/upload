@@ -22,7 +22,7 @@ default_key=$( captaincore configuration get --field=default_key --captain-id=$C
 remote_options="-oIdentityFile=$path_keys/${CAPTAIN_ID}/${default_key}"
 
 # Load site configs
-IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done
+IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done; unset IFS
       
 if [[ $key != "" ]]; then
   remote_options="-oIdentityFile=$path_keys/${CAPTAIN_ID}/${key}"
