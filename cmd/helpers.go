@@ -529,6 +529,21 @@ func secondsToTimeString(seconds int64) string {
 	return fmt.Sprintf("%d hours, %d minutes and %d seconds", hours, minutes, secs)
 }
 
+// dirSize walks a directory tree and returns the total size of all files in bytes.
+func dirSize(path string) (int64, error) {
+	var size int64
+	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			size += info.Size()
+		}
+		return nil
+	})
+	return size, err
+}
+
 // formatDateTimeHuman formats a time as "January 2nd 2006 3:04 pm" (matching PHP's 'F jS Y g:i a').
 func formatDateTimeHuman(t time.Time) string {
 	day := t.Day()

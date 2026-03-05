@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CaptainCore/captaincore/models"
 	"github.com/spf13/cobra"
 )
 
@@ -717,6 +718,126 @@ func backupRuntimeNative(cmd *cobra.Command, args []string) {
 	}
 }
 
+var backupCleanupCmd = &cobra.Command{
+	Use:   "cleanup <site>",
+	Short: "Removes local backup/ folders for sites using remote backups",
+	Args:  cobra.MinimumNArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveNativeOrWP(cmd, args, backupCleanupNative)
+	},
+}
+
+// backupCleanupNative implements `captaincore backup cleanup <site>` natively in Go.
+func backupCleanupNative(cmd *cobra.Command, args []string) {
+	if !ensureDB() || !dbHasData() {
+		fmt.Println("Error: Database not available. Run 'captaincore connect' to set up your CaptainCore CLI.")
+		return
+	}
+
+	_, system, _, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Println("Error: Configuration file not found.")
+		return
+	}
+
+	type cleanupTarget struct {
+		SiteDir     string
+		Environment string
+		SiteID      uint
+	}
+
+	var targets []cleanupTarget
+	target := args[0]
+	isBulk := strings.HasPrefix(target, "@")
+
+	if isBulk {
+		environment, minorTargets := models.ParseTargetString(target)
+		queryArgs := models.FetchSiteMatchingArgs{
+			Environment: environment,
+			Targets:     minorTargets,
+		}
+		results, err := models.FetchSitesMatching(queryArgs)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		for _, r := range results {
+			targets = append(targets, cleanupTarget{
+				SiteDir:     fmt.Sprintf("%s_%d", r.Site, r.SiteID),
+				Environment: strings.ToLower(r.Environment),
+				SiteID:      r.SiteID,
+			})
+		}
+	} else {
+		sa := parseSiteArgument(target)
+		site, err := sa.LookupSite()
+		if err != nil || site == nil {
+			fmt.Printf("Error: Site '%s' not found.\n", sa.SiteName)
+			return
+		}
+		env, err := sa.LookupEnvironment(site.SiteID)
+		if err != nil || env == nil {
+			fmt.Printf("Error: Environment not found for '%s'.\n", target)
+			return
+		}
+		targets = append(targets, cleanupTarget{
+			SiteDir:     fmt.Sprintf("%s_%d", site.Site, site.SiteID),
+			Environment: strings.ToLower(env.Environment),
+			SiteID:      site.SiteID,
+		})
+	}
+
+	var totalSize int64
+	var cleanedCount int
+
+	for _, t := range targets {
+		// Look up site to check backup settings
+		site, err := models.GetSiteByID(t.SiteID)
+		if err != nil || site == nil {
+			continue
+		}
+		siteDetails := site.ParseDetails()
+		if siteDetails.BackupSettings.Mode == "local" {
+			continue
+		}
+
+		backupPath := filepath.Join(system.Path, t.SiteDir, t.Environment, "backup")
+		info, err := os.Stat(backupPath)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+
+		size, err := dirSize(backupPath)
+		if err != nil || size == 0 {
+			continue
+		}
+
+		if flagDryRun {
+			if cleanedCount == 0 {
+				fmt.Printf("%-40s %-14s %s\n", "Site", "Environment", "Size")
+			}
+			fmt.Printf("%-40s %-14s %s\n", t.SiteDir, t.Environment, formatBytes(strconv.FormatInt(size, 10)))
+		} else {
+			if err := os.RemoveAll(backupPath); err != nil {
+				fmt.Printf("Error cleaning %s/%s/backup/: %v\n", t.SiteDir, t.Environment, err)
+				continue
+			}
+			fmt.Printf("Cleaned up %s/%s/backup/ (%s)\n", t.SiteDir, t.Environment, formatBytes(strconv.FormatInt(size, 10)))
+		}
+
+		totalSize += size
+		cleanedCount++
+	}
+
+	if cleanedCount > 0 {
+		if flagDryRun {
+			fmt.Printf("\nTotal reclaimable: %s across %d environments\n", formatBytes(strconv.FormatInt(totalSize, 10)), cleanedCount)
+		} else {
+			fmt.Printf("\nTotal reclaimed: %s across %d environments\n", formatBytes(strconv.FormatInt(totalSize, 10)), cleanedCount)
+		}
+	}
+}
+
 var backupFetchLinkCmd = &cobra.Command{
 	Use:   "fetch-link",
 	Short: "Fetches download link for a backup restore zip",
@@ -761,7 +882,9 @@ func init() {
 	backupCmd.AddCommand(backupVerifyCmd)
 	backupCmd.AddCommand(backupShowCmd)
 	backupCmd.AddCommand(backupRuntimeCmd)
+	backupCmd.AddCommand(backupCleanupCmd)
 	backupCmd.AddCommand(backupFetchLinkCmd)
+	backupCleanupCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "Calculate reclaimable space without deleting")
 	backupCheckCmd.Flags().BoolVarP(&flagInit, "init", "", false, "Initialize repo if missing")
 	backupDownloadCmd.Flags().StringVarP(&flagEmail, "email", "e", "", "Email notify")
 	backupGenerateCmd.Flags().IntVarP(&flagParallel, "parallel", "p", 3, "Number of sites to backup at same time")
