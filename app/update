@@ -81,10 +81,27 @@ run_command() {
 
   echo "Updating ${site}-${environment}..."
   [[ "$CAPTAINCORE_DEBUG" == "true" ]] && echo "[debug] Running remote update script with args: $update_args"
+
+  update_stderr_file=$(mktemp)
   if [[ "$CAPTAINCORE_DEBUG" == "true" ]]; then
-    update_output=$( captaincore ssh ${site}-${environment} --script=update --captain-id=$CAPTAIN_ID -- $update_args )
+    update_output=$( captaincore ssh ${site}-${environment} --script=update --captain-id=$CAPTAIN_ID -- $update_args 2> >(tee "$update_stderr_file" >&2) )
   else
-    update_output=$( captaincore ssh ${site}-${environment} --script=update --captain-id=$CAPTAIN_ID -- $update_args 2>/dev/null )
+    update_output=$( captaincore ssh ${site}-${environment} --script=update --captain-id=$CAPTAIN_ID -- $update_args 2>"$update_stderr_file" )
+  fi
+  update_exit=$?
+
+  update_errors=$(<"$update_stderr_file")
+  rm -f "$update_stderr_file"
+
+  # Surface errors when the remote script produced no output
+  if [[ -z "$update_output" && -n "$update_errors" ]]; then
+    # Filter to lines that look like real errors (not SSH banners or warnings)
+    real_errors=$( echo "$update_errors" | grep -iE "^(Error|Fatal|Warning):" | head -3 )
+    if [[ -n "$real_errors" ]]; then
+      echo "  Error running updates:"
+      echo "$real_errors" | sed 's/^/  /'
+      return
+    fi
   fi
 
   # Parse and display update results
