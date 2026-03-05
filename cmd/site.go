@@ -1165,6 +1165,11 @@ func siteDeployDefaultsNative(cmd *cobra.Command, args []string) {
 	var accountSites []models.AccountSite
 	models.DB.Where("site_id = ?", site.SiteID).Find(&accountSites)
 
+	// Fallback: if no account_site records, use the site's direct account_id
+	if len(accountSites) == 0 && site.AccountID > 0 {
+		accountSites = append(accountSites, models.AccountSite{AccountID: site.AccountID, SiteID: site.SiteID})
+	}
+
 	var recipeIDs []uint
 	var deploymentScript strings.Builder
 
