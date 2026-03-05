@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -1151,6 +1152,305 @@ func quicksaveSearchNative(cmd *cobra.Command, args []string) {
 	fmt.Print(string(out))
 }
 
+var quicksaveMalwareScanCmd = &cobra.Command{
+	Use:   "malware-scan <site>",
+	Short: "Scan quicksave files for malware signatures",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveNativeOrWP(cmd, args, quicksaveMalwareScanNative)
+	},
+}
+
+// malwareSignature represents a single malware detection rule.
+type malwareSignature struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Severity     string   `json:"severity"`
+	Patterns     []string `json:"patterns"`
+	Description  string   `json:"description"`
+	ExcludePaths []string `json:"exclude_paths"`
+}
+
+// malwareFinding represents a single match found during scanning.
+type malwareFinding struct {
+	SignatureID   string `json:"signature_id"`
+	SignatureName string `json:"signature_name"`
+	Severity      string `json:"severity"`
+	File          string `json:"file"`
+	Line          int    `json:"line"`
+	Match         string `json:"match"`
+}
+
+// loadMalwareSignatures reads the signatures JSON file.
+func loadMalwareSignatures() ([]malwareSignature, error) {
+	home, _ := os.UserHomeDir()
+	sigPath := filepath.Join(home, ".captaincore", "lib", "malware-signatures.json")
+	data, err := os.ReadFile(sigPath)
+	if err != nil {
+		return nil, fmt.Errorf("could not read malware signatures: %w", err)
+	}
+	var sigs []malwareSignature
+	if err := json.Unmarshal(data, &sigs); err != nil {
+		return nil, fmt.Errorf("could not parse malware signatures: %w", err)
+	}
+	return sigs, nil
+}
+
+// compiledSig holds a malware signature with pre-compiled regex patterns.
+type compiledSig struct {
+	Sig      malwareSignature
+	Patterns []*regexp.Regexp
+}
+
+// scanFileForMalware checks a single file against all compiled signature patterns.
+func scanFileForMalware(filePath string, relPath string, compiledSigs []compiledSig) []malwareFinding {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil
+	}
+
+	// Skip binary files (check first 512 bytes for null bytes)
+	checkLen := 512
+	if len(data) < checkLen {
+		checkLen = len(data)
+	}
+	for _, b := range data[:checkLen] {
+		if b == 0 {
+			return nil
+		}
+	}
+
+	lines := strings.Split(string(data), "\n")
+	var findings []malwareFinding
+
+	for _, cs := range compiledSigs {
+		// Check exclude paths
+		excluded := false
+		for _, ep := range cs.Sig.ExcludePaths {
+			if strings.Contains(relPath, ep) {
+				excluded = true
+				break
+			}
+		}
+		if excluded {
+			continue
+		}
+
+		for lineNum, line := range lines {
+			for _, pat := range cs.Patterns {
+				if pat.MatchString(line) {
+					matchText := line
+					if len(matchText) > 200 {
+						matchText = matchText[:200] + "..."
+					}
+					findings = append(findings, malwareFinding{
+						SignatureID:   cs.Sig.ID,
+						SignatureName: cs.Sig.Name,
+						Severity:      cs.Sig.Severity,
+						File:          relPath,
+						Line:          lineNum + 1,
+						Match:         strings.TrimSpace(matchText),
+					})
+					// One match per signature per file is enough
+					goto nextSig
+				}
+			}
+		}
+	nextSig:
+	}
+
+	return findings
+}
+
+// quicksaveMalwareScanNative implements `captaincore quicksave malware-scan <site>` natively in Go.
+func quicksaveMalwareScanNative(cmd *cobra.Command, args []string) {
+	sigs, err := loadMalwareSignatures()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	// Compile all regex patterns once
+	var compiled []compiledSig
+	for _, sig := range sigs {
+		var patterns []*regexp.Regexp
+		for _, p := range sig.Patterns {
+			re, err := regexp.Compile(p)
+			if err != nil {
+				fmt.Printf("Warning: invalid regex in signature %s: %s\n", sig.ID, p)
+				continue
+			}
+			patterns = append(patterns, re)
+		}
+		if len(patterns) > 0 {
+			compiled = append(compiled, compiledSig{Sig: sig, Patterns: patterns})
+		}
+	}
+
+	_, system, _, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Println("Error: Configuration file not found.")
+		return
+	}
+
+	// Determine which sites to scan
+	type scanTarget struct {
+		Label    string
+		ScanPath string
+	}
+	var targets []scanTarget
+
+	if strings.HasPrefix(args[0], "@") {
+		// Fleet mode: scan all matching sites
+		sites, err := models.GetAllActiveSites()
+		if err != nil {
+			fmt.Printf("Error fetching sites: %v\n", err)
+			return
+		}
+
+		environment, _ := models.ParseTargetString(args[0])
+
+		for _, site := range sites {
+			envs, err := models.FindEnvironmentsBySiteID(site.SiteID)
+			if err != nil {
+				continue
+			}
+			for _, env := range envs {
+				if environment != "" && environment != "all" && !strings.EqualFold(env.Environment, environment) {
+					continue
+				}
+				envName := strings.ToLower(env.Environment)
+				siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+				scanPath := filepath.Join(system.Path, siteDir, envName, "quicksave")
+				if _, err := os.Stat(scanPath); os.IsNotExist(err) {
+					continue
+				}
+				targets = append(targets, scanTarget{
+					Label:    fmt.Sprintf("%s-%s", site.Site, envName),
+					ScanPath: scanPath,
+				})
+			}
+		}
+		fmt.Printf("Scanning %d environments for malware signatures...\n\n", len(targets))
+	} else {
+		// Single site mode
+		sa := parseSiteArgument(args[0])
+		site, err := sa.LookupSite()
+		if err != nil || site == nil {
+			fmt.Printf("Error: Site '%s' not found.\n", sa.SiteName)
+			return
+		}
+		env, err := sa.LookupEnvironment(site.SiteID)
+		if err != nil || env == nil {
+			fmt.Printf("Error: Environment not found.\n")
+			return
+		}
+		envName := strings.ToLower(env.Environment)
+		siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+		scanPath := filepath.Join(system.Path, siteDir, envName, "quicksave")
+		if _, err := os.Stat(scanPath); os.IsNotExist(err) {
+			fmt.Printf("No quicksave found at %s\n", scanPath)
+			return
+		}
+		targets = append(targets, scanTarget{
+			Label:    fmt.Sprintf("%s-%s", site.Site, envName),
+			ScanPath: scanPath,
+		})
+	}
+
+	// Scan each target
+	totalFindings := 0
+	infectedSites := 0
+
+	// File extensions to scan
+	scannableExts := map[string]bool{
+		".php": true, ".phtml": true, ".phar": true, ".php5": true,
+	}
+
+	isFleet := len(targets) > 1
+
+	for i, target := range targets {
+		// Print progress for fleet scans
+		if isFleet && flagFormat != "json" {
+			fmt.Printf("\r\033[K\033[90mScanning [%d/%d] %s...\033[0m", i+1, len(targets), target.Label)
+		}
+
+		var siteFindings []malwareFinding
+
+		// Walk plugins/, themes/, mu-plugins/
+		for _, subdir := range []string{"plugins", "themes", "mu-plugins"} {
+			dirPath := filepath.Join(target.ScanPath, subdir)
+			if _, err := os.Stat(dirPath); os.IsNotExist(err) {
+				continue
+			}
+
+			filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+				if err != nil || info.IsDir() {
+					return nil
+				}
+				ext := strings.ToLower(filepath.Ext(path))
+				if !scannableExts[ext] {
+					return nil
+				}
+				relPath, _ := filepath.Rel(target.ScanPath, path)
+				findings := scanFileForMalware(path, relPath, compiled)
+				siteFindings = append(siteFindings, findings...)
+				return nil
+			})
+		}
+
+		if len(siteFindings) > 0 {
+			infectedSites++
+			totalFindings += len(siteFindings)
+
+			// Clear progress line before printing findings
+			if isFleet && flagFormat != "json" {
+				fmt.Print("\r\033[K")
+			}
+
+			if flagFormat == "json" {
+				jsonOut, _ := json.MarshalIndent(map[string]interface{}{
+					"site":     target.Label,
+					"findings": siteFindings,
+				}, "", "    ")
+				fmt.Println(string(jsonOut))
+			} else {
+				fmt.Printf("\033[31m✗\033[0m %s — %d finding(s)\n", target.Label, len(siteFindings))
+				for _, f := range siteFindings {
+					severityColor := "\033[31m" // red for critical
+					switch f.Severity {
+					case "high":
+						severityColor = "\033[33m" // yellow
+					case "medium":
+						severityColor = "\033[33m"
+					case "low":
+						severityColor = "\033[34m" // blue
+					}
+					fmt.Printf("  %s[%s]\033[0m %s — %s:%d\n", severityColor, f.Severity, f.SignatureName, f.File, f.Line)
+				}
+				fmt.Println()
+			}
+		}
+	}
+
+	if flagFormat != "json" {
+		// Clear progress line
+		if isFleet {
+			fmt.Print("\r\033[K")
+		}
+		if totalFindings == 0 {
+			fmt.Printf("\033[32m✓\033[0m No malware signatures found across %d environment(s).\n", len(targets))
+		} else {
+			fmt.Printf("Scan complete: %d finding(s) across %d infected environment(s) out of %d scanned.\n", totalFindings, infectedSites, len(targets))
+		}
+	}
+}
+
 func init() {
 	rootCmd.AddCommand(quicksaveCmd)
 	quicksaveCmd.AddCommand(quicksaveAddCmd)
@@ -1169,6 +1469,8 @@ func init() {
 	quicksaveCmd.AddCommand(quicksaveShowChangesCmd)
 	quicksaveCmd.AddCommand(quicksaveSyncCmd)
 	quicksaveCmd.AddCommand(quicksaveUpdateUsageCmd)
+	quicksaveCmd.AddCommand(quicksaveMalwareScanCmd)
+	quicksaveMalwareScanCmd.Flags().StringVarP(&flagFormat, "format", "", "", "Output format (json)")
 	quicksaveFileDiffCmd.Flags().StringVar(&flagTheme, "theme", "", "Theme slug")
 	quicksaveFileDiffCmd.Flags().StringVar(&flagPlugin, "plugin", "", "Plugin slug")
 	quicksaveLatestCmd.Flags().StringVarP(&flagField, "field", "", "", "Return certain field")
