@@ -953,7 +953,17 @@ func backupStorageCleanupNative(cmd *cobra.Command, args []string) {
 		activeFolders[folder] = true
 	}
 
+	if len(activeFolders) == 0 {
+		fmt.Println("Error: No active sites found in database. Aborting to prevent accidental deletion.")
+		return
+	}
+
 	fmt.Printf("Found %d active site folders in database\n", len(activeFolders))
+
+	if rcloneBackup == "" {
+		fmt.Println("Error: Backup storage path is empty. Check rclone_backup in your config.")
+		return
+	}
 
 	// List folders in B2 storage
 	lsdCmd := exec.Command("rclone", "lsd", rcloneBackup+"/")
@@ -973,6 +983,15 @@ func backupStorageCleanupNative(cmd *cobra.Command, args []string) {
 			continue
 		}
 		folder := fields[len(fields)-1]
+		// Only consider folders matching site_id format (contains underscore with trailing number)
+		parts := strings.Split(folder, "_")
+		if len(parts) < 2 {
+			continue
+		}
+		lastPart := parts[len(parts)-1]
+		if _, err := strconv.Atoi(lastPart); err != nil {
+			continue
+		}
 		if !activeFolders[folder] {
 			orphans = append(orphans, folder)
 		}
