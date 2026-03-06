@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+
+#
+#   Detect files with forged timestamps (mtime older than birth time)
+#   Filters out bulk migrations and host-managed deployments
+#   Works on Linux filesystems that support birth time (ext4, xfs with newer kernels)
+#
+#   Usage:
+#   captaincore ssh <site> --script=detect-fake-dates
+#   captaincore ssh @all --script=detect-fake-dates
+#
+
+SCAN_DIR="."
+TMPFILE=$(mktemp)
+FILTFILE=$(mktemp)
+trap "rm -f $TMPFILE $FILTFILE" EXIT
+
+echo "Scanning for files with forged timestamps..."
+echo ""
+
+# Pass 1: Collect all PHP files where mtime < birth - 1 hour
+while IFS= read -r -d '' file; do
+  read -r birth mtime ctime <<< "$(stat -c '%W %Y %Z' "$file" 2>/dev/null)"
+  [ -z "$birth" ] || [ "$birth" = "0" ] && continue
+  if [ "$mtime" -lt "$((birth - 3600))" ]; then
+    echo "$birth $mtime $file" >> "$TMPFILE"
+  fi
+done < <(find "$SCAN_DIR" -type f -name '*.php' -print0 2>/dev/null)
+
+if [ ! -s "$TMPFILE" ]; then
+  echo "No forged timestamps detected."
+  exit 0
+fi
+
+total=$(wc -l < "$TMPFILE")
+cp "$TMPFILE" "$FILTFILE"
+
+# Pass 2: Filter out bulk copy/migration clusters
+# Group birth times into 10-minute buckets — any bucket with 20+ files is a bulk operation
+while read -r count bucket; do
+  if [ "$count" -ge 20 ]; then
+    bucket_start=$((bucket * 600))
+    bucket_date=$(date -d "@$bucket_start" '+%Y-%m-%d %H:%M' 2>/dev/null)
+    echo "Filtered: bulk copy/migration around $bucket_date ($count files)"
+    awk -v b="$bucket" '{if (int($1/600) != b) print}' "$FILTFILE" > "${FILTFILE}.tmp"
+    mv "${FILTFILE}.tmp" "$FILTFILE"
+  fi
+done < <(awk '{print int($1/600)}' "$TMPFILE" | sort | uniq -c | sort -rn)
+
+if [ ! -s "$FILTFILE" ]; then
+  echo ""
+  echo "No forged timestamps detected (all mismatches are from bulk operations)."
+  exit 0
+fi
+
+remaining=$(wc -l < "$FILTFILE")
+
+# Pass 3: Filter out host-managed directories (mu-plugins deployed by hosting)
+# If >80% of remaining files cluster in a single directory tree with 10+ files, filter them
+if [ "$remaining" -gt 0 ]; then
+  common_base=$(awk '{print $3}' "$FILTFILE" | sed "s|${SCAN_DIR}/||" | cut -d'/' -f1-3 | sort | uniq -c | sort -rn | head -1)
+  common_count=$(echo "$common_base" | awk '{print $1}')
+  common_path=$(echo "$common_base" | awk '{$1=""; print $0}' | xargs)
+
+  if [ "$common_count" -gt "$((remaining * 80 / 100))" ] && [ "$common_count" -ge 10 ]; then
+    echo "Filtered: managed deployment in $common_path ($common_count files)"
+    awk -v p="$common_path" '$3 !~ p' "$FILTFILE" > "${FILTFILE}.tmp"
+    mv "${FILTFILE}.tmp" "$FILTFILE"
+  fi
+fi
+
+echo ""
+
+if [ ! -s "$FILTFILE" ]; then
+  echo "No forged timestamps detected (all mismatches are from bulk operations or managed deployments)."
+  exit 0
+fi
+
+# Output remaining suspicious files
+found=0
+while read -r birth mtime file; do
+  diff=$(( (birth - mtime) / 86400 ))
+  birth_date=$(date -d "@$birth" '+%Y-%m-%d %H:%M' 2>/dev/null)
+  mtime_date=$(date -d "@$mtime" '+%Y-%m-%d %H:%M' 2>/dev/null)
+  printf "FORGED  %s\n" "$file"
+  printf "        mtime: %s  birth: %s  (backdated %d days)\n\n" "$mtime_date" "$birth_date" "$diff"
+  found=$((found + 1))
+done < "$FILTFILE"
+
+echo "Found $found file(s) with suspicious forged timestamps."
