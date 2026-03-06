@@ -649,6 +649,66 @@ func backupVerifyNative(cmd *cobra.Command, args []string) {
 	}
 }
 
+var backupPruneCmd = &cobra.Command{
+	Use:   "prune <site>",
+	Short: "Prunes restic backup repo to repack and remove unused data",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveNativeOrWP(cmd, args, backupPruneNative)
+	},
+}
+
+// backupPruneNative implements `captaincore backup prune <site>` natively in Go.
+func backupPruneNative(cmd *cobra.Command, args []string) {
+	sa := parseSiteArgument(args[0])
+	site, err := sa.LookupSite()
+	if err != nil || site == nil {
+		fmt.Println("Error: Site not found.")
+		return
+	}
+
+	env, err := sa.LookupEnvironment(site.SiteID)
+	if err != nil || env == nil {
+		fmt.Println("Error: Environment not found.")
+		return
+	}
+
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Println("Error: Configuration file not found.")
+		return
+	}
+
+	rcloneBackup := getRcloneBackup(captain, system)
+	resticKey := getResticKeyPath()
+	siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+	envName := strings.ToLower(env.Environment)
+	resticRepo := fmt.Sprintf("rclone:%s/%s/%s/restic-repo", rcloneBackup, siteDir, envName)
+
+	fmt.Printf("Pruning backup repo for %s-%s\n", site.Site, envName)
+
+	resticArgs := []string{
+		"prune",
+		"--repo", resticRepo,
+		"--password-file=" + resticKey,
+		"-o", "rclone.args=serve restic --stdio --b2-hard-delete --timeout=300s --contimeout=60s",
+	}
+
+	if flagDryRun {
+		resticArgs = append(resticArgs, "--dry-run")
+	}
+
+	resticCmd := exec.Command("restic", resticArgs...)
+	resticCmd.Stdout = os.Stdout
+	resticCmd.Stderr = os.Stderr
+	resticCmd.Run()
+}
+
 var backupShowCmd = &cobra.Command{
 	Use:   "show <site> <backup-id> <file-id>",
 	Short: "Retrieve individual file from site backup",
@@ -855,6 +915,117 @@ func backupCleanupNative(cmd *cobra.Command, args []string) {
 	}
 }
 
+var flagConfirm bool
+
+var backupStorageCleanupCmd = &cobra.Command{
+	Use:   "storage-cleanup",
+	Short: "Removes orphaned site folders from B2 backup storage",
+	Run: func(cmd *cobra.Command, args []string) {
+		backupStorageCleanupNative(cmd, args)
+	},
+}
+
+// backupStorageCleanupNative implements `captaincore backup storage-cleanup` natively in Go.
+func backupStorageCleanupNative(cmd *cobra.Command, args []string) {
+	if !ensureDB() || !dbHasData() {
+		fmt.Println("Error: Database not available. Run 'captaincore connect' to set up your CaptainCore CLI.")
+		return
+	}
+
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Println("Error: Configuration file not found.")
+		return
+	}
+
+	rcloneBackup := getRcloneBackup(captain, system)
+
+	// Build set of active site folders from database
+	results, err := models.FetchSitesMatching(models.FetchSiteMatchingArgs{})
+	if err != nil {
+		fmt.Printf("Error fetching sites: %v\n", err)
+		return
+	}
+
+	activeFolders := make(map[string]bool)
+	for _, r := range results {
+		folder := fmt.Sprintf("%s_%d", r.Site, r.SiteID)
+		activeFolders[folder] = true
+	}
+
+	fmt.Printf("Found %d active site folders in database\n", len(activeFolders))
+
+	// List folders in B2 storage
+	lsdCmd := exec.Command("rclone", "lsd", rcloneBackup+"/")
+	output, err := lsdCmd.Output()
+	if err != nil {
+		fmt.Printf("Error listing B2 storage: %v\n", err)
+		return
+	}
+
+	var orphans []string
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		folder := fields[len(fields)-1]
+		if !activeFolders[folder] {
+			orphans = append(orphans, folder)
+		}
+	}
+
+	if len(orphans) == 0 {
+		fmt.Println("No orphaned folders found.")
+		return
+	}
+
+	fmt.Printf("\nFound %d orphaned folders:\n\n", len(orphans))
+	fmt.Printf("%-50s %s\n", "Folder", "Size")
+
+	var totalSize int64
+	for _, folder := range orphans {
+		remotePath := rcloneBackup + "/" + folder
+		sizeCmd := exec.Command("rclone", "size", remotePath, "--json")
+		sizeOutput, err := sizeCmd.Output()
+		sizeStr := "unknown"
+		if err == nil {
+			var sizeResult struct {
+				Bytes int64 `json:"bytes"`
+			}
+			if json.Unmarshal(sizeOutput, &sizeResult) == nil {
+				totalSize += sizeResult.Bytes
+				sizeStr = formatBytes(strconv.FormatInt(sizeResult.Bytes, 10))
+			}
+		}
+		fmt.Printf("%-50s %s\n", folder, sizeStr)
+	}
+
+	fmt.Printf("\nTotal reclaimable: %s across %d folders\n", formatBytes(strconv.FormatInt(totalSize, 10)), len(orphans))
+
+	if !flagConfirm {
+		fmt.Println("\nRun with --confirm to delete these folders.")
+		return
+	}
+
+	fmt.Println()
+	for _, folder := range orphans {
+		remotePath := rcloneBackup + "/" + folder
+		fmt.Printf("Deleting %s...\n", folder)
+		purgeCmd := exec.Command("rclone", "purge", remotePath)
+		purgeCmd.Stdout = os.Stdout
+		purgeCmd.Stderr = os.Stderr
+		if err := purgeCmd.Run(); err != nil {
+			fmt.Printf("Error deleting %s: %v\n", folder, err)
+		}
+	}
+
+	fmt.Printf("\nDeleted %d orphaned folders.\n", len(orphans))
+}
+
 var backupFetchLinkCmd = &cobra.Command{
 	Use:   "fetch-link",
 	Short: "Fetches download link for a backup restore zip",
@@ -901,6 +1072,10 @@ func init() {
 	backupCmd.AddCommand(backupRuntimeCmd)
 	backupCmd.AddCommand(backupCleanupCmd)
 	backupCmd.AddCommand(backupFetchLinkCmd)
+	backupCmd.AddCommand(backupPruneCmd)
+	backupCmd.AddCommand(backupStorageCleanupCmd)
+	backupStorageCleanupCmd.Flags().BoolVar(&flagConfirm, "confirm", false, "Actually delete orphaned folders (default is dry-run)")
+	backupPruneCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "Preview what prune would do without making changes")
 	backupCleanupCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "Calculate reclaimable space without deleting")
 	backupCheckCmd.Flags().BoolVarP(&flagInit, "init", "", false, "Initialize repo if missing")
 	backupDownloadCmd.Flags().StringVarP(&flagEmail, "email", "e", "", "Email notify")
