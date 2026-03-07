@@ -1090,7 +1090,7 @@ var flagSizes bool
 var flagPrune bool
 
 var backupSnapshotsCmd = &cobra.Command{
-	Use:   "snapshots <site>",
+	Use:   "snapshots <site> [snapshot-id]",
 	Short: "Lists all snapshots in a site's backup repo",
 	Args: func(cmd *cobra.Command, args []string) error {
 		if len(args) < 1 {
@@ -1105,7 +1105,8 @@ var backupSnapshotsCmd = &cobra.Command{
 
 // resticStats represents the JSON output from restic stats.
 type resticStats struct {
-	TotalSize uint64 `json:"total_size"`
+	TotalSize      uint64 `json:"total_size"`
+	TotalFileCount uint64 `json:"total_file_count"`
 }
 
 // fetchSnapshotSizes fetches restore sizes concurrently, skipping snapshots that already have summary data.
@@ -1211,6 +1212,24 @@ func backupSnapshotsNative(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	// Filter to a specific snapshot if ID provided
+	if len(args) > 1 {
+		snapshotID := args[1]
+		var filtered []resticSnapshot
+		for _, snap := range snapshots {
+			if snap.ID == snapshotID || snap.ShortID == snapshotID {
+				filtered = append(filtered, snap)
+				break
+			}
+		}
+		if len(filtered) == 0 {
+			fmt.Printf("Error: Snapshot '%s' not found in repo.\n", snapshotID)
+			return
+		}
+		snapshots = filtered
+		flagSizes = true
+	}
+
 	// Fetch sizes concurrently if requested
 	var snapshotSizes []uint64
 	if flagSizes {
@@ -1267,6 +1286,178 @@ func backupSnapshotsNative(cmd *cobra.Command, args []string) {
 	}
 
 	fmt.Printf("\n%d snapshots\n", len(snapshots))
+}
+
+var backupRepoInfoCmd = &cobra.Command{
+	Use:   "repo-info <site>",
+	Short: "Shows summary information about a site's backup repo",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		backupRepoInfoNative(cmd, args)
+	},
+}
+
+// backupRepoInfoNative implements `captaincore backup repo-info <site>` natively in Go.
+func backupRepoInfoNative(cmd *cobra.Command, args []string) {
+	if !ensureDB() || !dbHasData() {
+		fmt.Println("Error: Database not available. Run 'captaincore connect' to set up your CaptainCore CLI.")
+		return
+	}
+
+	sa := parseSiteArgument(args[0])
+	site, err := sa.LookupSite()
+	if err != nil || site == nil {
+		fmt.Println("Error: Site not found.")
+		return
+	}
+
+	env, err := sa.LookupEnvironment(site.SiteID)
+	if err != nil || env == nil {
+		fmt.Println("Error: Environment not found.")
+		return
+	}
+
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Println("Error: Configuration file not found.")
+		return
+	}
+
+	rcloneBackup := getRcloneBackup(captain, system)
+	resticKey := getResticKeyPath()
+	siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+	envName := strings.ToLower(env.Environment)
+	resticRepo := fmt.Sprintf("rclone:%s/%s/%s/restic-repo", rcloneBackup, siteDir, envName)
+
+	// Fetch snapshots
+	snapshotsCmd := exec.Command("restic", "snapshots", "--repo", resticRepo, "--password-file="+resticKey, "--json")
+	snapshotsOutput, err := snapshotsCmd.Output()
+	if err != nil {
+		fmt.Println("Error: Backup repo not found.")
+		return
+	}
+
+	var snapshots []resticSnapshot
+	if json.Unmarshal(snapshotsOutput, &snapshots) != nil {
+		fmt.Println("Error: Failed to parse snapshot data.")
+		return
+	}
+
+	// Find oldest and newest snapshot times
+	var oldest, newest time.Time
+	for i, snap := range snapshots {
+		t, _ := time.Parse(time.RFC3339Nano, snap.Time)
+		if i == 0 || t.Before(oldest) {
+			oldest = t
+		}
+		if i == 0 || t.After(newest) {
+			newest = t
+		}
+	}
+
+	// Get latest snapshot size from embedded summary (fast, no extra restic call)
+	var latestSize uint64
+	var hasLatestSize bool
+	if len(snapshots) > 0 {
+		latestIdx := 0
+		for i, snap := range snapshots {
+			t, _ := time.Parse(time.RFC3339Nano, snap.Time)
+			tn, _ := time.Parse(time.RFC3339Nano, snapshots[latestIdx].Time)
+			if t.After(tn) {
+				latestIdx = i
+			}
+		}
+		if snapshots[latestIdx].Summary != nil {
+			latestSize = snapshots[latestIdx].Summary.TotalBytesProcessed
+			hasLatestSize = true
+		}
+	}
+
+	// Get repo size on disk via rclone size (fast)
+	rclonePath := fmt.Sprintf("%s/%s/%s/restic-repo", rcloneBackup, siteDir, envName)
+	type rcloneSize struct {
+		Count int64  `json:"count"`
+		Bytes uint64 `json:"bytes"`
+	}
+	var repoSize rcloneSize
+	rcloneSizeCmd := exec.Command("rclone", "size", "--json", rclonePath)
+	if rcloneSizeOutput, err := rcloneSizeCmd.Output(); err == nil {
+		json.Unmarshal(rcloneSizeOutput, &repoSize)
+	}
+
+	// Optionally fetch full repo stats (slow)
+	var restoreStats, rawStats resticStats
+	flagStats, _ := cmd.Flags().GetBool("stats")
+	if flagStats {
+		restoreSizeCmd := exec.Command("restic", "stats", "--mode", "restore-size", "--repo", resticRepo, "--password-file="+resticKey, "--json")
+		if restoreOutput, err := restoreSizeCmd.Output(); err == nil {
+			json.Unmarshal(restoreOutput, &restoreStats)
+		}
+		rawDataCmd := exec.Command("restic", "stats", "--mode", "raw-data", "--repo", resticRepo, "--password-file="+resticKey, "--json")
+		if rawOutput, err := rawDataCmd.Output(); err == nil {
+			json.Unmarshal(rawOutput, &rawStats)
+		}
+	}
+
+	if flagFormat == "json" {
+		type repoInfo struct {
+			Repository     string `json:"repository"`
+			Snapshots      int    `json:"snapshots"`
+			LatestSize     uint64 `json:"latest_size,omitempty"`
+			RepoSize       uint64 `json:"repo_size"`
+			RepoFileCount  int64  `json:"repo_file_count"`
+			TotalSize      uint64 `json:"total_size,omitempty"`
+			TotalFileCount uint64 `json:"total_file_count,omitempty"`
+			RawSize        uint64 `json:"raw_size,omitempty"`
+			RawFileCount   uint64 `json:"raw_file_count,omitempty"`
+			Oldest         string `json:"oldest,omitempty"`
+			Newest         string `json:"newest,omitempty"`
+		}
+		info := repoInfo{
+			Repository:    resticRepo,
+			Snapshots:     len(snapshots),
+			RepoSize:      repoSize.Bytes,
+			RepoFileCount: repoSize.Count,
+		}
+		if hasLatestSize {
+			info.LatestSize = latestSize
+		}
+		if flagStats {
+			info.TotalSize = restoreStats.TotalSize
+			info.TotalFileCount = restoreStats.TotalFileCount
+			info.RawSize = rawStats.TotalSize
+			info.RawFileCount = rawStats.TotalFileCount
+		}
+		if len(snapshots) > 0 {
+			info.Oldest = oldest.Format(time.RFC3339)
+			info.Newest = newest.Format(time.RFC3339)
+		}
+		resultJSON, _ := json.MarshalIndent(info, "", "    ")
+		fmt.Println(string(resultJSON))
+		return
+	}
+
+	siteLabel := fmt.Sprintf("%s-%s", site.Site, envName)
+	fmt.Printf("Repository info for %s\n", siteLabel)
+	fmt.Printf("  Repository:  %s\n", resticRepo)
+	fmt.Printf("  Snapshots:   %d\n", len(snapshots))
+	if hasLatestSize {
+		fmt.Printf("  Latest Size: %s\n", formatBytes(strconv.FormatUint(latestSize, 10)))
+	}
+	fmt.Printf("  Repo Size:   %s (%d objects)\n", formatBytes(strconv.FormatUint(repoSize.Bytes, 10)), repoSize.Count)
+	if flagStats {
+		fmt.Printf("  Total Size:  %s (%d files, restore size)\n", formatBytes(strconv.FormatUint(restoreStats.TotalSize, 10)), restoreStats.TotalFileCount)
+		fmt.Printf("  Raw Data:    %s (%d files, deduplicated)\n", formatBytes(strconv.FormatUint(rawStats.TotalSize, 10)), rawStats.TotalFileCount)
+	}
+	if len(snapshots) > 0 {
+		fmt.Printf("  Oldest:      %s\n", oldest.Format("2006-01-02 15:04:05"))
+		fmt.Printf("  Newest:      %s\n", newest.Format("2006-01-02 15:04:05"))
+	}
 }
 
 var backupForgetCmd = &cobra.Command{
@@ -1418,6 +1609,8 @@ func init() {
 	backupCmd.AddCommand(backupSnapshotsCmd)
 	backupCmd.AddCommand(backupForgetCmd)
 	backupCmd.AddCommand(backupStorageCleanupCmd)
+	backupCmd.AddCommand(backupRepoInfoCmd)
+	backupRepoInfoCmd.Flags().Bool("stats", false, "Include full repo stats (slow, runs restic stats)")
 	backupSnapshotsCmd.Flags().BoolVar(&flagSizes, "sizes", false, "Fetch per-snapshot restore size (slow)")
 	backupSnapshotsCmd.Flags().StringVar(&flagFormat, "format", "", "Output format (json)")
 	backupForgetCmd.Flags().BoolVar(&flagConfirm, "confirm", false, "Actually delete the snapshot (default is preview)")
