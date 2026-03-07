@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/CaptainCore/captaincore/models"
@@ -504,10 +506,18 @@ var backupVerifyCmd = &cobra.Command{
 	},
 }
 
+// resticSnapshotSummary holds the backup summary embedded in restic 0.17+ snapshots.
+type resticSnapshotSummary struct {
+	TotalBytesProcessed uint64 `json:"total_bytes_processed"`
+}
+
 // resticSnapshot represents a snapshot entry from restic snapshots --json output.
 type resticSnapshot struct {
-	ID   string `json:"id"`
-	Time string `json:"time"`
+	ID       string                 `json:"id"`
+	ShortID  string                 `json:"short_id"`
+	Time     string                 `json:"time"`
+	Hostname string                 `json:"hostname"`
+	Summary  *resticSnapshotSummary `json:"summary,omitempty"`
 }
 
 // backupVerifyChecks runs the restic verification checks and returns any issues found.
@@ -1076,6 +1086,319 @@ func backupFetchLinkNative(cmd *cobra.Command, args []string) {
 	fmt.Print(strings.TrimSpace(string(out)))
 }
 
+var flagSizes bool
+var flagPrune bool
+
+var backupSnapshotsCmd = &cobra.Command{
+	Use:   "snapshots <site>",
+	Short: "Lists all snapshots in a site's backup repo",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		backupSnapshotsNative(cmd, args)
+	},
+}
+
+// resticStats represents the JSON output from restic stats.
+type resticStats struct {
+	TotalSize uint64 `json:"total_size"`
+}
+
+// fetchSnapshotSizes fetches restore sizes concurrently, skipping snapshots that already have summary data.
+func fetchSnapshotSizes(snapshots []resticSnapshot, resticRepo, resticKey string) []uint64 {
+	sizes := make([]uint64, len(snapshots))
+
+	// Pre-populate from summary and collect indices that need fetching
+	var missing []int
+	for i, snap := range snapshots {
+		if snap.Summary != nil {
+			sizes[i] = snap.Summary.TotalBytesProcessed
+		} else {
+			missing = append(missing, i)
+		}
+	}
+
+	if len(missing) == 0 {
+		return sizes
+	}
+
+	var completed int64
+	total := int64(len(missing))
+	fmt.Fprintf(os.Stderr, "Fetching sizes for %d snapshots without summary data...\n", total)
+
+	var wg sync.WaitGroup
+	work := make(chan int, len(missing))
+
+	// Start 10 workers
+	workers := 10
+	if int(total) < workers {
+		workers = int(total)
+	}
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range work {
+				statsCmd := exec.Command("restic", "stats", snapshots[i].ID, "--mode", "restore-size", "--repo", resticRepo, "--password-file="+resticKey, "--json")
+				statsOutput, statsErr := statsCmd.Output()
+				if statsErr == nil {
+					var stats resticStats
+					if json.Unmarshal(statsOutput, &stats) == nil {
+						sizes[i] = stats.TotalSize
+					}
+				}
+				done := atomic.AddInt64(&completed, 1)
+				fmt.Fprintf(os.Stderr, "\rFetching sizes... %d/%d", done, total)
+			}
+		}()
+	}
+
+	for _, i := range missing {
+		work <- i
+	}
+	close(work)
+	wg.Wait()
+	fmt.Fprintf(os.Stderr, "\r\033[K")
+	return sizes
+}
+
+// backupSnapshotsNative implements `captaincore backup snapshots <site>` natively in Go.
+func backupSnapshotsNative(cmd *cobra.Command, args []string) {
+	if !ensureDB() || !dbHasData() {
+		fmt.Println("Error: Database not available. Run 'captaincore connect' to set up your CaptainCore CLI.")
+		return
+	}
+
+	sa := parseSiteArgument(args[0])
+	site, err := sa.LookupSite()
+	if err != nil || site == nil {
+		fmt.Println("Error: Site not found.")
+		return
+	}
+
+	env, err := sa.LookupEnvironment(site.SiteID)
+	if err != nil || env == nil {
+		fmt.Println("Error: Environment not found.")
+		return
+	}
+
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Println("Error: Configuration file not found.")
+		return
+	}
+
+	rcloneBackup := getRcloneBackup(captain, system)
+	resticKey := getResticKeyPath()
+	siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+	envName := strings.ToLower(env.Environment)
+	resticRepo := fmt.Sprintf("rclone:%s/%s/%s/restic-repo", rcloneBackup, siteDir, envName)
+
+	resticCmd := exec.Command("restic", "snapshots", "--repo", resticRepo, "--password-file="+resticKey, "--json")
+	output, err := resticCmd.Output()
+	if err != nil {
+		fmt.Println("Error: Backup repo not found.")
+		return
+	}
+
+	var snapshots []resticSnapshot
+	if json.Unmarshal(output, &snapshots) != nil {
+		fmt.Println("Error: Failed to parse snapshot data.")
+		return
+	}
+
+	// Fetch sizes concurrently if requested
+	var snapshotSizes []uint64
+	if flagSizes {
+		snapshotSizes = fetchSnapshotSizes(snapshots, resticRepo, resticKey)
+	}
+
+	if flagFormat == "json" {
+		if flagSizes {
+			type snapshotWithSize struct {
+				ID       string `json:"id"`
+				ShortID  string `json:"short_id"`
+				Time     string `json:"time"`
+				Hostname string `json:"hostname"`
+				Size     uint64 `json:"size,omitempty"`
+			}
+			results := make([]snapshotWithSize, len(snapshots))
+			for i, snap := range snapshots {
+				results[i] = snapshotWithSize{
+					ID:       snap.ID,
+					ShortID:  snap.ShortID,
+					Time:     snap.Time,
+					Hostname: snap.Hostname,
+					Size:     snapshotSizes[i],
+				}
+			}
+			resultJSON, _ := json.MarshalIndent(results, "", "    ")
+			fmt.Println(string(resultJSON))
+		} else {
+			resultJSON, _ := json.MarshalIndent(snapshots, "", "    ")
+			fmt.Println(string(resultJSON))
+		}
+		return
+	}
+
+	// Table output
+	if flagSizes {
+		fmt.Printf("%-12s %-22s %-16s %s\n", "ID", "Date", "Hostname", "Size")
+		for i, snap := range snapshots {
+			t, _ := time.Parse(time.RFC3339Nano, snap.Time)
+			dateStr := t.Format("2006-01-02 15:04:05")
+			fmt.Printf("%-12s %-22s %-16s %s\n", snap.ShortID, dateStr, snap.Hostname, formatBytes(strconv.FormatUint(snapshotSizes[i], 10)))
+		}
+	} else {
+		fmt.Printf("%-12s %-22s %-16s %s\n", "ID", "Date", "Hostname", "Size")
+		for _, snap := range snapshots {
+			t, _ := time.Parse(time.RFC3339Nano, snap.Time)
+			dateStr := t.Format("2006-01-02 15:04:05")
+			sizeStr := "--"
+			if snap.Summary != nil {
+				sizeStr = formatBytes(strconv.FormatUint(snap.Summary.TotalBytesProcessed, 10))
+			}
+			fmt.Printf("%-12s %-22s %-16s %s\n", snap.ShortID, dateStr, snap.Hostname, sizeStr)
+		}
+	}
+
+	fmt.Printf("\n%d snapshots\n", len(snapshots))
+}
+
+var backupForgetCmd = &cobra.Command{
+	Use:   "forget <site> <snapshot-id>",
+	Short: "Removes a specific snapshot from the backup repo",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 2 {
+			return errors.New("requires <site> and <snapshot-id> arguments")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		backupForgetNative(cmd, args)
+	},
+}
+
+// backupForgetNative implements `captaincore backup forget <site> <snapshot-id>` natively in Go.
+func backupForgetNative(cmd *cobra.Command, args []string) {
+	if !ensureDB() || !dbHasData() {
+		fmt.Println("Error: Database not available. Run 'captaincore connect' to set up your CaptainCore CLI.")
+		return
+	}
+
+	sa := parseSiteArgument(args[0])
+	snapshotID := args[1]
+
+	site, err := sa.LookupSite()
+	if err != nil || site == nil {
+		fmt.Println("Error: Site not found.")
+		return
+	}
+
+	env, err := sa.LookupEnvironment(site.SiteID)
+	if err != nil || env == nil {
+		fmt.Println("Error: Environment not found.")
+		return
+	}
+
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Println("Error: Configuration file not found.")
+		return
+	}
+
+	rcloneBackup := getRcloneBackup(captain, system)
+	resticKey := getResticKeyPath()
+	siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+	envName := strings.ToLower(env.Environment)
+	resticRepo := fmt.Sprintf("rclone:%s/%s/%s/restic-repo", rcloneBackup, siteDir, envName)
+
+	// Look up the snapshot to confirm it exists
+	resticCmd := exec.Command("restic", "snapshots", "--repo", resticRepo, "--password-file="+resticKey, "--json")
+	output, err := resticCmd.Output()
+	if err != nil {
+		fmt.Println("Error: Backup repo not found.")
+		return
+	}
+
+	var snapshots []resticSnapshot
+	if json.Unmarshal(output, &snapshots) != nil {
+		fmt.Println("Error: Failed to parse snapshot data.")
+		return
+	}
+
+	// Find matching snapshot
+	var matched *resticSnapshot
+	for _, snap := range snapshots {
+		if snap.ID == snapshotID || snap.ShortID == snapshotID {
+			matched = &snap
+			break
+		}
+	}
+
+	if matched == nil {
+		fmt.Printf("Error: Snapshot '%s' not found in repo.\n", snapshotID)
+		return
+	}
+
+	t, _ := time.Parse(time.RFC3339Nano, matched.Time)
+	dateStr := t.Format("2006-01-02 15:04:05")
+
+	if !flagConfirm {
+		fmt.Printf("Snapshot to forget:\n")
+		fmt.Printf("  ID:       %s (%s)\n", matched.ShortID, matched.ID)
+		fmt.Printf("  Date:     %s\n", dateStr)
+		fmt.Printf("  Hostname: %s\n", matched.Hostname)
+		fmt.Printf("\nRun with --confirm to delete this snapshot.\n")
+		return
+	}
+
+	fmt.Printf("Forgetting snapshot %s (%s) from %s-%s\n", matched.ShortID, dateStr, site.Site, envName)
+
+	forgetArgs := []string{
+		"forget", matched.ID,
+		"--repo", resticRepo,
+		"--password-file=" + resticKey,
+		"-o", "rclone.args=serve restic --stdio --b2-hard-delete --timeout=300s --contimeout=60s",
+	}
+
+	forgetCmd := exec.Command("restic", forgetArgs...)
+	forgetCmd.Stdout = os.Stdout
+	forgetCmd.Stderr = os.Stderr
+	if err := forgetCmd.Run(); err != nil {
+		fmt.Printf("Error: restic forget failed: %v\n", err)
+		return
+	}
+
+	fmt.Println("Snapshot forgotten successfully.")
+
+	if flagPrune {
+		fmt.Printf("\nPruning backup repo for %s-%s\n", site.Site, envName)
+		pruneArgs := []string{
+			"prune",
+			"--repo", resticRepo,
+			"--password-file=" + resticKey,
+			"-o", "rclone.args=serve restic --stdio --b2-hard-delete --timeout=300s --contimeout=60s",
+		}
+		pruneCmd := exec.Command("restic", pruneArgs...)
+		pruneCmd.Stdout = os.Stdout
+		pruneCmd.Stderr = os.Stderr
+		pruneCmd.Run()
+	}
+
+	// Regenerate snapshot list
+	siteEnvArg := fmt.Sprintf("%s-%s", site.Site, envName)
+	fmt.Printf("\nRegenerating snapshot list for %s\n", siteEnvArg)
+	listGenCmd := exec.Command("captaincore", "backup", "list-generate", siteEnvArg, "--captain-id="+captainID)
+	listGenCmd.Stdout = os.Stdout
+	listGenCmd.Stderr = os.Stderr
+	listGenCmd.Run()
+}
+
 func init() {
 	rootCmd.AddCommand(backupCmd)
 	backupCmd.AddCommand(backupCheckCmd)
@@ -1092,7 +1415,13 @@ func init() {
 	backupCmd.AddCommand(backupCleanupCmd)
 	backupCmd.AddCommand(backupFetchLinkCmd)
 	backupCmd.AddCommand(backupPruneCmd)
+	backupCmd.AddCommand(backupSnapshotsCmd)
+	backupCmd.AddCommand(backupForgetCmd)
 	backupCmd.AddCommand(backupStorageCleanupCmd)
+	backupSnapshotsCmd.Flags().BoolVar(&flagSizes, "sizes", false, "Fetch per-snapshot restore size (slow)")
+	backupSnapshotsCmd.Flags().StringVar(&flagFormat, "format", "", "Output format (json)")
+	backupForgetCmd.Flags().BoolVar(&flagConfirm, "confirm", false, "Actually delete the snapshot (default is preview)")
+	backupForgetCmd.Flags().BoolVar(&flagPrune, "prune", false, "Run restic prune after forget to reclaim space")
 	backupStorageCleanupCmd.Flags().BoolVar(&flagConfirm, "confirm", false, "Actually delete orphaned folders (default is dry-run)")
 	backupPruneCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "Preview what prune would do without making changes")
 	backupCleanupCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "Calculate reclaimable space without deleting")
