@@ -15,6 +15,13 @@
 #   Number of sites to backup at same time
 #
 
+# Prevent infinite recursion from re-entering bulk mode
+if [[ "$CC_BULK_RUNNING" == "true" ]]; then
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Recursive bulk execution detected. Aborting."
+  exit 1
+fi
+export CC_BULK_RUNNING=true
+
 while read config; do
   if [[ "$config" == "Error:"* ]]; then
     continue
@@ -30,15 +37,17 @@ fi
 
 cmd=$1
 cmd=${cmd/\// }
-args=(${@/$1/})
+shift # remove command name
 
 target=$CAPTAINCORE_ARGS
 count=( $target )
-target_count=(${#target})
 parallel=$FLAG_PARALLEL
 
-# Remove targets from args
-args=${args[@]:${#count[@]}:${#args[@]}}
+# Remove target arguments, leaving only flags
+for ((i = 0; i < ${#count[@]}; i++)); do shift; done
+
+# Shell-quote remaining flags for safe transport through env var
+cc_args_quoted=$(printf '%q ' "$@")
 
 # Error if no sites specifed
 if [[ $cmd == "" ]] || [[ $target == "" ]]; then
@@ -67,7 +76,7 @@ run_command() {
     progress_log="$progress_dir/${bulk_pid}.log"
 
     # JSON-escape the args string
-    args_escaped=$(printf '%s' "$args" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    args_escaped=$(printf '%s' "$cc_args_quoted" | sed 's/\\/\\\\/g; s/"/\\"/g')
     target_escaped=$(printf '%s' "$target" | tr '\n' ' ' | sed 's/\\/\\\\/g; s/"/\\"/g')
 
     printf '{"command":"%s","total":%d,"pid":%d,"started_at":%d,"captain_id":"%s","parallel":%d,"target":"%s","args":"%s"}\n' \
@@ -82,12 +91,12 @@ run_command() {
 
     if [[ "$FLAG_LABEL" == "true" ]]; then
         export CC_CMD="$cmd"
-        export CC_ARGS="$args"
+        export CC_ARGS_QUOTED="$cc_args_quoted"
         export CC_CAPTAIN_ID="$CAPTAIN_ID"
         labeled_run() {
             local site="$1"
             local raw_output output exit_code
-            raw_output=$(captaincore $CC_CMD $CC_ARGS --captain-id=$CC_CAPTAIN_ID $site 2>/dev/null)
+            eval "raw_output=\$(captaincore \"\$CC_CMD\" $CC_ARGS_QUOTED --captain-id=\"\$CC_CAPTAIN_ID\" \"\$site\" 2>/dev/null)"
             exit_code=$?
             # Extract content between markers, stripping SSH MOTD/banner
             output=$(echo "$raw_output" | sed -n '/____CC_OUTPUT_START____/,/____CC_OUTPUT_END____/{/____CC_OUTPUT_START____/d;/____CC_OUTPUT_END____/d;p;}')
@@ -103,12 +112,12 @@ run_command() {
         printf '%s\n' $target | xargs -P "$parallel" -n 1 bash -c 'labeled_run "$@"' _
     else
         export CC_CMD="$cmd"
-        export CC_ARGS="$args"
+        export CC_ARGS_QUOTED="$cc_args_quoted"
         export CC_CAPTAIN_ID="$CAPTAIN_ID"
         tracked_run() {
             local site="$1"
             local output
-            output=$(captaincore $CC_CMD $CC_ARGS --captain-id=$CC_CAPTAIN_ID $site 2>&1)
+            eval "output=\$(captaincore \"\$CC_CMD\" $CC_ARGS_QUOTED --captain-id=\"\$CC_CAPTAIN_ID\" \"\$site\" 2>&1)"
             local exit_code=$?
             if [[ -n "$output" ]]; then
                 while ! mkdir "$CC_OUTPUT_LOCK" 2>/dev/null; do sleep 0.01; done

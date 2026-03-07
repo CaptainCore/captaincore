@@ -92,6 +92,15 @@ Flags:
 				if i < len(args) {
 					cfgFile = args[i]
 				}
+			case strings.HasPrefix(arg, "--parallel="):
+				p, _ := strconv.Atoi(strings.SplitN(arg, "=", 2)[1])
+				flagParallel = p
+			case arg == "--parallel" || arg == "-p":
+				i++
+				if i < len(args) {
+					p, _ := strconv.Atoi(args[i])
+					flagParallel = p
+				}
 			case arg == "--":
 				// Skip bare separator
 			case strings.HasPrefix(arg, "-"):
