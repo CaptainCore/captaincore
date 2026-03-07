@@ -47,7 +47,10 @@ parallel=$FLAG_PARALLEL
 for ((i = 0; i < ${#count[@]}; i++)); do shift; done
 
 # Shell-quote remaining flags for safe transport through env var
-cc_args_quoted=$(printf '%q ' "$@")
+cc_args_quoted=""
+if [[ $# -gt 0 ]]; then
+  cc_args_quoted=$(printf '%q ' "$@")
+fi
 
 # Error if no sites specifed
 if [[ $cmd == "" ]] || [[ $target == "" ]]; then
@@ -99,7 +102,7 @@ run_command() {
             eval "raw_output=\$(captaincore \"\$CC_CMD\" $CC_ARGS_QUOTED --captain-id=\"\$CC_CAPTAIN_ID\" \"\$site\" 2>/dev/null)"
             exit_code=$?
             # Extract content between markers, stripping SSH MOTD/banner
-            output=$(echo "$raw_output" | sed -n '/____CC_OUTPUT_START____/,/____CC_OUTPUT_END____/{/____CC_OUTPUT_START____/d;/____CC_OUTPUT_END____/d;p;}')
+            output=$(echo "$raw_output" | sed -n '/____CC_OUTPUT_START____/,/____CC_OUTPUT_END____/{/____CC_OUTPUT_START____/d;/____CC_OUTPUT_END____/d;p;}' | sed '/^$/d')
             if [[ -n "$output" ]]; then
                 while ! mkdir "$CC_OUTPUT_LOCK" 2>/dev/null; do sleep 0.05; done
                 printf "${COLOR_GREEN}== %s ==${COLOR_NORMAL}\n%s\n\n" "$site" "$output"
