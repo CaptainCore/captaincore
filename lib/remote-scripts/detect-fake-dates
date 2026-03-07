@@ -2,7 +2,7 @@
 
 #
 #   Detect files with forged timestamps (mtime older than birth time)
-#   Filters out bulk migrations and host-managed deployments
+#   Filters out bulk migrations, host-managed deployments, and known-benign plugin files
 #   Works on Linux filesystems that support birth time (ext4, xfs with newer kernels)
 #
 #   Usage:
@@ -69,22 +69,73 @@ if [ "$remaining" -gt 0 ]; then
   fi
 fi
 
+# Pass 4: Filter known-benign files (legitimate plugin/hosting artifacts)
+if [ -s "$FILTFILE" ]; then
+  grep -v -E '(uploads/backup/|uploads/mainwp/index\.php|uploads/template-kits/index\.php|uploads/sucuri/|uploads/wpallimport/|uploads/wpallexport/|uploads/wp-lister/|uploads/smile_fonts/|uploads/avia_fonts/|uploads/bws-custom-code/|uploads/wpo/|uploads/backupbuddy_temp/|uploads/mc4wp-|uploads/wp-activity-log/|uploads/backup-guard/|uploads/redux/index\.php|uploads/astra/index\.php|uploads/wpseo-redirects/|uploads/mailchimp-for-wp/|uploads/sl-uploads/|uploads/pb_backupbuddy/|lwHostsCheck\.php|wordfence-waf\.php|wp-config-orig\.php|MOJOWordpressInstaller|ss_installhelper\.php|500\.php)' "$FILTFILE" > "${FILTFILE}.tmp"
+  benign_count=$(( $(wc -l < "$FILTFILE") - $(wc -l < "${FILTFILE}.tmp") ))
+  if [ "$benign_count" -gt 0 ]; then
+    echo "Filtered: known plugin/hosting artifacts ($benign_count files)"
+  fi
+  mv "${FILTFILE}.tmp" "$FILTFILE"
+fi
+
+# Pass 5: Filter WordPress core index.php placeholders
+if [ -s "$FILTFILE" ]; then
+  grep -v -E '\./wp-content/(index|themes/index|plugins/index)\.php$' "$FILTFILE" > "${FILTFILE}.tmp"
+  core_count=$(( $(wc -l < "$FILTFILE") - $(wc -l < "${FILTFILE}.tmp") ))
+  if [ "$core_count" -gt 0 ]; then
+    echo "Filtered: WordPress core index.php placeholders ($core_count files)"
+  fi
+  mv "${FILTFILE}.tmp" "$FILTFILE"
+fi
+
 echo ""
 
 if [ ! -s "$FILTFILE" ]; then
-  echo "No forged timestamps detected (all mismatches are from bulk operations or managed deployments)."
+  echo "No forged timestamps detected (all mismatches are from bulk operations, managed deployments, or known artifacts)."
   exit 0
 fi
 
-# Output remaining suspicious files
+# Output remaining suspicious files with risk classification
+high=0
 found=0
 while read -r birth mtime file; do
   diff=$(( (birth - mtime) / 86400 ))
   birth_date=$(date -d "@$birth" '+%Y-%m-%d %H:%M' 2>/dev/null)
   mtime_date=$(date -d "@$mtime" '+%Y-%m-%d %H:%M' 2>/dev/null)
-  printf "FORGED  %s\n" "$file"
-  printf "        mtime: %s  birth: %s  (backdated %d days)\n\n" "$mtime_date" "$birth_date" "$diff"
+
+  # Determine risk level
+  risk=""
+
+  # Content-based backdoor detection for high-confidence matches
+  if [ -f "$file" ]; then
+    if grep -qlP '(\$_(COOKIE|REQUEST|POST)\[.{15,}|base64_decode\s*\(\s*\$|eval\s*\(\s*\$|eval\s*\(\s*gzinflate|eval\s*\(\s*str_rot13|assert\s*\(\s*\$|preg_replace\s*\(.*/e)' "$file" 2>/dev/null; then
+      risk="BACKDOOR"
+    fi
+  fi
+
+  # PHP in uploads (not index.php) is high risk even without content match
+  if [ -z "$risk" ]; then
+    case "$file" in
+      *uploads/*.php)
+        case "$file" in
+          */index.php) ;;
+          *) risk="HIGH" ;;
+        esac
+        ;;
+      *phpinfo.php)
+        risk="HIGH" ;;
+    esac
+  fi
+
+  if [ -n "$risk" ]; then
+    printf "%-8s %s\n" "$risk" "$file"
+    high=$((high + 1))
+  else
+    printf "%-8s %s\n" "FORGED" "$file"
+  fi
+  printf "         mtime: %s  birth: %s  (backdated %d days)\n\n" "$mtime_date" "$birth_date" "$diff"
   found=$((found + 1))
 done < "$FILTFILE"
 
-echo "Found $found file(s) with suspicious forged timestamps."
+echo "Found $found file(s) with suspicious forged timestamps ($high high-risk)."
