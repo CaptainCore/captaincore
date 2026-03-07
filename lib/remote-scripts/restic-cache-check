@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+
+#
+#   Checks for restic cache on the remote server.
+#   Only produces output if a cache directory exists.
+#
+#   Usage: captaincore ssh <site> --script=restic-cache-check
+#          captaincore ssh @all --script=restic-cache-check
+#
+
+cache_dir="$HOME/.cache/restic"
+
+if [[ -d "$cache_dir" ]]; then
+    size=$(du -sh "$cache_dir" 2>/dev/null | cut -f1)
+    echo "${size}	${cache_dir}"
+fi
