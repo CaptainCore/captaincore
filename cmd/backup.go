@@ -707,6 +707,7 @@ func backupPruneNative(cmd *cobra.Command, args []string) {
 		"--repo", resticRepo,
 		"--password-file=" + resticKey,
 		"-o", "rclone.args=serve restic --stdio --b2-hard-delete --timeout=300s --contimeout=60s",
+		"-o", "rclone.timeout=600s",
 	}
 
 	if flagDryRun {
@@ -771,6 +772,7 @@ func backupUpgradeNative(cmd *cobra.Command, args []string) {
 		"--repo", resticRepo,
 		"--password-file=" + resticKey,
 		"-o", "rclone.args=serve restic --stdio --b2-hard-delete --timeout=300s --contimeout=60s",
+		"-o", "rclone.timeout=600s",
 	}
 
 	resticCmd := exec.Command("restic", resticArgs...)
@@ -827,6 +829,7 @@ func backupUnlockNative(cmd *cobra.Command, args []string) {
 		"--repo", resticRepo,
 		"--password-file=" + resticKey,
 		"-o", "rclone.args=serve restic --stdio --b2-hard-delete --timeout=300s --contimeout=60s",
+		"-o", "rclone.timeout=600s",
 	}
 
 	resticCmd := exec.Command("restic", resticArgs...)
@@ -1671,6 +1674,7 @@ func backupForgetNative(cmd *cobra.Command, args []string) {
 		"--repo", resticRepo,
 		"--password-file=" + resticKey,
 		"-o", "rclone.args=serve restic --stdio --b2-hard-delete --timeout=300s --contimeout=60s",
+		"-o", "rclone.timeout=600s",
 	}
 
 	forgetCmd := exec.Command("restic", forgetArgs...)
@@ -1690,6 +1694,7 @@ func backupForgetNative(cmd *cobra.Command, args []string) {
 			"--repo", resticRepo,
 			"--password-file=" + resticKey,
 			"-o", "rclone.args=serve restic --stdio --b2-hard-delete --timeout=300s --contimeout=60s",
+			"-o", "rclone.timeout=600s",
 		}
 		pruneCmd := exec.Command("restic", pruneArgs...)
 		pruneCmd.Stdout = os.Stdout
