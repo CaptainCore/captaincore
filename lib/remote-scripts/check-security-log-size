@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+
+#
+#   Reports the size of the captaincore_security_log table.
+#   Only produces output if the table exists.
+#
+#   Usage: captaincore ssh <site> --script=check-security-log-size
+#          captaincore ssh @all --script=check-security-log-size
+#          captaincore ssh @all --script=check-security-log-size --more-than=500KB
+#
+
+# Parse flags
+for arg in "$@"; do
+    if [[ $arg == --more-than=* || $arg == --more_than=* ]]; then
+        more_than="${arg#*=}"
+    fi
+done
+
+if ! command -v wp &> /dev/null || ! wp core is-installed --quiet &>/dev/null; then
+    exit 0
+fi
+
+result=$(wp db query "SELECT data_length + index_length, table_rows FROM information_schema.TABLES WHERE table_schema = DATABASE() AND table_name LIKE '%captaincore_security_log'" --skip-column-names --batch --skip-plugins --skip-themes 2>/dev/null | grep -v '^$')
+
+if [[ -z "$result" ]]; then
+    exit 0
+fi
+
+size_bytes=$(echo "$result" | awk '{print $1}')
+row_count=$(echo "$result" | awk '{print $2}')
+
+# Apply --more-than filter
+if [[ -n "$more_than" ]]; then
+    value=$(echo "$more_than" | grep -oE '[0-9]+')
+    unit=$(echo "$more_than" | grep -oEi '[A-Za-z]+')
+    case "${unit^^}" in
+        KB) threshold=$((value * 1024)) ;;
+        MB) threshold=$((value * 1024 * 1024)) ;;
+        GB) threshold=$((value * 1024 * 1024 * 1024)) ;;
+        *)  threshold="$value" ;;
+    esac
+    if [[ "$size_bytes" -lt "$threshold" ]]; then
+        exit 0
+    fi
+fi
+
+# Format size as human readable
+if [[ "$size_bytes" -ge $((1024 * 1024 * 1024)) ]]; then
+    size_display="$((size_bytes / 1024 / 1024 / 1024)) GB"
+elif [[ "$size_bytes" -ge $((1024 * 1024)) ]]; then
+    size_display="$((size_bytes / 1024 / 1024)) MB"
+elif [[ "$size_bytes" -ge 1024 ]]; then
+    size_display="$((size_bytes / 1024)) KB"
+else
+    size_display="${size_bytes} B"
+fi
+
+home=$(wp option get home --skip-plugins --skip-themes 2>/dev/null | grep -v '^$')
+echo "${size_display}, ${row_count} rows, ${home}"
