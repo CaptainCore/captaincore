@@ -713,6 +713,66 @@ func backupPruneNative(cmd *cobra.Command, args []string) {
 		resticArgs = append(resticArgs, "--dry-run")
 	}
 
+	if flagRepackUncompressed {
+		resticArgs = append(resticArgs, "--repack-uncompressed")
+	}
+
+	resticCmd := exec.Command("restic", resticArgs...)
+	resticCmd.Stdout = os.Stdout
+	resticCmd.Stderr = os.Stderr
+	resticCmd.Run()
+}
+
+var backupUpgradeCmd = &cobra.Command{
+	Use:   "upgrade <site>",
+	Short: "Upgrades restic backup repo to version 2 (enables compression)",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveNativeOrWP(cmd, args, backupUpgradeNative)
+	},
+}
+
+// backupUpgradeNative implements `captaincore backup upgrade <site>` natively in Go.
+func backupUpgradeNative(cmd *cobra.Command, args []string) {
+	sa := parseSiteArgument(args[0])
+	site, err := sa.LookupSite()
+	if err != nil || site == nil {
+		fmt.Println("Error: Site not found.")
+		return
+	}
+
+	env, err := sa.LookupEnvironment(site.SiteID)
+	if err != nil || env == nil {
+		fmt.Println("Error: Environment not found.")
+		return
+	}
+
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Println("Error: Configuration file not found.")
+		return
+	}
+
+	rcloneBackup := getRcloneBackup(captain, system)
+	resticKey := getResticKeyPath()
+	siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+	envName := strings.ToLower(env.Environment)
+	resticRepo := fmt.Sprintf("rclone:%s/%s/%s/restic-repo", rcloneBackup, siteDir, envName)
+
+	fmt.Printf("Upgrading backup repo for %s-%s to version 2\n", site.Site, envName)
+
+	resticArgs := []string{
+		"migrate", "upgrade_repo_v2",
+		"--repo", resticRepo,
+		"--password-file=" + resticKey,
+		"-o", "rclone.args=serve restic --stdio --b2-hard-delete --timeout=300s --contimeout=60s",
+	}
+
 	resticCmd := exec.Command("restic", resticArgs...)
 	resticCmd.Stdout = os.Stdout
 	resticCmd.Stderr = os.Stderr
@@ -1665,6 +1725,7 @@ func init() {
 	backupCmd.AddCommand(backupSnapshotsCmd)
 	backupCmd.AddCommand(backupForgetCmd)
 	backupCmd.AddCommand(backupStorageCleanupCmd)
+	backupCmd.AddCommand(backupUpgradeCmd)
 	backupCmd.AddCommand(backupUnlockCmd)
 	backupCmd.AddCommand(backupRepoInfoCmd)
 	backupRepoInfoCmd.Flags().Bool("stats", false, "Include full repo stats (slow, runs restic stats)")
@@ -1674,6 +1735,7 @@ func init() {
 	backupForgetCmd.Flags().BoolVar(&flagPrune, "prune", false, "Run restic prune after forget to reclaim space")
 	backupStorageCleanupCmd.Flags().BoolVar(&flagConfirm, "confirm", false, "Actually delete orphaned folders (default is dry-run)")
 	backupPruneCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "Preview what prune would do without making changes")
+	backupPruneCmd.Flags().BoolVar(&flagRepackUncompressed, "repack-uncompressed", false, "Repack and compress all uncompressed data (use after backup upgrade)")
 	backupCleanupCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "Calculate reclaimable space without deleting")
 	backupCheckCmd.Flags().BoolVarP(&flagInit, "init", "", false, "Initialize repo if missing")
 	backupDownloadCmd.Flags().StringVarP(&flagEmail, "email", "e", "", "Email notify")
