@@ -719,6 +719,62 @@ func backupPruneNative(cmd *cobra.Command, args []string) {
 	resticCmd.Run()
 }
 
+var backupUnlockCmd = &cobra.Command{
+	Use:   "unlock <site>",
+	Short: "Removes stale locks from a restic backup repo",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveNativeOrWP(cmd, args, backupUnlockNative)
+	},
+}
+
+// backupUnlockNative implements `captaincore backup unlock <site>` natively in Go.
+func backupUnlockNative(cmd *cobra.Command, args []string) {
+	sa := parseSiteArgument(args[0])
+	site, err := sa.LookupSite()
+	if err != nil || site == nil {
+		fmt.Println("Error: Site not found.")
+		return
+	}
+
+	env, err := sa.LookupEnvironment(site.SiteID)
+	if err != nil || env == nil {
+		fmt.Println("Error: Environment not found.")
+		return
+	}
+
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Println("Error: Configuration file not found.")
+		return
+	}
+
+	rcloneBackup := getRcloneBackup(captain, system)
+	resticKey := getResticKeyPath()
+	siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+	envName := strings.ToLower(env.Environment)
+	resticRepo := fmt.Sprintf("rclone:%s/%s/%s/restic-repo", rcloneBackup, siteDir, envName)
+
+	fmt.Printf("Unlocking backup repo for %s-%s\n", site.Site, envName)
+
+	resticArgs := []string{
+		"unlock",
+		"--repo", resticRepo,
+		"--password-file=" + resticKey,
+		"-o", "rclone.args=serve restic --stdio --b2-hard-delete --timeout=300s --contimeout=60s",
+	}
+
+	resticCmd := exec.Command("restic", resticArgs...)
+	resticCmd.Stdout = os.Stdout
+	resticCmd.Stderr = os.Stderr
+	resticCmd.Run()
+}
+
 var backupShowCmd = &cobra.Command{
 	Use:   "show <site> <backup-id> <file-id>",
 	Short: "Retrieve individual file from site backup",
@@ -1609,6 +1665,7 @@ func init() {
 	backupCmd.AddCommand(backupSnapshotsCmd)
 	backupCmd.AddCommand(backupForgetCmd)
 	backupCmd.AddCommand(backupStorageCleanupCmd)
+	backupCmd.AddCommand(backupUnlockCmd)
 	backupCmd.AddCommand(backupRepoInfoCmd)
 	backupRepoInfoCmd.Flags().Bool("stats", false, "Include full repo stats (slow, runs restic stats)")
 	backupSnapshotsCmd.Flags().BoolVar(&flagSizes, "sizes", false, "Fetch per-snapshot restore size (slow)")
