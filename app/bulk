@@ -99,7 +99,7 @@ run_command() {
         labeled_run() {
             local site="$1"
             local raw_output output exit_code
-            eval "raw_output=\$(captaincore \"\$CC_CMD\" $CC_ARGS_QUOTED --captain-id=\"\$CC_CAPTAIN_ID\" \"\$site\" 2>/dev/null)"
+            raw_output=$(captaincore $CC_CMD $CC_ARGS_QUOTED --captain-id=$CC_CAPTAIN_ID $site 2>/dev/null)
             exit_code=$?
             # Extract content between markers, stripping SSH MOTD/banner
             output=$(echo "$raw_output" | sed -n '/____CC_OUTPUT_START____/,/____CC_OUTPUT_END____/{/____CC_OUTPUT_START____/d;/____CC_OUTPUT_END____/d;p;}' | sed '/^$/d')
@@ -119,15 +119,8 @@ run_command() {
         export CC_CAPTAIN_ID="$CAPTAIN_ID"
         tracked_run() {
             local site="$1"
-            local output
-            eval "output=\$(captaincore \"\$CC_CMD\" $CC_ARGS_QUOTED --captain-id=\"\$CC_CAPTAIN_ID\" \"\$site\" 2>&1)"
-            local exit_code=$?
-            if [[ -n "$output" ]]; then
-                while ! mkdir "$CC_OUTPUT_LOCK" 2>/dev/null; do sleep 0.01; done
-                printf '%s\n' "$output"
-                rmdir "$CC_OUTPUT_LOCK"
-            fi
-            printf '%s %d %d\n' "$site" "$exit_code" "$(date +%s)" >> "$CC_PROGRESS_LOG"
+            captaincore $CC_CMD $CC_ARGS_QUOTED --captain-id=$CC_CAPTAIN_ID $site 2>&1
+            printf '%s %d %d\n' "$site" "$?" "$(date +%s)" >> "$CC_PROGRESS_LOG"
         }
         export -f tracked_run
         printf '%s\n' $target | xargs -P "$parallel" -n 1 bash -c 'tracked_run "$@"' _
