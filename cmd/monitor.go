@@ -26,6 +26,7 @@ type MonitorRecord struct {
 	Name        string `json:"name"`
 	HTTPCode    string `json:"http_code"`
 	HTMLValid   string `json:"html_valid"`
+	Error       string `json:"error,omitempty"`
 	CheckCount  int    `json:"check_count"`
 	NotifyCount int    `json:"notify_count"`
 	CreatedAt   int64  `json:"created_at"`
@@ -431,6 +432,7 @@ func monitorGenerate(logErrors []MonitorCheckResult, monitorFile string, origina
 				monitorRecords[i].UpdatedAt = timeNow
 				monitorRecords[i].HTTPCode = logError.HTTPCode
 				monitorRecords[i].HTMLValid = logError.HTMLValid
+				monitorRecords[i].Error = logError.Error
 				found = true
 				break
 			}
@@ -441,6 +443,7 @@ func monitorGenerate(logErrors []MonitorCheckResult, monitorFile string, origina
 				Name:        logError.Name,
 				HTTPCode:    logError.HTTPCode,
 				HTMLValid:   logError.HTMLValid,
+				Error:       logError.Error,
 				CheckCount:  1,
 				NotifyCount: 0,
 				CreatedAt:   timeNow,
@@ -516,13 +519,17 @@ func monitorGenerate(logErrors []MonitorCheckResult, monitorFile string, origina
 
 		// HTML invalid
 		if record.HTMLValid == "false" {
+			detail := "HTML is invalid"
+			if record.Error != "" {
+				detail = record.Error
+			}
 			record.NotifyCount++
 			emailErrors = append(emailErrors, MonitorEmailItem{
 				Name:     record.Name,
 				URL:      record.URL,
 				HTTPCode: record.HTTPCode,
 				TimeAgo:  timeElapsedString(record.CreatedAt),
-				Detail:   "HTML is invalid",
+				Detail:   detail,
 			})
 			keepRecords = append(keepRecords, record)
 			continue
@@ -546,6 +553,7 @@ func monitorGenerate(logErrors []MonitorCheckResult, monitorFile string, origina
 			URL:      record.URL,
 			HTTPCode: record.HTTPCode,
 			TimeAgo:  timeElapsedString(record.CreatedAt),
+			Detail:   record.Error,
 		})
 		keepRecords = append(keepRecords, record)
 	}

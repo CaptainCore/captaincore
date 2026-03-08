@@ -20,6 +20,7 @@ type MonitorCheckResult struct {
 	URL          string `json:"url"`
 	Name         string `json:"name"`
 	HTMLValid    string `json:"html_valid"`
+	Error        string `json:"error,omitempty"`
 }
 
 // sharedTransport is a shared HTTP transport for all monitor checks.
@@ -92,12 +93,14 @@ func doHTTPCheck(url, name string, timeout time.Duration) MonitorCheckResult {
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
+		result.Error = err.Error()
 		return result
 	}
 	req.Header.Set("User-Agent", "captaincore/1.0 (CaptainCore Health Check by CaptainCore.io)")
 
 	resp, err := client.Do(req)
 	if err != nil {
+		result.Error = err.Error()
 		result.NumRedirects = fmt.Sprintf("%d", redirectCount)
 		return result
 	}
