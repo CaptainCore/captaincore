@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -46,7 +47,8 @@ type MonitorEmailItem struct {
 // Results are returned in the same order as the input URLs.
 // The optional onResult callback is invoked for each result as it arrives.
 // The timeout parameter controls per-request timeout (0 uses the default 15s).
-func monitorRunChecks(urls []string, parallelism int, timeout time.Duration, onResult func(MonitorCheckResult)) []MonitorCheckResult {
+// The transport parameter selects the HTTP transport (nil uses sharedTransport).
+func monitorRunChecks(urls []string, parallelism int, timeout time.Duration, transport *http.Transport, onResult func(MonitorCheckResult)) []MonitorCheckResult {
 	type indexedResult struct {
 		index  int
 		result MonitorCheckResult
@@ -70,7 +72,7 @@ func monitorRunChecks(urls []string, parallelism int, timeout time.Duration, onR
 			if len(parts) > 1 {
 				name = parts[1]
 			}
-			ch <- indexedResult{index: idx, result: monitorCheckSingle(url, name, timeout)}
+			ch <- indexedResult{index: idx, result: monitorCheckSingle(url, name, timeout, transport)}
 		}(i, entry)
 	}
 
@@ -298,7 +300,13 @@ func monitorNative(cmd *cobra.Command, args []string) {
 			checkTimeout = 60 * time.Second
 		}
 
-		results := monitorRunChecks(urlsToCheck, parallelism, checkTimeout, streamResult)
+		// First attempt uses system DNS; retries use 1.1.1.1 to rule out local DNS issues
+		transport := sharedTransport
+		if attempt > 1 {
+			transport = retryTransport
+		}
+
+		results := monitorRunChecks(urlsToCheck, parallelism, checkTimeout, transport, streamResult)
 
 		// On first attempt, store full results
 		if attempt == 1 {

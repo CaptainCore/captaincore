@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -40,13 +41,40 @@ var sharedTransport = &http.Transport{
 	}).DialContext,
 }
 
+// retryTransport uses 1.1.1.1 (Cloudflare DNS) directly, bypassing the
+// local system resolver. Used on retries to rule out local DNS issues.
+var retryTransport = &http.Transport{
+	TLSClientConfig:     &tls.Config{InsecureSkipVerify: false},
+	MaxIdleConns:         100,
+	MaxIdleConnsPerHost:  2,
+	MaxConnsPerHost:      4,
+	IdleConnTimeout:      30 * time.Second,
+	DisableKeepAlives:    true,
+	TLSHandshakeTimeout: 10 * time.Second,
+	DialContext: (&net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 0,
+		Resolver: &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				d := net.Dialer{Timeout: 5 * time.Second}
+				return d.DialContext(ctx, "udp", "1.1.1.1:53")
+			},
+		},
+	}).DialContext,
+}
+
 // monitorCheckSingle performs an HTTP health check on a single URL.
 // It is safe to call from goroutines — no shared state is accessed.
 // HTTP URLs are upgraded to HTTPS first; if the connection fails, it falls back to HTTP.
 // The timeout parameter controls how long to wait for a response (0 uses the default 15s).
-func monitorCheckSingle(url, name string, timeout time.Duration) MonitorCheckResult {
+// The transport parameter selects the HTTP transport (nil uses sharedTransport).
+func monitorCheckSingle(url, name string, timeout time.Duration, transport *http.Transport) MonitorCheckResult {
 	if timeout == 0 {
 		timeout = 15 * time.Second
+	}
+	if transport == nil {
+		transport = sharedTransport
 	}
 
 	// Normalize: try HTTPS first for http:// URLs
@@ -57,19 +85,19 @@ func monitorCheckSingle(url, name string, timeout time.Duration) MonitorCheckRes
 		upgraded = true
 	}
 
-	result := doHTTPCheck(url, name, timeout)
+	result := doHTTPCheck(url, name, timeout, transport)
 
 	// If we upgraded to HTTPS and the connection failed entirely (000),
 	// fall back to the original HTTP URL.
 	if upgraded && result.HTTPCode == "000" {
-		result = doHTTPCheck(originalURL, name, timeout)
+		result = doHTTPCheck(originalURL, name, timeout, transport)
 	}
 
 	return result
 }
 
 // doHTTPCheck performs the actual HTTP request and response validation.
-func doHTTPCheck(url, name string, timeout time.Duration) MonitorCheckResult {
+func doHTTPCheck(url, name string, timeout time.Duration, transport *http.Transport) MonitorCheckResult {
 	result := MonitorCheckResult{
 		URL:          url,
 		Name:         name,
@@ -88,7 +116,7 @@ func doHTTPCheck(url, name string, timeout time.Duration) MonitorCheckResult {
 			redirectCount++
 			return nil
 		},
-		Transport: sharedTransport,
+		Transport: transport,
 	}
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -153,7 +181,7 @@ func monitorCheckNative(cmd *cobra.Command, args []string) {
 		name = parts[1]
 	}
 
-	result := monitorCheckSingle(url, name, 0)
+	result := monitorCheckSingle(url, name, 0, nil)
 
 	out, _ := json.Marshal(result)
 	fmt.Println(string(out))
