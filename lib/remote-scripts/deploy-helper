@@ -61,7 +61,7 @@ read -r -d '' build_mu_plugin << 'heredoc'
  * Plugin Name: CaptainCore Helper
  * Plugin URI: https://captaincore.io
  * Description: Collection of helper functions for CaptainCore
- * Version: 0.4.2
+ * Version: 0.4.3
  * Author: CaptainCore
  * Author URI: https://captaincore.io
  * Text Domain: captaincore-helper
@@ -85,12 +85,30 @@ class MagicLogin {
 	 * Initializes hooks related to magic login.
 	 */
 	public static function init() {
+		// Handle quick login early via wp_loaded to avoid interference from
+		// other plugins' admin_init hooks (e.g. RankMath Pro background processing
+		// calls check_ajax_referer() which kills unrelated AJAX requests).
+		add_action( 'wp_loaded', [ __CLASS__, 'maybe_handle_quick_login' ], 0 );
 		add_action( 'wp_ajax_nopriv_captaincore_quick_login', [ __CLASS__, 'quick_login_action_callback' ] );
 		add_action( 'init', [ __CLASS__, 'login_handle_token' ] );
 
 		if ( defined( 'WP_CLI' ) && WP_CLI ) {
 			\WP_CLI::add_command( 'user login', [ __CLASS__, 'generate_login_link_command' ] );
 		}
+	}
+
+	/**
+	 * Handle quick login requests early (before admin_init) to prevent
+	 * other plugins from interfering with the AJAX request.
+	 */
+	public static function maybe_handle_quick_login() {
+		if ( ! defined( 'DOING_AJAX' ) || ! DOING_AJAX ) {
+			return;
+		}
+		if ( empty( $_REQUEST['action'] ) || $_REQUEST['action'] !== 'captaincore_quick_login' ) {
+			return;
+		}
+		self::quick_login_action_callback();
 	}
 
 	/**
