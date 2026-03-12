@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+
+#
+#   Safely removes the restic cache directory from a remote server.
+#   Reports size before removal. Handles symlinks safely.
+#
+#   Usage: captaincore ssh <site> --script=restic-cache-purge
+#
+
+cache_dir="$HOME/.cache/restic"
+
+# Not found (check both regular and symlink)
+if [[ ! -e "$cache_dir" ]] && [[ ! -L "$cache_dir" ]]; then
+    echo "gone"
+    exit 0
+fi
+
+# Report size before removal
+size_bytes=$(du -sb "$cache_dir" 2>/dev/null | cut -f1)
+if [[ -n "$size_bytes" ]] && [[ "$size_bytes" -gt 0 ]]; then
+    if [[ "$size_bytes" -ge $((1024 * 1024 * 1024)) ]]; then
+        size_display="$((size_bytes / 1024 / 1024 / 1024)) GB"
+    elif [[ "$size_bytes" -ge $((1024 * 1024)) ]]; then
+        size_display="$((size_bytes / 1024 / 1024)) MB"
+    elif [[ "$size_bytes" -ge 1024 ]]; then
+        size_display="$((size_bytes / 1024)) KB"
+    else
+        size_display="${size_bytes} B"
+    fi
+    echo "size:${size_display}"
+fi
+
+# Symlink: follow only if target is a directory with "restic" in the path
+if [[ -L "$cache_dir" ]]; then
+    target=$(readlink -f "$cache_dir" 2>/dev/null)
+    if [[ -d "$target" ]] && echo "$target" | grep -q restic; then
+        rm -rf "$target" && rm -f "$cache_dir" && echo "removed" || echo "failed"
+    else
+        echo "symlink-unsafe"
+    fi
+    exit 0
+fi
+
+# Regular directory
+if [[ -d "$cache_dir" ]]; then
+    rm -rf "$cache_dir" && echo "removed" || echo "failed"
+    exit 0
+fi
+
+echo "not-a-directory"
