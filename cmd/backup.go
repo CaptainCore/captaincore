@@ -102,8 +102,111 @@ var backupListCmd = &cobra.Command{
 		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		resolveCommand(cmd, args)
+		resolveNativeOrWP(cmd, args, backupListNative)
 	},
+}
+
+// backupListNative implements `captaincore backup list <site>` natively in Go.
+func backupListNative(cmd *cobra.Command, args []string) {
+	sa := parseSiteArgument(args[0])
+	site, err := sa.LookupSite()
+	if err != nil || site == nil {
+		return
+	}
+
+	env, err := sa.LookupEnvironment(site.SiteID)
+	if err != nil || env == nil {
+		return
+	}
+
+	_, system, _, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Println("Error: Configuration file not found.")
+		return
+	}
+
+	siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+	envName := strings.ToLower(env.Environment)
+	listPath := filepath.Join(system.Path, siteDir, envName, "backups", "list.json")
+
+	// Generate list if missing or empty
+	info, statErr := os.Stat(listPath)
+	if statErr != nil || info.Size() == 0 {
+		captainID := os.Getenv("CAPTAIN_ID")
+		siteEnvArg := fmt.Sprintf("%s-%s", site.Site, envName)
+		genCmd := exec.Command("captaincore", "backup", "list-generate", siteEnvArg, "--captain-id="+captainID)
+		genCmd.Stdout = os.Stdout
+		genCmd.Stderr = os.Stderr
+		genCmd.Run()
+	}
+
+	data, err := os.ReadFile(listPath)
+	if err != nil {
+		fmt.Println("Error: Could not read backup list.")
+		return
+	}
+
+	// JSON output for UI consumption
+	if flagFormat == "json" {
+		fmt.Println(string(data))
+		return
+	}
+
+	// Parse snapshots for table output
+	var snapshots []map[string]interface{}
+	if json.Unmarshal(data, &snapshots) != nil {
+		fmt.Println(string(data))
+		return
+	}
+
+	if len(snapshots) == 0 {
+		fmt.Println("No snapshots found.")
+		return
+	}
+
+	fmt.Printf("%-12s %-22s %-10s %s\n", "ID", "Date", "Size", "Tags")
+	for _, snap := range snapshots {
+		id := ""
+		if v, ok := snap["short_id"].(string); ok {
+			id = v
+		} else if v, ok := snap["id"].(string); ok {
+			if len(v) > 8 {
+				id = v[:8]
+			} else {
+				id = v
+			}
+		}
+
+		dateStr := ""
+		if v, ok := snap["time"].(string); ok {
+			t, err := time.Parse(time.RFC3339Nano, v)
+			if err == nil {
+				dateStr = t.Format("2006-01-02 15:04:05")
+			} else {
+				dateStr = v
+			}
+		}
+
+		sizeStr := "--"
+		if summary, ok := snap["summary"].(map[string]interface{}); ok {
+			if totalBytes, ok := summary["total_bytes_processed"].(float64); ok {
+				sizeStr = formatBytes(strconv.FormatUint(uint64(totalBytes), 10))
+			}
+		}
+
+		tags := ""
+		if v, ok := snap["tags"].([]interface{}); ok && len(v) > 0 {
+			tagStrs := make([]string, len(v))
+			for i, tag := range v {
+				tagStrs[i] = fmt.Sprintf("%v", tag)
+			}
+			tags = strings.Join(tagStrs, ", ")
+		}
+
+		fmt.Printf("%-12s %-22s %-10s %s\n", id, dateStr, sizeStr, tags)
+	}
+
+	fmt.Printf("\n%d snapshots\n", len(snapshots))
 }
 
 var backupListGenerateCmd = &cobra.Command{
@@ -719,6 +822,9 @@ func backupPruneNative(cmd *cobra.Command, args []string) {
 	}
 
 	resticCmd := exec.Command("restic", resticArgs...)
+	if system.PathTmp != "" {
+		resticCmd.Env = append(os.Environ(), "TMPDIR="+system.PathTmp)
+	}
 	resticCmd.Stdout = os.Stdout
 	resticCmd.Stderr = os.Stderr
 	resticCmd.Run()
@@ -776,9 +882,241 @@ func backupUpgradeNative(cmd *cobra.Command, args []string) {
 	}
 
 	resticCmd := exec.Command("restic", resticArgs...)
+	if system.PathTmp != "" {
+		resticCmd.Env = append(os.Environ(), "TMPDIR="+system.PathTmp)
+	}
 	resticCmd.Stdout = os.Stdout
 	resticCmd.Stderr = os.Stderr
 	resticCmd.Run()
+}
+
+var backupMigrateV2Cmd = &cobra.Command{
+	Use:   "migrate-v2 <site>",
+	Short: "Migrates restic backup repo from v1 to v2 with compression",
+	Long: `Orchestrates a full v1 to v2 migration:
+  1. Checks if repo is already v2 (skips unless --force)
+  2. Upgrades repo to v2 (restic migrate upgrade_repo_v2)
+  3. Repacks all uncompressed data (restic prune --repack-uncompressed)
+  4. Clears remote restic cache via SSH
+  5. Verifies final repo state
+
+Uses system path_tmp for TMPDIR (large repos need 100s of GBs).`,
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveNativeOrWP(cmd, args, backupMigrateV2Native)
+	},
+}
+
+// backupMigrateV2Native implements `captaincore backup migrate-v2 <site>` natively in Go.
+func backupMigrateV2Native(cmd *cobra.Command, args []string) {
+	sa := parseSiteArgument(args[0])
+	site, err := sa.LookupSite()
+	if err != nil || site == nil {
+		fmt.Println("Error: Site not found.")
+		return
+	}
+
+	env, err := sa.LookupEnvironment(site.SiteID)
+	if err != nil || env == nil {
+		fmt.Println("Error: Environment not found.")
+		return
+	}
+
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Println("Error: Configuration file not found.")
+		return
+	}
+
+	rcloneBackup := getRcloneBackup(captain, system)
+	resticKey := getResticKeyPath()
+	siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+	envName := strings.ToLower(env.Environment)
+	resticRepo := fmt.Sprintf("rclone:%s/%s/%s/restic-repo", rcloneBackup, siteDir, envName)
+	siteLabel := fmt.Sprintf("%s-%s", site.Site, envName)
+
+	rcloneArgs := []string{
+		"-o", "rclone.args=serve restic --stdio --b2-hard-delete --timeout=300s --contimeout=60s",
+		"-o", "rclone.timeout=600s",
+	}
+
+	// Build restic env with TMPDIR from config
+	resticEnv := os.Environ()
+	if system.PathTmp != "" {
+		resticEnv = append(resticEnv, "TMPDIR="+system.PathTmp)
+		fmt.Printf("Using TMPDIR=%s\n", system.PathTmp)
+	}
+
+	// -----------------------------------------------------------
+	// Step 1: Pre-flight — check current repo version
+	// -----------------------------------------------------------
+	fmt.Printf("\n[1/5] Checking repo version for %s\n", siteLabel)
+
+	catArgs := append([]string{"cat", "config", "--repo", resticRepo, "--password-file=" + resticKey, "--json"}, rcloneArgs...)
+	catCmd := exec.Command("restic", catArgs...)
+	catCmd.Env = resticEnv
+	catOutput, err := catCmd.Output()
+	if err != nil {
+		fmt.Printf("Error: Could not read repo config for %s. Is the repo accessible?\n", siteLabel)
+		return
+	}
+
+	var repoConfig struct {
+		Version int `json:"version"`
+	}
+	if json.Unmarshal(catOutput, &repoConfig) != nil {
+		fmt.Println("Error: Failed to parse repo config.")
+		return
+	}
+
+	// Get repo size before migration
+	rclonePath := fmt.Sprintf("%s/%s/%s/restic-repo", rcloneBackup, siteDir, envName)
+	type rcloneSize struct {
+		Count int64  `json:"count"`
+		Bytes uint64 `json:"bytes"`
+	}
+	var repoSizeBefore rcloneSize
+	rcloneSizeCmd := exec.Command("rclone", "size", "--json", rclonePath)
+	if rcloneSizeOutput, err := rcloneSizeCmd.Output(); err == nil {
+		json.Unmarshal(rcloneSizeOutput, &repoSizeBefore)
+	}
+	fmt.Printf("Repo version: %d, size: %s (%d objects)\n", repoConfig.Version, formatBytes(strconv.FormatUint(repoSizeBefore.Bytes, 10)), repoSizeBefore.Count)
+
+	if repoConfig.Version >= 2 && !flagForce {
+		fmt.Printf("Repo is already version 2. Nothing to do. (use --force to re-run)\n")
+		return
+	}
+
+	if repoConfig.Version >= 2 && flagForce {
+		fmt.Printf("--force specified. Continuing.\n")
+	} else {
+		fmt.Printf("Proceeding with migration.\n")
+	}
+
+	// -----------------------------------------------------------
+	// Step 2: Upgrade repo to v2
+	// -----------------------------------------------------------
+	fmt.Printf("\n[2/5] Upgrading repo to v2 for %s\n", siteLabel)
+
+	upgradeArgs := append([]string{
+		"migrate", "upgrade_repo_v2",
+		"--repo", resticRepo,
+		"--password-file=" + resticKey,
+	}, rcloneArgs...)
+
+	upgradeCmd := exec.Command("restic", upgradeArgs...)
+	upgradeCmd.Env = resticEnv
+	upgradeCmd.Stdout = os.Stdout
+	upgradeCmd.Stderr = os.Stderr
+	if err := upgradeCmd.Run(); err != nil {
+		// Check if migration already applied (restic exits non-zero with message)
+		if repoConfig.Version >= 2 {
+			fmt.Println("Migration already applied, continuing.")
+		} else {
+			fmt.Printf("Error: Upgrade failed for %s. Aborting.\n", siteLabel)
+			return
+		}
+	}
+
+	// -----------------------------------------------------------
+	// Step 3: Repack uncompressed data
+	// -----------------------------------------------------------
+	skipRepack, _ := cmd.Flags().GetBool("skip-repack")
+	if skipRepack {
+		fmt.Printf("\n[3/5] Skipping repack (--skip-repack)\n")
+	} else {
+		fmt.Printf("\n[3/5] Repacking uncompressed data for %s (this may take a while)\n", siteLabel)
+
+		pruneArgs := append([]string{
+			"prune", "--repack-uncompressed",
+			"--repo", resticRepo,
+			"--password-file=" + resticKey,
+		}, rcloneArgs...)
+
+		pruneCmd := exec.Command("restic", pruneArgs...)
+		pruneCmd.Env = resticEnv
+		pruneCmd.Stdout = os.Stdout
+		pruneCmd.Stderr = os.Stderr
+		if err := pruneCmd.Run(); err != nil {
+			fmt.Printf("Error: Repack failed for %s.\n", siteLabel)
+			return
+		}
+	}
+
+	// -----------------------------------------------------------
+	// Step 4: Clear remote restic cache
+	// -----------------------------------------------------------
+	skipCacheCleanup, _ := cmd.Flags().GetBool("skip-cache-cleanup")
+	siteEnvArg := fmt.Sprintf("%s-%s", site.Site, envName)
+	if skipCacheCleanup {
+		fmt.Printf("\n[4/5] Skipping cache cleanup (--skip-cache-cleanup)\n")
+	} else {
+		fmt.Printf("\n[4/5] Clearing remote restic cache for %s\n", siteLabel)
+
+		// Check cache size before clearing
+		cacheCheckArgs := []string{"ssh", siteEnvArg, "--script=restic-cache-check", "--captain-id=" + captainID}
+		cacheCheckCmd := exec.Command("captaincore", cacheCheckArgs...)
+		if cacheOutput, err := cacheCheckCmd.Output(); err == nil {
+			cacheStr := strings.TrimSpace(string(cacheOutput))
+			if cacheStr != "" {
+				fmt.Printf("Remote cache found: %s\n", strings.Split(cacheStr, "\t")[0])
+			} else {
+				fmt.Printf("No remote cache found.\n")
+			}
+		}
+
+		sshArgs := []string{"ssh", siteEnvArg, "--command=rm -rf ~/.cache/restic", "--captain-id=" + captainID}
+		sshCmd := exec.Command("captaincore", sshArgs...)
+		sshCmd.Stdout = os.Stdout
+		sshCmd.Stderr = os.Stderr
+		if err := sshCmd.Run(); err != nil {
+			fmt.Printf("Warning: Cache cleanup failed for %s (non-fatal).\n", siteLabel)
+		} else {
+			fmt.Printf("Cache cleared.\n")
+		}
+	}
+
+	// -----------------------------------------------------------
+	// Step 5: Verify final state
+	// -----------------------------------------------------------
+	fmt.Printf("\n[5/5] Verifying repo for %s\n", siteLabel)
+
+	verifyCatCmd := exec.Command("restic", catArgs...)
+	verifyCatCmd.Env = resticEnv
+	verifyOutput, err := verifyCatCmd.Output()
+	if err != nil {
+		fmt.Printf("Warning: Could not verify repo config after migration.\n")
+	} else {
+		var verifyConfig struct {
+			Version int `json:"version"`
+		}
+		if json.Unmarshal(verifyOutput, &verifyConfig) == nil {
+			fmt.Printf("Repo version: %d\n", verifyConfig.Version)
+		}
+	}
+
+	// Get repo size after migration
+	var repoSizeAfter rcloneSize
+	rcloneSizeAfterCmd := exec.Command("rclone", "size", "--json", rclonePath)
+	if rcloneSizeOutput, err := rcloneSizeAfterCmd.Output(); err == nil {
+		json.Unmarshal(rcloneSizeOutput, &repoSizeAfter)
+	}
+	fmt.Printf("Repo size: %s -> %s (%d objects)\n",
+		formatBytes(strconv.FormatUint(repoSizeBefore.Bytes, 10)),
+		formatBytes(strconv.FormatUint(repoSizeAfter.Bytes, 10)),
+		repoSizeAfter.Count)
+	if repoSizeBefore.Bytes > 0 && repoSizeAfter.Bytes < repoSizeBefore.Bytes {
+		saved := repoSizeBefore.Bytes - repoSizeAfter.Bytes
+		pct := float64(saved) / float64(repoSizeBefore.Bytes) * 100
+		fmt.Printf("Saved: %s (%.1f%%)\n", formatBytes(strconv.FormatUint(saved, 10)), pct)
+	}
+
+	fmt.Printf("\nMigration complete for %s.\n", siteLabel)
 }
 
 var backupUnlockCmd = &cobra.Command{
@@ -1719,6 +2057,7 @@ func init() {
 	backupCmd.AddCommand(backupGetCmd)
 	backupCmd.AddCommand(backupGetGenerateCmd)
 	backupCmd.AddCommand(backupListCmd)
+	backupListCmd.Flags().StringVar(&flagFormat, "format", "", "Output format (json)")
 	backupCmd.AddCommand(backupListGenerateCmd)
 	backupCmd.AddCommand(backupListMissingCmd)
 	backupCmd.AddCommand(backupVerifyCmd)
@@ -1732,6 +2071,10 @@ func init() {
 	backupCmd.AddCommand(backupStorageCleanupCmd)
 	backupCmd.AddCommand(backupUpgradeCmd)
 	backupCmd.AddCommand(backupUnlockCmd)
+	backupCmd.AddCommand(backupMigrateV2Cmd)
+	backupMigrateV2Cmd.Flags().BoolVar(&flagForce, "force", false, "Run even if repo is already v2")
+	backupMigrateV2Cmd.Flags().Bool("skip-repack", false, "Skip the repack step (upgrade only)")
+	backupMigrateV2Cmd.Flags().Bool("skip-cache-cleanup", false, "Skip remote cache cleanup")
 	backupCmd.AddCommand(backupRepoInfoCmd)
 	backupRepoInfoCmd.Flags().Bool("stats", false, "Include full repo stats (slow, runs restic stats)")
 	backupSnapshotsCmd.Flags().BoolVar(&flagSizes, "sizes", false, "Fetch per-snapshot restore size (slow)")
