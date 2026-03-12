@@ -1058,36 +1058,25 @@ func backupMigrateV2Native(cmd *cobra.Command, args []string) {
 	} else {
 		fmt.Printf("\n[4/5] Clearing remote restic cache for %s\n", siteLabel)
 
-		// Check cache size before clearing
-		cacheCheckArgs := []string{"ssh", siteEnvArg, "--script=restic-cache-check", "--captain-id=" + captainID}
-		cacheCheckCmd := exec.Command("captaincore", cacheCheckArgs...)
-		if cacheOutput, err := cacheCheckCmd.Output(); err == nil {
-			cacheStr := strings.TrimSpace(string(cacheOutput))
-			if cacheStr != "" {
-				fmt.Printf("Remote cache found: %s\n", strings.Split(cacheStr, "\t")[0])
-			} else {
-				fmt.Printf("No remote cache found.\n")
-			}
-		}
-
-		// Safety: verify ~/.cache/restic is a real directory (not a symlink) before removing
-		safeRmCmd := `cache_dir="$HOME/.cache/restic" && ` +
-			`if [ ! -e "$cache_dir" ]; then echo gone; ` +
-			`elif [ -L "$cache_dir" ]; then echo symlink; ` +
-			`elif [ -d "$cache_dir" ]; then rm -rf "$cache_dir" && echo removed || echo failed; ` +
-			`else echo not-a-directory; fi`
-		sshArgs := []string{"ssh", siteEnvArg, "--command=" + safeRmCmd, "--captain-id=" + captainID}
+		sshArgs := []string{"ssh", siteEnvArg, "--script=restic-cache-purge", "--captain-id=" + captainID}
 
 		// Retry up to 3 times — cache dir can race with background restic processes
 		for attempt := 1; attempt <= 3; attempt++ {
 			sshCmd := exec.Command("captaincore", sshArgs...)
 			if output, err := sshCmd.Output(); err == nil {
-				result := strings.TrimSpace(string(output))
+				lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+				result := lines[len(lines)-1]
+				// Print cache size if reported
+				for _, line := range lines {
+					if strings.HasPrefix(line, "size:") {
+						fmt.Printf("Remote cache: %s\n", strings.TrimPrefix(line, "size:"))
+					}
+				}
 				switch result {
 				case "removed", "gone":
 					fmt.Printf("Cache cleared.\n")
-				case "symlink":
-					fmt.Printf("Warning: ~/.cache/restic is a symlink, skipping removal.\n")
+				case "symlink-unsafe":
+					fmt.Printf("Warning: ~/.cache/restic is a symlink to a non-restic path, skipping removal.\n")
 				case "not-a-directory":
 					fmt.Printf("Warning: ~/.cache/restic is not a directory, skipping removal.\n")
 				default:
