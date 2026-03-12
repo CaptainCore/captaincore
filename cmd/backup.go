@@ -1070,14 +1070,34 @@ func backupMigrateV2Native(cmd *cobra.Command, args []string) {
 			}
 		}
 
-		sshArgs := []string{"ssh", siteEnvArg, "--command=rm -rf ~/.cache/restic", "--captain-id=" + captainID}
-		sshCmd := exec.Command("captaincore", sshArgs...)
-		sshCmd.Stdout = os.Stdout
-		sshCmd.Stderr = os.Stderr
-		if err := sshCmd.Run(); err != nil {
-			fmt.Printf("Warning: Cache cleanup failed for %s (non-fatal).\n", siteLabel)
-		} else {
-			fmt.Printf("Cache cleared.\n")
+		// Safety: verify ~/.cache/restic is a real directory (not a symlink) before removing
+		safeRmCmd := `cache_dir="$HOME/.cache/restic" && ` +
+			`if [ ! -e "$cache_dir" ]; then echo gone; ` +
+			`elif [ -L "$cache_dir" ]; then echo symlink; ` +
+			`elif [ -d "$cache_dir" ]; then rm -rf "$cache_dir" && echo removed || echo failed; ` +
+			`else echo not-a-directory; fi`
+		sshArgs := []string{"ssh", siteEnvArg, "--command=" + safeRmCmd, "--captain-id=" + captainID}
+
+		// Retry up to 3 times — cache dir can race with background restic processes
+		for attempt := 1; attempt <= 3; attempt++ {
+			sshCmd := exec.Command("captaincore", sshArgs...)
+			if output, err := sshCmd.Output(); err == nil {
+				result := strings.TrimSpace(string(output))
+				switch result {
+				case "removed", "gone":
+					fmt.Printf("Cache cleared.\n")
+				case "symlink":
+					fmt.Printf("Warning: ~/.cache/restic is a symlink, skipping removal.\n")
+				case "not-a-directory":
+					fmt.Printf("Warning: ~/.cache/restic is not a directory, skipping removal.\n")
+				default:
+					if attempt < 3 {
+						continue
+					}
+					fmt.Printf("Warning: Cache may not be fully cleared (non-fatal).\n")
+				}
+			}
+			break
 		}
 	}
 
