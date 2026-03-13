@@ -3,22 +3,8 @@
 #
 #   Fetches site data
 #
-#   Returns:
-#   line 1: plugin data
-#   line 2: theme data
-#   line 3: core version
-#   line 4: home url
-#   line 5: user data
-#   line 6: database name
-#   line 7: database username
-#   line 8: database password
-#   line 9: core verify checksum (0=fail, 1=pass)
-#   line 10: subsite count
-#   line 11: PHP memory
-#   line 12: default role
-#   line 13: registration
-#   line 14: token
-#   line 15: core verify checksum details (JSON: status, modified, extra, missing)
+#   Returns key:value pairs, one per line.
+#   Values may contain JSON. Split on the first colon only.
 #
 
 if [ ! -f "wp-config.php" ]; then
@@ -106,19 +92,41 @@ registration=$( wp option get users_can_register --skip-themes --skip-plugins --
 
 token=$( wp eval "echo md5( AUTH_KEY );" --skip-plugins --skip-themes )
 
-# Assume WP-CLI output may contain whitespaces and remove.
-echo ${plugins} | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
-echo ${themes} | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
-echo ${core} | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
-echo ${home_url} | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
-echo ${users} | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
-echo ${db_name}
-echo ${db_username}
-echo ${db_password}
-echo ${core_verify_checksums}
-echo ${subsite_count} | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
-echo ${php_memory}
-echo ${default_role}
-echo ${registration}
-echo ${token}
-echo ${core_verify_checksums_json}
+# Output key:value pairs (trim whitespace from WP-CLI output)
+trim() { echo "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
+
+echo "plugins:$(trim "$plugins")"
+echo "themes:$(trim "$themes")"
+echo "core:$(trim "$core")"
+echo "home_url:$(trim "$home_url")"
+echo "users:$(trim "$users")"
+echo "database_name:${db_name}"
+echo "database_username:${db_username}"
+echo "database_password:${db_password}"
+echo "core_verify_checksums:${core_verify_checksums}"
+echo "subsite_count:$(trim "$subsite_count")"
+echo "php_memory:${php_memory}"
+echo "default_role:${default_role}"
+echo "registration:${registration}"
+echo "token:${token}"
+echo "core_checksum_details:${core_verify_checksums_json}"
+echo "php_version:${php_version}"
+echo "db_size:$(wp db size --size_format=b --skip-themes --skip-plugins --skip-packages 2>/dev/null | tail -1 | cut -f2)"
+
+# Security log table size (bytes) and row count from information_schema
+security_log_result=$(wp db query "SELECT data_length + index_length, table_rows FROM information_schema.TABLES WHERE table_schema = DATABASE() AND table_name LIKE '%captaincore_security_log'" --skip-column-names --batch --skip-plugins --skip-themes 2>/dev/null | grep -v '^$')
+if [[ -n "$security_log_result" ]]; then
+    security_log_bytes=$(echo "$security_log_result" | awk '{print $1}')
+    security_log_rows=$(echo "$security_log_result" | awk '{print $2}')
+    echo "security_log:{\"size\":${security_log_bytes},\"rows\":${security_log_rows}}"
+else
+    echo "security_log:{\"size\":0,\"rows\":0}"
+fi
+
+# Restic cache size (bytes), 0 if none
+restic_cache_dir="$HOME/.cache/restic"
+if [[ -d "$restic_cache_dir" ]]; then
+    echo "restic_cache:$(du -sb "$restic_cache_dir" 2>/dev/null | cut -f1)"
+else
+    echo "restic_cache:0"
+fi

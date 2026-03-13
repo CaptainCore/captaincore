@@ -81,7 +81,8 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 		fmt.Println("done")
 	}
 
-	responses := strings.Split(string(sshOutput), "\n")
+	// Parse response into key:value map (split on first colon)
+	data := parseSiteData(string(sshOutput))
 
 	// Find environment ID
 	environments, err := models.FindEnvironmentsBySiteID(siteDetails.SiteID)
@@ -108,7 +109,7 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 	timeNow := time.Now().UTC().Format("2006-01-02 15:04:05")
 
 	// Handle "WordPress not found" case
-	if len(responses) > 0 && responses[0] == "WordPress not found" {
+	if strings.TrimSpace(string(sshOutput)) == "WordPress not found" {
 		environmentUpdate := map[string]interface{}{
 			"environment_id": environmentID,
 			"token":          "basic",
@@ -129,39 +130,34 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 	}
 
 	// Validate plugins and themes JSON
-	if len(responses) < 14 {
-		fmt.Println("Response not valid")
-		return
-	}
-
 	var testJSON interface{}
-	if json.Unmarshal([]byte(responses[0]), &testJSON) != nil {
+	if data["plugins"] == "" || json.Unmarshal([]byte(data["plugins"]), &testJSON) != nil {
 		fmt.Println("Response not valid")
 		return
 	}
-	if json.Unmarshal([]byte(responses[1]), &testJSON) != nil {
+	if data["themes"] == "" || json.Unmarshal([]byte(data["themes"]), &testJSON) != nil {
 		fmt.Println("Response not valid")
 		return
 	}
 
 	environmentUpdate := map[string]interface{}{
 		"environment_id":        environmentID,
-		"plugins":               responses[0],
-		"themes":                responses[1],
-		"core":                  responses[2],
-		"home_url":              responses[3],
-		"users":                 responses[4],
-		"database_name":         responses[5],
-		"database_username":     responses[6],
-		"database_password":     responses[7],
-		"core_verify_checksums": responses[8],
-		"subsite_count":         responses[9],
-		"php_memory":            responses[10],
-		"token":                 responses[13],
+		"plugins":               data["plugins"],
+		"themes":                data["themes"],
+		"core":                  data["core"],
+		"home_url":              data["home_url"],
+		"users":                 data["users"],
+		"database_name":         data["database_name"],
+		"database_username":     data["database_username"],
+		"database_password":     data["database_password"],
+		"core_verify_checksums": data["core_verify_checksums"],
+		"subsite_count":         data["subsite_count"],
+		"php_memory":            data["php_memory"],
+		"token":                 data["token"],
 		"updated_at":            timeNow,
 	}
 
-	// Load existing environment details and add extra fields
+	// Load existing environment details and merge extra fields
 	envRecord, err := models.GetEnvironmentByID(environmentID)
 	if err != nil {
 		return
@@ -175,16 +171,21 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 		details = make(map[string]interface{})
 	}
 
-	if len(responses) > 11 && responses[11] != "" {
-		details["default_role"] = responses[11]
+	// Fields stored in the details JSON
+	detailKeys := []string{"default_role", "registration", "restic_cache", "php_version", "db_size"}
+	for _, key := range detailKeys {
+		if v, ok := data[key]; ok && v != "" {
+			details[key] = v
+		}
 	}
-	if len(responses) > 12 && responses[12] != "" {
-		details["registration"] = responses[12]
-	}
-	if len(responses) > 14 && responses[14] != "" {
-		var checksumDetails interface{}
-		if json.Unmarshal([]byte(responses[14]), &checksumDetails) == nil {
-			details["core_checksum_details"] = checksumDetails
+	// JSON detail fields (parse before storing)
+	jsonDetailKeys := []string{"core_checksum_details", "security_log"}
+	for _, key := range jsonDetailKeys {
+		if v, ok := data[key]; ok && v != "" {
+			var parsed interface{}
+			if json.Unmarshal([]byte(v), &parsed) == nil {
+				details[key] = parsed
+			}
 		}
 	}
 
@@ -196,18 +197,18 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 		fmt.Print("Updating local database... ")
 	}
 	updates := map[string]interface{}{
-		"plugins":               responses[0],
-		"themes":                responses[1],
-		"core":                  responses[2],
-		"home_url":              responses[3],
-		"users":                 responses[4],
-		"database_name":         responses[5],
-		"database_username":     responses[6],
-		"database_password":     responses[7],
-		"core_verify_checksums": responses[8],
-		"subsite_count":         responses[9],
-		"php_memory":            responses[10],
-		"token":                 responses[13],
+		"plugins":               data["plugins"],
+		"themes":                data["themes"],
+		"core":                  data["core"],
+		"home_url":              data["home_url"],
+		"users":                 data["users"],
+		"database_name":         data["database_name"],
+		"database_username":     data["database_username"],
+		"database_password":     data["database_password"],
+		"core_verify_checksums": data["core_verify_checksums"],
+		"subsite_count":         data["subsite_count"],
+		"php_memory":            data["php_memory"],
+		"token":                 data["token"],
 		"details":               string(detailsJSON),
 		"updated_at":            timeNow,
 	}
@@ -229,45 +230,53 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 			fmt.Print(string(resp))
 		} else {
 			fmt.Println("done")
-			syncDataPrintSummary(args[0], responses)
+			syncDataPrintSummary(args[0], data)
 		}
 	} else if !flagSyncDataJSON {
 		fmt.Println("failed")
 	}
 }
 
-// syncDataPrintSummary prints a human-readable summary of the synced data.
-func syncDataPrintSummary(site string, responses []string) {
-	homeURL := responses[3]
-	core := responses[2]
-	checksums := responses[8]
-	phpMemory := responses[10]
+// parseSiteData parses key:value lines from fetch-site-data into a map.
+// Splits on the first colon only, so JSON values with colons are preserved.
+func parseSiteData(output string) map[string]string {
+	data := map[string]string{}
+	for _, line := range strings.Split(output, "\n") {
+		key, value, found := strings.Cut(line, ":")
+		if found {
+			data[key] = value
+		}
+	}
+	return data
+}
 
+// syncDataPrintSummary prints a human-readable summary of the synced data.
+func syncDataPrintSummary(site string, data map[string]string) {
 	// Count plugins
 	var plugins []interface{}
-	json.Unmarshal([]byte(responses[0]), &plugins)
+	json.Unmarshal([]byte(data["plugins"]), &plugins)
 
 	// Count themes
 	var themes []interface{}
-	json.Unmarshal([]byte(responses[1]), &themes)
+	json.Unmarshal([]byte(data["themes"]), &themes)
 
 	// Count users
 	var users []interface{}
-	json.Unmarshal([]byte(responses[4]), &users)
+	json.Unmarshal([]byte(data["users"]), &users)
 
 	checksumStatus := "pass"
-	if checksums == "0" {
+	if data["core_verify_checksums"] == "0" {
 		checksumStatus = "fail"
 	}
 
-	fmt.Printf("\n%s (%s)\n", site, homeURL)
-	fmt.Printf("  WordPress %-8s Checksums %s\n", core, checksumStatus)
+	fmt.Printf("\n%s (%s)\n", site, data["home_url"])
+	fmt.Printf("  WordPress %-8s Checksums %s\n", data["core"], checksumStatus)
 	fmt.Printf("  %s plugins, %s themes, %s users\n",
 		formatNumber(len(plugins)),
 		formatNumber(len(themes)),
 		formatNumber(len(users)),
 	)
-	fmt.Printf("  PHP memory %s\n", phpMemory)
+	fmt.Printf("  PHP memory %s\n", data["php_memory"])
 }
 
 // formatNumber adds comma separators to a number (e.g. 3641 -> "3,641").
@@ -290,4 +299,5 @@ func init() {
 	rootCmd.AddCommand(syncDataCmd)
 	syncDataCmd.Flags().BoolVarP(&flagSkipScreenshot, "skip-screenshot", "c", false, "Skip screenshot")
 	syncDataCmd.Flags().BoolVar(&flagSyncDataJSON, "json", false, "Output raw JSON response")
+	syncDataCmd.Flags().IntVarP(&flagParallel, "parallel", "p", 0, "Number of sites to run at same time")
 }
