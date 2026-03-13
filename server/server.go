@@ -122,6 +122,11 @@ type Task struct {
 	Token     string
 }
 
+type taskWithProgress struct {
+	Task
+	Progress json.RawMessage `json:"progress,omitempty"`
+}
+
 type Origin struct {
 	ID     string
 	Server string
@@ -333,13 +338,94 @@ func WriteToFile(filename string, data string) error {
 
 func deleteTask(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	command := vars["command"]
+	id := vars["id"]
+	token := r.Header.Get("token")
+	captainID := fetchCaptainID(token, r)
 
-	var tasks Task
-	db.Where("command = ?", command).Find(&tasks)
-	db.Delete(&tasks)
+	var task Task
+	db.Where("id = ?", id).Where("captain_id = ?", captainID).Find(&task)
 
-	fmt.Fprintf(w, "Successfully Deleted Task")
+	if task.ID == 0 {
+		http.Error(w, "Task not found", http.StatusNotFound)
+		return
+	}
+
+	if task.Status == "Started" && task.ProcessID > 0 {
+		killCommand(task)
+	}
+
+	task.Status = "Cancelled"
+	db.Save(&task)
+
+	fmt.Fprintf(w, "Successfully Cancelled Task")
+}
+
+func streamTask(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	token := r.Header.Get("token")
+	captainID := fetchCaptainID(token, r)
+
+	var task Task
+	db.Where("id = ?", id).Where("captain_id = ?", captainID).Find(&task)
+
+	if task.ID == 0 {
+		http.Error(w, "Task not found", http.StatusNotFound)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	home, _ := os.UserHomeDir()
+	lastData := ""
+
+	type streamEvent struct {
+		Status   string          `json:"status"`
+		Progress json.RawMessage `json:"progress,omitempty"`
+	}
+
+	sendEvent := func(event streamEvent) {
+		if data, err := json.Marshal(event); err == nil {
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+		}
+	}
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		default:
+		}
+
+		db.First(&task, task.ID)
+
+		if task.Status == "Completed" || task.Status == "Cancelled" {
+			sendEvent(streamEvent{Status: strings.ToLower(task.Status)})
+			return
+		}
+
+		if task.ProcessID > 0 {
+			progressPath := filepath.Join(home, ".captaincore", "data", "task-progress", strconv.Itoa(task.ProcessID)+".json")
+			if data, err := os.ReadFile(progressPath); err == nil && json.Valid(data) {
+				dataStr := string(data)
+				if dataStr != lastData {
+					lastData = dataStr
+					sendEvent(streamEvent{Status: "started", Progress: json.RawMessage(data)})
+				}
+			}
+		}
+
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
 func viewTask(w http.ResponseWriter, r *http.Request) {
@@ -348,10 +434,26 @@ func viewTask(w http.ResponseWriter, r *http.Request) {
 	token := r.Header.Get("token")
 	captainID := fetchCaptainID(token, r)
 
-	var tasks Task
-	db.Where("id = ?", id).Where("captain_id = ?", captainID).Find(&tasks)
-	fmt.Println("{}", tasks)
-	json.NewEncoder(w).Encode(tasks)
+	var task Task
+	db.Where("id = ?", id).Where("captain_id = ?", captainID).Find(&task)
+
+	// Check for task progress file when task is running
+	if task.Status == "Started" && task.ProcessID > 0 {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			progressPath := filepath.Join(home, ".captaincore", "data", "task-progress", strconv.Itoa(task.ProcessID)+".json")
+			if data, err := os.ReadFile(progressPath); err == nil && json.Valid(data) {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(taskWithProgress{
+					Task:     task,
+					Progress: json.RawMessage(data),
+				})
+				return
+			}
+		}
+	}
+
+	json.NewEncoder(w).Encode(task)
 }
 
 func updateTask(w http.ResponseWriter, r *http.Request) {
@@ -464,6 +566,7 @@ func HandleRequests(d bool) {
 	var httpSrv *http.Server
 
 	router := mux.NewRouter().StrictSlash(true)
+	router.HandleFunc("/task/{id}/stream", checkSecurity(streamTask)).Methods("GET")
 	router.HandleFunc("/task/{id}", checkSecurity(viewTask)).Methods("GET")
 	router.HandleFunc("/task/{id}", checkSecurity(updateTask)).Methods("PUT")
 	router.HandleFunc("/task/{id}", checkSecurity(deleteTask)).Methods("DELETE")
@@ -975,6 +1078,13 @@ func runCommand(cmd string, t Task) string {
 		if err != nil {
 			log.Fatalf("ioutil.ReadAll() failed with '%s'\n", err)
 		}
+	}
+
+	// Clean up task progress file if it exists
+	if t.ProcessID > 0 {
+		home, _ := os.UserHomeDir()
+		progressPath := filepath.Join(home, ".captaincore", "data", "task-progress", strconv.Itoa(t.ProcessID)+".json")
+		os.Remove(progressPath)
 	}
 
 	db.Save(&t)
