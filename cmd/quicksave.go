@@ -375,7 +375,7 @@ func quicksaveAddNative(cmd *cobra.Command, args []string) {
 	statusStr := strings.TrimSpace(string(statusOutput))
 
 	if statusStr == "" && !flagForce {
-		fmt.Println("Quicksave skipped as nothing changed")
+		fmt.Println("  Quicksave skipped as nothing changed")
 		return
 	}
 
