@@ -219,7 +219,7 @@ run_command() {
   fi
 
   # --- 1. Generate a unique, random name for the temporary payload file ---
-  do_script_path="${root_path}lib/remote-scripts/_do"
+  do_script_path="${root_path}lib/remote-scripts/vault"
   random_token=$(head /dev/urandom | LC_ALL=C tr -dc 'a-zA-Z0-9' | head -c 8)
   payload_file="$path_tmp/do_vault_payload-${CAPTAIN_ID}-${site}-${environment}_${random_token}.sh"
   echo "📝 Creating temporary payload file at: $payload_file"

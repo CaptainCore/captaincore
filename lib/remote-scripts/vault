@@ -1,0 +1,1534 @@
+#!/bin/bash
+
+# ----------------------------------------------------
+#  Command: vault
+#  Description: Manages secure, full site snapshots in a remote Restic repository backed by Backblaze B2.
+#  Forked from: https://github.com/CaptainCore/do (vault functions only)
+#  Author: Austin Ginder
+#  License: MIT
+# ----------------------------------------------------
+
+# --- Global Variables ---
+GUM_VERSION="0.14.4"
+RCLONE_VERSION="1.73.1"
+RESTIC_VERSION="0.18.1"
+GUM_CMD=""
+WP_CLI_CMD=""
+RESTIC_CMD=""
+RCLONE_CMD=""
+
+# --- Helper Functions ---
+
+# ----------------------------------------------------
+#  Intelligently finds or creates a private directory.
+#  Sets a global variable CAPTAINCORE_PRIVATE_DIR and echoes the path.
+# ----------------------------------------------------
+function _get_private_dir() {
+    # Return immediately if already found
+    if [[ -n "$CAPTAINCORE_PRIVATE_DIR" ]]; then
+        echo "$CAPTAINCORE_PRIVATE_DIR"
+        return 0
+    fi
+
+    local wp_root=""
+    local parent_dir=""
+
+    # --- Tier 1: Preferred WP-CLI Method (if in a WP directory) ---
+    # Check if wp-cli is set up and if we are in a WP installation.
+    if setup_wp_cli && "$WP_CLI_CMD" core is-installed --quiet &>/dev/null; then
+        local wp_config_path
+        wp_config_path=$("$WP_CLI_CMD" config path --quiet 2>/dev/null | tail -1)
+        if [ -n "$wp_config_path" ] && [ -f "$wp_config_path" ]; then
+            wp_root=$(dirname "$wp_config_path")
+            parent_dir=$(dirname "$wp_root")
+
+            # --- WPE Specific Checks ---
+            # A. Check for _wpeprivate inside the WP root directory first (most common).
+            if [ -d "${wp_root}/_wpeprivate" ]; then
+                CAPTAINCORE_PRIVATE_DIR="${wp_root}/_wpeprivate"
+                echo "$CAPTAINCORE_PRIVATE_DIR"
+                return 0
+            fi
+            # B. Check for _wpeprivate in the parent directory.
+            if [ -d "${parent_dir}/_wpeprivate" ]; then
+                CAPTAINCORE_PRIVATE_DIR="${parent_dir}/_wpeprivate"
+                echo "$CAPTAINCORE_PRIVATE_DIR"
+                return 0
+            fi
+
+            # --- Standard Checks (relative to WP root's parent) ---
+            # Check for a standard ../private directory
+            if [ -d "${parent_dir}/private" ]; then
+                CAPTAINCORE_PRIVATE_DIR="${parent_dir}/private"
+                echo "$CAPTAINCORE_PRIVATE_DIR"
+                return 0
+            fi
+            # Try to create a ../private directory, suppressing errors
+            if mkdir -p "${parent_dir}/private" 2>/dev/null; then
+                CAPTAINCORE_PRIVATE_DIR="${parent_dir}/private"
+                echo "$CAPTAINCORE_PRIVATE_DIR"
+                return 0
+            fi
+            # Fallback to ../tmp if it exists
+            if [ -d "${parent_dir}/tmp" ]; then
+                CAPTAINCORE_PRIVATE_DIR="${parent_dir}/tmp"
+                echo "$CAPTAINCORE_PRIVATE_DIR"
+                return 0
+            fi
+        fi
+    fi
+
+    # --- Tier 2: Manual Fallback (if WP-CLI fails or not in a WP install) ---
+    local current_dir
+    current_dir=$(pwd)
+    # WPE check in current directory
+    if [ -d "${current_dir}/_wpeprivate" ]; then
+        CAPTAINCORE_PRIVATE_DIR="${current_dir}/_wpeprivate"
+        echo "$CAPTAINCORE_PRIVATE_DIR"
+        return 0
+    fi
+    # Relative private check
+    if [ -d "../private" ]; then
+        CAPTAINCORE_PRIVATE_DIR=$(cd ../private && pwd)
+        echo "$CAPTAINCORE_PRIVATE_DIR"
+        return 0
+    fi
+    # Attempt to create relative private, suppressing errors
+    if mkdir -p "../private" 2>/dev/null; then
+        CAPTAINCORE_PRIVATE_DIR=$(cd ../private && pwd)
+        echo "$CAPTAINCORE_PRIVATE_DIR"
+        return 0
+    fi
+    # Relative tmp check
+    if [ -d "../tmp" ]; then
+        CAPTAINCORE_PRIVATE_DIR=$(cd ../tmp && pwd)
+        echo "$CAPTAINCORE_PRIVATE_DIR"
+        return 0
+    fi
+
+    # --- Tier 3: Last Resort Fallback to Home Directory ---
+    # Suppress errors in case $HOME is not writable
+    if mkdir -p "$HOME/private" 2>/dev/null; then
+        CAPTAINCORE_PRIVATE_DIR="$HOME/private"
+        echo "$CAPTAINCORE_PRIVATE_DIR"
+        return 0
+    fi
+
+    echo "Error: Could not find or create a suitable private, writable directory." >&2
+    return 1
+}
+
+# --- Setup Functions ---
+
+# ----------------------------------------------------
+#  Checks for and installs 'gum' if not present. Sets GUM_CMD on success.
+# ----------------------------------------------------
+function setup_gum() {
+    # Return if already found
+    if [[ -n "$GUM_CMD" ]]; then return 0; fi
+
+    # If gum is already in the PATH, we're good to go.
+    if command -v gum &> /dev/null; then
+        GUM_CMD="gum"
+        return 0
+    fi
+
+    # Find the private directory for storing tools
+    local private_dir
+    if ! private_dir=$(_get_private_dir); then
+        echo "Error: Cannot find a writable directory to install gum." >&2
+        return 1
+    fi
+
+    # Find the executable inside the private directory if it's already installed
+    local existing_executable
+    existing_executable=$(find "$private_dir" -name gum -type f 2>/dev/null | head -n 1)
+    if [ -n "$existing_executable" ] && [ -x "$existing_executable" ] && "$existing_executable" --version &> /dev/null; then
+        GUM_CMD="$existing_executable"
+        return 0
+    fi
+
+    echo "Required tool 'gum' not found. Installing to '${private_dir}'..." >&2
+    local original_dir; original_dir=$(pwd)
+    cd "$private_dir" || { echo "Error: Could not enter private directory '${private_dir}'." >&2; return 1; }
+
+    local gum_dir_name="gum_${GUM_VERSION}_Linux_x86_64"
+    local gum_tarball="${gum_dir_name}.tar.gz"
+
+    if ! curl -sSL "https://github.com/charmbracelet/gum/releases/download/v${GUM_VERSION}/${gum_tarball}" -o "${gum_tarball}"; then
+        echo "Error: Failed to download gum." >&2; cd "$original_dir" > /dev/null 2>&1; return 1;
+    fi
+
+    # Find the path of the 'gum' binary WITHIN the tarball before extracting
+    local gum_path_in_tar
+    gum_path_in_tar=$(tar -tf "${gum_tarball}" | grep '/gum$' | head -n 1)
+
+    if [ -z "$gum_path_in_tar" ]; then
+        echo "Error: Could not find 'gum' executable within the downloaded tarball." >&2
+        rm -f "${gum_tarball}"; cd "$original_dir" > /dev/null 2>&1; return 1;
+    fi
+
+    # Now extract the tarball
+    if ! tar -xf "${gum_tarball}"; then
+        echo "Error: Failed to extract gum from tarball." >&2
+        rm -f "${gum_tarball}"; cd "$original_dir" > /dev/null 2>&1; return 1;
+    fi
+    rm -f "${gum_tarball}"
+
+    # The full path to the executable is the private dir + the path from the tarball
+    local gum_executable="${private_dir}/${gum_path_in_tar}"
+
+    if [ -f "$gum_executable" ]; then
+        chmod +x "$gum_executable"
+    else
+        echo "Error: gum executable not found at expected path after extraction: ${gum_executable}" >&2
+        cd "$original_dir" > /dev/null 2>&1; return 1;
+    fi
+
+    # Final check
+    if [ -x "$gum_executable" ] && "$gum_executable" --version &> /dev/null; then
+        echo "'gum' installed successfully." >&2
+        GUM_CMD="$gum_executable"
+    else
+        echo "Error: gum installation failed. The binary at ${gum_executable} might not be executable or compatible." >&2
+        cd "$original_dir" > /dev/null 2>&1; return 1;
+    fi
+
+    cd "$original_dir" > /dev/null 2>&1; return 0;
+}
+
+# ----------------------------------------------------
+#  Checks for and installs 'rclone' if not present.
+#  Sets RCLONE_CMD on success.
+# ----------------------------------------------------
+function setup_rclone() {
+    # Return if already found and version-checked
+    if [[ -n "$RCLONE_CMD" ]]; then return 0; fi
+
+    # Helper: extract version number from "rclone vX.Y.Z" output
+    _rclone_ver() { "$1" --version 2>/dev/null | head -n1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1; }
+
+    # Helper: returns 0 if $1 >= $2 using version comparison
+    _ver_gte() {
+        [ "$1" = "$2" ] && return 0
+        local IFS='.'; local i a=($1) b=($2)
+        for ((i=0; i<3; i++)); do
+            if (( ${a[i]:-0} > ${b[i]:-0} )); then return 0; fi
+            if (( ${a[i]:-0} < ${b[i]:-0} )); then return 1; fi
+        done
+        return 0
+    }
+
+    # Check system rclone
+    if command -v rclone &> /dev/null; then
+        local sys_ver; sys_ver=$(_rclone_ver rclone)
+        if [[ -n "$sys_ver" ]] && _ver_gte "$sys_ver" "$RCLONE_VERSION"; then
+            RCLONE_CMD="rclone"; return 0
+        fi
+        echo "System rclone v${sys_ver} is outdated (need v${RCLONE_VERSION}). Upgrading..." >&2
+    fi
+
+    if ! command -v unzip &>/dev/null; then echo "Error: 'unzip' command is required for rclone installation." >&2; return 1; fi
+
+    local private_dir
+    if ! private_dir=$(_get_private_dir </dev/null); then
+        echo "Error: Cannot find a writable directory to install rclone." >&2; return 1;
+    fi
+
+    # Check existing private dir copy
+    local existing_executable
+    existing_executable=$(find "$private_dir" -name rclone -type f 2>/dev/null | head -n 1)
+    if [ -n "$existing_executable" ] && [ -x "$existing_executable" ]; then
+        local existing_ver; existing_ver=$(_rclone_ver "$existing_executable")
+        if [[ -n "$existing_ver" ]] && _ver_gte "$existing_ver" "$RCLONE_VERSION"; then
+            RCLONE_CMD="$existing_executable"; return 0
+        fi
+        echo "Local rclone v${existing_ver} is outdated (need v${RCLONE_VERSION}). Upgrading..." >&2
+    fi
+
+    # Download target version
+    if [ -z "$existing_executable" ]; then
+        echo "Required tool 'rclone' not found. Installing to '${private_dir}'..." >&2
+    fi
+    local original_dir; original_dir=$(pwd)
+    cd "$private_dir" || { echo "Error: Could not enter private directory '${private_dir}'." >&2; return 1; }
+
+    local rclone_zip="rclone-v${RCLONE_VERSION}-linux-amd64.zip"
+    if ! curl -sSL "https://github.com/rclone/rclone/releases/download/v${RCLONE_VERSION}/${rclone_zip}" -o "${rclone_zip}"; then
+        echo "Error: Failed to download rclone." >&2; cd "$original_dir" > /dev/null 2>&1; return 1;
+    fi
+
+    local rclone_path_in_zip
+    rclone_path_in_zip=$(unzip -l "${rclone_zip}" | grep '/rclone$' | awk '{print $4}' | head -n 1)
+    if [ -z "$rclone_path_in_zip" ]; then
+        echo "Error: Could not find 'rclone' executable within the downloaded zip." >&2
+        rm -f "${rclone_zip}"; cd "$original_dir" > /dev/null 2>&1; return 1;
+    fi
+
+    if ! unzip -q -o "${rclone_zip}"; then
+        echo "Error: Failed to extract rclone." >&2; rm -f "${rclone_zip}"; cd "$original_dir" > /dev/null 2>&1; return 1;
+    fi
+    rm -f "${rclone_zip}"
+
+    local rclone_executable="${private_dir}/${rclone_path_in_zip}"
+    if [ -f "$rclone_executable" ]; then
+        chmod +x "$rclone_executable";
+    else
+        echo "Error: rclone executable not found at expected path: ${rclone_executable}" >&2; cd "$original_dir" > /dev/null 2>&1; return 1;
+    fi
+
+    if [ -x "$rclone_executable" ] && "$rclone_executable" --version &> /dev/null; then
+        echo "rclone v${RCLONE_VERSION} installed successfully." >&2; RCLONE_CMD="$rclone_executable";
+    else
+        echo "Error: rclone installation failed." >&2; cd "$original_dir" > /dev/null 2>&1; return 1;
+    fi
+
+    cd "$original_dir" > /dev/null 2>&1; return 0;
+}
+
+# ----------------------------------------------------
+#  Checks for and installs 'restic' if not present.
+#  Sets RESTIC_CMD on success.
+# ----------------------------------------------------
+function setup_restic() {
+    # Return if already found and version-checked
+    if [[ -n "$RESTIC_CMD" ]]; then return 0; fi
+
+    # Helper: extract version number from "restic X.Y.Z ..." output
+    _restic_ver() { "$1" version 2>/dev/null | head -n1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1; }
+
+    # Helper: returns 0 if $1 >= $2 using version comparison
+    _ver_gte() {
+        [ "$1" = "$2" ] && return 0
+        local IFS='.'; local i a=($1) b=($2)
+        for ((i=0; i<3; i++)); do
+            if (( ${a[i]:-0} > ${b[i]:-0} )); then return 0; fi
+            if (( ${a[i]:-0} < ${b[i]:-0} )); then return 1; fi
+        done
+        return 0
+    }
+
+    # Check system restic
+    if command -v restic &> /dev/null; then
+        local sys_ver; sys_ver=$(_restic_ver restic)
+        if [[ -n "$sys_ver" ]] && _ver_gte "$sys_ver" "$RESTIC_VERSION"; then
+            RESTIC_CMD="restic"; return 0
+        fi
+        echo "System restic v${sys_ver} is outdated (need v${RESTIC_VERSION}). Upgrading..." >&2
+    fi
+
+    # Check for local installation in private dir
+    local restic_executable="$HOME/private/restic"
+    if [ -f "$restic_executable" ] && [ -x "$restic_executable" ]; then
+        local existing_ver; existing_ver=$(_restic_ver "$restic_executable")
+        if [[ -n "$existing_ver" ]] && _ver_gte "$existing_ver" "$RESTIC_VERSION"; then
+            RESTIC_CMD="$restic_executable"; return 0
+        fi
+        echo "Local restic v${existing_ver} is outdated (need v${RESTIC_VERSION}). Upgrading..." >&2
+    fi
+
+    # Download target version
+    if ! command -v bunzip2 &>/dev/null; then echo "Error: 'bunzip2' command is required for installation." >&2; return 1; fi
+    mkdir -p "$HOME/private"
+    local original_dir; original_dir=$(pwd)
+    cd "$HOME/private" || { echo "Error: Could not enter ~/private." >&2; return 1; }
+
+    echo "Installing restic v${RESTIC_VERSION}..." >&2
+    local restic_archive="restic_${RESTIC_VERSION}_linux_amd64.bz2"
+    if ! curl -sL "https://github.com/restic/restic/releases/download/v${RESTIC_VERSION}/${restic_archive}" -o "${restic_archive}"; then
+        echo "Error: Failed to download restic." >&2
+        cd "$original_dir" > /dev/null 2>&1; return 1
+    fi
+
+    # Decompress and extract the binary
+    bunzip2 -c "${restic_archive}" > restic_temp && mv restic_temp restic
+    rm -f "${restic_archive}"
+    chmod +x restic
+
+    # Final check
+    restic_executable="$HOME/private/restic"
+    if [ -f "$restic_executable" ] && "$restic_executable" version &> /dev/null; then
+        echo "restic v${RESTIC_VERSION} installed successfully." >&2
+        RESTIC_CMD="$restic_executable"
+    else
+        echo "Error: restic installation failed." >&2
+        cd "$original_dir" > /dev/null 2>&1; return 1
+    fi
+    cd "$original_dir" > /dev/null 2>&1; return 0
+}
+
+# ----------------------------------------------------
+#  Checks for WP-CLI. Sets WP_CLI_CMD on success.
+# ----------------------------------------------------
+function setup_wp_cli() {
+    # Return if already found
+    if [[ -n "$WP_CLI_CMD" ]]; then return 0; fi
+
+    # 1. Check if 'wp' is already in the PATH (covers interactive shells)
+    if command -v wp &> /dev/null; then
+        WP_CLI_CMD="wp"
+        return 0
+    fi
+
+    # 2. If not in PATH, check common absolute paths for cron environments
+    local common_paths=(
+        "/usr/local/bin/wp"
+        "$HOME/bin/wp"
+        "/opt/wp-cli/wp"
+    )
+    for path in "${common_paths[@]}"; do
+        if [ -x "$path" ]; then
+            WP_CLI_CMD="$path"
+            return 0
+        fi
+    done
+
+    # 3. If still not found, error out
+    echo "❌ Error: 'wp' command not found. Please ensure WP-CLI is installed and in your PATH." >&2
+    return 1
+}
+
+# --- Vault Helper Functions ---
+
+# ----------------------------------------------------
+#  (Helper) Reads credentials and sets up the restic environment.
+# ----------------------------------------------------
+function _setup_vault_env() {
+    # --- Read Credentials ---
+    local b2_bucket b2_path b2_key_id b2_app_key restic_password
+
+    # Prioritize stdin: If data is being piped in, read from it.
+    if ! [ -t 0 ]; then
+        read -r stdin_b2_bucket
+        read -r stdin_b2_path
+        read -r stdin_b2_key_id
+        read -r stdin_b2_app_key
+        read -r stdin_restic_password
+
+        b2_bucket=${stdin_b2_bucket}
+        b2_path=${stdin_b2_path}
+        b2_key_id=${stdin_b2_key_id}
+        b2_app_key=${stdin_b2_app_key}
+        restic_password=${stdin_restic_password}
+    fi
+
+    # If stdin empty or incomplete, then attempt to load from environment variables.
+    if [ -z "$b2_bucket" ] || [ -z "$b2_path" ] || [ -z "$b2_key_id" ] || [ -z "$b2_app_key" ] || [ -z "$restic_password" ]; then
+        b2_bucket="$B2_BUCKET"
+        b2_path="$B2_PATH"
+        b2_key_id="$B2_ACCOUNT_ID"
+        b2_app_key="$B2_ACCOUNT_KEY"
+        restic_password="$RESTIC_PASSWORD"
+    fi
+
+    if [ -z "$b2_bucket" ] || [ -z "$b2_path" ] || [ -z "$b2_key_id" ] || [ -z "$b2_app_key" ] || [ -z "$restic_password" ]; then
+        echo "❌ Error: One or more required credentials were not provided or were empty." >&2
+        return 1
+    fi
+
+    export B2_ACCOUNT_ID="$b2_key_id"
+    export B2_ACCOUNT_KEY="$b2_app_key"
+    export RESTIC_PASSWORD="$restic_password"
+    export RESTIC_REPOSITORY="rclone::b2,account=${b2_key_id},key=${b2_app_key}:${b2_bucket}/${b2_path}"
+    export RCLONE_CONFIG=/dev/null
+    export B2_BUCKET="$b2_bucket"
+    export B2_PATH="$b2_path"
+
+    return 0
+}
+
+# ----------------------------------------------------
+#  (Helper) Caches the file list for a snapshot.
+# ----------------------------------------------------
+function _cache_snapshot_files() {
+    local snapshot_id="$1"
+    local cache_file="$2"
+
+    # Show a spinner while caching the entire file list.
+    if ! "$GUM_CMD" spin --spinner dot --title "Caching file list for snapshot ${snapshot_id}..." -- \
+        "$RESTIC_CMD" ls --json --long --recursive "${snapshot_id}" > "$cache_file";
+    then
+        echo "❌ Error: Could not cache the file list for snapshot ${snapshot_id}."
+        >&2
+        rm -f "$cache_file" # Clean up partial cache file
+        return 1
+    fi
+    return 0
+}
+
+# ----------------------------------------------------
+#  (Helper) Provides an interactive menu for a selected file.
+# ----------------------------------------------------
+function _file_action_menu() {
+    local snapshot_id="$1"
+    local file_path="$2"
+
+    local choice
+    choice=$("$GUM_CMD" choose "View Content" "Download File" "Restore File" "Back")
+
+    case "$choice" in
+        "View Content")
+            echo "📄 Viewing content of '$file_path'... (Press 'q' to quit)"
+            local temp_file
+            temp_file=$(mktemp)
+
+
+           if [ -z "$temp_file" ];
+           then
+                echo "❌ Error: Could not create a temporary file."
+                >&2
+                sleep 2
+                return
+            fi
+
+            # Dump the file content to the temporary file
+            if ! "$RESTIC_CMD" dump "${snapshot_id}" "${file_path}" > "$temp_file"; then
+                echo "❌ Error: Could not dump file content from repository."
+                >&2
+                rm -f "$temp_file"
+                sleep 2
+                return
+            fi
+
+            # View the temporary file with less, ensuring it's interactive
+
+
+            less -RN "$temp_file" </dev/tty
+
+            # Clean up the temporary file
+            rm -f "$temp_file"
+            ;;
+        "Download File")
+            local filename
+            filename=$(basename "$file_path")
+            echo "⬇️ Downloading '$filename' to current directory..."
+            if "$GUM_CMD" confirm "Download '${filename}' to '$(pwd)'?";
+            then
+                if "$RESTIC_CMD" dump "${snapshot_id}" "${file_path}" > "$filename";
+                then
+                    local size
+                    size=$(ls -lh "$filename" | awk '{print $5}')
+                    echo "✅ File downloaded: $filename ($size)"
+                else
+
+
+                    echo "❌ Error: Failed to download file."
+                    rm -f "$filename"
+                fi
+            else
+                echo "Download cancelled."
+            fi
+            "$GUM_CMD" input --placeholder="Press Enter to continue..." > /dev/null
+            ;;
+        "Restore File")
+            echo "🔄 Restoring '$file_path' to current directory..."
+            if "$GUM_CMD" confirm "Restore '${file_path}' to '$(pwd)'?";
+            then
+                if "$RESTIC_CMD" restore "${snapshot_id}" --include "${file_path}" --target ".";
+                then
+                    echo "✅ File restored successfully."
+                else
+                    echo "❌ Error: Failed to restore file."
+                fi
+            else
+                echo "Restore cancelled."
+            fi
+            # Add a pause so the user can see the result before returning to the browser.
+            "$GUM_CMD" input --placeholder="Press Enter to continue..." > /dev/null
+            ;;
+        "Back")
+            return
+            ;;
+        *)
+    esac
+}
+
+# ----------------------------------------------------
+#  (Helper) Handles the download/restore of a full folder.
+# ----------------------------------------------------
+function _download_folder_action() {
+    local snapshot_id="$1"
+    local folder_path_in_repo="$2"
+
+    echo "📦 Preparing to download folder: '${folder_path_in_repo}'"
+    echo "This action will restore the selected folder and its full directory structure from the snapshot's root into your current working directory."
+    echo "For example, restoring '/wp-content/plugins/' will create the path './wp-content/plugins/' here."
+
+    if "$GUM_CMD" confirm "Proceed with restoring '${folder_path_in_repo}' to '$(pwd)'?"; then
+        echo "   - Restoring files..."
+        if "$RESTIC_CMD" restore "${snapshot_id}" --include "${folder_path_in_repo}" --target "."; then
+            echo "✅ Folder and its contents restored successfully."
+        else
+            echo "❌ Error: Failed to restore folder."
+        fi
+    else
+        echo "Download cancelled."
+    fi
+    "$GUM_CMD" input --placeholder="Press Enter to continue..." > /dev/null
+}
+
+# ----------------------------------------------------
+#  (Helper) Provides an interactive file browser for a snapshot.
+# ----------------------------------------------------
+function _browse_snapshot() {
+    local snapshot_id="$1"
+    local cache_file="$2"
+    local current_path="/"
+
+    while true;
+    do
+        clear
+        echo "🗂  Browse Snapshot: ${snapshot_id} | Path: ${current_path}"
+
+        # PHP script to parse the cached JSON and format it for the current directory
+        local php_parser_code='
+<?php
+$cache_file = $argv[1] ?? "";
+$current_path = $argv[2] ?? "/";
+
+if (!file_exists($cache_file)) {
+    fwrite(STDERR, "Cache file not found.\n");
+    exit(1);
+}
+
+$file_content = file_get_contents($cache_file);
+$lines = explode("\n", trim($file_content));
+
+$items_in_current_dir = [];
+$dirs_in_current_dir = [];
+
+foreach ($lines as $line) {
+    if (empty($line)) continue;
+    $item = json_decode($line, true);
+    if (json_last_error() !== JSON_ERROR_NONE || !isset($item["path"])) continue;
+
+    $item_path = $item["path"];
+
+    if (strpos($item_path, $current_path) !== 0) continue;
+
+    $relative_path = substr($item_path, strlen($current_path));
+    if (empty($relative_path)) continue;
+
+    if (strpos($relative_path, "/") === false) {
+        if ($item["type"] === "dir") {
+            $dirs_in_current_dir[$relative_path] = true;
+        } else {
+            $items_in_current_dir[$relative_path] = $item;
+        }
+    } else {
+        $dir_name = explode("/", $relative_path)[0];
+        $dirs_in_current_dir[$dir_name] = true;
+    }
+}
+
+ksort($dirs_in_current_dir);
+ksort($items_in_current_dir);
+
+if ($current_path !== "/") {
+    echo "⤴️ ../ (Up one level)|up|..\n";
+}
+
+foreach (array_keys($dirs_in_current_dir) as $dir) {
+    echo "📁 " . $dir . "/|dir|" . $dir . "\n";
+}
+
+foreach ($items_in_current_dir as $name => $item) {
+    $size_bytes = $item["size"] ?? 0;
+    $size_formatted = "0 B";
+    if ($size_bytes >= 1048576) { $size_formatted = round($size_bytes / 1048576, 2) . " MB"; }
+    elseif ($size_bytes >= 1024) { $size_formatted = round($size_bytes / 1024, 2) . " KB"; }
+    elseif ($size_bytes > 0) { $size_formatted = $size_bytes . " B"; }
+    echo "📄 " . $name . " (" . $size_formatted . ")|file|" . $name . "\n";
+}
+
+echo "\n";
+echo "💾 Download this directory ({$current_path})|download_dir|.\n";
+'
+        # Execute PHP script to get a formatted list from the cache
+        local temp_script_file;
+        temp_script_file=$(mktemp)
+        echo "$php_parser_code" > "$temp_script_file"
+        local formatted_list;
+        formatted_list=$(php -f "$temp_script_file" "$cache_file" "$current_path")
+        rm "$temp_script_file"
+
+        # --- Display and selection logic ---
+        local display_items=()
+        local data_items=()
+
+        while IFS='|'
+        read -r display_part type_part name_part; do
+            if [ -z "$display_part" ];
+            then continue; fi
+            display_items+=("$display_part")
+            data_items+=("${type_part}|${name_part}")
+        done <<< "$formatted_list"
+
+         local selected_display
+        # Use a for loop to pipe items to gum filter, avoiding argument list limits.
+        selected_display=$(
+            for item in "${display_items[@]}"; do
+                echo "$item"
+            done | "$GUM_CMD" filter --height=20 --prompt="👇 Select a snapshot to browse" --indicator="→" --placeholder=""
+        )
+
+        if [ -z "$selected_display" ];
+        then
+            return # Exit the browser
+        fi
+
+        local selected_index=-1
+        for i in "${!display_items[@]}";
+        do
+           if [[ "${display_items[$i]}" == "$selected_display" ]];
+           then
+               selected_index=$i
+               break
+           fi
+        done
+
+        if [ "$selected_index" -eq -1 ];
+        then continue; fi
+
+        local selected_data="${data_items[selected_index]}"
+        local item_type;
+        item_type=$(echo "$selected_data" | cut -d'|' -f1)
+        local item_name;
+        item_name=$(echo "$selected_data" | cut -d'|' -f2)
+
+        case "$item_type" in
+            "dir")
+                current_path="${current_path}${item_name}/"
+                ;;
+            "file")
+                _file_action_menu "${snapshot_id}" "${current_path}${item_name}"
+                ;;
+            "up")
+                if [[ "$current_path" != "/" ]]; then
+                    # Get parent directory
+                    parent_path=$(dirname "${current_path%/}")
+                    # If the parent is the root, the new path is simply "/".
+                    # Otherwise, it's the parent path with a trailing slash.
+                    if [[ "$parent_path" == "/" ]]; then
+                        current_path="/"
+                    else
+                        current_path="${parent_path}/"
+                    fi
+                fi
+                ;;
+            "download_dir")
+                _download_folder_action "${snapshot_id}" "${current_path}"
+                ;;
+        esac
+    done
+}
+
+# --- Vault Command Functions ---
+
+# ----------------------------------------------------
+#  Creates a new snapshot of the current site.
+# ----------------------------------------------------
+function vault_create() {
+    echo "🚀 Starting secure snapshot to Restic B2 repository..."
+
+    # --- Pre-flight Checks ---
+    if ! setup_restic; then return 1; fi
+    if ! setup_rclone; then return 1; fi
+    if [[ -n "$RCLONE_CMD" && "$RCLONE_CMD" != "rclone" ]]; then
+        export PATH="$(dirname "$RCLONE_CMD"):$PATH"
+    fi
+    if ! setup_wp_cli; then return 1; fi
+
+    # Check if WP, but allow proceeding if not
+    local is_wordpress=false
+    if "$WP_CLI_CMD" core is-installed --quiet; then
+        is_wordpress=true
+    else
+        echo "ℹ️  This does not appear to be a WordPress installation. Proceeding with file-only backup." >&2
+    fi
+
+    # --- Setup Restic Environment ---
+    if ! _setup_vault_env; then
+        return 1 # Error message printed in helper
+    fi
+
+    # --- Rclone Cache Size Check ---
+    if [ -n "$EMAIL_NOTIFY" ]; then
+        local rclone_cache_dir="$HOME/.cache/rclone"
+        if [ -d "$rclone_cache_dir" ]; then
+            local cache_size_bytes
+            cache_size_bytes=$(du -sb "$rclone_cache_dir" | awk '{print $1}')
+            local size_limit_bytes=10737418240 # 10 GB
+
+            if (( cache_size_bytes > size_limit_bytes )); then
+                local site_url
+                site_url=$("$WP_CLI_CMD" option get home 2>/dev/null || echo "Unknown Site")
+                local cache_size_gb
+                cache_size_gb=$(awk -v bytes="$cache_size_bytes" 'BEGIN { printf "%.2f", bytes / 1024 / 1024 / 1024 }')
+
+                local email_subject="Rclone Cache Warning for ${site_url}"
+                local email_message="Warning: The rclone cache folder at ${rclone_cache_dir} is larger than 10GB. Current size: ${cache_size_gb}GB. This might cause issues with 'vault create' operations."
+                echo "   - ⚠️  Rclone cache is large (${cache_size_gb}GB). Sending email notification to $EMAIL_NOTIFY..."
+
+                "$WP_CLI_CMD" eval "wp_mail( '$EMAIL_NOTIFY', '$email_subject', '$email_message', ['Content-Type: text/html; charset=UTF-8'] );" 2>/dev/null
+            fi
+        fi
+    fi
+
+    # --- Check/Initialize Restic Repository ---
+    echo "   - Checking for repository at $(echo "$RESTIC_REPOSITORY" | sed 's/account=[^,]*/account=***/;s/key=[^:]*/key=***/')..."
+    if ! "$RESTIC_CMD" cat config > /dev/null 2>&1; then
+        echo "   - Repository not found or is invalid. Attempting to initialize..."
+        if ! "$RESTIC_CMD" init; then
+            echo "❌ Error: Failed to initialize Restic repository." >&2
+            return 1
+        fi
+        echo "   - ✅ Repository initialized successfully."
+    else
+        echo "   - ✅ Repository found."
+    fi
+
+    # --- Create DB Dump in Private Directory ---
+    local private_dir
+    if ! private_dir=$(_get_private_dir); then
+        return 1
+    fi
+    local sql_file_path="${private_dir}/database-backup.sql"
+    local wp_root_dir
+    wp_root_dir=$(realpath ".")
+    local temporary_sql_path_in_root="${wp_root_dir}/database-backup.sql"
+
+    if [[ "$is_wordpress" == "true" ]]; then
+        echo "   - Generating database dump at: ${sql_file_path}"
+        if ! "$WP_CLI_CMD" db export "$sql_file_path" --add-drop-table --single-transaction --quick --max_allowed_packet=512M > /dev/null; then
+            echo "❌ Error: Database export failed." >&2
+            return 1
+        fi
+
+        # --- Move DB dump to root for snapshot ---
+        echo "   - Temporarily moving database dump to web root for snapshotting."
+        if ! mv "$sql_file_path" "$temporary_sql_path_in_root"; then
+            echo "❌ Error: Could not move database dump to web root." >&2
+            return 1
+        fi
+    fi
+
+    # --- Run Restic Backup ---
+    local original_dir
+    original_dir=$(pwd)
+    echo "   - Changing to root ($wp_root_dir) for clean snapshot paths..."
+    cd "$wp_root_dir" || {
+        echo "❌ Error: Could not change to root directory." >&2
+        if [[ "$is_wordpress" == "true" ]]; then
+             echo "   - Attempting to move database dump back to private directory..."
+             mv "$temporary_sql_path_in_root" "$sql_file_path"
+        fi
+        return 1
+    }
+
+    local human_readable_size
+    human_readable_size=$(du -sh . | awk '{print $1}')
+    local tag_args=()
+    if [[ -n "$human_readable_size" ]]; then
+        tag_args+=(--tag "size:${human_readable_size}")
+    fi
+
+    echo "   - Backing up current directory (.)..."
+    if ! "$RESTIC_CMD" backup "." \
+        "${tag_args[@]}" \
+        --exclude '**.DS_Store' \
+        --exclude '*timthumb.txt' \
+        --exclude 'debug.log' \
+        --exclude 'error_log' \
+        --exclude 'phperror_log' \
+        --exclude 'wp-content/updraft' \
+        --exclude 'wp-content/cache' \
+        --exclude 'wp-content/et-cache' \
+        --exclude 'wp-content/.wps-slots' \
+        --exclude 'wp-content/wflogs' \
+        --exclude 'wp-content/uploads/sessions' \
+        --exclude 'wp-snapshots' \
+        --exclude 'node_modules'; then
+        echo "❌ Error: Restic backup command failed." >&2
+        cd "$original_dir"
+
+        if [[ "$is_wordpress" == "true" ]]; then
+            echo "   - Moving database dump back to private directory..."
+            mv "$temporary_sql_path_in_root" "$sql_file_path"
+        fi
+        return 1
+    fi
+
+    # --- Cleanup: Move DB dump back to private directory ---
+    cd "$original_dir"
+
+    if [[ "$is_wordpress" == "true" ]]; then
+        echo "   - Moving database dump back to private directory..."
+        mv "$temporary_sql_path_in_root" "$sql_file_path"
+    fi
+
+    # Unset variables for security
+    unset B2_ACCOUNT_ID B2_ACCOUNT_KEY RESTIC_PASSWORD RESTIC_REPOSITORY
+
+    echo "✅ Vault snapshot complete!"
+}
+
+# ----------------------------------------------------
+#  Lists all snapshots in the Restic repository.
+# ----------------------------------------------------
+function vault_snapshots() {
+    local output_mode="$1"
+
+    if ! setup_restic; then return 1; fi
+    if ! setup_rclone; then return 1; fi
+    if [[ -n "$RCLONE_CMD" && "$RCLONE_CMD" != "rclone" ]]; then
+        export PATH="$(dirname "$RCLONE_CMD"):$PATH"
+    fi
+    if ! setup_gum; then return 1; fi
+    if ! command -v php &>/dev/null; then echo "❌ Error: The 'php' command is required for this operation." >&2; return 1; fi
+    if ! command -v mktemp &>/dev/null; then echo "❌ Error: The 'mktemp' command is required for this operation." >&2; return 1; fi
+    if ! command -v wc &>/dev/null; then echo "❌ Error: The 'wc' command is required for this operation." >&2; return 1; fi
+
+    if ! _setup_vault_env; then
+        return 1 # Error message printed in helper
+    fi
+
+    local snapshots_json
+    snapshots_json=$("$GUM_CMD" spin --spinner dot --title "Fetching snapshots from repository..." -- \
+    "$RESTIC_CMD" snapshots --json
+)
+    if [[ ! "$snapshots_json" =~ ^\[ ]]; then
+        echo "Error: Failed to fetch snapshots. Restic output:" >&2
+        echo "$snapshots_json" >&2
+        exit 1
+    fi
+
+    local total_count
+    read -r -d '' php_script << 'EOF'
+    $json_string = file_get_contents("php://stdin");
+    $snapshots = json_decode($json_string, true);
+    if (json_last_error() === JSON_ERROR_NONE) {
+        echo count($snapshots);
+    } else {
+        echo 0;
+    }
+EOF
+    total_count=$("$GUM_CMD" spin --spinner dot --title "Counting total snapshots..." -- \
+        bash -c 'php -r "$1"' _ "$php_script" <<< "$snapshots_json"
+    )
+
+    echo "🔎 Fetching ${total_count} snapshots..."
+
+    if [[ "$snapshots_json" == "[]" ]]; then
+        echo "ℹ️ No snapshots found in the repository."
+        return 0
+    fi
+
+    local php_parser_code='
+<?php
+if (defined("STDIN")) {
+    $json_data = file_get_contents("php://stdin");
+    $snapshots = json_decode($json_data, true);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        fwrite(STDERR, "PHP Error: Failed to decode JSON - " . json_last_error_msg() . "\n");
+        exit(1);
+    }
+    if (empty($snapshots) || !is_array($snapshots)) {
+        exit(0);
+    }
+    usort($snapshots, function($a, $b) { return strtotime($b["time"]) - strtotime($a["time"]); });
+
+    foreach ($snapshots as $snap) {
+        $size_formatted = "N/A";
+        if (isset($snap["summary"]["total_bytes_processed"])) {
+            $size_bytes = (float)$snap["summary"]["total_bytes_processed"];
+            if ($size_bytes >= 1073741824) {
+                $size_formatted = round($size_bytes / 1073741824, 2) . " GB";
+            } elseif ($size_bytes >= 1048576) {
+                $size_formatted = round($size_bytes / 1048576, 2) . " MB";
+            } elseif ($size_bytes >= 1024) {
+                $size_formatted = round($size_bytes / 1024, 2) . " KB";
+            } elseif ($size_bytes > 0) {
+                $size_formatted = $size_bytes . " B";
+            }
+        }
+
+        echo $snap["short_id"] . "|" .
+             (new DateTime($snap["time"]))->format("Y-m-d H:i:s") . "|" .
+             $size_formatted . "\n";
+    }
+}
+'
+    local php_script_file
+    php_script_file=$(mktemp)
+    if [ -z "$php_script_file" ]; then
+        echo "❌ Error: Could not create a temporary file for the PHP script." >&2
+        return 1
+    fi
+
+    echo "$php_parser_code" > "$php_script_file"
+    local snapshot_list
+    snapshot_list=$(printf "%s" "$snapshots_json" | php -f "$php_script_file" 2>/dev/null)
+    rm -f "$php_script_file"
+
+    if [ -z "$snapshot_list" ]; then
+        echo "❌ Error parsing snapshot list." >&2
+        return 1
+    fi
+
+    local display_items=()
+    local data_items=()
+
+    while IFS='|' read -r id time size; do
+        if [ -z "$id" ]; then
+            continue
+        fi
+        display_items+=("$(printf "%-9s | %-20s | %-10s" "$id" "$time" "$size")")
+        data_items+=("$id")
+    done <<< "$snapshot_list"
+
+    if [[ "$output_mode" == "true" ]]; then
+        printf "%s\n" "${display_items[@]}"
+        return 0
+    fi
+
+    local selected_display
+    selected_display=$(printf "%s\n" "${display_items[@]}" | "$GUM_CMD" filter --height=20 --prompt="👇 Select a snapshot to browse" --indicator="→" --placeholder="")
+
+    if [ -z "$selected_display" ]; then echo "No snapshot selected."; return 0; fi
+
+    local selected_id
+    selected_id=$(echo "$selected_display" | awk '{print $1}')
+
+    local cache_file;
+    cache_file=$(mktemp)
+    if ! _cache_snapshot_files "$selected_id" "$cache_file"; then
+        [ -f "$cache_file" ] && rm -f "$cache_file"
+        return 1
+    fi
+
+    _browse_snapshot "$selected_id" "$cache_file"
+    rm -f "$cache_file"
+}
+
+# ----------------------------------------------------
+#  Mounts the Restic repository to a local directory.
+# ----------------------------------------------------
+function vault_mount() {
+    echo "🚀 Preparing to mount Restic repository..."
+    if ! setup_restic; then return 1; fi
+    if ! setup_rclone; then return 1; fi
+    if [[ -n "$RCLONE_CMD" && "$RCLONE_CMD" != "rclone" ]]; then
+        export PATH="$(dirname "$RCLONE_CMD"):$PATH"
+    fi
+    if ! _setup_vault_env; then return 1; fi
+
+    local mount_point="/tmp/restic_mount_$(date +%s)"
+    mkdir -p "$mount_point"
+
+    echo "   - Mount point created at: $mount_point"
+    echo "   - To unmount, run: umount \"$mount_point\""
+    echo "   - Press Ctrl+C to stop the foreground mount process."
+    "$RESTIC_CMD" mount "$mount_point"
+}
+
+# ----------------------------------------------------
+#  Displays statistics about the Restic repository.
+# ----------------------------------------------------
+function vault_info() {
+    echo "🔎 Gathering repository information..."
+
+    # --- Pre-flight Checks ---
+    if ! setup_restic; then return 1; fi
+    if ! setup_gum; then return 1; fi
+    if ! setup_rclone; then return 1; fi
+    if [[ -n "$RCLONE_CMD" && "$RCLONE_CMD" != "rclone" ]]; then
+        export PATH="$(dirname "$RCLONE_CMD"):$PATH"
+    fi
+    if ! command -v php &>/dev/null; then echo "❌ Error: The 'php' command is required for this operation." >&2; return 1; fi
+
+    if ! _setup_vault_env; then
+        return 1 # Error message printed in helper
+    fi
+
+    # --- Get repo size and file count using rclone ---
+    local rclone_remote_string=":b2,account='${B2_ACCOUNT_ID}',key='${B2_ACCOUNT_KEY}':${B2_BUCKET}/${B2_PATH}"
+
+    local size_json
+    size_json=$("$GUM_CMD" spin --spinner dot --title "Calculating repository size with rclone..." -- \
+        "$RCLONE_CMD" size --json "$rclone_remote_string"
+    )
+
+    local size_data=""
+    if [[ "$size_json" == *"bytes"* ]]; then
+        local size_parser_code='
+$json_str = file_get_contents("php://stdin");
+$data = json_decode($json_str, true);
+if (json_last_error() === JSON_ERROR_NONE) {
+    $bytes = $data["bytes"] ?? 0;
+    $count = $data["count"] ?? 0;
+    $size_formatted = "0 B";
+    if ($bytes >= 1073741824) { $size_formatted = round($bytes / 1073741824, 2) . " GiB"; }
+    elseif ($bytes >= 1048576) { $size_formatted = round($bytes / 1048576, 2) . " MiB"; }
+    elseif ($bytes >= 1024) { $size_formatted = round($bytes / 1024, 2) . " KiB"; }
+    elseif ($bytes > 0) { $size_formatted = $bytes . " B"; }
+    echo "Total Size," . $size_formatted . "\n";
+    echo "Total Files," . $count . "\n";
+}
+'
+        size_data=$(echo "$size_json" | php -r "$size_parser_code")
+    fi
+
+    # --- Get Snapshot Info from Restic ---
+    local snapshots_json
+    snapshots_json=$("$GUM_CMD" spin --spinner dot --title "Fetching snapshot list..." -- \
+        "$RESTIC_CMD" snapshots --json)
+
+    if [ $? -ne 0 ]; then
+        echo "❌ Error fetching snapshots from restic." >&2
+        echo "Restic output: $snapshots_json" >&2
+        return 1
+    fi
+
+    # Verify JSON and default to empty array if invalid
+    if ! printf "%s" "$snapshots_json" | "$GUM_CMD" format >/dev/null 2>&1; then
+        snapshots_json="[]"
+    fi
+
+    # --- MODIFIED: Pipe Restic JSON directly to PHP parser ---
+    local php_parser_code_info='
+$json_data = file_get_contents("php://stdin");
+$snapshots = json_decode($json_data, true);
+
+// Exit if JSON is invalid or empty after decoding
+if (json_last_error() !== JSON_ERROR_NONE || !is_array($snapshots)) { exit(0); }
+
+$snapshot_count = count($snapshots);
+$oldest_date = "N/A";
+$newest_date = "N/A";
+
+if ($snapshot_count > 0) {
+    $timestamps = array_map(function($s) {
+        return isset($s["time"]) ? strtotime($s["time"]) : 0;
+    }, $snapshots);
+    $timestamps = array_filter($timestamps);
+    if(count($timestamps) > 0) {
+        $oldest_ts = min($timestamps);
+        $newest_ts = max($timestamps);
+        $oldest_date = date("Y-m-d H:i:s T", $oldest_ts);
+        $newest_date = date("Y-m-d H:i:s T", $newest_ts);
+    }
+}
+echo "Snapshot Count," . $snapshot_count . "\n";
+echo "Oldest Snapshot," . $oldest_date . "\n";
+echo "Newest Snapshot," . $newest_date . "\n";
+'
+    local info_data
+    info_data=$(printf "%s" "$snapshots_json" | php -r "$php_parser_code_info")
+
+    echo "--- Repository Information ---"
+    (
+      echo "Statistic,Value"
+      echo "B2 Bucket,${b2_bucket}"
+      echo "B2 Path,${b2_path}"
+      if [ -n "$size_data" ]; then echo "$size_data"; fi
+      if [ -n "$info_data" ]; then echo "$info_data"; fi
+    ) | "$GUM_CMD" table --print --separator "," --widths=20,40
+}
+
+# ----------------------------------------------------
+#  Prunes the Restic repository to remove unneeded data.
+# ----------------------------------------------------
+function vault_prune() {
+    echo "🚀 Preparing to prune the Restic repository..."
+    echo "This command removes old data that is no longer needed."
+    echo "It can be a long-running process and will lock the repository."
+
+    # --- Pre-flight Checks ---
+    if ! setup_restic; then return 1; fi
+    if ! setup_rclone; then return 1; fi
+    if [[ -n "$RCLONE_CMD" && "$RCLONE_CMD" != "rclone" ]]; then
+        export PATH="$(dirname "$RCLONE_CMD"):$PATH"
+    fi
+    if ! setup_gum; then return 1; fi
+
+    # --- Setup Restic Environment ---
+    if ! _setup_vault_env; then
+        return 1 # Error message printed in helper
+    fi
+
+    # --- User Confirmation ---
+    echo "Repository: $(echo "$RESTIC_REPOSITORY" | sed 's/account=[^,]*/account=***/;s/key=[^:]*/key=***/')"
+    if ! "$GUM_CMD" confirm "Are you sure you want to prune this repository?"; then
+        echo "Prune operation cancelled."
+        unset B2_ACCOUNT_ID B2_ACCOUNT_KEY RESTIC_PASSWORD RESTIC_REPOSITORY
+        return 0
+    fi
+
+    # --- Run Restic Prune with lock detection ---
+    echo "   - Starting prune operation. This may take a while..."
+    local prune_output
+    # Capture all output (stdout and stderr) to check for the lock message
+    prune_output=$("$RESTIC_CMD" prune 2>&1)
+    local prune_exit_code=$?
+
+    # Check if the prune command failed
+    if [ $prune_exit_code -ne 0 ]; then
+        # If it failed, check if it was due to a lock
+        if echo "$prune_output" | grep -q "unable to create lock"; then
+            echo "⚠️ The repository is locked. A previous operation may have failed or is still running."
+            echo "$prune_output" # Show the user the detailed lock info from restic
+
+            if "$GUM_CMD" confirm "Do you want to attempt to remove the stale lock and retry?"; then
+                echo "   - Attempting to unlock repository..."
+                if ! "$RESTIC_CMD" unlock; then
+                    echo "❌ Error: Failed to unlock the repository. Please check it manually." >&2
+                    unset B2_ACCOUNT_ID B2_ACCOUNT_KEY RESTIC_PASSWORD RESTIC_REPOSITORY
+                    return 1
+                fi
+
+                echo "   - Unlock successful. Retrying prune operation..."
+                if ! "$RESTIC_CMD" prune; then
+                     echo "❌ Error: Restic prune command failed even after unlocking." >&2
+                     unset B2_ACCOUNT_ID B2_ACCOUNT_KEY RESTIC_PASSWORD RESTIC_REPOSITORY
+                     return 1
+                fi
+            else
+                echo "Prune operation cancelled due to locked repository."
+                unset B2_ACCOUNT_ID B2_ACCOUNT_KEY RESTIC_PASSWORD RESTIC_REPOSITORY
+                return 0
+            fi
+        else
+            # The failure was for a reason other than a lock
+            echo "❌ Error: Restic prune command failed." >&2
+            echo "$prune_output" >&2
+            unset B2_ACCOUNT_ID B2_ACCOUNT_KEY RESTIC_PASSWORD RESTIC_REPOSITORY
+            return 1
+        fi
+    fi
+
+    # --- Cleanup ---
+    unset B2_ACCOUNT_ID B2_ACCOUNT_KEY RESTIC_PASSWORD RESTIC_REPOSITORY
+
+    echo "✅ Vault prune complete!"
+}
+
+# ----------------------------------------------------
+#  Deletes a specific snapshot from the Restic repository.
+# ----------------------------------------------------
+function vault_delete() {
+    local snapshot_id="$1"
+
+    if [ -z "$snapshot_id" ]; then
+        echo "❌ Error: You must provide a snapshot ID to delete." >&2
+        show_help >&2
+        return 1
+    fi
+
+    # --- Pre-flight Checks ---
+    if ! setup_restic; then return 1; fi
+    if ! setup_rclone; then return 1; fi
+    if [[ -n "$RCLONE_CMD" && "$RCLONE_CMD" != "rclone" ]]; then
+        export PATH="$(dirname "$RCLONE_CMD"):$PATH"
+    fi
+    if ! setup_gum; then return 1; fi
+
+    # --- Setup Restic Environment ---
+    if ! _setup_vault_env; then
+        return 1 # Error message printed in helper
+    fi
+
+    echo "You are about to permanently delete snapshot: ${snapshot_id}"
+    echo "This action cannot be undone."
+    if ! "$GUM_CMD" confirm "Are you sure you want to delete this snapshot?"; then
+        echo "Delete operation cancelled."
+        unset B2_ACCOUNT_ID B2_ACCOUNT_KEY RESTIC_PASSWORD RESTIC_REPOSITORY
+        return 0
+    fi
+
+    echo "   - Deleting snapshot ${snapshot_id}..."
+    local forget_output
+    # Capture stdout and stderr to check for errors
+    forget_output=$("$RESTIC_CMD" forget "$snapshot_id" 2>&1)
+    local forget_exit_code=$?
+
+    # Check if the command failed
+    if [ $forget_exit_code -ne 0 ]; then
+        # If it failed, check if it was due to a lock
+        if echo "$forget_output" | grep -q "unable to create lock"; then
+            echo "⚠️ The repository is locked. A previous operation may have failed or is still running."
+            echo "$forget_output"
+
+            if "$GUM_CMD" confirm "Do you want to attempt to remove the stale lock and retry?"; then
+                echo "   - Attempting to unlock repository..."
+                if ! "$RESTIC_CMD" unlock; then
+                    echo "❌ Error: Failed to unlock the repository. Please check it manually." >&2
+                    unset B2_ACCOUNT_ID B2_ACCOUNT_KEY RESTIC_PASSWORD RESTIC_REPOSITORY
+                    return 1
+                fi
+
+                echo "   - Unlock successful. Retrying delete operation..."
+                if ! "$RESTIC_CMD" forget "$snapshot_id"; then
+                     echo "❌ Error: Restic forget command failed even after unlocking." >&2
+                     unset B2_ACCOUNT_ID B2_ACCOUNT_KEY RESTIC_PASSWORD RESTIC_REPOSITORY
+                     return 1
+                fi
+            else
+                echo "Delete operation cancelled due to locked repository."
+                unset B2_ACCOUNT_ID B2_ACCOUNT_KEY RESTIC_PASSWORD RESTIC_REPOSITORY
+                return 0
+            fi
+        else
+            # The failure was for a reason other than a lock
+            echo "❌ Error: Failed to delete snapshot ${snapshot_id}." >&2
+            echo "$forget_output" >&2
+            unset B2_ACCOUNT_ID B2_ACCOUNT_KEY RESTIC_PASSWORD RESTIC_REPOSITORY
+            return 1
+        fi
+    else
+        # Print the success output from the first attempt
+        echo "$forget_output"
+    fi
+
+    # --- Cleanup ---
+    unset B2_ACCOUNT_ID B2_ACCOUNT_KEY RESTIC_PASSWORD RESTIC_REPOSITORY
+
+    echo "✅ Snapshot ${snapshot_id} has been forgotten."
+    echo "💡 Note: This only removes the snapshot reference. To free up storage space by removing the underlying data, run 'vault prune'."
+}
+
+# ----------------------------------------------------
+#  Displays detailed information for a single snapshot.
+# ----------------------------------------------------
+function vault_snapshot_info() {
+    local snapshot_id="$1"
+
+    if [ -z "$snapshot_id" ]; then
+        echo "❌ Error: You must provide a snapshot ID."
+        show_help >&2
+        return 1
+    fi
+
+    # --- Pre-flight Checks ---
+    if ! setup_restic; then return 1; fi
+    if ! setup_rclone; then return 1; fi
+    if [[ -n "$RCLONE_CMD" && "$RCLONE_CMD" != "rclone" ]]; then
+        export PATH="$(dirname "$RCLONE_CMD"):$PATH"
+    fi
+    if ! setup_gum; then return 1; fi
+    if ! command -v php &>/dev/null; then
+        echo "❌ Error: The 'php' command is required for this operation."
+        >&2
+        return 1
+    fi
+
+    # --- Setup Restic Environment ---
+    if ! _setup_vault_env; then
+        return 1
+    fi
+
+    # --- Fetch Snapshot Data ---
+    echo "🔎 Fetching information for snapshot ${snapshot_id}..."
+    local snapshots_json
+    snapshots_json=$("$GUM_CMD" spin --spinner dot --title "Fetching repository data..." -- \
+        "$RESTIC_CMD" snapshots --json)
+
+    if [ $? -ne 0 ]; then
+        echo "❌ Error: Failed to fetch snapshot list from the repository."
+        >&2
+        unset B2_ACCOUNT_ID B2_ACCOUNT_KEY RESTIC_PASSWORD RESTIC_REPOSITORY
+        return 1
+    fi
+
+    # --- PHP Parser ---
+    # This script searches the JSON list for the specific snapshot ID and falls back to 'restic stats' if needed.
+    local php_parser_code='
+$target_id = $argv[1] ?? "";
+$restic_cmd = $argv[2] ?? "restic";
+
+if (empty($target_id)) { exit(1);
+}
+
+$json_data = file_get_contents("php://stdin");
+$snapshots = json_decode($json_data, true);
+if (json_last_error() !== JSON_ERROR_NONE || !is_array($snapshots)) {
+    exit(1);
+}
+
+$found_snap = null;
+foreach ($snapshots as $snap) {
+    if ((isset($snap["id"]) && strpos($snap["id"], $target_id) === 0) || (isset($snap["short_id"]) && $snap["short_id"] === $target_id)) {
+        $found_snap = $snap;
+        break;
+    }
+}
+
+if ($found_snap === null) {
+    fwrite(STDERR, "Snapshot with ID starting with \"$target_id\" not found.\n");
+    exit(1);
+}
+
+$snap = $found_snap;
+
+function format_bytes($bytes) {
+    $bytes = (float)$bytes;
+    if ($bytes >= 1073741824) { return round($bytes / 1073741824, 2) . " GB"; }
+    elseif ($bytes >= 1048576) { return round($bytes / 1048576, 2) . " MB"; }
+    elseif ($bytes >= 1024) { return round($bytes / 1024, 2) . " KB"; }
+    elseif ($bytes > 0) { return $bytes . " B"; }
+    else { return "0 B"; }
+}
+
+$output = [];
+$output["ID"] = $snap["short_id"] ?? "N/A";
+$output["Time"] = isset($snap["time"]) ? (new DateTime($snap["time"]))->format("Y-m-d H:i:s T") : "N/A";
+$output["Parent"] = $snap["parent"] ?? "None";
+$output["Paths"] = isset($snap["paths"]) && is_array($snap["paths"]) ? implode("\n", $snap["paths"]) : "N/A";
+
+$size_formatted = "N/A";
+$data_added_formatted = "N/A";
+
+if (isset($snap["summary"]["total_bytes_processed"])) {
+    $size_formatted = format_bytes($snap["summary"]["total_bytes_processed"]);
+    if (isset($snap["summary"]["data_added"])) {
+        $data_added_formatted = format_bytes($snap["summary"]["data_added"]);
+    }
+} else {
+    fwrite(STDERR, "Snapshot summary not found. Calculating size with '\''restic stats'\''.\n");
+    $full_snapshot_id = $snap["id"];
+    $stats_json = shell_exec(escapeshellarg($restic_cmd) . " stats --json " . escapeshellarg($full_snapshot_id));
+    if ($stats_json) {
+        $stats_data = json_decode($stats_json, true);
+        if (json_last_error() === JSON_ERROR_NONE && isset($stats_data["total_size"])) {
+            $size_formatted = format_bytes($stats_data["total_size"]);
+        }
+    }
+}
+
+$output["Size (Full)"] = $size_formatted;
+$output["Data Added (Unique)"] = $data_added_formatted;
+
+foreach($output as $key => $value) {
+    // Using addslashes and quoting to handle multi-line paths and other special characters
+    echo $key . "," . "\"" . addslashes($value) . "\"\n";
+}
+'
+    # --- Process and Display ---
+    local info_data
+    info_data=$(echo "$snapshots_json" | php -r "$php_parser_code" "$snapshot_id" "$RESTIC_CMD")
+
+    # If the PHP script returns no data, the snapshot was not found in the JSON.
+    if [ -z "$info_data" ]; then
+        echo "❌ Error: Could not find data for snapshot '${snapshot_id}' in the repository list." >&2
+        unset B2_ACCOUNT_ID B2_ACCOUNT_KEY RESTIC_PASSWORD RESTIC_REPOSITORY
+        return 1
+    fi
+
+    # Unset variables for security
+    unset B2_ACCOUNT_ID B2_ACCOUNT_KEY RESTIC_PASSWORD RESTIC_REPOSITORY
+
+    # Display the final table
+    echo "--- Snapshot Information ---"
+    (
+      echo "Property,Value"
+      # The PHP script now correctly escapes output for the table
+      echo "$info_data"
+    ) |
+    "$GUM_CMD" table --print --separator "," --widths=25,0
+
+}
+
+# --- Main Dispatcher ---
+
+function show_help() {
+    echo "Manages secure, full site snapshots in a remote Restic repository."
+    echo
+    echo "Usage: vault <subcommand> [arguments]"
+    echo
+    echo "Subcommands:"
+    echo "  create                Creates a new snapshot of the current site."
+    echo "  snapshots [--output]  Lists available snapshots. Use --output for a non-interactive list."
+    echo "  snapshot-info <id>    Displays detailed information for a single snapshot."
+    echo "  delete <id>           Deletes a specific snapshot by its ID."
+    echo "  mount                 Mounts the entire repository to a local folder for browsing."
+    echo "  info                  Displays statistics about the repository."
+    echo "  prune                 Removes unnecessary data from the repository."
+    echo
+    echo "Authentication:"
+    echo "  This command requires B2 and Restic credentials, provided either by"
+    echo "  environment variables (B2_ACCOUNT_ID, B2_ACCOUNT_KEY, RESTIC_PASSWORD,"
+    echo "  B2_BUCKET, B2_PATH) or by piping a 5-line secrets file via stdin."
+    echo
+    echo "Example (stdin):"
+    echo "  cat secrets.txt | vault snapshots"
+}
+
+function main() {
+    # --- Argument Parser ---
+    local output_flag=""
+    local positional_args=()
+
+    while [[ $# -gt 0 ]]; do
+      case $1 in
+        --output)
+          output_flag=true
+          shift
+          ;;
+        --help|-h)
+          show_help
+          exit 0
+          ;;
+        -*)
+          echo "Error: Unknown flag: $1" >&2
+          show_help
+          exit 1
+          ;;
+        *)
+          positional_args+=("$1")
+          shift
+          ;;
+      esac
+    done
+
+    # The first positional argument is the main command.
+    local command="${positional_args[0]}"
+
+    # If invoked as `bash -s -- vault <subcommand>`, skip the "vault" prefix
+    if [[ "$command" == "vault" ]]; then
+        positional_args=("${positional_args[@]:1}")
+        command="${positional_args[0]}"
+    fi
+
+    case "$command" in
+        create)
+            vault_create
+            ;;
+        delete)
+            local snapshot_id_to_delete="${positional_args[1]}"
+            vault_delete "$snapshot_id_to_delete"
+            ;;
+        snapshot-info)
+            local snapshot_id_to_show="${positional_args[1]}"
+            vault_snapshot_info "$snapshot_id_to_show"
+            ;;
+        snapshots)
+            vault_snapshots "$output_flag"
+            ;;
+        mount)
+            vault_mount
+            ;;
+        info)
+            vault_info
+            ;;
+        prune)
+            vault_prune
+            ;;
+        *)
+            show_help >&2
+            exit 0
+            ;;
+    esac
+}
+
+#  Pass all script arguments to the main function.
+main "$@"
