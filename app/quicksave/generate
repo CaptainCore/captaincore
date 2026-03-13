@@ -148,8 +148,8 @@ run_command() {
   if [[ -n "$remote_fingerprint" ]] && [[ -f "$fingerprint_file" ]]; then
     stored_fingerprint=$(cat "$fingerprint_file")
     if [[ "$remote_fingerprint" == "$stored_fingerprint" ]] && [[ "$FLAG_FORCE" != "true" ]]; then
-      echo "$(date +'%Y-%m-%d %H:%M') No file changes detected for ${site}-${environment}. Skipping rclone sync."
-      captaincore sync-data $site-${environment} --captain-id=$CAPTAIN_ID
+      echo "No file changes detected. Skipping rclone sync."
+      captaincore sync-data $site-${environment} --captain-id=$CAPTAIN_ID > /dev/null
 
       # Touch list.json to mark site as recently checked
       quicksave_list_file="$path/${site}_${site_id}/${environment}/quicksaves/list.json"
@@ -167,7 +167,7 @@ run_command() {
   # --------------------------------------------------
 
   quicksave_id_before=$( captaincore quicksave latest $site-$environment --field=hash --captain-id=$CAPTAIN_ID )
-  echo "$(date +'%Y-%m-%d %H:%M') Begin quicksave for ${site}-${environment}"
+  echo "Begin quicksave"
 
   # Create directory structure
   mkdir -p $path/$site_path/quicksave/mu-plugins
@@ -184,16 +184,11 @@ run_command() {
 
   # Sync DIRECTLY to quicksave folders
   # Note: Added --exclude ".git/**" to prevent rclone from messing with the repo metadata if a plugin contains a git repo.
-  echo "Syncing themes..."
   rclone sync ${environment}:$home_directory${wp_content}/themes/ $path/$site_path/quicksave/themes/ --exclude .DS_Store --exclude *timthumb.txt --exclude "node_modules/**" --exclude ".git/**" --config="$rclone_config_file"
-
-  echo "Syncing mu-plugins..."
   rclone sync ${environment}:$home_directory${wp_content}/mu-plugins/ $path/$site_path/quicksave/mu-plugins/ --exclude .DS_Store --exclude *timthumb.txt --exclude "node_modules/**" --exclude ".git/**" --config="$rclone_config_file"
-
-  echo "Syncing plugins..."
   rclone sync ${environment}:$home_directory${wp_content}/plugins/ $path/$site_path/quicksave/plugins/ --exclude .DS_Store --exclude *timthumb.txt --exclude "node_modules/**" --exclude ".git/**" --config="$rclone_config_file"
 
-  captaincore sync-data $site-${environment} --captain-id=$CAPTAIN_ID
+  captaincore sync-data $site-${environment} --captain-id=$CAPTAIN_ID > /dev/null
   captaincore quicksave add $site-$environment --captain-id=$CAPTAIN_ID
 
   # Save remote fingerprint after successful sync
@@ -211,7 +206,7 @@ run_command() {
 
   # Only run vuln-scan if quicksave actually changed
   if [[ "$quicksave_id_before" != "$quicksave_id_after" ]]; then
-    captaincore site vuln-scan $site-$environment --captain-id=$CAPTAIN_ID
+    captaincore site vuln-scan $site-$environment --captain-id=$CAPTAIN_ID > /dev/null
   fi
 
   # --------------------------------------------------
@@ -227,6 +222,8 @@ run_command() {
   if [ -f "${path}/process-${process_id}-progress.log" ]; then
     echo -n "." >> ${path}/process-${process_id}-progress.log
   fi
+
+  echo "  Quicksave complete"
 
 }
 
