@@ -1,3 +1,9 @@
+#!/usr/bin/env bash
+
+#
+#   Backup database to a private directory
+#
+
 # Store current path
 home_directory=$(pwd)
 private_directory=""
