@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 
 #
-#   Deploy Fathom
-#
-#   `deploy-fathom --tracker=<tracker-domain> --id=<site-id> --branding_author=<captaincore_branding_author> --branding_author_uri=<captaincore_branding_author_uri> --branding_slug=<captaincore_branding_slug>`
+#   Arguments helper - parses CLI flags and arguments
 #
 
 echo "raw $@"
