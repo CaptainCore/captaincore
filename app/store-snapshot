@@ -15,18 +15,99 @@ while read config; do
   declare "$config"
 done <<< "$(captaincore config fetch --captain-id=$CAPTAIN_ID)"
 
+# Setup progress tracking (PID matches Task.ProcessID in Go server)
+home_dir=$(eval echo ~)
+progress_dir="$home_dir/.captaincore/data/task-progress"
+mkdir -p "$progress_dir"
+progress_file="$progress_dir/$$.json"
+
+update_progress() {
+	local phase="$1"
+	local percent="$2"
+	local current="${3:-0}"
+	local total="${4:-0}"
+	local detail="${5:-}"
+	printf '{"phase":"%s","percent":%s,"current":%s,"total":%s,"detail":"%s"}\n' \
+		"$phase" "$percent" "$current" "$total" "$detail" > "${progress_file}.tmp" \
+		&& mv "${progress_file}.tmp" "$progress_file"
+}
+
+get_file_size() {
+	stat -f%z "$1" 2>/dev/null || stat -c%s "$1" 2>/dev/null || wc -c < "$1" | tr -d ' '
+}
+
+child_pid=""
+trap 'if [ -n "$child_pid" ]; then kill $child_pid 2>/dev/null; fi; rm -f "$progress_file" "${progress_file}.tmp"' EXIT
+
+upload_with_progress() {
+	local source="$1"
+	local file_size="$2"
+	update_progress "uploading" "0" "0" "$file_size"
+
+	rclone move "$source" "$rclone_archive" --stats-one-line --stats=2s 2>&1 | tr '\r' '\n' | while IFS= read -r line; do
+		if echo "$line" | grep -q 'Transferred:'; then
+			pct=$(echo "$line" | grep -o '[0-9]*%' | head -1 | tr -d '%')
+			if [ -n "$pct" ]; then
+				current=$((file_size * pct / 100))
+				update_progress "uploading" "$pct" "$current" "$file_size"
+			fi
+		fi
+	done
+
+	update_progress "complete" "100" "$file_size" "$file_size"
+}
+
 run_command() {
 
-	if [ -e $zip ]; then
+	if [ -e "$zip" ]; then
 		echo "Found local file $zip"
-		rclone move $zip $rclone_archive --progress --stats-one-line --stats=1m
-		return 1
+		local file_size=$(get_file_size "$zip")
+		upload_with_progress "$zip" "$file_size"
+		return 0
 	fi
 
 	zip_filename=$( echo $zip | perl -n -e '/.+\/+(.+\.zip)/&& print $1' )
-	wget -O $zip_filename $zip
-	rclone move $zip_filename $rclone_archive --progress --stats-one-line --stats=1m
+	zip_filepath="$path_tmp/$zip_filename"
 
+	# Get file size from URL headers
+	total_size=$(curl -sI "$zip" 2>/dev/null | grep -i '^content-length:' | tail -1 | awk '{print $2}' | tr -d '\r')
+	total_size=${total_size:-0}
+
+	update_progress "downloading" "0" "0" "$total_size"
+
+	# Download to configured tmp folder in background so we can monitor file size
+	wget_log="$path_tmp/wget-$$.log"
+	wget -O "$zip_filepath" "$zip" 2>"$wget_log" &
+	child_pid=$!
+
+	while kill -0 $child_pid 2>/dev/null; do
+		if [ -f "$zip_filepath" ]; then
+			current_size=$(get_file_size "$zip_filepath")
+			if [ "$total_size" -gt 0 ] 2>/dev/null; then
+				pct=$((current_size * 100 / total_size))
+				update_progress "downloading" "$pct" "$current_size" "$total_size"
+			fi
+		fi
+		sleep 2
+	done
+
+	wait $child_pid
+	wget_exit=$?
+	child_pid=""
+
+	if [ $wget_exit -ne 0 ]; then
+		wget_error=$(tail -5 "$wget_log" 2>/dev/null | tr '\n' ' ')
+		rm -f "$wget_log"
+		update_progress "error" "0" "0" "0" "Download failed: $wget_error"
+		echo "Error: Download failed with exit code $wget_exit"
+		echo "$wget_error"
+		return 1
+	fi
+	rm -f "$wget_log"
+
+	# Upload phase
+	file_size=$(get_file_size "$zip_filepath")
+	upload_with_progress "$zip_filepath" "$file_size"
 }
 
 run_command
