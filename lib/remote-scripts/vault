@@ -235,9 +235,17 @@ function setup_rclone() {
         echo "Error: Cannot find a writable directory to install rclone." >&2; return 1;
     fi
 
-    # Check existing private dir copy
+    # Check existing private dir copy — look for the target version first
     local existing_executable
-    existing_executable=$(find "$private_dir" -name rclone -type f 2>/dev/null | head -n 1)
+    local target_dir="${private_dir}/rclone-v${RCLONE_VERSION}-linux-amd64"
+    if [ -x "${target_dir}/rclone" ]; then
+        existing_executable="${target_dir}/rclone"
+    else
+        existing_executable=$(find "$private_dir" -name rclone -type f 2>/dev/null | while read -r f; do
+            local v; v=$(_rclone_ver "$f")
+            if [[ -n "$v" ]] && _ver_gte "$v" "$RCLONE_VERSION"; then echo "$f"; break; fi
+        done)
+    fi
     if [ -n "$existing_executable" ] && [ -x "$existing_executable" ]; then
         local existing_ver; existing_ver=$(_rclone_ver "$existing_executable")
         if [[ -n "$existing_ver" ]] && _ver_gte "$existing_ver" "$RCLONE_VERSION"; then
