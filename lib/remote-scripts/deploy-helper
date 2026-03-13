@@ -61,7 +61,7 @@ read -r -d '' build_mu_plugin << 'heredoc'
  * Plugin Name: CaptainCore Helper
  * Plugin URI: https://captaincore.io
  * Description: Collection of helper functions for CaptainCore
- * Version: 0.4.3
+ * Version: 0.5.0
  * Author: CaptainCore
  * Author URI: https://captaincore.io
  * Text Domain: captaincore-helper
@@ -2010,10 +2010,77 @@ class SecurityLogger {
     }
 }
 
+class UserEnumerationProtection {
+
+    public static function init() {
+        // Skip protections for WP-CLI commands.
+        if ( defined( 'WP_CLI' ) && WP_CLI ) {
+            return;
+        }
+        add_action( 'init', [ __CLASS__, 'block_author_query' ] );
+        add_filter( 'rest_pre_dispatch', [ __CLASS__, 'block_rest_users' ], 10, 3 );
+        add_filter( 'wp_sitemaps_add_provider', [ __CLASS__, 'remove_author_sitemap' ], 10, 2 );
+        add_filter( 'oembed_response_data', [ __CLASS__, 'remove_oembed_author_url' ] );
+        remove_action( 'wp_head', 'wp_generator' );
+        add_filter( 'the_generator', '__return_empty_string' );
+    }
+
+    /**
+     * Block ?author=N enumeration for non-logged-in users.
+     */
+    public static function block_author_query() {
+        if ( is_user_logged_in() || is_admin() ) {
+            return;
+        }
+        if ( isset( $_REQUEST['author'] ) && is_numeric( $_REQUEST['author'] ) ) {
+            wp_die( 'Forbidden', 'Forbidden', [ 'response' => 403 ] );
+        }
+    }
+
+    /**
+     * Block REST API /wp/v2/users for unauthenticated users.
+     */
+    public static function block_rest_users( $result, $server, $request ) {
+        if ( $result !== null ) {
+            return $result;
+        }
+        $route = $request->get_route();
+        if ( preg_match( '#^/wp/v2/users#', $route ) && ! is_user_logged_in() ) {
+            return new \WP_Error(
+                'rest_user_cannot_view',
+                'User enumeration is not allowed.',
+                [ 'status' => 401 ]
+            );
+        }
+        return $result;
+    }
+
+    /**
+     * Remove author/user sitemap provider.
+     */
+    public static function remove_author_sitemap( $provider, $name ) {
+        if ( $name === 'users' ) {
+            return false;
+        }
+        return $provider;
+    }
+
+    /**
+     * Strip author_url from oEmbed responses.
+     */
+    public static function remove_oembed_author_url( $data ) {
+        if ( isset( $data['author_url'] ) ) {
+            unset( $data['author_url'] );
+        }
+        return $data;
+    }
+}
+
 MagicLogin::init();
 Helpers::init();
 new TGMPAUpdater();
 SecurityLogger::init();
+UserEnumerationProtection::init();
 
 if ( defined( 'WP_CLI' ) && WP_CLI ) {
     /**
