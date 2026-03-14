@@ -1451,6 +1451,75 @@ func quicksaveMalwareScanNative(cmd *cobra.Command, args []string) {
 	}
 }
 
+var quicksaveArchiveCmd = &cobra.Command{
+	Use:   "archive <site> <hash> [--plugin=<name>] [--theme=<name>]",
+	Short: "Extract a plugin or theme zip from a quicksave commit",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 2 {
+			return errors.New("requires a <site> and <hash> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveNativeOrWP(cmd, args, quicksaveArchiveNative)
+	},
+}
+
+func quicksaveArchiveNative(cmd *cobra.Command, args []string) {
+	sa := parseSiteArgument(args[0])
+	hash := args[1]
+
+	site, err := sa.LookupSite()
+	if err != nil || site == nil {
+		fmt.Fprintf(os.Stderr, "Error: Site '%s' not found.\n", sa.SiteName)
+		return
+	}
+
+	env, err := sa.LookupEnvironment(site.SiteID)
+	if err != nil || env == nil {
+		fmt.Fprintln(os.Stderr, "Error: Environment not found.")
+		return
+	}
+
+	_, system, _, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Fprintln(os.Stderr, "Error: Configuration file not found.")
+		return
+	}
+
+	// Determine type and name
+	var typePrefix, name string
+	if flagPlugin != "" {
+		typePrefix = "plugins/"
+		name = flagPlugin
+	} else if flagTheme != "" {
+		typePrefix = "themes/"
+		name = flagTheme
+	} else {
+		fmt.Fprintln(os.Stderr, "Error: Must specify --plugin or --theme.")
+		return
+	}
+
+	// Sanitize name to prevent path traversal
+	sanitized := regexp.MustCompile(`[^a-zA-Z0-9_-]`).ReplaceAllString(name, "")
+	if sanitized != name || name == "" {
+		fmt.Fprintln(os.Stderr, "Error: Invalid name. Only alphanumeric characters, hyphens, and underscores are allowed.")
+		return
+	}
+
+	siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+	envName := strings.ToLower(env.Environment)
+	quicksaveDir := filepath.Join(system.Path, siteDir, envName, "quicksave")
+
+	gitCmd := exec.Command("git", "archive", "--format=zip", "--prefix="+name+"/", hash+":"+typePrefix+name+"/")
+	gitCmd.Dir = quicksaveDir
+	gitCmd.Stdout = os.Stdout
+	gitCmd.Stderr = os.Stderr
+	if err := gitCmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Failed to create archive: %v\n", err)
+	}
+}
+
 func init() {
 	rootCmd.AddCommand(quicksaveCmd)
 	quicksaveCmd.AddCommand(quicksaveAddCmd)
@@ -1470,6 +1539,9 @@ func init() {
 	quicksaveCmd.AddCommand(quicksaveSyncCmd)
 	quicksaveCmd.AddCommand(quicksaveUpdateUsageCmd)
 	quicksaveCmd.AddCommand(quicksaveMalwareScanCmd)
+	quicksaveCmd.AddCommand(quicksaveArchiveCmd)
+	quicksaveArchiveCmd.Flags().StringVar(&flagPlugin, "plugin", "", "Plugin slug")
+	quicksaveArchiveCmd.Flags().StringVar(&flagTheme, "theme", "", "Theme slug")
 	quicksaveMalwareScanCmd.Flags().StringVarP(&flagFormat, "format", "", "", "Output format (json)")
 	quicksaveFileDiffCmd.Flags().StringVar(&flagTheme, "theme", "", "Theme slug")
 	quicksaveFileDiffCmd.Flags().StringVar(&flagPlugin, "plugin", "", "Plugin slug")
