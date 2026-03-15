@@ -808,14 +808,12 @@ function vault_create() {
 
     if [[ "$is_wordpress" == "true" ]]; then
         echo "   - Generating database dump at: ${sql_file_path}"
-        # Check if mysqldump supports --no-tablespaces (added in 5.7.31 / 8.0.21)
-        local no_tablespaces_flag=""
-        if mysqldump --no-tablespaces --version &>/dev/null; then
-            no_tablespaces_flag="--no-tablespaces"
-        fi
-        if ! "$WP_CLI_CMD" db export "$sql_file_path" --add-drop-table --single-transaction --quick --max_allowed_packet=512M ${no_tablespaces_flag} > /dev/null; then
-            echo "❌ Error: Database export failed." >&2
-            return 1
+        # Try with --single-transaction first for InnoDB consistency, fall back without it if FLUSH TABLES privilege is missing
+        if ! "$WP_CLI_CMD" db export "$sql_file_path" --add-drop-table --single-transaction --quick --max_allowed_packet=512M > /dev/null 2>&1; then
+            if ! "$WP_CLI_CMD" db export "$sql_file_path" --add-drop-table --quick --max_allowed_packet=512M > /dev/null; then
+                echo "❌ Error: Database export failed." >&2
+                return 1
+            fi
         fi
 
         # --- Move DB dump to root for snapshot ---
