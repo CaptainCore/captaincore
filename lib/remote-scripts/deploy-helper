@@ -61,7 +61,7 @@ read -r -d '' build_mu_plugin << 'heredoc'
  * Plugin Name: CaptainCore Helper
  * Plugin URI: https://captaincore.io
  * Description: Collection of helper functions for CaptainCore
- * Version: 0.5.0
+ * Version: 0.5.1
  * Author: CaptainCore
  * Author URI: https://captaincore.io
  * Text Domain: captaincore-helper
@@ -1164,6 +1164,8 @@ class SecurityLogger {
         add_action( 'delete_user', [ __CLASS__, 'log_delete_user' ], 10, 1 );
         add_action( 'wpmu_delete_user', [ __CLASS__, 'log_delete_user' ], 10, 1 );
         add_action( 'set_user_role', [ __CLASS__, 'log_user_role_changed' ], 10, 3 );
+        add_action( 'profile_update', [ __CLASS__, 'log_password_changed_via_profile' ], 10, 3 );
+        add_action( 'after_password_reset', [ __CLASS__, 'log_password_reset' ], 10, 2 );
 
         if ( is_multisite() ) {
             add_action( 'grant_super_admin', [ __CLASS__, 'capture_old_super_admins' ] );
@@ -1408,6 +1410,26 @@ class SecurityLogger {
             self::log( 'user_super_admin_revoked', [ 'target_user_id' => $user_id, 'target_user_login' => $user->user_login ] );
         }
         self::$old_superadmins = null;
+    }
+
+    public static function log_password_changed_via_profile( $user_id, $old_user_data, $userdata = null ) {
+        $new_user = get_userdata( $user_id );
+        if ( ! $new_user || ! $old_user_data ) { return; }
+        if ( $old_user_data->user_pass === $new_user->user_pass ) { return; }
+        self::log( 'user_password_changed', [
+            'target_user_id'    => $user_id,
+            'target_user_login' => $new_user->user_login,
+            'method'            => 'profile_update',
+        ]);
+    }
+
+    public static function log_password_reset( $user, $new_pass ) {
+        if ( ! $user || ! isset( $user->ID ) ) { return; }
+        self::log( 'user_password_changed', [
+            'target_user_id'    => $user->ID,
+            'target_user_login' => $user->user_login,
+            'method'            => 'password_reset',
+        ]);
     }
 
     // --- Plugin & theme lifecycle handlers ---
@@ -1949,6 +1971,9 @@ class SecurityLogger {
                 return "Super Admin granted to '" . ( $data['target_user_login'] ?? 'N/A' ) . "'";
             case 'user_super_admin_revoked':
                 return "Super Admin revoked from '" . ( $data['target_user_login'] ?? 'N/A' ) . "'";
+            case 'user_password_changed':
+                $method = $data['method'] ?? 'unknown';
+                return "Password changed for '" . ( $data['target_user_login'] ?? 'N/A' ) . "' via {$method}";
             case 'plugin_installed': case 'plugin_activated': case 'plugin_deactivated': case 'plugin_deleted':
                 $name = $data['plugin']['name'] ?? 'N/A';
                 $ver  = $data['plugin']['version'] ?? '';
