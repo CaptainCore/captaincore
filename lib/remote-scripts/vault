@@ -808,7 +808,12 @@ function vault_create() {
 
     if [[ "$is_wordpress" == "true" ]]; then
         echo "   - Generating database dump at: ${sql_file_path}"
-        if ! "$WP_CLI_CMD" db export "$sql_file_path" --add-drop-table --single-transaction --quick --max_allowed_packet=512M --no-tablespaces > /dev/null; then
+        # Check if mysqldump supports --no-tablespaces (added in 5.7.31 / 8.0.21)
+        local no_tablespaces_flag=""
+        if mysqldump --no-tablespaces --version &>/dev/null; then
+            no_tablespaces_flag="--no-tablespaces"
+        fi
+        if ! "$WP_CLI_CMD" db export "$sql_file_path" --add-drop-table --single-transaction --quick --max_allowed_packet=512M ${no_tablespaces_flag} > /dev/null; then
             echo "❌ Error: Database export failed." >&2
             return 1
         fi
