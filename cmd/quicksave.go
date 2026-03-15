@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/base64"
 	"encoding/csv"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1520,6 +1522,386 @@ func quicksaveArchiveNative(cmd *cobra.Command, args []string) {
 	}
 }
 
+var quicksaveDatabaseCmd = &cobra.Command{
+	Use:   "database <site> <hash>",
+	Short: "Extract and sanitize database SQL from the nearest backup snapshot for a quicksave",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 2 {
+			return errors.New("requires a <site> and <hash> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveNativeOrWP(cmd, args, quicksaveDatabaseNative)
+	},
+}
+
+func quicksaveDatabaseNative(cmd *cobra.Command, args []string) {
+	sa := parseSiteArgument(args[0])
+	hash := args[1]
+
+	site, err := sa.LookupSite()
+	if err != nil || site == nil {
+		fmt.Fprintf(os.Stderr, "Error: Site '%s' not found.\n", sa.SiteName)
+		return
+	}
+
+	env, err := sa.LookupEnvironment(site.SiteID)
+	if err != nil || env == nil {
+		fmt.Fprintln(os.Stderr, "Error: Environment not found.")
+		return
+	}
+
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Fprintln(os.Stderr, "Error: Configuration file not found.")
+		return
+	}
+
+	siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+	envName := strings.ToLower(env.Environment)
+	quicksaveDir := filepath.Join(system.Path, siteDir, envName, "quicksave")
+
+	// 1. Get quicksave timestamp from git log
+	gitLogCmd := exec.Command("git", "log", "--format=%ct", hash, "-n", "1")
+	gitLogCmd.Dir = quicksaveDir
+	tsOutput, err := gitLogCmd.Output()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Could not get timestamp for commit %s: %v\n", hash, err)
+		return
+	}
+
+	qsTimestamp, err := strconv.ParseInt(strings.TrimSpace(string(tsOutput)), 10, 64)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Invalid timestamp for commit %s.\n", hash)
+		return
+	}
+
+	// 2. Read backup list.json to find nearest snapshot by timestamp
+	backupsDir := filepath.Join(system.Path, siteDir, envName, "backups")
+	listPath := filepath.Join(backupsDir, "list.json")
+
+	// Regenerate list.json if missing
+	if info, statErr := os.Stat(listPath); statErr != nil || info.Size() == 0 {
+		siteEnvArg := fmt.Sprintf("%s-%s", site.Site, envName)
+		listGenCmd := exec.Command("captaincore", "backup", "list-generate", siteEnvArg, "--captain-id="+captainID)
+		listGenCmd.Stderr = os.Stderr
+		listGenCmd.Run()
+	}
+
+	listData, err := os.ReadFile(listPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error: No backup list found. Run 'captaincore backup list-generate' first.")
+		return
+	}
+
+	var snapshots []struct {
+		ShortID string `json:"short_id"`
+		ID      string `json:"id"`
+		Time    string `json:"time"`
+	}
+	if json.Unmarshal(listData, &snapshots) != nil || len(snapshots) == 0 {
+		fmt.Fprintln(os.Stderr, "Error: No backup snapshots found.")
+		return
+	}
+
+	// Find nearest snapshot by timestamp
+	var bestID, bestShortID string
+	bestDelta := int64(1<<63 - 1)
+	for _, snap := range snapshots {
+		t, parseErr := time.Parse(time.RFC3339Nano, snap.Time)
+		if parseErr != nil {
+			t, parseErr = time.Parse("2006-01-02T15:04:05Z07:00", snap.Time)
+		}
+		if parseErr != nil {
+			continue
+		}
+		delta := qsTimestamp - t.Unix()
+		if delta < 0 {
+			delta = -delta
+		}
+		if delta < bestDelta {
+			bestDelta = delta
+			bestID = snap.ID
+			bestShortID = snap.ShortID
+		}
+	}
+
+	if bestID == "" {
+		fmt.Fprintln(os.Stderr, "Error: Could not find a matching backup snapshot.")
+		return
+	}
+
+	fmt.Fprintf(os.Stderr, "Using backup snapshot %s (delta: %s)\n", bestShortID, secondsToTimeString(bestDelta))
+
+	// 3. Check cache first
+	cacheDir := filepath.Join(system.Path, siteDir, envName, "sandbox-cache")
+	cachePath := filepath.Join(cacheDir, bestShortID+".sql")
+
+	if _, err := os.Stat(cachePath); err == nil {
+		// Cache hit — stream cached file to stdout
+		f, err := os.Open(cachePath)
+		if err == nil {
+			io.Copy(os.Stdout, f)
+			f.Close()
+			return
+		}
+	}
+
+	// 4. Restore database-backup.sql from restic to temp dir
+	rcloneBackup := getRcloneBackup(captain, system)
+	resticKey := getResticKeyPath()
+	resticRepo := fmt.Sprintf("rclone:%s/%s/%s/restic-repo", rcloneBackup, siteDir, envName)
+
+	tmpDir, err := os.MkdirTemp("", "captaincore-db-*")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Could not create temp directory: %v\n", err)
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+
+	restoreCmd := exec.Command("restic", "restore", bestID,
+		"--include=/database-backup.sql",
+		"--repo", resticRepo,
+		"--password-file="+resticKey,
+		"--target", tmpDir,
+	)
+	restoreCmd.Stderr = os.Stderr
+	if err := restoreCmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Failed to restore from restic: %v\n", err)
+		return
+	}
+
+	sqlPath := filepath.Join(tmpDir, "database-backup.sql")
+	if _, err := os.Stat(sqlPath); os.IsNotExist(err) {
+		fmt.Fprintln(os.Stderr, "Error: database-backup.sql not found in snapshot.")
+		return
+	}
+
+	// 5. Sanitize SQL and stream to stdout, also cache the result
+	os.MkdirAll(cacheDir, 0755)
+	cacheFile, cacheErr := os.Create(cachePath)
+	if cacheErr != nil {
+		cacheFile = nil
+	}
+	defer func() {
+		if cacheFile != nil {
+			cacheFile.Close()
+		}
+	}()
+
+	sanitizeDatabaseSQL(sqlPath, os.Stdout, cacheFile)
+}
+
+// sanitizeDatabaseSQL reads a WordPress SQL dump line-by-line, sanitizes it for
+// WordPress Playground, and writes the result to the provided writers.
+func sanitizeDatabaseSQL(sqlPath string, stdout io.Writer, cache *os.File) {
+	f, err := os.Open(sqlPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Could not open SQL file: %v\n", err)
+		return
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	// Allow up to 10MB per line for large INSERT statements
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+
+	detectedPrefix := ""
+	inMultiLineComment := false
+	inSkippedInsert := false
+	inMultiValueInsert := false   // inside a multi-value INSERT VALUES block
+	multiValueInsertPrefix := ""  // "INSERT INTO `table` VALUES " for rewriting rows
+
+	// Regex patterns for prefix detection from known WP tables
+	// Captures prefix WITH trailing underscore (e.g. "wp_", "custom_")
+	prefixRe := regexp.MustCompile(`(?:CREATE TABLE|INSERT INTO)\s+` + "`?" + `([a-zA-Z0-9_]+_)(options|posts|users|postmeta|comments|terms|usermeta)` + "`?")
+	// Strips everything after ) ENGINE= on CREATE TABLE closing lines
+	engineRe := regexp.MustCompile(`\)\s*ENGINE=.*;\s*$`)
+
+	// Patterns for wp_options rows to skip (transients, caches, large ephemeral data)
+	optionsSkipPatterns := []string{
+		"'_transient_",
+		"'_site_transient_",
+		"'_transient_timeout_",
+		"'_site_transient_timeout_",
+		"'edd_sl_",
+		"'_wc_session_",
+	}
+
+	// Max line length for value rows (50KB) — safety net for parser memory
+	const maxValueLineLen = 50 * 1024
+
+	writeLine := func(line string) {
+		fmt.Fprintln(stdout, line)
+		if cache != nil {
+			fmt.Fprintln(cache, line)
+		}
+	}
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+
+		// Handle multi-line /* ... */ comment blocks
+		if inMultiLineComment {
+			if strings.Contains(trimmed, "*/") {
+				inMultiLineComment = false
+			}
+			continue
+		}
+
+		// Skip SQL single-line comments
+		if strings.HasPrefix(trimmed, "--") {
+			continue
+		}
+
+		// Skip empty lines
+		if trimmed == "" {
+			continue
+		}
+
+		// Skip MySQL/MariaDB comment-directives: /*!...*/ and /*M!...*/
+		if strings.HasPrefix(trimmed, "/*!") || strings.HasPrefix(trimmed, "/*M!") || strings.HasPrefix(trimmed, "/*M") {
+			if !strings.Contains(trimmed, "*/") {
+				inMultiLineComment = true
+			}
+			continue
+		}
+
+		// Skip any other multi-line comment start
+		if strings.HasPrefix(trimmed, "/*") {
+			if !strings.Contains(trimmed, "*/") {
+				inMultiLineComment = true
+			}
+			continue
+		}
+
+		// Auto-detect prefix from CREATE TABLE or INSERT INTO
+		if detectedPrefix == "" {
+			if m := prefixRe.FindStringSubmatch(line); m != nil {
+				detectedPrefix = m[1]
+				fmt.Fprintf(os.Stderr, "Detected table prefix: %s\n", detectedPrefix)
+			}
+		}
+
+		// Skip SET directives
+		if strings.HasPrefix(trimmed, "SET @OLD_") || strings.HasPrefix(trimmed, "SET NAMES") || strings.HasPrefix(trimmed, "SET TIME_ZONE") || strings.HasPrefix(trimmed, "SET @") {
+			continue
+		}
+
+		// Skip LOCK/UNLOCK TABLES
+		if strings.HasPrefix(trimmed, "LOCK TABLES") || strings.HasPrefix(trimmed, "UNLOCK TABLES") {
+			continue
+		}
+
+		// Handle continuation lines of skipped multi-line INSERT statements
+		if inSkippedInsert {
+			if strings.HasSuffix(trimmed, ";") {
+				inSkippedInsert = false
+			}
+			continue
+		}
+
+		// Handle multi-value INSERT — convert each value row to individual INSERT
+		if inMultiValueInsert {
+			isLastRow := strings.HasSuffix(trimmed, ";")
+			if isLastRow {
+				inMultiValueInsert = false
+			}
+
+			// Skip oversized rows
+			if len(trimmed) > maxValueLineLen {
+				continue
+			}
+
+			// For options table, skip transient rows
+			if strings.Contains(multiValueInsertPrefix, "options`") {
+				skip := false
+				for _, pat := range optionsSkipPatterns {
+					if strings.Contains(trimmed, pat) {
+						skip = true
+						break
+					}
+				}
+				if skip {
+					continue
+				}
+			}
+
+			// Extract the value tuple — strip trailing comma or semicolon
+			row := strings.TrimRight(trimmed, ",;")
+			// Write as individual INSERT statement
+			writeLine(multiValueInsertPrefix + row + ";")
+			continue
+		}
+
+		// Detect multi-value INSERT INTO — rewrite as single-row INSERTs
+		if strings.Contains(trimmed, "INSERT INTO") && !strings.HasSuffix(trimmed, ";") {
+			// This is a multi-value INSERT (VALUES on next lines)
+			// Extract "INSERT INTO `table` VALUES " prefix
+
+			// Skip users/usermeta tables
+			if detectedPrefix != "" {
+				usersTable := "`" + detectedPrefix + "users`"
+				usermetaTable := "`" + detectedPrefix + "usermeta`"
+				if strings.Contains(line, usersTable) || strings.Contains(line, usermetaTable) {
+					inSkippedInsert = true
+					continue
+				}
+			}
+
+			// Build the INSERT prefix for rewriting individual rows
+			prefix := trimmed
+			if detectedPrefix != "" && detectedPrefix != "wp_" {
+				prefix = strings.ReplaceAll(prefix, detectedPrefix, "wp_")
+			}
+			// Ensure it ends with a space for clean concatenation
+			if !strings.HasSuffix(prefix, " ") {
+				prefix += " "
+			}
+			multiValueInsertPrefix = prefix
+			inMultiValueInsert = true
+			continue
+		}
+
+		// Skip single-line INSERT INTO users/usermeta
+		if detectedPrefix != "" && strings.Contains(trimmed, "INSERT INTO") {
+			usersTable := "`" + detectedPrefix + "users`"
+			usermetaTable := "`" + detectedPrefix + "usermeta`"
+			if strings.Contains(line, usersTable) || strings.Contains(line, usermetaTable) {
+				continue
+			}
+		}
+
+		// Strip ENGINE=... and everything after it on CREATE TABLE closing lines
+		if strings.HasPrefix(trimmed, ")") && strings.Contains(line, "ENGINE=") {
+			line = engineRe.ReplaceAllString(line, ");")
+		}
+
+		// Rewrite table prefix to wp_ (prefix includes trailing underscore)
+		if detectedPrefix != "" && detectedPrefix != "wp_" {
+			line = strings.ReplaceAll(line, detectedPrefix, "wp_")
+		}
+
+		writeLine(line)
+	}
+
+	// Append synthetic admin user/usermeta at the end.
+	// DELETE + INSERT ensures ID 1 is our admin regardless of existing data.
+	syntheticSQL := []string{
+		"DELETE FROM `wp_users` WHERE ID = 1;",
+		"INSERT INTO `wp_users` VALUES (1,'admin','$P$BPMnfKMfChGsSTiECcPMwHAVmczNDu.','admin','admin@example.com','','2024-01-01 00:00:00','',0,'admin');",
+		"DELETE FROM `wp_usermeta` WHERE user_id = 1;",
+		"INSERT INTO `wp_usermeta` (umeta_id, user_id, meta_key, meta_value) VALUES (1,1,'wp_capabilities','a:1:{s:13:\"administrator\";b:1;}');",
+		"INSERT INTO `wp_usermeta` (umeta_id, user_id, meta_key, meta_value) VALUES (2,1,'wp_user_level','10');",
+	}
+
+	for _, s := range syntheticSQL {
+		writeLine(s)
+	}
+}
+
 func init() {
 	rootCmd.AddCommand(quicksaveCmd)
 	quicksaveCmd.AddCommand(quicksaveAddCmd)
@@ -1540,6 +1922,7 @@ func init() {
 	quicksaveCmd.AddCommand(quicksaveUpdateUsageCmd)
 	quicksaveCmd.AddCommand(quicksaveMalwareScanCmd)
 	quicksaveCmd.AddCommand(quicksaveArchiveCmd)
+	quicksaveCmd.AddCommand(quicksaveDatabaseCmd)
 	quicksaveArchiveCmd.Flags().StringVar(&flagPlugin, "plugin", "", "Plugin slug")
 	quicksaveArchiveCmd.Flags().StringVar(&flagTheme, "theme", "", "Theme slug")
 	quicksaveMalwareScanCmd.Flags().StringVarP(&flagFormat, "format", "", "", "Output format (json)")
