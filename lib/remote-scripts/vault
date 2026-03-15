@@ -808,7 +808,7 @@ function vault_create() {
 
     if [[ "$is_wordpress" == "true" ]]; then
         echo "   - Generating database dump at: ${sql_file_path}"
-        if ! "$WP_CLI_CMD" db export "$sql_file_path" --add-drop-table --single-transaction --quick --max_allowed_packet=512M > /dev/null; then
+        if ! "$WP_CLI_CMD" db export "$sql_file_path" --add-drop-table --single-transaction --quick --max_allowed_packet=512M --no-tablespaces > /dev/null; then
             echo "❌ Error: Database export failed." >&2
             return 1
         fi
