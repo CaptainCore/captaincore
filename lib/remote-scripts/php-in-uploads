@@ -47,11 +47,40 @@ else
 fi
 
 echo ""
+echo "=== Hidden Dot-Files ==="
+echo ""
+
+# Hidden dot-files in uploads are almost always malicious backdoors.
+# Excludes .htaccess (checked separately) and known legitimate dot-files.
+dotfiles=$( find "$uploads_dir" -type f -name ".*" \
+    ! -name ".htaccess" \
+    ! -name ".DS_Store" \
+    ! -name ".gitkeep" \
+    ! -name ".shortpixel-*" \
+    2>/dev/null )
+
+if [ -z "$dotfiles" ]; then
+    echo "No hidden dot-files found."
+else
+    dotfile_count=$( echo "$dotfiles" | wc -l | tr -d ' ' )
+    echo "Found $dotfile_count hidden dot-file(s) in uploads:"
+    echo "$dotfiles" | while read -r file; do
+        filetype=$( file -b "$file" 2>/dev/null | head -c 60 )
+        size=$( ls -lh "$file" 2>/dev/null | awk '{print $5}' )
+        echo "  $file ($size) [$filetype]"
+    done
+fi
+
+echo ""
 echo "=== Suspicious Non-PHP Files ==="
 echo ""
 
-# Files with PHP code hidden inside non-PHP extensions (e.g. .ico, .jpg)
-hidden_php=$( find "$uploads_dir" -type f \( -name "*.ico" -o -name "*.jpg" -o -name "*.png" -o -name "*.gif" -o -name "*.txt" -o -name "*.css" \) -exec grep -l "<?php" {} \; 2>/dev/null )
+# Files with PHP code hidden inside non-PHP extensions (e.g. .ico, .jpg, .ccss, .oti)
+hidden_php=$( find "$uploads_dir" -type f \( \
+    -name "*.ico" -o -name "*.jpg" -o -name "*.png" -o -name "*.gif" \
+    -o -name "*.txt" -o -name "*.css" -o -name "*.ccss" \
+    -o -name "*.oti" -o -name "*.ott" -o -name "*.log" \
+    \) -exec grep -l "<?php" {} \; 2>/dev/null )
 
 if [ -z "$hidden_php" ]; then
     echo "No PHP code hidden in non-PHP files."
@@ -104,19 +133,48 @@ else
 fi
 
 echo ""
+echo "=== Suspicious Admin Users ==="
+echo ""
+
+# Check for rogue admin accounts (common malware persistence technique)
+rogue_admins=$( wp user list --role=administrator --fields=ID,user_login,user_email,user_registered --format=csv --skip-themes --skip-plugins --skip-packages 2>/dev/null | tail -n +2 | while IFS=',' read -r id login email registered; do
+    flagged=""
+    # Empty email
+    [ -z "$email" ] && flagged="empty email"
+    # Registration year before 2000 (fake dates like 1979-01-01)
+    reg_year=$( echo "$registered" | cut -c1-4 )
+    [ "$reg_year" -lt 2000 ] 2>/dev/null && flagged="${flagged:+$flagged, }suspicious date ($registered)"
+    # Known malware username patterns
+    echo "$login" | grep -qiE "^(wp_update|wp_admin|admin[0-9]{5,}|user[0-9]{5,})" && flagged="${flagged:+$flagged, }suspicious username"
+    [ -n "$flagged" ] && echo "  ID=$id login=$login email='$email' registered=$registered [$flagged]"
+done )
+
+if [ -z "$rogue_admins" ]; then
+    echo "No suspicious admin accounts detected."
+else
+    rogue_count=$( echo "$rogue_admins" | wc -l | tr -d ' ' )
+    echo "Found $rogue_count suspicious admin account(s):"
+    echo "$rogue_admins"
+fi
+
+echo ""
 echo "=== Summary ==="
 echo ""
 
 php_count=${php_count:-0}
 hidden_count=${hidden_count:-0}
+dotfile_count=${dotfile_count:-0}
+rogue_count=${rogue_count:-0}
 htaccess_count=0
 [ -n "$htaccess_files" ] && htaccess_count=$( echo "$htaccess_files" | wc -l | tr -d ' ' )
 
 echo "PHP files in uploads:          $php_count"
+echo "Hidden dot-files in uploads:   $dotfile_count"
 echo "Hidden PHP in other files:     $hidden_count"
 echo ".htaccess files in uploads:    $htaccess_count"
+echo "Suspicious admin accounts:     $rogue_count"
 
-if [ "$php_count" -gt 0 ] || [ "$hidden_count" -gt 0 ] || [ "$htaccess_count" -gt 0 ]; then
+if [ "$php_count" -gt 0 ] || [ "$hidden_count" -gt 0 ] || [ "$htaccess_count" -gt 0 ] || [ "$dotfile_count" -gt 0 ] || [ "$rogue_count" -gt 0 ]; then
     echo ""
     echo "** Issues detected. Review findings above. **"
 fi
