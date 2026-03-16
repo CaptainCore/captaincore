@@ -197,15 +197,50 @@ func resolveCommand(c *cobra.Command, args []string) {
 	command = strings.Replace(command, "captaincore ", "", -1)
 	command = strings.Replace(command, " ", "/", -1)
 
+	// Bulk mode: use the native Go bulk runner
+	if bulk {
+		// Separate targets from any stray flags in args
+		var targets []string
+		for _, arg := range args {
+			if !strings.HasPrefix(arg, "--") {
+				targets = append(targets, arg)
+			}
+		}
+
+		cfg := BulkConfig{
+			Command:   command,
+			Targets:   targets,
+			Flags:     collectBulkFlags(),
+			CaptainID: captainID,
+			Parallel:  flagParallel,
+			Label:     flagLabel,
+			Debug:     flagDebug,
+		}
+
+		if flagFleet {
+			captainIds, nativeErr := fetchCaptainIDsNative()
+			if nativeErr != nil {
+				log.Fatalf("Error fetching captain IDs: %s\n", nativeErr)
+			}
+			for _, fleetCaptainID := range captainIds {
+				cfg.CaptainID = fleetCaptainID
+				if err := runBulk(cfg); err != nil {
+					log.Printf("Fleet bulk error (captain %s): %s\n", fleetCaptainID, err)
+				}
+			}
+			return
+		}
+
+		if err := runBulk(cfg); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Non-bulk: delegate to bash script via syscall.Exec
 	path := dirname + "/.captaincore/app/"
 
-	if bulk == true {
-		args = append([]string{command}, args...)
-		args = append([]string{"bulk"}, args...)
-		command = "bulk"
-	} else {
-		args = append([]string{c.Name()}, args...)
-	}
+	args = append([]string{c.Name()}, args...)
 
 	if flagCommand != "" {
 		args = append(args, "--command="+flagCommand)
@@ -325,7 +360,6 @@ func resolveCommand(c *cobra.Command, args []string) {
 		}
 		// Loop through CaptainIDs
 		for _, fleetCaptainID := range captainIds {
-			//fmt.Println(path+command, args, fleetCaptainID)
 			cmdRun(path+command, args, env, fleetCaptainID)
 		}
 		return

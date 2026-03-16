@@ -28,8 +28,6 @@ Flags:
 	DisableFlagParsing: true,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Manual arg parsing since DisableFlagParsing is true.
-		// Separate positional args (command + targets) from flags so that
-		// CAPTAINCORE_ARGS only contains targets for the bash bulk script.
 		var positionalArgs []string
 		var passthroughFlags []string
 		i := 0
@@ -88,13 +86,38 @@ Flags:
 			return
 		}
 
-		// Set CAPTAINCORE_ARGS to only the targets (positional args minus the
-		// command name) so the bash bulk script can correctly count targets.
-		os.Setenv("CAPTAINCORE_ARGS", strings.Join(positionalArgs[1:], " "))
+		// positionalArgs[0] is the command, the rest are targets
+		bulkCommand := positionalArgs[0]
+		bulkCommand = strings.Replace(bulkCommand, " ", "/", -1)
 
-		// Reassemble: positional args + pass-through flags
-		cleanArgs := append(positionalArgs, passthroughFlags...)
-		resolveCommand(cmd, cleanArgs)
+		cfg := BulkConfig{
+			Command:   bulkCommand,
+			Targets:   positionalArgs[1:],
+			Flags:     passthroughFlags,
+			CaptainID: captainID,
+			Parallel:  flagParallel,
+			Label:     flagLabel,
+			Debug:     flagDebug,
+		}
+
+		if flagFleet {
+			captainIds, nativeErr := fetchCaptainIDsNative()
+			if nativeErr != nil {
+				fmt.Fprintf(os.Stderr, "Error fetching captain IDs: %s\n", nativeErr)
+				os.Exit(1)
+			}
+			for _, fleetCaptainID := range captainIds {
+				cfg.CaptainID = fleetCaptainID
+				if err := runBulk(cfg); err != nil {
+					fmt.Fprintf(os.Stderr, "Fleet bulk error (captain %s): %s\n", fleetCaptainID, err)
+				}
+			}
+			return
+		}
+
+		if err := runBulk(cfg); err != nil {
+			os.Exit(1)
+		}
 	},
 }
 

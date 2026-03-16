@@ -99,7 +99,7 @@ run_command() {
         labeled_run() {
             local site="$1"
             local raw_output output exit_code
-            raw_output=$(captaincore $CC_CMD $CC_ARGS_QUOTED --captain-id=$CC_CAPTAIN_ID $site 2>/dev/null)
+            raw_output=$(eval captaincore "$CC_CMD" $CC_ARGS_QUOTED --captain-id="$CC_CAPTAIN_ID" "$site" 2>/dev/null)
             exit_code=$?
             # Extract content between markers, stripping SSH MOTD/banner
             output=$(echo "$raw_output" | sed -n '/____CC_OUTPUT_START____/,/____CC_OUTPUT_END____/{/____CC_OUTPUT_START____/d;/____CC_OUTPUT_END____/d;p;}' | sed '/^$/d')
@@ -119,7 +119,7 @@ run_command() {
         export CC_CAPTAIN_ID="$CAPTAIN_ID"
         tracked_run() {
             local site="$1"
-            captaincore $CC_CMD $CC_ARGS_QUOTED --captain-id=$CC_CAPTAIN_ID $site 2>&1
+            eval captaincore "$CC_CMD" $CC_ARGS_QUOTED --captain-id="$CC_CAPTAIN_ID" "$site" 2>&1
             printf '%s %d %d\n' "$site" "$?" "$(date +%s)" >> "$CC_PROGRESS_LOG"
         }
         export -f tracked_run
