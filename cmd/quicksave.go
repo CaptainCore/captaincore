@@ -1902,6 +1902,479 @@ func sanitizeDatabaseSQL(sqlPath string, stdout io.Writer, cache *os.File) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// quicksave migrate-v2
+// ---------------------------------------------------------------------------
+
+var quicksaveMigrateV2Cmd = &cobra.Command{
+	Use:   "migrate-v2 <site>",
+	Short: "Migrates quicksave restic repo from v1 to v2 with compression",
+	Long: `Orchestrates a full v1 to v2 migration for the quicksave repo:
+  1. Checks if repo is already v2 (skips unless --force)
+  2. Upgrades repo to v2 (restic migrate upgrade_repo_v2)
+  3. Repacks all uncompressed data (restic prune --repack-uncompressed)
+  4. Clears local restic cache for this repo
+  5. Verifies final repo state
+
+Uses system path_tmp for TMPDIR (large repos need 100s of GBs).`,
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveNativeOrWP(cmd, args, quicksaveMigrateV2Native)
+	},
+}
+
+// quicksaveMigrateV2Native implements `captaincore quicksave migrate-v2 <site>` natively in Go.
+func quicksaveMigrateV2Native(cmd *cobra.Command, args []string) {
+	sa := parseSiteArgument(args[0])
+	site, err := sa.LookupSite()
+	if err != nil || site == nil {
+		fmt.Println("Error: Site not found.")
+		return
+	}
+
+	env, err := sa.LookupEnvironment(site.SiteID)
+	if err != nil || env == nil {
+		fmt.Println("Error: Environment not found.")
+		return
+	}
+
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Println("Error: Configuration file not found.")
+		return
+	}
+
+	rcloneBackup := getRcloneBackup(captain, system)
+	resticKey := getResticKeyPath()
+	siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+	envName := strings.ToLower(env.Environment)
+	resticRepo := fmt.Sprintf("rclone:%s/%s/%s/quicksave-repo", rcloneBackup, siteDir, envName)
+	siteLabel := fmt.Sprintf("%s-%s", site.Site, envName)
+
+	rcloneArgs := []string{
+		"-o", "rclone.args=serve restic --stdio --b2-hard-delete --timeout=300s --contimeout=60s",
+		"-o", "rclone.timeout=600s",
+	}
+
+	// Build restic env with TMPDIR from config
+	resticEnv := os.Environ()
+	if system.PathTmp != "" {
+		resticEnv = append(resticEnv, "TMPDIR="+system.PathTmp)
+		fmt.Printf("Using TMPDIR=%s\n", system.PathTmp)
+	}
+
+	// -----------------------------------------------------------
+	// Step 1: Pre-flight — check current repo version & get repo ID
+	// -----------------------------------------------------------
+	fmt.Printf("\n[1/5] Checking repo version for %s\n", siteLabel)
+
+	catArgs := append([]string{"cat", "config", "--repo", resticRepo, "--password-file=" + resticKey, "--json"}, rcloneArgs...)
+	catCmd := exec.Command("restic", catArgs...)
+	catCmd.Env = resticEnv
+	catOutput, err := catCmd.Output()
+	if err != nil {
+		fmt.Printf("Quicksave repo not found for %s. Skipping.\n", siteLabel)
+		return
+	}
+
+	var repoConfig struct {
+		Version int    `json:"version"`
+		ID      string `json:"id"`
+	}
+	if json.Unmarshal(catOutput, &repoConfig) != nil {
+		fmt.Println("Error: Failed to parse repo config.")
+		return
+	}
+
+	// Get repo size before migration
+	rclonePath := fmt.Sprintf("%s/%s/%s/quicksave-repo", rcloneBackup, siteDir, envName)
+	type rcloneSize struct {
+		Count int64  `json:"count"`
+		Bytes uint64 `json:"bytes"`
+	}
+	var repoSizeBefore rcloneSize
+	rcloneSizeCmd := exec.Command("rclone", "size", "--json", rclonePath)
+	if rcloneSizeOutput, err := rcloneSizeCmd.Output(); err == nil {
+		json.Unmarshal(rcloneSizeOutput, &repoSizeBefore)
+	}
+	fmt.Printf("Repo version: %d, size: %s (%d objects)\n", repoConfig.Version, formatBytes(strconv.FormatUint(repoSizeBefore.Bytes, 10)), repoSizeBefore.Count)
+
+	if repoConfig.Version >= 2 && !flagForce {
+		fmt.Printf("Repo is already version 2. Nothing to do. (use --force to re-run)\n")
+		return
+	}
+
+	if repoConfig.Version >= 2 && flagForce {
+		fmt.Printf("--force specified. Continuing.\n")
+	} else {
+		fmt.Printf("Proceeding with migration.\n")
+	}
+
+	// -----------------------------------------------------------
+	// Step 2: Upgrade repo to v2
+	// -----------------------------------------------------------
+	fmt.Printf("\n[2/5] Upgrading repo to v2 for %s\n", siteLabel)
+
+	upgradeArgs := append([]string{
+		"migrate", "upgrade_repo_v2",
+		"--repo", resticRepo,
+		"--password-file=" + resticKey,
+	}, rcloneArgs...)
+
+	upgradeCmd := exec.Command("restic", upgradeArgs...)
+	upgradeCmd.Env = resticEnv
+	upgradeCmd.Stdout = os.Stdout
+	upgradeCmd.Stderr = os.Stderr
+	if err := upgradeCmd.Run(); err != nil {
+		if repoConfig.Version >= 2 {
+			fmt.Println("Migration already applied, continuing.")
+		} else {
+			fmt.Printf("Error: Upgrade failed for %s. Aborting.\n", siteLabel)
+			return
+		}
+	}
+
+	// -----------------------------------------------------------
+	// Step 3: Repack uncompressed data
+	// -----------------------------------------------------------
+	skipRepack, _ := cmd.Flags().GetBool("skip-repack")
+	if skipRepack {
+		fmt.Printf("\n[3/5] Skipping repack (--skip-repack)\n")
+	} else {
+		fmt.Printf("\n[3/5] Repacking uncompressed data for %s (this may take a while)\n", siteLabel)
+
+		pruneArgs := append([]string{
+			"prune", "--repack-uncompressed",
+			"--repo", resticRepo,
+			"--password-file=" + resticKey,
+		}, rcloneArgs...)
+
+		pruneCmd := exec.Command("restic", pruneArgs...)
+		pruneCmd.Env = resticEnv
+		pruneCmd.Stdout = os.Stdout
+		pruneCmd.Stderr = os.Stderr
+		if err := pruneCmd.Run(); err != nil {
+			fmt.Printf("Error: Repack failed for %s.\n", siteLabel)
+			return
+		}
+	}
+
+	// -----------------------------------------------------------
+	// Step 4: Clear local restic cache for this quicksave repo
+	// -----------------------------------------------------------
+	skipCacheCleanup, _ := cmd.Flags().GetBool("skip-cache-cleanup")
+	if skipCacheCleanup {
+		fmt.Printf("\n[4/5] Skipping cache cleanup (--skip-cache-cleanup)\n")
+	} else {
+		fmt.Printf("\n[4/5] Clearing local restic cache for %s\n", siteLabel)
+
+		if repoConfig.ID != "" {
+			home, _ := os.UserHomeDir()
+			cachePath := filepath.Join(home, ".cache", "restic", repoConfig.ID)
+			if info, err := os.Stat(cachePath); err == nil && info.IsDir() {
+				cacheSize, _ := dirSize(cachePath)
+				fmt.Printf("Local cache: %s\n", formatBytes(strconv.FormatInt(cacheSize, 10)))
+				if err := os.RemoveAll(cachePath); err != nil {
+					fmt.Printf("Warning: Failed to remove cache at %s: %v\n", cachePath, err)
+				} else {
+					fmt.Println("Cache cleared.")
+				}
+			} else {
+				fmt.Println("No local cache found.")
+			}
+		} else {
+			fmt.Println("Warning: Could not determine repo ID for cache cleanup.")
+		}
+	}
+
+	// -----------------------------------------------------------
+	// Step 5: Verify final state
+	// -----------------------------------------------------------
+	fmt.Printf("\n[5/5] Verifying repo for %s\n", siteLabel)
+
+	verifyCatCmd := exec.Command("restic", catArgs...)
+	verifyCatCmd.Env = resticEnv
+	verifyOutput, err := verifyCatCmd.Output()
+	if err != nil {
+		fmt.Printf("Warning: Could not verify repo config after migration.\n")
+	} else {
+		var verifyConfig struct {
+			Version int `json:"version"`
+		}
+		if json.Unmarshal(verifyOutput, &verifyConfig) == nil {
+			fmt.Printf("Repo version: %d\n", verifyConfig.Version)
+		}
+	}
+
+	// Get repo size after migration
+	var repoSizeAfter rcloneSize
+	rcloneSizeAfterCmd := exec.Command("rclone", "size", "--json", rclonePath)
+	if rcloneSizeOutput, err := rcloneSizeAfterCmd.Output(); err == nil {
+		json.Unmarshal(rcloneSizeOutput, &repoSizeAfter)
+	}
+	fmt.Printf("Repo size: %s -> %s (%d objects)\n",
+		formatBytes(strconv.FormatUint(repoSizeBefore.Bytes, 10)),
+		formatBytes(strconv.FormatUint(repoSizeAfter.Bytes, 10)),
+		repoSizeAfter.Count)
+	if repoSizeBefore.Bytes > 0 && repoSizeAfter.Bytes < repoSizeBefore.Bytes {
+		saved := repoSizeBefore.Bytes - repoSizeAfter.Bytes
+		pct := float64(saved) / float64(repoSizeBefore.Bytes) * 100
+		fmt.Printf("Saved: %s (%.1f%%)\n", formatBytes(strconv.FormatUint(saved, 10)), pct)
+	}
+
+	fmt.Printf("\nMigration complete for %s.\n", siteLabel)
+}
+
+// ---------------------------------------------------------------------------
+// quicksave cache-purge
+// ---------------------------------------------------------------------------
+
+var quicksaveCachePurgeCmd = &cobra.Command{
+	Use:   "cache-purge <site>",
+	Short: "Delete local restic cache for this site's quicksave repo",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveNativeOrWP(cmd, args, quicksaveCachePurgeNative)
+	},
+}
+
+// quicksaveCachePurgeNative implements `captaincore quicksave cache-purge <site>`.
+func quicksaveCachePurgeNative(cmd *cobra.Command, args []string) {
+	sa := parseSiteArgument(args[0])
+	site, err := sa.LookupSite()
+	if err != nil || site == nil {
+		fmt.Println("Error: Site not found.")
+		return
+	}
+
+	env, err := sa.LookupEnvironment(site.SiteID)
+	if err != nil || env == nil {
+		fmt.Println("Error: Environment not found.")
+		return
+	}
+
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Println("Error: Configuration file not found.")
+		return
+	}
+
+	rcloneBackup := getRcloneBackup(captain, system)
+	resticKey := getResticKeyPath()
+	siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+	envName := strings.ToLower(env.Environment)
+	resticRepo := fmt.Sprintf("rclone:%s/%s/%s/quicksave-repo", rcloneBackup, siteDir, envName)
+	siteLabel := fmt.Sprintf("%s-%s", site.Site, envName)
+
+	rcloneArgs := []string{
+		"-o", "rclone.args=serve restic --stdio --b2-hard-delete --timeout=300s --contimeout=60s",
+		"-o", "rclone.timeout=600s",
+	}
+
+	// Get repo ID from config
+	catArgs := append([]string{"cat", "config", "--repo", resticRepo, "--password-file=" + resticKey, "--json"}, rcloneArgs...)
+	catCmd := exec.Command("restic", catArgs...)
+	catOutput, err := catCmd.Output()
+	if err != nil {
+		fmt.Printf("Quicksave repo not found for %s. Skipping.\n", siteLabel)
+		return
+	}
+
+	var repoConfig struct {
+		ID string `json:"id"`
+	}
+	if json.Unmarshal(catOutput, &repoConfig) != nil || repoConfig.ID == "" {
+		fmt.Println("Error: Failed to parse repo config.")
+		return
+	}
+
+	home, _ := os.UserHomeDir()
+	cachePath := filepath.Join(home, ".cache", "restic", repoConfig.ID)
+	info, err := os.Stat(cachePath)
+	if err != nil || !info.IsDir() {
+		fmt.Printf("No local cache found for %s.\n", siteLabel)
+		return
+	}
+
+	cacheSize, _ := dirSize(cachePath)
+	fmt.Printf("%s\t%s\n", formatBytes(strconv.FormatInt(cacheSize, 10)), siteLabel)
+
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	if dryRun {
+		return
+	}
+
+	if err := os.RemoveAll(cachePath); err != nil {
+		fmt.Printf("Error: Failed to remove cache at %s: %v\n", cachePath, err)
+		return
+	}
+	fmt.Printf("Cache cleared for %s.\n", siteLabel)
+}
+
+// ---------------------------------------------------------------------------
+// quicksave cache-check
+// ---------------------------------------------------------------------------
+
+var quicksaveCacheCheckCmd = &cobra.Command{
+	Use:   "cache-check <site>",
+	Short: "Report local cache size for this site's quicksave repo",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveNativeOrWP(cmd, args, quicksaveCacheCheckNative)
+	},
+}
+
+// quicksaveCacheCheckNative implements `captaincore quicksave cache-check <site>`.
+func quicksaveCacheCheckNative(cmd *cobra.Command, args []string) {
+	sa := parseSiteArgument(args[0])
+	site, err := sa.LookupSite()
+	if err != nil || site == nil {
+		fmt.Println("Error: Site not found.")
+		return
+	}
+
+	env, err := sa.LookupEnvironment(site.SiteID)
+	if err != nil || env == nil {
+		fmt.Println("Error: Environment not found.")
+		return
+	}
+
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Println("Error: Configuration file not found.")
+		return
+	}
+
+	rcloneBackup := getRcloneBackup(captain, system)
+	resticKey := getResticKeyPath()
+	siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+	envName := strings.ToLower(env.Environment)
+	resticRepo := fmt.Sprintf("rclone:%s/%s/%s/quicksave-repo", rcloneBackup, siteDir, envName)
+	siteLabel := fmt.Sprintf("%s-%s", site.Site, envName)
+
+	rcloneArgs := []string{
+		"-o", "rclone.args=serve restic --stdio --b2-hard-delete --timeout=300s --contimeout=60s",
+		"-o", "rclone.timeout=600s",
+	}
+
+	// Get repo ID from config
+	catArgs := append([]string{"cat", "config", "--repo", resticRepo, "--password-file=" + resticKey, "--json"}, rcloneArgs...)
+	catCmd := exec.Command("restic", catArgs...)
+	catOutput, err := catCmd.Output()
+	if err != nil {
+		fmt.Printf("Quicksave repo not found for %s. Skipping.\n", siteLabel)
+		return
+	}
+
+	var repoConfig struct {
+		ID string `json:"id"`
+	}
+	if json.Unmarshal(catOutput, &repoConfig) != nil || repoConfig.ID == "" {
+		fmt.Println("Error: Failed to parse repo config.")
+		return
+	}
+
+	home, _ := os.UserHomeDir()
+	cachePath := filepath.Join(home, ".cache", "restic", repoConfig.ID)
+	info, err := os.Stat(cachePath)
+	if err != nil || !info.IsDir() {
+		fmt.Printf("No local cache found for %s.\n", siteLabel)
+		return
+	}
+
+	cacheSize, _ := dirSize(cachePath)
+
+	formatFlag, _ := cmd.Flags().GetString("format")
+	if formatFlag == "json" {
+		jsonOut, _ := json.Marshal(map[string]interface{}{
+			"site":       siteLabel,
+			"repo_id":    repoConfig.ID,
+			"cache_path": cachePath,
+			"cache_bytes": cacheSize,
+			"cache_size": formatBytes(strconv.FormatInt(cacheSize, 10)),
+		})
+		fmt.Println(string(jsonOut))
+	} else {
+		fmt.Printf("%s\t%s\n", formatBytes(strconv.FormatInt(cacheSize, 10)), siteLabel)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// quicksave unlock
+// ---------------------------------------------------------------------------
+
+var quicksaveUnlockCmd = &cobra.Command{
+	Use:   "unlock <site>",
+	Short: "Removes stale locks from a quicksave restic repo",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveNativeOrWP(cmd, args, quicksaveUnlockNative)
+	},
+}
+
+// quicksaveUnlockNative implements `captaincore quicksave unlock <site>`.
+func quicksaveUnlockNative(cmd *cobra.Command, args []string) {
+	sa := parseSiteArgument(args[0])
+	site, err := sa.LookupSite()
+	if err != nil || site == nil {
+		fmt.Println("Error: Site not found.")
+		return
+	}
+
+	env, err := sa.LookupEnvironment(site.SiteID)
+	if err != nil || env == nil {
+		fmt.Println("Error: Environment not found.")
+		return
+	}
+
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Println("Error: Configuration file not found.")
+		return
+	}
+
+	rcloneBackup := getRcloneBackup(captain, system)
+	resticKey := getResticKeyPath()
+	siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+	envName := strings.ToLower(env.Environment)
+	resticRepo := fmt.Sprintf("rclone:%s/%s/%s/quicksave-repo", rcloneBackup, siteDir, envName)
+
+	fmt.Printf("Unlocking quicksave repo for %s-%s\n", site.Site, envName)
+
+	resticArgs := []string{
+		"unlock",
+		"--repo", resticRepo,
+		"--password-file=" + resticKey,
+		"-o", "rclone.args=serve restic --stdio --b2-hard-delete --timeout=300s --contimeout=60s",
+		"-o", "rclone.timeout=600s",
+	}
+
+	resticCmd := exec.Command("restic", resticArgs...)
+	resticCmd.Stdout = os.Stdout
+	resticCmd.Stderr = os.Stderr
+	resticCmd.Run()
+}
+
 func init() {
 	rootCmd.AddCommand(quicksaveCmd)
 	quicksaveCmd.AddCommand(quicksaveAddCmd)
@@ -1923,6 +2396,15 @@ func init() {
 	quicksaveCmd.AddCommand(quicksaveMalwareScanCmd)
 	quicksaveCmd.AddCommand(quicksaveArchiveCmd)
 	quicksaveCmd.AddCommand(quicksaveDatabaseCmd)
+	quicksaveCmd.AddCommand(quicksaveMigrateV2Cmd)
+	quicksaveCmd.AddCommand(quicksaveCachePurgeCmd)
+	quicksaveCmd.AddCommand(quicksaveCacheCheckCmd)
+	quicksaveCmd.AddCommand(quicksaveUnlockCmd)
+	quicksaveMigrateV2Cmd.Flags().BoolVar(&flagForce, "force", false, "Run even if repo is already v2")
+	quicksaveMigrateV2Cmd.Flags().Bool("skip-repack", false, "Skip the repack step (upgrade only)")
+	quicksaveMigrateV2Cmd.Flags().Bool("skip-cache-cleanup", false, "Skip local cache cleanup")
+	quicksaveCachePurgeCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "Report size only, no deletion")
+	quicksaveCacheCheckCmd.Flags().StringVarP(&flagFormat, "format", "", "", "Output format (json)")
 	quicksaveArchiveCmd.Flags().StringVar(&flagPlugin, "plugin", "", "Plugin slug")
 	quicksaveArchiveCmd.Flags().StringVar(&flagTheme, "theme", "", "Theme slug")
 	quicksaveMalwareScanCmd.Flags().StringVarP(&flagFormat, "format", "", "", "Output format (json)")
