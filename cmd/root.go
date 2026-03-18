@@ -183,7 +183,7 @@ func resolveCommand(c *cobra.Command, args []string) {
 		c.CommandPath() != "captaincore bulk" && c.CommandPath() != "captaincore site sync" && c.CommandPath() != "captaincore site sync-batch" && c.CommandPath() != "captaincore ssh-detect" && c.CommandPath() != "captaincore plugin-zip" && c.CommandPath() != "captaincore upload" &&
 		c.CommandPath() != "captaincore backup get" && c.CommandPath() != "captaincore backup get-generate" && c.CommandPath() != "captaincore backup download" && c.CommandPath() != "captaincore backup show" && c.CommandPath() != "captaincore email-health send" && c.CommandPath() != "captaincore email-health response" && c.CommandPath() != "captaincore email-health generate" &&
 		c.CommandPath() != "captaincore quicksave show-changes" && c.CommandPath() != "captaincore quicksave file-diff" && c.CommandPath() != "captaincore quicksave rollback" && c.CommandPath() != "captaincore quicksave get-generate" && c.CommandPath() != "captaincore quicksave get" &&
-		c.CommandPath() != "captaincore update-log generate" && c.CommandPath() != "captaincore update-log list-generate" && c.CommandPath() != "captaincore update-log get" && c.CommandPath() != "captaincore capture" {
+		c.CommandPath() != "captaincore update-log generate" && c.CommandPath() != "captaincore update-log list-generate" && c.CommandPath() != "captaincore update-log get" && c.CommandPath() != "captaincore capture generate" && c.CommandPath() != "captaincore capture scan" {
 		if strings.HasPrefix(args[0], "@production") || strings.HasPrefix(args[0], "@staging") || strings.HasPrefix(args[0], "@all") || target_count > 1 {
 			bulk = true
 		}

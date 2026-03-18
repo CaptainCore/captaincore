@@ -1,0 +1,119 @@
+{
+  "known_safe_domains": [
+    "cdn.usefathom.com",
+    "fd.cleantalk.org",
+    "cdn.jsdelivr.net",
+    "cdnjs.cloudflare.com",
+    "ajax.googleapis.com",
+    "fonts.googleapis.com",
+    "fonts.gstatic.com",
+    "unpkg.com",
+    "code.jquery.com",
+    "www.google-analytics.com",
+    "www.googletagmanager.com",
+    "connect.facebook.net",
+    "stats.wp.com",
+    "s.w.org",
+    "s0.wp.com",
+    "s1.wp.com",
+    "s2.wp.com",
+    "c0.wp.com",
+    "i0.wp.com",
+    "i1.wp.com",
+    "i2.wp.com",
+    "widgets.wp.com",
+    "platform.twitter.com",
+    "www.google.com",
+    "apis.google.com",
+    "maps.googleapis.com",
+    "www.gstatic.com",
+    "use.fontawesome.com",
+    "kit.fontawesome.com",
+    "ka-f.fontawesome.com",
+    "stackpath.bootstrapcdn.com",
+    "maxcdn.bootstrapcdn.com",
+    "cdn.shopify.com",
+    "js.stripe.com",
+    "checkout.stripe.com",
+    "www.paypal.com",
+    "www.paypalobjects.com",
+    "js.hcaptcha.com",
+    "www.recaptcha.net",
+    "www.google.com",
+    "challenges.cloudflare.com",
+    "static.cloudflareinsights.com",
+    "cdn.amplitude.com",
+    "cdn.segment.com",
+    "snap.licdn.com",
+    "sc-static.net",
+    "static.hotjar.com",
+    "script.hotjar.com",
+    "cdn.cookielaw.org",
+    "consent.cookiebot.com",
+    "js.hs-scripts.com",
+    "js.hs-analytics.net",
+    "js.hsforms.net",
+    "cdn.heapanalytics.com",
+    "cdn.optimizely.com",
+    "widget.intercom.io",
+    "js.intercomcdn.com"
+  ],
+  "signatures": [
+    {
+      "id": "obfuscated-eval",
+      "name": "Obfuscated eval/base64",
+      "severity": "critical",
+      "type": "inline-pattern",
+      "patterns": ["eval\\s*\\(\\s*atob\\s*\\(", "eval\\s*\\(\\s*String\\.fromCharCode", "eval\\s*\\(\\s*unescape\\s*\\("]
+    },
+    {
+      "id": "document-write-unescape",
+      "name": "Document.write with unescape",
+      "severity": "critical",
+      "type": "inline-pattern",
+      "patterns": ["document\\.write\\s*\\(\\s*unescape\\s*\\("]
+    },
+    {
+      "id": "ip-address-source",
+      "name": "IP Address Script Source",
+      "severity": "high",
+      "type": "src-pattern",
+      "patterns": ["https?://\\d+\\.\\d+\\.\\d+\\.\\d+"]
+    },
+    {
+      "id": "crypto-miner",
+      "name": "Cryptocurrency Miner",
+      "severity": "critical",
+      "type": "src-domain",
+      "domains": ["coinhive.com", "coin-hive.com", "jsecoin.com", "cryptoloot.pro", "crypto-loot.com", "monerominer.rocks", "2giga.link"]
+    },
+    {
+      "id": "known-malware-domains",
+      "name": "Known Malware Domain",
+      "severity": "critical",
+      "type": "src-domain",
+      "domains": ["statfrede.com", "top-developer.com", "blackbeatle.xyz", "danmarkshusraad.com", "greekdemo.com"]
+    },
+    {
+      "id": "seo-spam-redirect",
+      "name": "SEO Spam Redirect Script",
+      "severity": "critical",
+      "type": "inline-pattern",
+      "patterns": ["window\\.location\\.href\\s*=.*(\\.xyz|\\.top|\\.tk|\\.ml|\\.ga|\\.cf)"]
+    },
+    {
+      "id": "hidden-iframe",
+      "name": "Hidden iframe injection",
+      "severity": "high",
+      "type": "inline-pattern",
+      "patterns": ["<iframe[^>]*style\\s*=\\s*[\"'][^\"']*display\\s*:\\s*none", "<iframe[^>]*width\\s*=\\s*[\"']?[01][\"']?[^>]*height\\s*=\\s*[\"']?[01][\"']?"]
+    },
+    {
+      "id": "base64-long-string",
+      "name": "Long base64 encoded string",
+      "severity": "high",
+      "type": "inline-pattern",
+      "patterns": ["['\"][A-Za-z0-9+/=]{200,}['\"]"]
+    }
+  ]
+}

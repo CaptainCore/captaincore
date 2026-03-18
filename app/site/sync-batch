@@ -43,7 +43,7 @@ run_command() {
       echo "Updating extras ${current}/${total}: ${site_id}"
       captaincore site prepare $site_id --captain-id=$CAPTAIN_ID
       captaincore site deploy-defaults ${site_id}-production --global-only --captain-id=$CAPTAIN_ID
-      captaincore capture ${site_id}-production --captain-id=$CAPTAIN_ID
+      captaincore capture generate ${site_id}-production --captain-id=$CAPTAIN_ID
     done
     echo "Phase 2 complete: extras applied to ${total} site(s)."
   fi
