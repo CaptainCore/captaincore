@@ -289,6 +289,9 @@ EOM
 }
 EOM
 
+	# Check for injected scripts/stylesheets
+	captaincore capture check ${site_id}-${environment} --captain-id=$CAPTAIN_ID
+
 	# Generate capture usage stats
 	capture_count=$( git rev-list --all --count )
 

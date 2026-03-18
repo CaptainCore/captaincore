@@ -1,11 +1,16 @@
 package cmd
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -45,6 +50,20 @@ var captureScanCmd = &cobra.Command{
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		resolveNativeOrWP(cmd, args, captureScanNative)
+	},
+}
+
+var captureCheckCmd = &cobra.Command{
+	Use:   "check <site>",
+	Short: "Check latest capture for new injected scripts",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveNativeOrWP(cmd, args, captureCheckNative)
 	},
 }
 
@@ -235,15 +254,9 @@ func classifyElement(elem *captureElement, homeURL string, safeDomains []string,
 	}
 }
 
-// parseCapture extracts script and stylesheet elements from an HTML capture file.
-func parseCapture(filePath string, homeURL string, safeDomains []string, compiled []compiledCaptureSig) (scripts []captureElement, stylesheets []captureElement) {
-	f, err := os.Open(filePath)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-
-	z := html.NewTokenizer(f)
+// parseCaptureReader extracts script and stylesheet elements from an HTML reader.
+func parseCaptureReader(r io.Reader, homeURL string, safeDomains []string, compiled []compiledCaptureSig) (scripts []captureElement, stylesheets []captureElement) {
+	z := html.NewTokenizer(r)
 	for {
 		tt := z.Next()
 		switch tt {
@@ -343,6 +356,16 @@ func parseCapture(filePath string, homeURL string, safeDomains []string, compile
 	}
 done:
 	return
+}
+
+// parseCapture extracts script and stylesheet elements from an HTML capture file.
+func parseCapture(filePath string, homeURL string, safeDomains []string, compiled []compiledCaptureSig) (scripts []captureElement, stylesheets []captureElement) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	return parseCaptureReader(f, homeURL, safeDomains, compiled)
 }
 
 func severityColor(severity string) string {
@@ -667,10 +690,162 @@ func captureScanNative(cmd *cobra.Command, args []string) {
 	}
 }
 
+// hashInline returns a short SHA-256 hex of trimmed inline content.
+func hashInline(content string) string {
+	h := sha256.Sum256([]byte(strings.TrimSpace(content)))
+	return hex.EncodeToString(h[:])
+}
+
+func captureCheckNative(cmd *cobra.Command, args []string) {
+	sigs, err := loadCaptureSignatures()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	compiled := compileCaptureSignatures(sigs)
+
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Println("Error: Configuration file not found.")
+		return
+	}
+
+	sa := parseSiteArgument(args[0])
+	site, err := sa.LookupSite()
+	if err != nil || site == nil {
+		fmt.Printf("Error: Site '%s' not found.\n", sa.SiteName)
+		return
+	}
+	env, err := sa.LookupEnvironment(site.SiteID)
+	if err != nil || env == nil {
+		fmt.Printf("Error: Environment not found.\n")
+		return
+	}
+
+	envName := strings.ToLower(env.Environment)
+	siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+	capturesPath := filepath.Join(system.Path, siteDir, envName, "captures")
+
+	if _, err := os.Stat(capturesPath); os.IsNotExist(err) {
+		return
+	}
+
+	// Get changed .capture files from latest commit
+	gitDiff := exec.Command("git", "diff", "--name-only", "HEAD~1", "HEAD")
+	gitDiff.Dir = capturesPath
+	diffOutput, err := gitDiff.Output()
+	if err != nil {
+		return
+	}
+
+	changedFiles := strings.Split(strings.TrimSpace(string(diffOutput)), "\n")
+	if len(changedFiles) == 0 || (len(changedFiles) == 1 && changedFiles[0] == "") {
+		return
+	}
+
+	homeURL := env.HomeURL
+	siteLabel := fmt.Sprintf("%s-%s", site.Site, envName)
+
+	type checkFinding struct {
+		Page    string `json:"page"`
+		Tag     string `json:"tag"`
+		Severity string `json:"severity"`
+		Src     string `json:"src,omitempty"`
+		Label   string `json:"label"`
+		SigName string `json:"sig_name,omitempty"`
+	}
+
+	var findings []checkFinding
+
+	for _, file := range changedFiles {
+		if !strings.HasSuffix(file, ".capture") {
+			continue
+		}
+
+		pageName := strings.TrimSuffix(file, ".capture")
+		pageName = strings.ReplaceAll(pageName, "#", "/")
+
+		// Parse current version from disk
+		currentPath := filepath.Join(capturesPath, file)
+		newScripts, newStylesheets := parseCapture(currentPath, homeURL, sigs.KnownSafeDomains, compiled)
+
+		// Parse previous version via git show
+		gitShow := exec.Command("git", "show", "HEAD~1:"+file)
+		gitShow.Dir = capturesPath
+		prevData, err := gitShow.Output()
+
+		var oldScripts, oldStylesheets []captureElement
+		if err == nil && len(prevData) > 0 {
+			oldScripts, oldStylesheets = parseCaptureReader(bytes.NewReader(prevData), homeURL, sigs.KnownSafeDomains, compiled)
+		}
+
+		// Build sets of known elements from old version
+		oldSrcSet := make(map[string]bool)
+		oldInlineHashSet := make(map[string]bool)
+		for _, elems := range [][]captureElement{oldScripts, oldStylesheets} {
+			for _, e := range elems {
+				if e.Src != "" {
+					oldSrcSet[e.Src] = true
+				}
+				if e.Inline != "" {
+					oldInlineHashSet[hashInline(e.Inline)] = true
+				}
+			}
+		}
+
+		// Find new elements not present in old version
+		for _, elems := range [][]captureElement{newScripts, newStylesheets} {
+			for _, e := range elems {
+				isNew := false
+				if e.Src != "" {
+					isNew = !oldSrcSet[e.Src]
+				} else if e.Inline != "" {
+					isNew = !oldInlineHashSet[hashInline(e.Inline)]
+				}
+
+				if isNew && e.Severity != "ok" {
+					f := checkFinding{
+						Page:     pageName,
+						Tag:      e.Tag,
+						Severity: e.Severity,
+						Src:      e.Src,
+						Label:    e.Label,
+						SigName:  e.SigName,
+					}
+					findings = append(findings, f)
+				}
+			}
+		}
+	}
+
+	if len(findings) == 0 {
+		return
+	}
+
+	// Print findings to stdout
+	fmt.Printf("Capture check: %d new finding(s) on %s\n", len(findings), siteLabel)
+	for _, f := range findings {
+		fmt.Printf("  [%s] %s — %s\n", f.Severity, f.Page, f.Label)
+	}
+
+	// POST alert to CaptainCore API
+	client := newAPIClient(system, captain)
+	client.Post("capture-alert", map[string]interface{}{
+		"site_id": site.SiteID,
+		"data": map[string]interface{}{
+			"site_name":   site.Name,
+			"environment": env.Environment,
+			"home_url":    homeURL,
+			"findings":    findings,
+		},
+	})
+}
+
 func init() {
 	rootCmd.AddCommand(captureCmd)
 	captureCmd.AddCommand(captureGenerateCmd)
 	captureCmd.AddCommand(captureScanCmd)
+	captureCmd.AddCommand(captureCheckCmd)
 	captureGenerateCmd.Flags().StringVarP(&flagPage, "pages", "", "", "Overrides pages to check. Defaults to site's capture_pages configuration.")
 	captureScanCmd.Flags().StringVarP(&flagFilter, "filter", "f", "", "Filter results: critical, warning, or external")
 	captureScanCmd.Flags().StringVarP(&flagFormat, "format", "", "", "Output format (json)")
