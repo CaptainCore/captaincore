@@ -56,7 +56,35 @@
     "cdn.heapanalytics.com",
     "cdn.optimizely.com",
     "widget.intercom.io",
-    "js.intercomcdn.com"
+    "js.intercomcdn.com",
+    "cdn.trustindex.io",
+    "cdn.callrail.com",
+    "use.typekit.net",
+    "pagead2.googlesyndication.com",
+    "translate.google.com",
+    "maps.google.com",
+    "player.vimeo.com",
+    "www.youtube.com",
+    "assets.pinterest.com",
+    "cdn-cookieyes.com",
+    "cdn.calltrk.com",
+    "script.crazyegg.com",
+    "static.ctctcdn.com",
+    "cdn.elementor.com",
+    "static.getclicky.com",
+    "static.addtoany.com",
+    "s7.addthis.com",
+    "tools.luckyorange.com",
+    "cdn.userway.org",
+    "wsv3cdn.audioeye.com",
+    "js.hscta.net",
+    "cdn.amcharts.com",
+    "sky.blackbaudcdn.net",
+    "tag.simpli.fi",
+    "crm.zoho.com",
+    "api.bloomerang.co",
+    "my.hellobar.com",
+    "tag.brandcdn.com"
   ],
   "signatures": [
     {
@@ -127,7 +155,7 @@
       "name": "Fetch and inject script via textContent",
       "severity": "critical",
       "type": "inline-pattern",
-      "patterns": ["(?s)createElement.*fetch.*textContent.*appendChild", "(?s)\\.textContent\\s*=\\s*t.*appendChild"]
+      "patterns": ["fetch\\s*\\(.*\\.then.*\\.textContent\\s*=\\s*t", "\\.textContent\\s*=\\s*t;[^}]*appendChild"]
     },
     {
       "id": "fetch-atob-payload",
