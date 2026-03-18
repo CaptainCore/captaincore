@@ -92,7 +92,7 @@
       "name": "Known Malware Domain",
       "severity": "critical",
       "type": "src-domain",
-      "domains": ["statfrede.com", "top-developer.com", "blackbeatle.xyz", "danmarkshusraad.com", "greekdemo.com"]
+      "domains": ["statfrede.com", "top-developer.com", "blackbeatle.xyz", "danmarkshusraad.com", "greekdemo.com", "linistat.info", "ducky-bsc.xyz", "duckybsc.com", "fbanalyt.com", "eggnework.com", "sideown.com", "football2026.life", "pizzaonline.life", "linearprocesshost.com"]
     },
     {
       "id": "seo-spam-redirect",
@@ -114,6 +114,48 @@
       "severity": "high",
       "type": "inline-pattern",
       "patterns": ["['\"][A-Za-z0-9+/=]{200,}['\"]"]
+    },
+    {
+      "id": "char-table-obfuscation",
+      "name": "Character table obfuscation",
+      "severity": "critical",
+      "type": "inline-pattern",
+      "patterns": ["\\[e\\[\\d+\\],e\\[\\d+\\],e\\[\\d+\\],e\\[\\d+\\].*\\.join\\(", "\\[e\\[\\d+\\]\\]\\[\\[e\\[\\d+\\],e\\[\\d+\\]"]
+    },
+    {
+      "id": "fetch-textcontent-inject",
+      "name": "Fetch and inject script via textContent",
+      "severity": "critical",
+      "type": "inline-pattern",
+      "patterns": ["(?s)createElement.*fetch.*textContent.*appendChild", "(?s)\\.textContent\\s*=\\s*t.*appendChild"]
+    },
+    {
+      "id": "fetch-atob-payload",
+      "name": "Fetch with base64 decoded URL",
+      "severity": "critical",
+      "type": "inline-pattern",
+      "patterns": ["fetch\\s*\\(\\s*atob\\s*\\(\\s*[\"'][a-zA-Z0-9+/=]+[\"']\\s*\\)"]
+    },
+    {
+      "id": "array-join-method-construction",
+      "name": "Array join method name construction",
+      "severity": "critical",
+      "type": "inline-pattern",
+      "patterns": ["\\]\\s*\\.join\\s*\\(\\s*[\"'][\"']\\s*\\)\\s*\\]\\s*\\(", "\\[\\[\\w\\[\\d+\\],\\w\\[\\d+\\]"]
+    },
+    {
+      "id": "xor-encrypted-exfil",
+      "name": "XOR encrypted data exfiltration",
+      "severity": "critical",
+      "type": "inline-pattern",
+      "patterns": ["charCodeAt.*\\^.*charCodeAt.*send\\(", "(?s)String\\.fromCharCode\\s*\\(.*\\^.*XMLHttpRequest"]
+    },
+    {
+      "id": "fake-payment-form",
+      "name": "Fake payment form overlay",
+      "severity": "critical",
+      "type": "inline-pattern",
+      "patterns": ["(?s)(card.?number|cc.?number|cvv|cvc|card.?expir).*position\\s*:\\s*fixed", "(?s)position\\s*:\\s*(fixed|absolute).*z.?index\\s*:\\s*\\d{5,}.*(card|payment|checkout|billing)"]
     }
   ]
 }
