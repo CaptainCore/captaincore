@@ -426,8 +426,8 @@ func quicksaveAddNative(cmd *cobra.Command, args []string) {
 		},
 	}, system, captain)
 
-	// Shell out to capture
-	captureCmd := exec.Command("captaincore", "capture", siteEnvArg, "--captain-id="+captainID)
+	// Shell out to capture generate
+	captureCmd := exec.Command("captaincore", "capture", "generate", siteEnvArg, "--captain-id="+captainID)
 	captureCmd.Stdout = os.Stdout
 	captureCmd.Stderr = os.Stderr
 	captureCmd.Run()
