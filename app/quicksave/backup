@@ -113,6 +113,12 @@ run_command() {
 
   restic backup . --quiet --repo "$restic_repo" --exclude-file="${CAPTAINCORE_PATH}/lib/restic-excludes" --password-file="$restic_key"
 
+  # Purge local restic cache for this repo to save disk space
+  repo_id=$( restic cat config --repo "$restic_repo" --password-file="$restic_key" --json 2>/dev/null | php -r 'echo json_decode(file_get_contents("php://stdin"))->id ?? "";' )
+  if [[ -n "$repo_id" ]] && [[ -d "$HOME/.cache/restic/$repo_id" ]]; then
+    rm -rf "$HOME/.cache/restic/$repo_id"
+  fi
+
   if [ -f "${path}/process-${process_id}-progress.log" ]; then
     echo -n "." >> ${path}/process-${process_id}-progress.log
   fi
