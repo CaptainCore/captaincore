@@ -144,6 +144,17 @@ run_command() {
     echo "$(date +'%Y-%m-%d %H:%M') Connection failed for $site ($environment). Regenerating configs..."
     captaincore site key-generate $site --captain-id=$CAPTAIN_ID
     ftp_output=$( { timeout 30 rclone lsd ${environment}:$home_directory --config="$rclone_config_file" --contimeout=15s --timeout=30s ; } 2>&1 )
+
+    # If connection still fails after rclone config regeneration, try refreshing SSH credentials from provider
+    if [[ $? -ne 0 ]]; then
+      echo "$(date +'%Y-%m-%d %H:%M') Connection still failing. Attempting SSH credential refresh from provider..."
+      if captaincore site ssh-refresh $site --captain-id=$CAPTAIN_ID; then
+        echo "$(date +'%Y-%m-%d %H:%M') Credentials updated. Retrying connection..."
+        # Re-read site configs since credentials changed
+        IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done; unset IFS
+        ftp_output=$( { timeout 30 rclone lsd ${environment}:$home_directory --config="$rclone_config_file" --contimeout=15s --timeout=30s ; } 2>&1 )
+      fi
+    fi
   fi
 
   ftp_search_for_wordpress=$( echo "$ftp_output" | perl -wnE'say for /wp-admin/g' )
@@ -243,6 +254,16 @@ run_command() {
       echo "❌ Error: Failed to create export commands. Check vault_file path: '$vault_file'" >&2
       rm -f "$payload_file"
       exit 1
+  fi
+
+  # Test SSH connectivity before vault create
+  ssh_test=$( captaincore ssh ${site}-${environment} --command="echo ok" --captain-id=$CAPTAIN_ID 2>&1 )
+  if [[ "$ssh_test" != *"ok"* ]]; then
+    echo "$(date +'%Y-%m-%d %H:%M') SSH test failed for $site. Attempting credential refresh..."
+    if captaincore site ssh-refresh $site --captain-id=$CAPTAIN_ID; then
+      # Re-read site configs since credentials changed
+      IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done; unset IFS
+    fi
   fi
 
   ssh_string=$( captaincore ssh ${site}-${environment} --debug --command="bash -s -- vault create" --captain-id=$CAPTAIN_ID )

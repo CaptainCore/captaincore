@@ -841,6 +841,11 @@ func backupVerifyNative(cmd *cobra.Command, args []string) {
 			"backup_health":        "ok",
 			"backup_health_issues": nil,
 		}, system, captain)
+
+		// Clear connection_errors on successful backup
+		updateSiteDetails(site.SiteID, map[string]interface{}{
+			"connection_errors": nil,
+		}, system, captain)
 	}
 }
 

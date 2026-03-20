@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/CaptainCore/captaincore/models"
+	"github.com/CaptainCore/captaincore/providers"
 	"github.com/spf13/cobra"
 )
 
@@ -187,6 +188,20 @@ var sshFailCmd = &cobra.Command{
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		resolveNativeOrWP(cmd, args, siteSSHFailNative)
+	},
+}
+
+var sshRefreshCmd = &cobra.Command{
+	Use:   "ssh-refresh <site>",
+	Short: "Refresh SSH credentials from hosting provider",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveNativeOrWP(cmd, args, siteSSHRefreshNative)
 	},
 }
 
@@ -1028,6 +1043,131 @@ func siteSSHFailNative(cmd *cobra.Command, args []string) {
 	})
 }
 
+// siteSSHRefreshNative implements `captaincore site ssh-refresh <site>` natively in Go.
+// It fetches fresh SSH credentials from the hosting provider API and updates both the
+// local CLI database and the Manager if any credentials have changed.
+func siteSSHRefreshNative(cmd *cobra.Command, args []string) {
+	sa := parseSiteArgument(args[0])
+	site, err := sa.LookupSite()
+	if err != nil || site == nil {
+		fmt.Printf("Error: Site '%s' not found.\n", sa.SiteName)
+		os.Exit(1)
+	}
+
+	// Check if site has a provider linked
+	if site.Provider == "" || site.ProviderSiteID == "" {
+		fmt.Println("No provider linked to this site.")
+		os.Exit(1)
+	}
+
+	// Parse ProviderID — default to 1 if empty (matches Manager behavior)
+	providerIDStr := site.ProviderID
+	if providerIDStr == "" {
+		providerIDStr = "1"
+	}
+	providerID, err := strconv.ParseUint(providerIDStr, 10, 64)
+	if err != nil {
+		fmt.Printf("Error: Invalid provider_id '%s' on site.\n", site.ProviderID)
+		os.Exit(1)
+	}
+
+	p, err := models.GetProviderByID(uint(providerID))
+	if err != nil {
+		fmt.Printf("Error: Provider #%d not found.\n", providerID)
+		os.Exit(1)
+	}
+
+	// Get provider implementation and credentials
+	hp, err := providers.Get(p.Provider)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
+	creds := p.GetCredentialsMap()
+
+	// Look up current environment
+	env, err := sa.LookupEnvironment(site.SiteID)
+	if err != nil || env == nil {
+		fmt.Printf("Error: Environment '%s' not found for site '%s'.\n", sa.Environment, sa.SiteName)
+		os.Exit(1)
+	}
+
+	// Fetch fresh SSH credentials from provider API
+	remoteSite := providers.RemoteSite{
+		RemoteID: site.ProviderSiteID,
+		Name:     site.Name,
+	}
+	enriched, err := hp.EnrichSite(creds, remoteSite)
+	if err != nil {
+		fmt.Printf("Error fetching credentials from provider: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Compare enriched values with current environment
+	changes := make(map[string]interface{})
+	var changedFields []string
+
+	if enriched.SSHAddress != "" && enriched.SSHAddress != env.Address {
+		changes["address"] = enriched.SSHAddress
+		changedFields = append(changedFields, fmt.Sprintf("address: %s -> %s", env.Address, enriched.SSHAddress))
+	}
+	if enriched.SSHPort != "" && enriched.SSHPort != env.Port {
+		changes["port"] = enriched.SSHPort
+		changedFields = append(changedFields, fmt.Sprintf("port: %s -> %s", env.Port, enriched.SSHPort))
+	}
+	if enriched.SSHUsername != "" && enriched.SSHUsername != env.Username {
+		changes["username"] = enriched.SSHUsername
+		changedFields = append(changedFields, fmt.Sprintf("username: %s -> %s", env.Username, enriched.SSHUsername))
+	}
+	if enriched.SSHPassword != "" && enriched.SSHPassword != env.Password {
+		changes["password"] = enriched.SSHPassword
+		changedFields = append(changedFields, "password: [changed]")
+	}
+
+	if len(changes) == 0 {
+		fmt.Println("Credentials already current.")
+		os.Exit(1)
+	}
+
+	// Update environment in local CLI DB
+	models.DB.Model(&models.Environment{}).Where("environment_id = ?", env.EnvironmentID).Updates(changes)
+
+	// Push update to Manager via API
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil {
+		fmt.Printf("Error loading config: %v\n", err)
+		os.Exit(1)
+	}
+
+	envUpdate := make(map[string]interface{})
+	envUpdate["environment_id"] = env.EnvironmentID
+	for k, v := range changes {
+		envUpdate[k] = v
+	}
+	client := newAPIClient(system, captain)
+	client.Post("update-environment", map[string]interface{}{
+		"site_id": site.SiteID,
+		"data":    envUpdate,
+	})
+
+	// Clear connection_errors from site details
+	updateSiteDetails(site.SiteID, map[string]interface{}{
+		"connection_errors": nil,
+	}, system, captain)
+
+	// Regenerate rclone config with new credentials
+	siteIDStr := fmt.Sprintf("%d", site.SiteID)
+	keyGenCmd := exec.Command("captaincore", "site", "key-generate", siteIDStr, "--captain-id="+captainID)
+	keyGenCmd.Stdout = os.Stdout
+	keyGenCmd.Stderr = os.Stderr
+	keyGenCmd.Run()
+
+	fmt.Println("SSH credentials updated:")
+	for _, c := range changedFields {
+		fmt.Printf("  %s\n", c)
+	}
+}
+
 // siteStatsGenerateNative implements `captaincore site stats-generate <site>` natively in Go.
 func siteStatsGenerateNative(cmd *cobra.Command, args []string) {
 	sa := parseSiteArgument(args[0])
@@ -1375,6 +1515,7 @@ func init() {
 	siteCmd.AddCommand(listCmd)
 	siteCmd.AddCommand(keyGenerateCmd)
 	siteCmd.AddCommand(sshFailCmd)
+	siteCmd.AddCommand(sshRefreshCmd)
 	siteCmd.AddCommand(siteCopyProductionToStaging)
 	siteCmd.AddCommand(siteCopyStagingToProduction)
 	siteCmd.AddCommand(sitePrepareCmd)

@@ -22,8 +22,31 @@ func (k *kinstaProvider) RequiredCredentials() []string {
 	return []string{"api_key", "company_id"}
 }
 
+// kinstaAPIKey returns the API key from credentials, checking "api_key" first
+// then falling back to "api" (the name used by the Manager).
+func kinstaAPIKey(credentials map[string]string) string {
+	if key := credentials["api_key"]; key != "" {
+		return key
+	}
+	return credentials["api"]
+}
+
+// kinstaParseSSHIP extracts the SSH IP address from the API response.
+// Handles both the legacy string format and the new object format {"external_ip": "..."}.
+func kinstaParseSSHIP(v interface{}) string {
+	switch val := v.(type) {
+	case string:
+		return val
+	case map[string]interface{}:
+		if ip, ok := val["external_ip"].(string); ok {
+			return ip
+		}
+	}
+	return ""
+}
+
 func (k *kinstaProvider) FetchRemoteSites(credentials map[string]string) ([]RemoteSite, error) {
-	apiKey := credentials["api_key"]
+	apiKey := kinstaAPIKey(credentials)
 	companyID := credentials["company_id"]
 
 	body, err := kinstaGet(apiKey, fmt.Sprintf("sites?company=%s", companyID))
@@ -64,7 +87,7 @@ func (k *kinstaProvider) FetchRemoteSites(credentials map[string]string) ([]Remo
 }
 
 func (k *kinstaProvider) EnrichSite(credentials map[string]string, site RemoteSite) (*EnrichedSite, error) {
-	apiKey := credentials["api_key"]
+	apiKey := kinstaAPIKey(credentials)
 	companyID := credentials["company_id"]
 
 	enriched := &EnrichedSite{RemoteSite: site}
@@ -96,8 +119,8 @@ func (k *kinstaProvider) EnrichSite(credentials map[string]string, site RemoteSi
 				Name             string `json:"name"`
 				IsPremium        bool   `json:"is_premium"`
 				SSHConnection    struct {
-					SSHIP   string `json:"ssh_ip"`
-					SSHPort int    `json:"ssh_port"`
+					SSHIP   interface{} `json:"ssh_ip"`
+					SSHPort json.Number `json:"ssh_port"`
 				} `json:"ssh_connection"`
 				PrimaryDomain struct {
 					Name string `json:"name"`
@@ -117,8 +140,8 @@ func (k *kinstaProvider) EnrichSite(credentials map[string]string, site RemoteSi
 	for _, env := range envsResp.Site.Environments {
 		if env.Name == "live" || env.Name == "Live" || (!env.IsPremium && envID == "") {
 			envID = env.ID
-			enriched.SSHAddress = env.SSHConnection.SSHIP
-			enriched.SSHPort = fmt.Sprintf("%d", env.SSHConnection.SSHPort)
+			enriched.SSHAddress = kinstaParseSSHIP(env.SSHConnection.SSHIP)
+			enriched.SSHPort = env.SSHConnection.SSHPort.String()
 			enriched.HomeURL = "https://" + env.PrimaryDomain.Name
 			enriched.HomeDirectory = "/www/" + siteResp.Site.Name + "_live/public"
 			enriched.WPVersion = env.WordpressVersion
