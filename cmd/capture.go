@@ -171,6 +171,16 @@ func isKnownSafe(domain string, safeDomains []string) bool {
 // classifyElement determines the severity of a capture element.
 func classifyElement(elem *captureElement, homeURL string, safeDomains []string, compiled []compiledCaptureSig) {
 	if elem.Src != "" {
+		// Data URIs are inline content, not external resources
+		if strings.HasPrefix(elem.Src, "data:") {
+			elem.Severity = "ok"
+			elem.Label = elem.Src
+			if len(elem.Label) > 80 {
+				elem.Label = elem.Label[:80] + "..."
+			}
+			return
+		}
+
 		// Relative URLs (start with /) are same-origin
 		if strings.HasPrefix(elem.Src, "/") && !strings.HasPrefix(elem.Src, "//") {
 			elem.Severity = "ok"

@@ -84,7 +84,18 @@
     "crm.zoho.com",
     "api.bloomerang.co",
     "my.hellobar.com",
-    "tag.brandcdn.com"
+    "tag.brandcdn.com",
+    "fonts.bunny.net",
+    "js-ap1.hs-scripts.com",
+    "js-eu1.hs-scripts.com",
+    "js-na1.hs-scripts.com",
+    "static.hsappstatic.net",
+    "netdna.bootstrapcdn.com",
+    "securepubads.g.doubleclick.net",
+    "hb.wpmucdn.com",
+    "resources.infolinks.com",
+    "js.adsrvr.org",
+    "www.idxhome.com"
   ],
   "signatures": [
     {
