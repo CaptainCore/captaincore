@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -128,6 +129,7 @@ func (k *kinstaProvider) EnrichSite(credentials map[string]string, site RemoteSi
 				ContainerInfo struct {
 					PHPEngineVersion string `json:"php_engine_version"`
 				} `json:"container_info"`
+				WebRoot          string `json:"web_root"`
 				WordpressVersion string `json:"wordpress_version"`
 			} `json:"environments"`
 		} `json:"site"`
@@ -136,14 +138,22 @@ func (k *kinstaProvider) EnrichSite(credentials map[string]string, site RemoteSi
 		return nil, fmt.Errorf("kinsta parse environments: %w", err)
 	}
 
+	// Determine which Kinsta environment to match.
+	// CaptainCore "production" maps to Kinsta "live", "staging" maps to "staging".
+	targetEnv := "live"
+	if site.Environment == "staging" {
+		targetEnv = "staging"
+	}
+
 	var envID string
 	for _, env := range envsResp.Site.Environments {
-		if env.Name == "live" || env.Name == "Live" || (!env.IsPremium && envID == "") {
+		nameLC := strings.ToLower(env.Name)
+		if nameLC == targetEnv || (targetEnv == "live" && !env.IsPremium && envID == "") {
 			envID = env.ID
 			enriched.SSHAddress = kinstaParseSSHIP(env.SSHConnection.SSHIP)
 			enriched.SSHPort = env.SSHConnection.SSHPort.String()
 			enriched.HomeURL = "https://" + env.PrimaryDomain.Name
-			enriched.HomeDirectory = "/www/" + siteResp.Site.Name + "_live/public"
+			enriched.HomeDirectory = env.WebRoot
 			enriched.WPVersion = env.WordpressVersion
 			if env.PrimaryDomain.Name != "" {
 				enriched.Domain = env.PrimaryDomain.Name

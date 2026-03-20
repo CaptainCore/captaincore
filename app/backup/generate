@@ -148,7 +148,7 @@ run_command() {
     # If connection still fails after rclone config regeneration, try refreshing SSH credentials from provider
     if [[ $? -ne 0 ]]; then
       echo "$(date +'%Y-%m-%d %H:%M') Connection still failing. Attempting SSH credential refresh from provider..."
-      if captaincore site ssh-refresh $site --captain-id=$CAPTAIN_ID; then
+      if captaincore site ssh-refresh ${site}-${environment} --captain-id=$CAPTAIN_ID; then
         echo "$(date +'%Y-%m-%d %H:%M') Credentials updated. Retrying connection..."
         # Re-read site configs since credentials changed
         IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done; unset IFS
@@ -260,7 +260,7 @@ run_command() {
   ssh_test=$( captaincore ssh ${site}-${environment} --command="echo ok" --captain-id=$CAPTAIN_ID 2>&1 )
   if [[ "$ssh_test" != *"ok"* ]]; then
     echo "$(date +'%Y-%m-%d %H:%M') SSH test failed for $site. Attempting credential refresh..."
-    if captaincore site ssh-refresh $site --captain-id=$CAPTAIN_ID; then
+    if captaincore site ssh-refresh ${site}-${environment} --captain-id=$CAPTAIN_ID; then
       # Re-read site configs since credentials changed
       IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done; unset IFS
     fi

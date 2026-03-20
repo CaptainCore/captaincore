@@ -1094,8 +1094,9 @@ func siteSSHRefreshNative(cmd *cobra.Command, args []string) {
 
 	// Fetch fresh SSH credentials from provider API
 	remoteSite := providers.RemoteSite{
-		RemoteID: site.ProviderSiteID,
-		Name:     site.Name,
+		RemoteID:    site.ProviderSiteID,
+		Name:        site.Name,
+		Environment: sa.Environment,
 	}
 	enriched, err := hp.EnrichSite(creds, remoteSite)
 	if err != nil {

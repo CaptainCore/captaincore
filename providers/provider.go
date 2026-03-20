@@ -7,11 +7,12 @@ import (
 
 // RemoteSite represents a site fetched from a hosting provider API.
 type RemoteSite struct {
-	RemoteID string `json:"remote_id"`
-	Name     string `json:"name"`
-	Domain   string `json:"domain"`
-	Status   string `json:"status"`
-	RawData  string `json:"raw_data"`
+	RemoteID    string `json:"remote_id"`
+	Name        string `json:"name"`
+	Domain      string `json:"domain"`
+	Status      string `json:"status"`
+	RawData     string `json:"raw_data"`
+	Environment string `json:"environment,omitempty"` // "production" or "staging" — used by EnrichSite to pick the right environment
 }
 
 // EnrichedSite extends RemoteSite with SSH/SFTP credentials and additional metadata.
