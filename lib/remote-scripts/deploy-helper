@@ -61,7 +61,7 @@ read -r -d '' build_mu_plugin << 'heredoc'
  * Plugin Name: CaptainCore Helper
  * Plugin URI: https://captaincore.io
  * Description: Collection of helper functions for CaptainCore
- * Version: 0.5.1
+ * Version: 0.6.0
  * Author: CaptainCore
  * Author URI: https://captaincore.io
  * Text Domain: captaincore-helper
@@ -1156,6 +1156,7 @@ class SecurityLogger {
 
     private static $tracked_options = [
         'users_can_register', 'default_role', 'admin_email', 'new_admin_email',
+        'ihaf_insert_header', 'ihaf_insert_footer', 'ihaf_insert_body',
     ];
 
     public static function init() {
@@ -1198,6 +1199,9 @@ class SecurityLogger {
         // Application passwords
         add_action( 'wp_create_application_password', [ __CLASS__, 'log_app_password_created' ], 10, 4 );
         add_action( 'wp_delete_application_password', [ __CLASS__, 'log_app_password_deleted' ], 10, 2 );
+
+        // WPCode snippet saves
+        add_action( 'save_post_wpcode', [ __CLASS__, 'log_wpcode_snippet_saved' ], 10, 3 );
 
         // WP-CLI hooks
         if ( defined( 'WP_CLI' ) && WP_CLI ) {
@@ -1666,6 +1670,22 @@ class SecurityLogger {
         ]);
     }
 
+    // --- WPCode snippet handler ---
+
+    public static function log_wpcode_snippet_saved( $post_id, $post, $update ) {
+        if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) { return; }
+        if ( wp_is_post_revision( $post_id ) ) { return; }
+        $terms = get_the_terms( $post_id, 'wpcode_type' );
+        $snippet_type = ( $terms && ! is_wp_error( $terms ) ) ? $terms[0]->slug : 'unknown';
+        self::log( $update ? 'wpcode_snippet_updated' : 'wpcode_snippet_created', [
+            'snippet_id'    => $post_id,
+            'snippet_title' => $post->post_title ?: '(untitled)',
+            'snippet_type'  => $snippet_type,
+            'status'        => $post->post_status,
+            'code_preview'  => self::truncate_value( $post->post_content ),
+        ]);
+    }
+
     // --- WP-CLI capture and lifecycle handlers ---
 
     public static function cli_capture_initial_state() {
@@ -2003,6 +2023,9 @@ class SecurityLogger {
                 return "App password '" . ( $data['app_name'] ?? 'N/A' ) . "' for user '" . ( $data['target_user_login'] ?? 'N/A' ) . "'";
             case 'app_password_deleted':
                 return "App password '" . ( $data['app_name'] ?? 'N/A' ) . "' deleted for '" . ( $data['target_user_login'] ?? 'N/A' ) . "'";
+            case 'wpcode_snippet_created':
+            case 'wpcode_snippet_updated':
+                return "WPCode snippet '" . ( $data['snippet_title'] ?? 'N/A' ) . "' (" . ( $data['snippet_type'] ?? 'unknown' ) . ")";
             default:
                 return '';
         }
@@ -2046,6 +2069,9 @@ class UserEnumerationProtection {
         add_filter( 'rest_pre_dispatch', [ __CLASS__, 'block_rest_users' ], 10, 3 );
         add_filter( 'wp_sitemaps_add_provider', [ __CLASS__, 'remove_author_sitemap' ], 10, 2 );
         add_filter( 'oembed_response_data', [ __CLASS__, 'remove_oembed_author_url' ] );
+        add_action( 'template_redirect', [ __CLASS__, 'block_author_archives' ] );
+        add_filter( 'login_errors', [ __CLASS__, 'generic_login_error' ] );
+        add_filter( 'wpseo_sitemap_exclude_author', '__return_true' );
         remove_action( 'wp_head', 'wp_generator' );
         add_filter( 'the_generator', '__return_empty_string' );
     }
@@ -2098,6 +2124,65 @@ class UserEnumerationProtection {
             unset( $data['author_url'] );
         }
         return $data;
+    }
+
+    /**
+     * Return 404 for author archives with no published posts.
+     *
+     * WordPress renders empty author archives for any valid user,
+     * which lets bots confirm usernames exist by comparing the
+     * response to a non-existent user. This forces a real 404 for
+     * authors with no posts, while leaving active author archives
+     * (with published content) fully accessible.
+     */
+    public static function block_author_archives() {
+        if ( ! is_author() || is_user_logged_in() ) {
+            return;
+        }
+        $author = get_queried_object();
+        if ( ! $author || ! isset( $author->ID ) ) {
+            return;
+        }
+        $post_count = (int) count_user_posts( $author->ID, 'post', true );
+        if ( $post_count === 0 ) {
+            global $wp_query;
+            $wp_query->set_404();
+            $wp_query->set( 'author_name', '' );
+            $wp_query->set( 'author', 0 );
+            $wp_query->queried_object    = null;
+            $wp_query->queried_object_id = 0;
+            status_header( 404 );
+            nocache_headers();
+            // Override Yoast and default WordPress title to prevent
+            // leaking the author slug in the <title> tag.
+            add_filter( 'wpseo_title', [ __CLASS__, 'force_404_title' ], 999 );
+            add_filter( 'pre_get_document_title', [ __CLASS__, 'force_404_title' ], 999 );
+            add_filter( 'wp_title', [ __CLASS__, 'force_404_title' ], 999 );
+            include get_404_template();
+            exit;
+        }
+    }
+
+    /**
+     * Return a generic login error message for non-logged-in users.
+     *
+     * WordPress default messages reveal whether a username exists
+     * ("incorrect password" vs "username does not exist"). This
+     * replaces both with a single generic message.
+     */
+    public static function generic_login_error( $error ) {
+        return '<strong>Error:</strong> Invalid username or password.';
+    }
+
+    /**
+     * Override the page title to a generic 404 message.
+     *
+     * Prevents the author slug from leaking in the <title> tag when
+     * a zero-post author archive is forced to 404.
+     */
+    public static function force_404_title( $title ) {
+        $name = get_bloginfo( 'name', 'display' );
+        return "Page Not Found - $name";
     }
 }
 

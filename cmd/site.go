@@ -1055,8 +1055,12 @@ func siteSSHRefreshNative(cmd *cobra.Command, args []string) {
 	}
 
 	// Check if site has a provider linked
-	if site.Provider == "" || site.ProviderSiteID == "" {
+	if site.Provider == "" {
 		fmt.Println("No provider linked to this site.")
+		os.Exit(1)
+	}
+	if site.ProviderSiteID == "" {
+		fmt.Printf("No provider_site_id set for site '%s'. Run a site sync or set it manually.\n", sa.SiteName)
 		os.Exit(1)
 	}
 
