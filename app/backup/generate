@@ -247,17 +247,36 @@ run_command() {
 
   ssh_string=$( captaincore ssh ${site}-${environment} --debug --command="bash -s -- vault create" --captain-id=$CAPTAIN_ID )
 
-  # --- Execute the command for real ---
+  # --- Execute the command and capture output for piggybacked snapshot data ---
   echo "🚀 Executing remote vault command..."
-  cat $payload_file | eval $ssh_string
-  
+  vault_output_file="$path_tmp/vault_output-${CAPTAIN_ID}-${site}-${environment}_${random_token}.log"
+  cat $payload_file | eval $ssh_string 2>&1 | tee "$vault_output_file"
+
   # --- 5. Clean up the local temporary file ---
   echo "🔥 Cleaning up temporary payload file..."
   rm "$payload_file"
 
-  captaincore backup list-generate ${site}-${environment} --captain-id=$CAPTAIN_ID > /dev/null
+  # Extract piggybacked snapshot JSON from vault create output
+  snapshots_json=$(sed -n '/---CAPTAINCORE_SNAPSHOTS_BEGIN---/,/---CAPTAINCORE_SNAPSHOTS_END---/{//d;p}' "$vault_output_file")
+  rm -f "$vault_output_file"
+
+  if [[ -n "$snapshots_json" ]] && [[ "$snapshots_json" =~ ^\[ ]]; then
+    # Save to temp file for Go commands
+    snapshots_file="$path_tmp/snapshots-${CAPTAIN_ID}-${site}-${environment}_${random_token}.json"
+    echo "$snapshots_json" > "$snapshots_file"
+
+    # Use piggybacked data instead of running restic locally (avoids cache buildup)
+    captaincore backup list-generate ${site}-${environment} --from-file="$snapshots_file" --captain-id=$CAPTAIN_ID > /dev/null
+    captaincore backup verify ${site}-${environment} --from-file="$snapshots_file" --captain-id=$CAPTAIN_ID
+
+    rm -f "$snapshots_file"
+  else
+    # Fallback to traditional method if piggybacked data not found
+    captaincore backup list-generate ${site}-${environment} --captain-id=$CAPTAIN_ID > /dev/null
+    captaincore backup verify ${site}-${environment} --captain-id=$CAPTAIN_ID
+  fi
+
   captaincore backup get-generate ${site}-${environment} --captain-id=$CAPTAIN_ID > /dev/null
-  captaincore backup verify ${site}-${environment} --captain-id=$CAPTAIN_ID
 
   captaincore usage-update ${site}-${environment} --captain-id=$CAPTAIN_ID
 

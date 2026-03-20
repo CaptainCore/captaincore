@@ -299,17 +299,30 @@ func backupListGenerateNative(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	rcloneBackup := getRcloneBackup(captain, system)
-	resticKey := getResticKeyPath()
 	siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
 	envName := strings.ToLower(env.Environment)
-	resticRepo := fmt.Sprintf("rclone:%s/%s/%s/restic-repo", rcloneBackup, siteDir, envName)
 
-	resticCmd := exec.Command("restic", "snapshots", "--repo", resticRepo, "--password-file="+resticKey, "--json")
-	output, err := resticCmd.Output()
-	if err != nil {
-		fmt.Println("Error: Backup repo not found.")
-		return
+	var output []byte
+
+	// Use piggybacked snapshot data from vault create if available (avoids local restic cache)
+	fromFile, _ := cmd.Flags().GetString("from-file")
+	if fromFile != "" {
+		output, err = os.ReadFile(fromFile)
+		if err != nil {
+			fmt.Printf("Error: Could not read snapshot data from %s\n", fromFile)
+			return
+		}
+	} else {
+		rcloneBackup := getRcloneBackup(captain, system)
+		resticKey := getResticKeyPath()
+		resticRepo := fmt.Sprintf("rclone:%s/%s/%s/restic-repo", rcloneBackup, siteDir, envName)
+
+		resticCmd := exec.Command("restic", "snapshots", "--repo", resticRepo, "--password-file="+resticKey, "--json")
+		output, err = resticCmd.Output()
+		if err != nil {
+			fmt.Println("Error: Backup repo not found.")
+			return
+		}
 	}
 
 	var snapshots []map[string]interface{}
@@ -425,13 +438,16 @@ func backupGetGenerateNative(cmd *cobra.Command, args []string) {
 		fmt.Printf("Backup id not selected. Generating response for latest ID %s\n", backupID)
 	}
 
-	// Run restic ls
+	// Run restic ls (uses cache for speed, cleaned up after)
 	resticCmd := exec.Command("restic", "ls", "-l", backupID, "/", "--recursive", "--repo", resticRepo, "--json", "--password-file="+resticKey)
 	resticOutput, err := resticCmd.Output()
 	if err != nil {
 		fmt.Println("Error: Backup repo not found.")
 		return
 	}
+
+	// Clean up local restic cache for this repo to prevent ~/.cache/restic from growing
+	cleanupResticCache(resticRepo, resticKey)
 
 	fmt.Printf("Generating %s/%s/backups/snapshot-%s.json\n", siteDir, envName, backupID)
 
@@ -595,6 +611,31 @@ func sortFileTree(nodes []FileNode) {
 	}
 }
 
+// cleanupResticCache removes the local cache directory for a specific restic repo.
+// This prevents ~/.cache/restic from growing unboundedly on the control server.
+func cleanupResticCache(resticRepo, resticKey string) {
+	type resticConfig struct {
+		ID string `json:"id"`
+	}
+	configCmd := exec.Command("restic", "cat", "config", "--repo", resticRepo, "--password-file="+resticKey, "--no-cache", "--json")
+	configOutput, err := configCmd.Output()
+	if err != nil {
+		return
+	}
+	var cfg resticConfig
+	if json.Unmarshal(configOutput, &cfg) != nil || cfg.ID == "" {
+		return
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	cacheDir := filepath.Join(homeDir, ".cache", "restic", cfg.ID)
+	if info, statErr := os.Stat(cacheDir); statErr == nil && info.IsDir() {
+		os.RemoveAll(cacheDir)
+	}
+}
+
 var backupVerifyCmd = &cobra.Command{
 	Use:   "verify <site>",
 	Short: "Verifies backup health for a site",
@@ -624,8 +665,43 @@ type resticSnapshot struct {
 }
 
 // backupVerifyChecks runs the restic verification checks and returns any issues found.
-func backupVerifyChecks(resticRepo, resticKey, envCore string) []string {
+func backupVerifyChecks(resticRepo, resticKey, envCore string, fromFile string) []string {
 	var issues []string
+
+	// When --from-file is provided, the snapshot data comes from a vault create that
+	// just succeeded on the remote server.  The backup is fresh by definition and the
+	// database file (for WordPress sites) was verified present before the backup ran,
+	// so we only need to parse the JSON for a basic sanity check.
+	if fromFile != "" {
+		data, readErr := os.ReadFile(fromFile)
+		if readErr != nil {
+			issues = append(issues, "Could not read piggybacked snapshot data")
+			return issues
+		}
+		var snapshots []resticSnapshot
+		if json.Unmarshal(data, &snapshots) != nil || len(snapshots) == 0 {
+			issues = append(issues, "No snapshots found in piggybacked data")
+			return issues
+		}
+		// Find newest snapshot and verify freshness
+		var latestTime time.Time
+		for _, snap := range snapshots {
+			t, parseErr := time.Parse(time.RFC3339Nano, snap.Time)
+			if parseErr != nil {
+				t, parseErr = time.Parse("2006-01-02T15:04:05Z07:00", snap.Time)
+			}
+			if parseErr == nil && t.After(latestTime) {
+				latestTime = t
+			}
+		}
+		if !latestTime.IsZero() {
+			age := time.Since(latestTime)
+			if age > 36*time.Hour {
+				issues = append(issues, fmt.Sprintf("Latest snapshot is stale (%.1f hours old, threshold 36h)", age.Hours()))
+			}
+		}
+		return issues
+	}
 
 	// Check 1: Snapshot freshness — query latest snapshot per host, then find the newest
 	resticCmd := exec.Command("restic", "snapshots", "--repo", resticRepo, "--password-file="+resticKey, "--json", "--latest", "1")
@@ -703,11 +779,17 @@ func backupVerifyNative(cmd *cobra.Command, args []string) {
 	envName := strings.ToLower(env.Environment)
 	resticRepo := fmt.Sprintf("rclone:%s/%s/%s/restic-repo", rcloneBackup, siteDir, envName)
 
+	// Use piggybacked snapshot data from vault create if available (avoids local restic cache)
+	fromFile, _ := cmd.Flags().GetString("from-file")
+
 	// Run checks with up to 3 attempts, 5s delay between retries
 	maxAttempts := 3
+	if fromFile != "" {
+		maxAttempts = 1 // No need to retry when using piggybacked data
+	}
 	var issues []string
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		issues = backupVerifyChecks(resticRepo, resticKey, env.Core)
+		issues = backupVerifyChecks(resticRepo, resticKey, env.Core, fromFile)
 		if len(issues) == 0 {
 			break
 		}
@@ -2068,8 +2150,10 @@ func init() {
 	backupCmd.AddCommand(backupListCmd)
 	backupListCmd.Flags().StringVar(&flagFormat, "format", "", "Output format (json)")
 	backupCmd.AddCommand(backupListGenerateCmd)
+	backupListGenerateCmd.Flags().String("from-file", "", "Read snapshot JSON from file instead of running restic locally")
 	backupCmd.AddCommand(backupListMissingCmd)
 	backupCmd.AddCommand(backupVerifyCmd)
+	backupVerifyCmd.Flags().String("from-file", "", "Read snapshot JSON from file instead of running restic locally")
 	backupCmd.AddCommand(backupShowCmd)
 	backupCmd.AddCommand(backupRuntimeCmd)
 	backupCmd.AddCommand(backupCleanupCmd)

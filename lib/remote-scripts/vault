@@ -878,6 +878,13 @@ function vault_create() {
         mv "$temporary_sql_path_in_root" "$sql_file_path"
     fi
 
+    # Piggyback snapshot listing for the control server.
+    # This lets list-generate and verify consume remote JSON instead of running
+    # restic locally, which avoids building up ~/.cache/restic on the control server.
+    echo "---CAPTAINCORE_SNAPSHOTS_BEGIN---"
+    "$RESTIC_CMD" snapshots --json 2>/dev/null
+    echo "---CAPTAINCORE_SNAPSHOTS_END---"
+
     # Unset variables for security
     unset B2_ACCOUNT_ID B2_ACCOUNT_KEY RESTIC_PASSWORD RESTIC_REPOSITORY
 
