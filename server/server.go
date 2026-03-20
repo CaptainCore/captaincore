@@ -119,7 +119,7 @@ type Task struct {
 	Status    string
 	Response  string
 	Origin    string
-	Token     string
+	Token     string `gorm:"index"`
 }
 
 type taskWithProgress struct {
@@ -500,7 +500,16 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 		data := SocketRequest{}
 		err := conn.ReadJSON(&data)
 		if err != nil {
-			fmt.Println("Error reading json.", err)
+			log.Println("Client disconnected:", err)
+			// Find current connection and remove from clients
+			for i := 0; i < len(clients); i++ {
+				if clients[i].conn == conn {
+					log.Println("Removing client: ", clients[i])
+					clients = append(clients[:i], clients[i+1:]...)
+					i--
+				}
+			}
+			break
 		}
 
 		var task Task
