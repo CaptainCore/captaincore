@@ -123,6 +123,53 @@ else
     echo "security_log:{\"size\":0,\"rows\":0}"
 fi
 
+# Error log manifest: name, size (bytes), and line count for each error log file
+read -r -d '' error_log_php << 'ERRLOGEOF'
+<?php
+$files     = [];
+$home_path = get_home_path();
+$parent    = dirname( $home_path );
+$wpc       = empty( WP_CONTENT_DIR ) ? "{$home_path}wp-content" : WP_CONTENT_DIR;
+$wpc_base  = basename( $wpc );
+
+if (! function_exists('str_ends_with')) {
+    function str_ends_with(string $h, string $n): bool {
+        $l = strlen($n);
+        return ($l === 0 || 0 === substr_compare($h, $n, -$l));
+    }
+}
+
+function log_entry( $name, $path ) {
+    $size  = filesize( $path );
+    $lines = 0;
+    $fh = fopen( $path, 'r' );
+    if ( $fh ) {
+        while ( fgets( $fh ) !== false ) { $lines++; }
+        fclose( $fh );
+    }
+    return [ "name" => $name, "size" => $size, "lines" => $lines ];
+}
+
+if ( is_file( "{$home_path}error_log" ) && filesize( "{$home_path}error_log" ) > 0 ) {
+    $files[] = log_entry( "error_log", "{$home_path}error_log" );
+}
+foreach ( glob( "{$parent}/logs/*error.log*" ) as $f ) {
+    if ( filesize( $f ) == 0 || str_ends_with( $f, '.gz' ) ) { continue; }
+    $files[] = log_entry( "~/logs/" . basename( $f ), $f );
+}
+if ( is_file( "{$wpc}/debug.log" ) && filesize( "{$wpc}/debug.log" ) > 0 ) {
+    $files[] = log_entry( "{$wpc_base}/debug.log", "{$wpc}/debug.log" );
+}
+
+echo json_encode( $files );
+ERRLOGEOF
+
+error_logs_json=$(echo "$error_log_php" | wp eval-file - --skip-themes --skip-plugins 2>/dev/null)
+if [[ -z "$error_logs_json" ]]; then
+    error_logs_json="[]"
+fi
+echo "error_logs:${error_logs_json}"
+
 # Restic cache size (bytes), 0 if none
 restic_cache_dir="$HOME/.cache/restic"
 if [[ -d "$restic_cache_dir" ]]; then

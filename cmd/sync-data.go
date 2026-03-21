@@ -179,7 +179,7 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 		}
 	}
 	// JSON detail fields (parse before storing)
-	jsonDetailKeys := []string{"core_checksum_details", "security_log"}
+	jsonDetailKeys := []string{"core_checksum_details", "security_log", "error_logs"}
 	for _, key := range jsonDetailKeys {
 		if v, ok := data[key]; ok && v != "" {
 			var parsed interface{}
