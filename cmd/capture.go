@@ -69,8 +69,9 @@ var captureCheckCmd = &cobra.Command{
 
 // captureSignaturesFile holds the JSON structure of capture-signatures.json.
 type captureSignaturesFile struct {
-	KnownSafeDomains []string         `json:"known_safe_domains"`
-	Signatures       []captureSigRule `json:"signatures"`
+	KnownSafeInlineVars []string         `json:"known_safe_inline_vars"`
+	KnownSafeDomains    []string         `json:"known_safe_domains"`
+	Signatures          []captureSigRule `json:"signatures"`
 }
 
 type captureSigRule struct {
@@ -169,7 +170,7 @@ func isKnownSafe(domain string, safeDomains []string) bool {
 }
 
 // classifyElement determines the severity of a capture element.
-func classifyElement(elem *captureElement, homeURL string, safeDomains []string, compiled []compiledCaptureSig) {
+func classifyElement(elem *captureElement, homeURL string, safeDomains []string, compiled []compiledCaptureSig, safeInlineVars ...[]string) {
 	if elem.Src != "" {
 		// Data URIs are inline content, not external resources
 		if strings.HasPrefix(elem.Src, "data:") {
@@ -246,6 +247,7 @@ func classifyElement(elem *captureElement, homeURL string, safeDomains []string,
 
 	// Inline content
 	if elem.Inline != "" {
+		// Always check malware signatures first — these take priority over safe patterns
 		for _, cs := range compiled {
 			if cs.Rule.Type == "inline-pattern" {
 				for _, pat := range cs.Patterns {
@@ -259,13 +261,25 @@ func classifyElement(elem *captureElement, homeURL string, safeDomains []string,
 			}
 		}
 
+		// Then check known safe inline variable patterns to suppress noise
+		if len(safeInlineVars) > 0 {
+			trimmed := strings.TrimSpace(elem.Inline)
+			for _, prefix := range safeInlineVars[0] {
+				if strings.Contains(trimmed, prefix) {
+					elem.Severity = "ok"
+					elem.Label = fmt.Sprintf("<inline> %s", trimmed)
+					return
+				}
+			}
+		}
+
 		elem.Severity = "ok"
 		elem.Label = fmt.Sprintf("<inline> %s", strings.TrimSpace(elem.Inline))
 	}
 }
 
 // parseCaptureReader extracts script and stylesheet elements from an HTML reader.
-func parseCaptureReader(r io.Reader, homeURL string, safeDomains []string, compiled []compiledCaptureSig) (scripts []captureElement, stylesheets []captureElement) {
+func parseCaptureReader(r io.Reader, homeURL string, safeDomains []string, compiled []compiledCaptureSig, safeInlineVars ...[]string) (scripts []captureElement, stylesheets []captureElement) {
 	z := html.NewTokenizer(r)
 	for {
 		tt := z.Next()
@@ -310,7 +324,7 @@ func parseCaptureReader(r io.Reader, homeURL string, safeDomains []string, compi
 						continue
 					}
 				}
-				classifyElement(&elem, homeURL, safeDomains, compiled)
+				classifyElement(&elem, homeURL, safeDomains, compiled, safeInlineVars...)
 				scripts = append(scripts, elem)
 
 			case "link":
@@ -369,13 +383,13 @@ done:
 }
 
 // parseCapture extracts script and stylesheet elements from an HTML capture file.
-func parseCapture(filePath string, homeURL string, safeDomains []string, compiled []compiledCaptureSig) (scripts []captureElement, stylesheets []captureElement) {
+func parseCapture(filePath string, homeURL string, safeDomains []string, compiled []compiledCaptureSig, safeInlineVars ...[]string) (scripts []captureElement, stylesheets []captureElement) {
 	f, err := os.Open(filePath)
 	if err != nil {
 		return
 	}
 	defer f.Close()
-	return parseCaptureReader(f, homeURL, safeDomains, compiled)
+	return parseCaptureReader(f, homeURL, safeDomains, compiled, safeInlineVars...)
 }
 
 func severityColor(severity string) string {
@@ -512,7 +526,7 @@ func captureScanNative(cmd *cobra.Command, args []string) {
 			pageName := strings.TrimSuffix(entry.Name(), ".capture")
 			pageName = strings.ReplaceAll(pageName, "#", "/")
 
-			scripts, stylesheets := parseCapture(filePath, target.HomeURL, sigs.KnownSafeDomains, compiled)
+			scripts, stylesheets := parseCapture(filePath, target.HomeURL, sigs.KnownSafeDomains, compiled, sigs.KnownSafeInlineVars)
 
 			// In malware mode, skip stylesheets
 			if malwareMode {
@@ -777,7 +791,7 @@ func captureCheckNative(cmd *cobra.Command, args []string) {
 
 		// Parse current version from disk
 		currentPath := filepath.Join(capturesPath, file)
-		newScripts, newStylesheets := parseCapture(currentPath, homeURL, sigs.KnownSafeDomains, compiled)
+		newScripts, newStylesheets := parseCapture(currentPath, homeURL, sigs.KnownSafeDomains, compiled, sigs.KnownSafeInlineVars)
 
 		// Parse previous version via git show
 		gitShow := exec.Command("git", "show", "HEAD~1:"+file)
@@ -786,7 +800,7 @@ func captureCheckNative(cmd *cobra.Command, args []string) {
 
 		var oldScripts, oldStylesheets []captureElement
 		if err == nil && len(prevData) > 0 {
-			oldScripts, oldStylesheets = parseCaptureReader(bytes.NewReader(prevData), homeURL, sigs.KnownSafeDomains, compiled)
+			oldScripts, oldStylesheets = parseCaptureReader(bytes.NewReader(prevData), homeURL, sigs.KnownSafeDomains, compiled, sigs.KnownSafeInlineVars)
 		}
 
 		// Build sets of known elements from old version
@@ -803,27 +817,43 @@ func captureCheckNative(cmd *cobra.Command, args []string) {
 			}
 		}
 
-		// Find new elements not present in old version
-		for _, elems := range [][]captureElement{newScripts, newStylesheets} {
-			for _, e := range elems {
-				isNew := false
-				if e.Src != "" {
-					isNew = !oldSrcSet[e.Src]
-				} else if e.Inline != "" {
-					isNew = !oldInlineHashSet[hashInline(e.Inline)]
-				}
+		// Find new elements not present in old version (scripts only — stylesheets can't execute code)
+		for _, e := range newScripts {
+			isNew := false
+			if e.Src != "" {
+				isNew = !oldSrcSet[e.Src]
+			} else if e.Inline != "" {
+				isNew = !oldInlineHashSet[hashInline(e.Inline)]
+			}
 
-				if isNew && e.Severity != "ok" {
-					f := checkFinding{
-						Page:     pageName,
-						Tag:      e.Tag,
-						Severity: e.Severity,
-						Src:      e.Src,
-						Label:    e.Label,
-						SigName:  e.SigName,
-					}
-					findings = append(findings, f)
+			if isNew && e.Severity != "ok" {
+				f := checkFinding{
+					Page:     pageName,
+					Tag:      e.Tag,
+					Severity: e.Severity,
+					Src:      e.Src,
+					Label:    e.Label,
+					SigName:  e.SigName,
 				}
+				findings = append(findings, f)
+			}
+		}
+
+		// For stylesheets, only report new external ones from unknown domains (not inline style changes)
+		for _, e := range newStylesheets {
+			if e.Src == "" {
+				continue // Skip inline <style> — CSS can't execute code
+			}
+			if !oldSrcSet[e.Src] && e.Severity != "ok" {
+				f := checkFinding{
+					Page:     pageName,
+					Tag:      e.Tag,
+					Severity: e.Severity,
+					Src:      e.Src,
+					Label:    e.Label,
+					SigName:  e.SigName,
+				}
+				findings = append(findings, f)
 			}
 		}
 	}

@@ -1,4 +1,17 @@
 {
+  "known_safe_inline_vars": [
+    "var OPDashboardPixels",
+    "window.wsf_form_json_config",
+    "window.Parameters = window.Parameters",
+    "window._currentDevice",
+    "var aysPopupOptions",
+    "var wc_cart_fragments_params",
+    "var wc_add_to_cart_params",
+    "var wpcf7",
+    "var flatsomeVars",
+    "var ElementorProFrontendConfig",
+    "var elementorFrontendConfig"
+  ],
   "known_safe_domains": [
     "cdn.usefathom.com",
     "fd.cleantalk.org",
@@ -152,7 +165,7 @@
       "name": "Long base64 encoded string",
       "severity": "high",
       "type": "inline-pattern",
-      "patterns": ["['\"][A-Za-z0-9+/=]{200,}['\"]"]
+      "patterns": ["(?:eval|Function|document\\.write|setTimeout|setInterval)\\s*\\([^)]*['\"][A-Za-z0-9+/=]{200,}['\"]"]
     },
     {
       "id": "char-table-obfuscation",
