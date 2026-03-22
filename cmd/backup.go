@@ -1065,6 +1065,100 @@ func backupFindNative(cmd *cobra.Command, args []string) {
 	resticCmd.Run()
 }
 
+var backupKeyBackupCmd = &cobra.Command{
+	Use:   "key-backup <site>",
+	Short: "Back up restic repo key locally to protect against B2 data loss",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveNativeOrWP(cmd, args, backupKeyBackupNative)
+	},
+}
+
+func backupKeyBackupNative(cmd *cobra.Command, args []string) {
+	sa := parseSiteArgument(args[0])
+	site, err := sa.LookupSite()
+	if err != nil || site == nil {
+		fmt.Println("Error: Site not found.")
+		return
+	}
+
+	env, err := sa.LookupEnvironment(site.SiteID)
+	if err != nil || env == nil {
+		fmt.Println("Error: Environment not found.")
+		return
+	}
+
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Println("Error: Configuration file not found.")
+		return
+	}
+
+	rcloneBackup := getRcloneBackup(captain, system)
+	envName := strings.ToLower(env.Environment)
+
+	repoType, _ := cmd.Flags().GetString("type")
+	if repoType == "" {
+		repoType = "backup"
+	}
+
+	if err := backupRepoKey(site.Site, site.SiteID, envName, rcloneBackup, repoType); err != nil {
+		fmt.Printf("Error: %v\n", err)
+	}
+}
+
+var backupKeyRestoreCmd = &cobra.Command{
+	Use:   "key-restore <site>",
+	Short: "Restore a locally backed-up repo key to B2",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveNativeOrWP(cmd, args, backupKeyRestoreNative)
+	},
+}
+
+func backupKeyRestoreNative(cmd *cobra.Command, args []string) {
+	sa := parseSiteArgument(args[0])
+	site, err := sa.LookupSite()
+	if err != nil || site == nil {
+		fmt.Println("Error: Site not found.")
+		return
+	}
+
+	env, err := sa.LookupEnvironment(site.SiteID)
+	if err != nil || env == nil {
+		fmt.Println("Error: Environment not found.")
+		return
+	}
+
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Println("Error: Configuration file not found.")
+		return
+	}
+
+	rcloneBackup := getRcloneBackup(captain, system)
+	envName := strings.ToLower(env.Environment)
+
+	repoType, _ := cmd.Flags().GetString("type")
+	if repoType == "" {
+		repoType = "backup"
+	}
+
+	if err := restoreRepoKey(site.Site, site.SiteID, envName, rcloneBackup, repoType); err != nil {
+		fmt.Printf("Error: %v\n", err)
+	}
+}
+
 var backupRepairCmd = &cobra.Command{
 	Use:   "repair <site> [pack-ids...]",
 	Short: "Repairs a restic backup repo (index or packs)",
@@ -2421,6 +2515,10 @@ func init() {
 	backupFindCmd.Flags().String("pack", "", "Find snapshots containing blobs from a specific pack ID")
 	backupFindCmd.Flags().String("snapshot", "", "Limit search to a specific snapshot ID")
 	backupFindCmd.Flags().Bool("long", false, "Show detailed file info (size, mode, timestamps)")
+	backupCmd.AddCommand(backupKeyBackupCmd)
+	backupKeyBackupCmd.Flags().String("type", "backup", "Repo type: backup or quicksave")
+	backupCmd.AddCommand(backupKeyRestoreCmd)
+	backupKeyRestoreCmd.Flags().String("type", "backup", "Repo type: backup or quicksave")
 	backupCmd.AddCommand(backupRepairCmd)
 	backupRepairCmd.Flags().Bool("packs", false, "Repair damaged pack files instead of rebuilding the index")
 	backupRepairCmd.Flags().Bool("snapshots", false, "Remove references to missing data from snapshots")

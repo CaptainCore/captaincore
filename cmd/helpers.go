@@ -2,12 +2,14 @@ package cmd
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -179,6 +181,105 @@ func acquireBackupLock(lockPath string) bool {
 // releaseBackupLock removes the backup lock file.
 func releaseBackupLock(lockPath string) {
 	os.Remove(lockPath)
+}
+
+// backupRepoKey downloads the restic repo key from B2 and saves it locally as backup-repo-key.txt
+// or quicksave-repo-key.txt next to vault.txt. This protects against B2 data loss.
+func backupRepoKey(siteName string, siteID uint, envName string, rcloneBackup string, repoType string) error {
+	home, _ := os.UserHomeDir()
+	siteDir := fmt.Sprintf("%s_%d", siteName, siteID)
+
+	// Determine key filename based on repo type
+	keyFileName := "backup-repo-key.txt"
+	repoName := "restic-repo"
+	if repoType == "quicksave" {
+		keyFileName = "quicksave-repo-key.txt"
+		repoName = "quicksave-repo"
+	}
+
+	localKeyPath := filepath.Join(home, ".captaincore", "data", siteDir, envName, keyFileName)
+	remoteKeysPath := fmt.Sprintf("%s/%s/%s/%s/keys/", rcloneBackup, siteDir, envName, repoName)
+
+	// List key files in the repo
+	listCmd := exec.Command("rclone", "lsf", remoteKeysPath)
+	listOutput, err := listCmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to list repo keys: %w", err)
+	}
+
+	keyFiles := strings.TrimSpace(string(listOutput))
+	if keyFiles == "" {
+		return fmt.Errorf("no key files found in repo")
+	}
+
+	// Use the first key file
+	firstKey := strings.Split(keyFiles, "\n")[0]
+	remoteKeyFile := remoteKeysPath + firstKey
+
+	// Download key content
+	catCmd := exec.Command("rclone", "cat", remoteKeyFile)
+	keyContent, err := catCmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to download repo key: %w", err)
+	}
+
+	// Ensure directory exists and save
+	os.MkdirAll(filepath.Dir(localKeyPath), 0755)
+	if err := os.WriteFile(localKeyPath, keyContent, 0600); err != nil {
+		return fmt.Errorf("failed to save repo key: %w", err)
+	}
+
+	fmt.Printf("Repo key backed up to %s\n", localKeyPath)
+	return nil
+}
+
+// restoreRepoKey uploads a locally backed-up key to the restic repo in B2.
+func restoreRepoKey(siteName string, siteID uint, envName string, rcloneBackup string, repoType string) error {
+	home, _ := os.UserHomeDir()
+	siteDir := fmt.Sprintf("%s_%d", siteName, siteID)
+
+	keyFileName := "backup-repo-key.txt"
+	repoName := "restic-repo"
+	if repoType == "quicksave" {
+		keyFileName = "quicksave-repo-key.txt"
+		repoName = "quicksave-repo"
+	}
+
+	localKeyPath := filepath.Join(home, ".captaincore", "data", siteDir, envName, keyFileName)
+	remoteKeysPath := fmt.Sprintf("%s/%s/%s/%s/keys/", rcloneBackup, siteDir, envName, repoName)
+
+	// Read local key
+	keyContent, err := os.ReadFile(localKeyPath)
+	if err != nil {
+		return fmt.Errorf("no local key backup found at %s", localKeyPath)
+	}
+
+	// Parse key to get the key hash for the filename
+	var keyData struct {
+		Created string `json:"created"`
+	}
+	if json.Unmarshal(keyContent, &keyData) != nil {
+		return fmt.Errorf("invalid key file format")
+	}
+
+	// Generate SHA256 hash of key content for filename (matches restic's naming)
+	h := sha256.Sum256(keyContent)
+	keyHash := fmt.Sprintf("%x", h)
+
+	// Write to temp file and upload
+	tmpFile := filepath.Join(os.TempDir(), keyHash)
+	if err := os.WriteFile(tmpFile, keyContent, 0600); err != nil {
+		return fmt.Errorf("failed to write temp key: %w", err)
+	}
+	defer os.Remove(tmpFile)
+
+	uploadCmd := exec.Command("rclone", "copyto", tmpFile, remoteKeysPath+keyHash)
+	if err := uploadCmd.Run(); err != nil {
+		return fmt.Errorf("failed to upload repo key: %w", err)
+	}
+
+	fmt.Printf("Repo key restored to %s%s\n", remoteKeysPath, keyHash)
+	return nil
 }
 
 // updateEnvironmentDetails merges updates into environment details JSON, saves to DB, and posts to API.

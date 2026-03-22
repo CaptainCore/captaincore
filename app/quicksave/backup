@@ -109,6 +109,8 @@ run_command() {
   if [[ $( restic snapshots --repo "$restic_repo" --password-file="$restic_key" 2>&1 ) == "" ]]; then
     echo "Generating new restic repo ${site}_${site_id}/${environment}/quicksave-repo"
     restic init --quiet --repo "$restic_repo" --password-file="$restic_key"
+    # Back up the repo key locally
+    captaincore backup key-backup ${site}-${environment} --type=quicksave --captain-id=$CAPTAIN_ID 2>/dev/null || true
   fi
 
   restic backup . --quiet --repo "$restic_repo" --exclude-file="${CAPTAINCORE_PATH}/lib/restic-excludes" --password-file="$restic_key"

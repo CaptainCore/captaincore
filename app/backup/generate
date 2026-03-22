@@ -204,6 +204,8 @@ run_command() {
       if [[ $( restic snapshots --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key" ) == "" ]]; then
         echo "Generating restic repo for $site"
         restic init --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --password-file="${CAPTAINCORE_PATH}/data/restic.key"
+        # Back up the repo key locally
+        captaincore backup key-backup ${site}-${environment} --captain-id=$CAPTAIN_ID 2>/dev/null || true
       fi
       cd $path/${site}_${site_id}/${environment}/backup/
       restic backup . --quiet --repo rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo --exclude-file="${CAPTAINCORE_PATH}/lib/restic-excludes" --password-file="${CAPTAINCORE_PATH}/data/restic.key"

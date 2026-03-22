@@ -90,6 +90,8 @@ else
             echo "   Attempting initialization..."
             if init_output=$(restic init --repo "$repo_path" --password-file "$password_file" 2>&1); then
                 log_event "FIXED" "$GREEN" "- Repository successfully initialized."
+                # Back up the repo key locally
+                captaincore backup key-backup ${site}-${environment} --captain-id=$CAPTAIN_ID 2>/dev/null || true
             else
                 clean_error=$(echo "$init_output" | tr '\n' ' ' | cut -c 1-200)
                 log_event "INIT_FAILED" "$RED" "- Could not initialize: $clean_error"
@@ -116,6 +118,8 @@ else
                 echo "   Attempting initialization..."
                 if init_output=$(restic init --repo "$repo_path" --password-file "$password_file" 2>&1); then
                     log_event "FIXED" "$GREEN" "- Repository successfully initialized."
+                    # Back up the repo key locally
+                    captaincore backup key-backup ${site}-${environment} --captain-id=$CAPTAIN_ID 2>/dev/null || true
                 else
                     clean_error=$(echo "$init_output" | tr '\n' ' ' | cut -c 1-200)
                     log_event "INIT_FAILED" "$RED" "- Could not initialize: $clean_error"
