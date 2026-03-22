@@ -917,6 +917,72 @@ func backupPruneNative(cmd *cobra.Command, args []string) {
 	resticCmd.Run()
 }
 
+var backupRepairCmd = &cobra.Command{
+	Use:   "repair <site>",
+	Short: "Repairs a restic backup repo (index or packs)",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveNativeOrWP(cmd, args, backupRepairNative)
+	},
+}
+
+// backupRepairNative implements `captaincore backup repair <site>` natively in Go.
+func backupRepairNative(cmd *cobra.Command, args []string) {
+	sa := parseSiteArgument(args[0])
+	site, err := sa.LookupSite()
+	if err != nil || site == nil {
+		fmt.Println("Error: Site not found.")
+		return
+	}
+
+	env, err := sa.LookupEnvironment(site.SiteID)
+	if err != nil || env == nil {
+		fmt.Println("Error: Environment not found.")
+		return
+	}
+
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Println("Error: Configuration file not found.")
+		return
+	}
+
+	rcloneBackup := getRcloneBackup(captain, system)
+	resticKey := getResticKeyPath()
+	siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+	envName := strings.ToLower(env.Environment)
+	resticRepo := fmt.Sprintf("rclone:%s/%s/%s/restic-repo", rcloneBackup, siteDir, envName)
+
+	repairType := "index"
+	flagPacks, _ := cmd.Flags().GetBool("packs")
+	if flagPacks {
+		repairType = "packs"
+	}
+
+	fmt.Printf("Repairing backup repo %s for %s-%s\n", repairType, site.Site, envName)
+
+	resticArgs := []string{
+		"repair", repairType,
+		"--repo", resticRepo,
+		"--password-file=" + resticKey,
+		"-o", "rclone.args=serve restic --stdio --b2-hard-delete --timeout=300s --contimeout=60s",
+		"-o", "rclone.timeout=600s",
+	}
+
+	resticCmd := exec.Command("restic", resticArgs...)
+	if system.PathTmp != "" {
+		resticCmd.Env = append(os.Environ(), "TMPDIR="+system.PathTmp)
+	}
+	resticCmd.Stdout = os.Stdout
+	resticCmd.Stderr = os.Stderr
+	resticCmd.Run()
+}
+
 var backupUpgradeCmd = &cobra.Command{
 	Use:   "upgrade <site>",
 	Short: "Upgrades restic backup repo to version 2 (enables compression)",
@@ -2167,6 +2233,8 @@ func init() {
 	backupCmd.AddCommand(backupSnapshotsCmd)
 	backupCmd.AddCommand(backupForgetCmd)
 	backupCmd.AddCommand(backupStorageCleanupCmd)
+	backupCmd.AddCommand(backupRepairCmd)
+	backupRepairCmd.Flags().Bool("packs", false, "Repair damaged pack files instead of rebuilding the index")
 	backupCmd.AddCommand(backupUpgradeCmd)
 	backupCmd.AddCommand(backupUnlockCmd)
 	backupCmd.AddCommand(backupMigrateV2Cmd)
