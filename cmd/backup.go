@@ -1508,6 +1508,11 @@ func backupUnlockNative(cmd *cobra.Command, args []string) {
 		"-o", "rclone.timeout=600s",
 	}
 
+	flagRemoveAll, _ := cmd.Flags().GetBool("remove-all")
+	if flagRemoveAll {
+		resticArgs = append(resticArgs, "--remove-all")
+	}
+
 	resticCmd := exec.Command("restic", resticArgs...)
 	resticCmd.Stdout = os.Stdout
 	resticCmd.Stderr = os.Stderr
@@ -2420,6 +2425,7 @@ func init() {
 	backupRepairCmd.Flags().Bool("forget", false, "Automatically forget old damaged snapshots after repair (use with --snapshots)")
 	backupCmd.AddCommand(backupUpgradeCmd)
 	backupCmd.AddCommand(backupUnlockCmd)
+	backupUnlockCmd.Flags().Bool("remove-all", false, "Remove all locks, even non-stale ones")
 	backupCmd.AddCommand(backupMigrateV2Cmd)
 	backupMigrateV2Cmd.Flags().BoolVar(&flagForce, "force", false, "Run even if repo is already v2")
 	backupMigrateV2Cmd.Flags().Bool("skip-repack", false, "Skip the repack step (upgrade only)")
