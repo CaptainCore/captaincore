@@ -37,11 +37,67 @@ var backupCheckCmd = &cobra.Command{
 		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
+		flagReadData, _ := cmd.Flags().GetBool("read-data")
+		if flagInit || flagReadData {
+			resolveNativeOrWP(cmd, args, backupCheckNative)
+			return
+		}
 		if flagInit {
 			os.Setenv("FLAG_INIT", "true")
 		}
 		resolveCommand(cmd, args)
 	},
+}
+
+// backupCheckNative implements `captaincore backup check <site>` natively in Go.
+func backupCheckNative(cmd *cobra.Command, args []string) {
+	sa := parseSiteArgument(args[0])
+	site, err := sa.LookupSite()
+	if err != nil || site == nil {
+		fmt.Println("Error: Site not found.")
+		return
+	}
+
+	env, err := sa.LookupEnvironment(site.SiteID)
+	if err != nil || env == nil {
+		fmt.Println("Error: Environment not found.")
+		return
+	}
+
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Println("Error: Configuration file not found.")
+		return
+	}
+
+	rcloneBackup := getRcloneBackup(captain, system)
+	resticKey := getResticKeyPath()
+	siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+	envName := strings.ToLower(env.Environment)
+	resticRepo := fmt.Sprintf("rclone:%s/%s/%s/restic-repo", rcloneBackup, siteDir, envName)
+
+	fmt.Printf("Checking backup repo for %s-%s\n", site.Site, envName)
+
+	resticArgs := []string{
+		"check",
+		"--repo", resticRepo,
+		"--password-file=" + resticKey,
+		"-o", "rclone.args=serve restic --stdio --b2-hard-delete --timeout=300s --contimeout=60s",
+		"-o", "rclone.timeout=600s",
+	}
+
+	flagReadData, _ := cmd.Flags().GetBool("read-data")
+	if flagReadData {
+		resticArgs = append(resticArgs, "--read-data")
+	}
+
+	resticCmd := exec.Command("restic", resticArgs...)
+	if system.PathTmp != "" {
+		resticCmd.Env = append(os.Environ(), "TMPDIR="+system.PathTmp)
+	}
+	resticCmd.Stdout = os.Stdout
+	resticCmd.Stderr = os.Stderr
+	resticCmd.Run()
 }
 
 var backupDownloadCmd = &cobra.Command{
@@ -2348,6 +2404,7 @@ func init() {
 	backupPruneCmd.Flags().BoolVar(&flagRepackUncompressed, "repack-uncompressed", false, "Repack and compress all uncompressed data (use after backup upgrade)")
 	backupCleanupCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "Calculate reclaimable space without deleting")
 	backupCheckCmd.Flags().BoolVarP(&flagInit, "init", "", false, "Initialize repo if missing")
+	backupCheckCmd.Flags().Bool("read-data", false, "Verify all pack data in the repo (thorough but slow)")
 	backupDownloadCmd.Flags().StringVarP(&flagEmail, "email", "e", "", "Email notify")
 	backupGenerateCmd.Flags().IntVarP(&flagParallel, "parallel", "p", 3, "Number of sites to backup at same time")
 	backupGenerateCmd.Flags().BoolVarP(&flagSkipDB, "skip-db", "", false, "Skip database backup")
