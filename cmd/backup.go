@@ -917,6 +917,89 @@ func backupPruneNative(cmd *cobra.Command, args []string) {
 	resticCmd.Run()
 }
 
+var backupFindCmd = &cobra.Command{
+	Use:   "find <site> <pattern>",
+	Short: "Searches for files or packs in a site's backup repo",
+	Args: func(cmd *cobra.Command, args []string) error {
+		flagPack, _ := cmd.Flags().GetString("pack")
+		if flagPack != "" {
+			if len(args) < 1 {
+				return errors.New("requires a <site> argument")
+			}
+			return nil
+		}
+		if len(args) < 2 {
+			return errors.New("requires a <site> and <pattern> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveNativeOrWP(cmd, args, backupFindNative)
+	},
+}
+
+// backupFindNative implements `captaincore backup find <site> <pattern>` natively in Go.
+func backupFindNative(cmd *cobra.Command, args []string) {
+	sa := parseSiteArgument(args[0])
+	site, err := sa.LookupSite()
+	if err != nil || site == nil {
+		fmt.Println("Error: Site not found.")
+		return
+	}
+
+	env, err := sa.LookupEnvironment(site.SiteID)
+	if err != nil || env == nil {
+		fmt.Println("Error: Environment not found.")
+		return
+	}
+
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Println("Error: Configuration file not found.")
+		return
+	}
+
+	rcloneBackup := getRcloneBackup(captain, system)
+	resticKey := getResticKeyPath()
+	siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+	envName := strings.ToLower(env.Environment)
+	resticRepo := fmt.Sprintf("rclone:%s/%s/%s/restic-repo", rcloneBackup, siteDir, envName)
+
+	resticArgs := []string{
+		"find",
+		"--repo", resticRepo,
+		"--password-file=" + resticKey,
+		"-o", "rclone.args=serve restic --stdio --b2-hard-delete --timeout=300s --contimeout=60s",
+		"-o", "rclone.timeout=600s",
+	}
+
+	flagPack, _ := cmd.Flags().GetString("pack")
+	flagSnapshot, _ := cmd.Flags().GetString("snapshot")
+	flagLong, _ := cmd.Flags().GetBool("long")
+
+	if flagPack != "" {
+		resticArgs = append(resticArgs, "--pack", flagPack)
+	} else {
+		resticArgs = append(resticArgs, args[1])
+	}
+
+	if flagSnapshot != "" {
+		resticArgs = append(resticArgs, "--snapshot", flagSnapshot)
+	}
+
+	if flagLong {
+		resticArgs = append(resticArgs, "--long")
+	}
+
+	resticCmd := exec.Command("restic", resticArgs...)
+	if system.PathTmp != "" {
+		resticCmd.Env = append(os.Environ(), "TMPDIR="+system.PathTmp)
+	}
+	resticCmd.Stdout = os.Stdout
+	resticCmd.Stderr = os.Stderr
+	resticCmd.Run()
+}
+
 var backupRepairCmd = &cobra.Command{
 	Use:   "repair <site>",
 	Short: "Repairs a restic backup repo (index or packs)",
@@ -2233,6 +2316,10 @@ func init() {
 	backupCmd.AddCommand(backupSnapshotsCmd)
 	backupCmd.AddCommand(backupForgetCmd)
 	backupCmd.AddCommand(backupStorageCleanupCmd)
+	backupCmd.AddCommand(backupFindCmd)
+	backupFindCmd.Flags().String("pack", "", "Find snapshots containing blobs from a specific pack ID")
+	backupFindCmd.Flags().String("snapshot", "", "Limit search to a specific snapshot ID")
+	backupFindCmd.Flags().Bool("long", false, "Show detailed file info (size, mode, timestamps)")
 	backupCmd.AddCommand(backupRepairCmd)
 	backupRepairCmd.Flags().Bool("packs", false, "Repair damaged pack files instead of rebuilding the index")
 	backupCmd.AddCommand(backupUpgradeCmd)
