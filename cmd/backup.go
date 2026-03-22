@@ -946,12 +946,21 @@ func backupPruneNative(cmd *cobra.Command, args []string) {
 	envName := strings.ToLower(env.Environment)
 	resticRepo := fmt.Sprintf("rclone:%s/%s/%s/restic-repo", rcloneBackup, siteDir, envName)
 
+	// Acquire backup lock to prevent concurrent operations
+	lockPath := getBackupLockPath(site.Site, site.SiteID, envName)
+	if !acquireBackupLock(lockPath) {
+		fmt.Printf("Skipping %s-%s - backup or maintenance currently in progress\n", site.Site, envName)
+		return
+	}
+	defer releaseBackupLock(lockPath)
+
 	fmt.Printf("Pruning backup repo for %s-%s\n", site.Site, envName)
 
 	resticArgs := []string{
 		"prune",
 		"--repo", resticRepo,
 		"--password-file=" + resticKey,
+		"--retry-lock", "30m",
 		"-o", "rclone.args=serve restic --stdio --b2-hard-delete --timeout=300s --contimeout=60s",
 		"-o", "rclone.timeout=600s",
 	}
@@ -1250,6 +1259,14 @@ func backupMigrateV2Native(cmd *cobra.Command, args []string) {
 	resticRepo := fmt.Sprintf("rclone:%s/%s/%s/restic-repo", rcloneBackup, siteDir, envName)
 	siteLabel := fmt.Sprintf("%s-%s", site.Site, envName)
 
+	// Acquire backup lock to prevent concurrent operations
+	lockPath := getBackupLockPath(site.Site, site.SiteID, envName)
+	if !acquireBackupLock(lockPath) {
+		fmt.Printf("Skipping %s - backup or maintenance currently in progress\n", siteLabel)
+		return
+	}
+	defer releaseBackupLock(lockPath)
+
 	rcloneArgs := []string{
 		"-o", "rclone.args=serve restic --stdio --b2-hard-delete --timeout=300s --contimeout=60s",
 		"-o", "rclone.timeout=600s",
@@ -1317,6 +1334,7 @@ func backupMigrateV2Native(cmd *cobra.Command, args []string) {
 		"migrate", "upgrade_repo_v2",
 		"--repo", resticRepo,
 		"--password-file=" + resticKey,
+		"--retry-lock", "30m",
 	}, rcloneArgs...)
 
 	upgradeCmd := exec.Command("restic", upgradeArgs...)
@@ -1346,6 +1364,7 @@ func backupMigrateV2Native(cmd *cobra.Command, args []string) {
 			"prune", "--repack-uncompressed",
 			"--repo", resticRepo,
 			"--password-file=" + resticKey,
+			"--retry-lock", "30m",
 		}, rcloneArgs...)
 
 		pruneCmd := exec.Command("restic", pruneArgs...)
@@ -2350,6 +2369,7 @@ func backupForgetNative(cmd *cobra.Command, args []string) {
 			"prune",
 			"--repo", resticRepo,
 			"--password-file=" + resticKey,
+			"--retry-lock", "30m",
 			"-o", "rclone.args=serve restic --stdio --b2-hard-delete --timeout=300s --contimeout=60s",
 			"-o", "rclone.timeout=600s",
 		}

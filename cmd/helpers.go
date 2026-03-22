@@ -137,6 +137,50 @@ func getResticKeyPath() string {
 	return filepath.Join(home, ".captaincore", "data", "restic.key")
 }
 
+// getBackupLockPath returns the path to the backup lock file for a site/environment.
+func getBackupLockPath(siteName string, siteID uint, envName string) string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".captaincore", "data", fmt.Sprintf("%s_%d", siteName, siteID), envName, "backup.lock")
+}
+
+// acquireBackupLock attempts to acquire the backup lock for a site/environment.
+// Returns true if the lock was acquired, false if another process holds it.
+func acquireBackupLock(lockPath string) bool {
+	// Check if lock file exists and process is still running
+	if data, err := os.ReadFile(lockPath); err == nil {
+		pidStr := strings.TrimSpace(string(data))
+		if pidStr != "" {
+			// Check if process is still alive
+			checkCmd := fmt.Sprintf("/proc/%s", pidStr)
+			if _, err := os.Stat(checkCmd); err == nil {
+				return false
+			}
+			// Also try kill -0 approach for macOS compatibility
+			if pid, err := strconv.Atoi(pidStr); err == nil {
+				process, err := os.FindProcess(pid)
+				if err == nil {
+					// On Unix, FindProcess always succeeds; use Signal(0) to check
+					if err := process.Signal(os.Signal(nil)); err == nil {
+						return false
+					}
+				}
+			}
+			// Stale lock, remove it
+		}
+	}
+
+	// Ensure directory exists
+	os.MkdirAll(filepath.Dir(lockPath), 0755)
+
+	// Write our PID
+	return os.WriteFile(lockPath, []byte(fmt.Sprintf("%d", os.Getpid())), 0644) == nil
+}
+
+// releaseBackupLock removes the backup lock file.
+func releaseBackupLock(lockPath string) {
+	os.Remove(lockPath)
+}
+
 // updateEnvironmentDetails merges updates into environment details JSON, saves to DB, and posts to API.
 func updateEnvironmentDetails(envID uint, siteID uint, updates map[string]interface{}, system *config.SystemConfig, captain *config.CaptainConfig) error {
 	env, err := models.GetEnvironmentByID(envID)
