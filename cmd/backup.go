@@ -1001,11 +1001,15 @@ func backupFindNative(cmd *cobra.Command, args []string) {
 }
 
 var backupRepairCmd = &cobra.Command{
-	Use:   "repair <site>",
+	Use:   "repair <site> [pack-ids...]",
 	Short: "Repairs a restic backup repo (index or packs)",
 	Args: func(cmd *cobra.Command, args []string) error {
 		if len(args) < 1 {
 			return errors.New("requires a <site> argument")
+		}
+		flagPacks, _ := cmd.Flags().GetBool("packs")
+		if flagPacks && len(args) < 2 {
+			return errors.New("--packs requires at least one pack ID")
 		}
 		return nil
 	},
@@ -1055,6 +1059,11 @@ func backupRepairNative(cmd *cobra.Command, args []string) {
 		"--password-file=" + resticKey,
 		"-o", "rclone.args=serve restic --stdio --b2-hard-delete --timeout=300s --contimeout=60s",
 		"-o", "rclone.timeout=600s",
+	}
+
+	// Append pack IDs for `repair packs`
+	if flagPacks && len(args) > 1 {
+		resticArgs = append(resticArgs, args[1:]...)
 	}
 
 	resticCmd := exec.Command("restic", resticArgs...)
