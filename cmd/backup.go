@@ -1103,8 +1103,12 @@ func backupRepairNative(cmd *cobra.Command, args []string) {
 
 	repairType := "index"
 	flagPacks, _ := cmd.Flags().GetBool("packs")
+	flagSnapshots, _ := cmd.Flags().GetBool("snapshots")
+	flagForget, _ := cmd.Flags().GetBool("forget")
 	if flagPacks {
 		repairType = "packs"
+	} else if flagSnapshots {
+		repairType = "snapshots"
 	}
 
 	fmt.Printf("Repairing backup repo %s for %s-%s\n", repairType, site.Site, envName)
@@ -1120,6 +1124,11 @@ func backupRepairNative(cmd *cobra.Command, args []string) {
 	// Append pack IDs for `repair packs`
 	if flagPacks && len(args) > 1 {
 		resticArgs = append(resticArgs, args[1:]...)
+	}
+
+	// Auto-forget old damaged snapshots after repair
+	if flagSnapshots && flagForget {
+		resticArgs = append(resticArgs, "--forget")
 	}
 
 	resticCmd := exec.Command("restic", resticArgs...)
@@ -2387,6 +2396,8 @@ func init() {
 	backupFindCmd.Flags().Bool("long", false, "Show detailed file info (size, mode, timestamps)")
 	backupCmd.AddCommand(backupRepairCmd)
 	backupRepairCmd.Flags().Bool("packs", false, "Repair damaged pack files instead of rebuilding the index")
+	backupRepairCmd.Flags().Bool("snapshots", false, "Remove references to missing data from snapshots")
+	backupRepairCmd.Flags().Bool("forget", false, "Automatically forget old damaged snapshots after repair (use with --snapshots)")
 	backupCmd.AddCommand(backupUpgradeCmd)
 	backupCmd.AddCommand(backupUnlockCmd)
 	backupCmd.AddCommand(backupMigrateV2Cmd)
