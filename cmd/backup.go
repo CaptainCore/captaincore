@@ -1126,6 +1126,7 @@ func backupRepairNative(cmd *cobra.Command, args []string) {
 		"repair", repairType,
 		"--repo", resticRepo,
 		"--password-file=" + resticKey,
+		"--no-lock",
 		"-o", "rclone.args=serve restic --stdio --b2-hard-delete --timeout=300s --contimeout=60s",
 		"-o", "rclone.timeout=600s",
 	}
@@ -1504,6 +1505,7 @@ func backupUnlockNative(cmd *cobra.Command, args []string) {
 		"unlock",
 		"--repo", resticRepo,
 		"--password-file=" + resticKey,
+		"--no-lock",
 		"-o", "rclone.args=serve restic --stdio --b2-hard-delete --timeout=300s --contimeout=60s",
 		"-o", "rclone.timeout=600s",
 	}
