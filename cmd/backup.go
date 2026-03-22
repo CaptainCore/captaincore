@@ -1107,7 +1107,7 @@ func backupKeyBackupNative(cmd *cobra.Command, args []string) {
 		repoType = "backup"
 	}
 
-	if err := backupRepoKey(site.Site, site.SiteID, envName, rcloneBackup, repoType); err != nil {
+	if err := backupRepoKey(site.Site, site.SiteID, envName, rcloneBackup, repoType, system.Path); err != nil {
 		fmt.Printf("Error: %v\n", err)
 	}
 }
@@ -1154,7 +1154,7 @@ func backupKeyRestoreNative(cmd *cobra.Command, args []string) {
 		repoType = "backup"
 	}
 
-	if err := restoreRepoKey(site.Site, site.SiteID, envName, rcloneBackup, repoType); err != nil {
+	if err := restoreRepoKey(site.Site, site.SiteID, envName, rcloneBackup, repoType, system.Path); err != nil {
 		fmt.Printf("Error: %v\n", err)
 	}
 }

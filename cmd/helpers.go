@@ -185,8 +185,7 @@ func releaseBackupLock(lockPath string) {
 
 // backupRepoKey downloads the restic repo key from B2 and saves it locally as backup-repo-key.txt
 // or quicksave-repo-key.txt next to vault.txt. This protects against B2 data loss.
-func backupRepoKey(siteName string, siteID uint, envName string, rcloneBackup string, repoType string) error {
-	home, _ := os.UserHomeDir()
+func backupRepoKey(siteName string, siteID uint, envName string, rcloneBackup string, repoType string, dataPath string) error {
 	siteDir := fmt.Sprintf("%s_%d", siteName, siteID)
 
 	// Determine key filename based on repo type
@@ -197,7 +196,7 @@ func backupRepoKey(siteName string, siteID uint, envName string, rcloneBackup st
 		repoName = "quicksave-repo"
 	}
 
-	localKeyPath := filepath.Join(home, ".captaincore", "data", siteDir, envName, keyFileName)
+	localKeyPath := filepath.Join(dataPath, siteDir, envName, keyFileName)
 	remoteKeysPath := fmt.Sprintf("%s/%s/%s/%s/keys/", rcloneBackup, siteDir, envName, repoName)
 
 	// List key files in the repo
@@ -234,8 +233,7 @@ func backupRepoKey(siteName string, siteID uint, envName string, rcloneBackup st
 }
 
 // restoreRepoKey uploads a locally backed-up key to the restic repo in B2.
-func restoreRepoKey(siteName string, siteID uint, envName string, rcloneBackup string, repoType string) error {
-	home, _ := os.UserHomeDir()
+func restoreRepoKey(siteName string, siteID uint, envName string, rcloneBackup string, repoType string, dataPath string) error {
 	siteDir := fmt.Sprintf("%s_%d", siteName, siteID)
 
 	keyFileName := "backup-repo-key.txt"
@@ -245,7 +243,7 @@ func restoreRepoKey(siteName string, siteID uint, envName string, rcloneBackup s
 		repoName = "quicksave-repo"
 	}
 
-	localKeyPath := filepath.Join(home, ".captaincore", "data", siteDir, envName, keyFileName)
+	localKeyPath := filepath.Join(dataPath, siteDir, envName, keyFileName)
 	remoteKeysPath := fmt.Sprintf("%s/%s/%s/%s/keys/", rcloneBackup, siteDir, envName, repoName)
 
 	// Read local key
