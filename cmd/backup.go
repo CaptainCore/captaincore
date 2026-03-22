@@ -1080,6 +1080,46 @@ var backupKeyBackupCmd = &cobra.Command{
 }
 
 func backupKeyBackupNative(cmd *cobra.Command, args []string) {
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Println("Error: Configuration file not found.")
+		return
+	}
+
+	repoType, _ := cmd.Flags().GetString("type")
+	if repoType == "" {
+		repoType = "backup"
+	}
+
+	rcloneBackup := getRcloneBackup(captain, system)
+
+	// Handle bulk targets (@all, @production, @staging)
+	if strings.HasPrefix(args[0], "@") {
+		environment, minorTargets := models.ParseTargetString(args[0])
+		results, err := models.FetchSitesMatching(models.FetchSiteMatchingArgs{
+			Environment: environment,
+			Targets:     minorTargets,
+		})
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+
+		backed := 0
+		errors := 0
+		for _, r := range results {
+			envName := strings.ToLower(r.Environment)
+			if err := backupRepoKey(r.Site, r.SiteID, envName, rcloneBackup, repoType, system.Path); err != nil {
+				fmt.Printf("  %s-%s: %v\n", r.Site, envName, err)
+				errors++
+			} else {
+				backed++
+			}
+		}
+		fmt.Printf("\nBacked up %d keys (%d errors)\n", backed, errors)
+		return
+	}
+
 	sa := parseSiteArgument(args[0])
 	site, err := sa.LookupSite()
 	if err != nil || site == nil {
@@ -1093,19 +1133,7 @@ func backupKeyBackupNative(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	_, system, captain, err := loadCaptainConfig()
-	if err != nil || system == nil {
-		fmt.Println("Error: Configuration file not found.")
-		return
-	}
-
-	rcloneBackup := getRcloneBackup(captain, system)
 	envName := strings.ToLower(env.Environment)
-
-	repoType, _ := cmd.Flags().GetString("type")
-	if repoType == "" {
-		repoType = "backup"
-	}
 
 	if err := backupRepoKey(site.Site, site.SiteID, envName, rcloneBackup, repoType, system.Path); err != nil {
 		fmt.Printf("Error: %v\n", err)
