@@ -1,0 +1,305 @@
+#!/usr/bin/env bash
+
+#
+#   Database-Stored Executable Code Audit
+#
+#   Scans WordPress database for executable code stored in options,
+#   WPCode snippets, and widgets. Detects credit card skimmers,
+#   backdoors, and injected scripts that bypass file-based scanners.
+#
+#   Usage:
+#     captaincore ssh <site> --script=db-code-audit
+#     captaincore ssh @all --script=db-code-audit --quiet
+#
+
+set -uo pipefail
+
+# ── Configuration ──────────────────────────────────────────────────
+WP_ROOT="."
+QUIET=0
+for _arg in "$@"; do
+    case "$_arg" in
+        --quiet) QUIET=1 ;;
+        --*) ;; # skip flags like --site=NAME
+        *)  WP_ROOT="$_arg" ;;
+    esac
+done
+cd "$WP_ROOT" 2>/dev/null || { echo "ERROR: Cannot access $WP_ROOT"; exit 1; }
+
+# Auto-detect WordPress root
+if [ ! -f "wp-config.php" ] && [ -f "public/wp-config.php" ]; then
+    cd public
+elif [ ! -f "wp-config.php" ] && [ -f "public_html/wp-config.php" ]; then
+    cd public_html
+fi
+
+# Verify WP-CLI is available
+if ! command -v wp &>/dev/null || ! wp core is-installed --quiet --skip-themes --skip-plugins 2>/dev/null; then
+    echo "ERROR: WordPress not found or WP-CLI unavailable"
+    exit 1
+fi
+
+FINDINGS=0
+CRITICAL=0
+HIGH=0
+MEDIUM=0
+LOW=0
+
+# Colors (disabled if not a terminal)
+if [ -t 1 ]; then
+    RED='\033[0;31m'; ORED='\033[1;31m'; YEL='\033[0;33m'; GRN='\033[0;32m'
+    BLU='\033[0;34m'; CYN='\033[0;36m'; DIM='\033[2m'; RST='\033[0m'; BLD='\033[1m'
+else
+    RED=''; ORED=''; YEL=''; GRN=''; BLU=''; CYN=''; DIM=''; RST=''; BLD=''
+fi
+
+WP_FLAGS="--skip-themes --skip-plugins --skip-packages"
+DB_PREFIX=$(wp db prefix $WP_FLAGS 2>/dev/null)
+
+# ── Helper Functions ───────────────────────────────────────────────
+
+finding() {
+    local sev="$1"; shift
+    local title="$1"; shift
+    local detail="$1"
+    FINDINGS=$((FINDINGS + 1))
+    case "$sev" in
+        CRITICAL) CRITICAL=$((CRITICAL + 1)); echo -e "${ORED}[CRITICAL]${RST} ${BLD}$title${RST}" ;;
+        HIGH)     HIGH=$((HIGH + 1));         [ "$QUIET" -eq 1 ] && return; echo -e "${RED}[HIGH]${RST} ${BLD}$title${RST}" ;;
+        MEDIUM)   MEDIUM=$((MEDIUM + 1));     [ "$QUIET" -eq 1 ] && return; echo -e "${YEL}[MEDIUM]${RST} ${BLD}$title${RST}" ;;
+        LOW)      LOW=$((LOW + 1));           [ "$QUIET" -eq 1 ] && return; echo -e "${DIM}[LOW]${RST} $title" ;;
+    esac
+    [ -n "$detail" ] && echo -e "    ${DIM}$detail${RST}"
+}
+
+section() {
+    [ "$QUIET" -eq 1 ] && return
+    echo ""
+    echo -e "${BLU}━━━ $1 ━━━${RST}"
+}
+
+# Check a string for malware patterns. Sets MATCHED_SEV and MATCHED_NAME.
+check_patterns() {
+    local content="$1"
+    MATCHED_SEV=""
+    MATCHED_NAME=""
+
+    # CRITICAL: Known malware domains
+    local malware_domains="statfrede\.com|top-developer\.com|blackbeatle\.xyz|danmarkshusraad\.com|greekdemo\.com|linistat\.info|ducky-bsc\.xyz|duckybsc\.com|fbanalyt\.com|eggnework\.com|sideown\.com|football2026\.life|pizzaonline\.life|linearprocesshost\.com|coinhive\.com|coin-hive\.com|jsecoin\.com|cryptoloot\.pro"
+    if echo "$content" | grep -qiE "$malware_domains"; then
+        MATCHED_SEV="CRITICAL"; MATCHED_NAME="Known malware domain"; return 0
+    fi
+
+    # CRITICAL: Obfuscated eval patterns
+    if echo "$content" | grep -qiE 'eval\s*\(\s*atob\s*\(|eval\s*\(\s*String\.fromCharCode|eval\s*\(\s*unescape\s*\(|document\.write\s*\(\s*unescape\s*\('; then
+        MATCHED_SEV="CRITICAL"; MATCHED_NAME="Obfuscated eval/unescape"; return 0
+    fi
+
+    # CRITICAL: XOR exfiltration / fetch+atob
+    if echo "$content" | grep -qiE 'charCodeAt.*\^.*send\(|fetch\s*\(\s*atob\s*\('; then
+        MATCHED_SEV="CRITICAL"; MATCHED_NAME="Data exfiltration pattern"; return 0
+    fi
+
+    # CRITICAL: Fake payment form overlay
+    if echo "$content" | grep -qiE '(card.?number|cc.?number|cvv|cvc).*position\s*:\s*fixed|position\s*:\s*(fixed|absolute).*z.?index\s*:\s*[0-9]{5,}.*(card|payment|checkout|billing)'; then
+        MATCHED_SEV="CRITICAL"; MATCHED_NAME="Fake payment form overlay"; return 0
+    fi
+
+    # CRITICAL: Character table / array join obfuscation
+    if echo "$content" | grep -qiE '\[e\[[0-9]+\],e\[[0-9]+\].*\.join\(|\.join\s*\(\s*["'\''"'\'']\s*["'\''"'\'']\s*\)\s*\]\s*\('; then
+        MATCHED_SEV="CRITICAL"; MATCHED_NAME="Array obfuscation pattern"; return 0
+    fi
+
+    # HIGH: PHP backdoor functions
+    if echo "$content" | grep -qiE 'base64_decode\s*\(|gzinflate\s*\(|str_rot13\s*\('; then
+        MATCHED_SEV="HIGH"; MATCHED_NAME="PHP backdoor function"; return 0
+    fi
+
+    # HIGH: Superglobal access in code
+    if echo "$content" | grep -qiE '\$_(POST|REQUEST|GET)\s*\['; then
+        MATCHED_SEV="HIGH"; MATCHED_NAME="Superglobal variable access"; return 0
+    fi
+
+    # HIGH: Hidden iframe
+    if echo "$content" | grep -qiE '<iframe[^>]*style\s*=\s*["'\''"][^"'\'']*display\s*:\s*none|<iframe[^>]*width\s*=\s*["'\''"?]?[01]["'\''"?]?[^>]*height'; then
+        MATCHED_SEV="HIGH"; MATCHED_NAME="Hidden iframe injection"; return 0
+    fi
+
+    # HIGH: Long base64 string (200+ chars)
+    if echo "$content" | grep -qE '[A-Za-z0-9+/=]{200,}'; then
+        MATCHED_SEV="HIGH"; MATCHED_NAME="Long base64 encoded string"; return 0
+    fi
+
+    # HIGH: IP address script source
+    if echo "$content" | grep -qiE 'src\s*=\s*["'\''"]https?://[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+'; then
+        MATCHED_SEV="HIGH"; MATCHED_NAME="IP address script source"; return 0
+    fi
+
+    # MEDIUM: External script not in known-safe list
+    if echo "$content" | grep -qiE '<script[^>]*src\s*='; then
+        # Extract domains from script src attributes
+        local domains
+        domains=$(echo "$content" | grep -oiE 'src\s*=\s*["'\''"][^"'\''"]+"' | grep -oiE 'https?://[^/"'\'']+' | sed 's|https\?://||' | sort -u)
+        local safe_domains="cdn.usefathom.com|fd.cleantalk.org|cdn.jsdelivr.net|cdnjs.cloudflare.com|ajax.googleapis.com|fonts.googleapis.com|fonts.gstatic.com|unpkg.com|code.jquery.com|www.google-analytics.com|www.googletagmanager.com|connect.facebook.net|stats.wp.com|s.w.org|s0.wp.com|s1.wp.com|s2.wp.com|c0.wp.com|i0.wp.com|i1.wp.com|i2.wp.com|widgets.wp.com|platform.twitter.com|www.google.com|apis.google.com|maps.googleapis.com|www.gstatic.com|use.fontawesome.com|kit.fontawesome.com|ka-f.fontawesome.com|stackpath.bootstrapcdn.com|maxcdn.bootstrapcdn.com|cdn.shopify.com|js.stripe.com|checkout.stripe.com|www.paypal.com|www.paypalobjects.com|js.hcaptcha.com|www.recaptcha.net|challenges.cloudflare.com|static.cloudflareinsights.com|cdn.amplitude.com|cdn.segment.com|snap.licdn.com|sc-static.net|static.hotjar.com|script.hotjar.com|cdn.cookielaw.org|consent.cookiebot.com|js.hs-scripts.com|js.hs-analytics.net|js.hsforms.net|cdn.heapanalytics.com|cdn.optimizely.com|widget.intercom.io|js.intercomcdn.com|cdn.trustindex.io|cdn.callrail.com|use.typekit.net|pagead2.googlesyndication.com|translate.google.com|maps.google.com|player.vimeo.com|www.youtube.com|assets.pinterest.com|cdn-cookieyes.com|cdn.calltrk.com|script.crazyegg.com|static.ctctcdn.com|cdn.elementor.com|static.getclicky.com|static.addtoany.com|s7.addthis.com|tools.luckyorange.com|cdn.userway.org|wsv3cdn.audioeye.com|js.hscta.net|cdn.amcharts.com|sky.blackbaudcdn.net|tag.simpli.fi|crm.zoho.com|api.bloomerang.co|my.hellobar.com|tag.brandcdn.com"
+        while IFS= read -r domain; do
+            [ -z "$domain" ] && continue
+            if ! echo "$domain" | grep -qiE "^($safe_domains)$"; then
+                MATCHED_SEV="MEDIUM"; MATCHED_NAME="External script from $domain"; return 0
+            fi
+        done <<< "$domains"
+    fi
+
+    return 1
+}
+
+# Preview first N chars of content for display
+preview() {
+    local content="$1"
+    local max="${2:-120}"
+    local preview="${content:0:$max}"
+    preview=$(echo "$preview" | tr '\n' ' ' | tr '\r' ' ')
+    [ ${#content} -gt "$max" ] && preview="${preview}..."
+    echo "$preview"
+}
+
+########################################################################
+# SECTION 1: Insert Headers and Footers (IHAF) Options
+########################################################################
+section "1. Insert Headers and Footers (IHAF) Options"
+
+for ihaf_opt in ihaf_insert_header ihaf_insert_footer ihaf_insert_body; do
+    ihaf_val=$(wp option get "$ihaf_opt" $WP_FLAGS 2>/dev/null || echo "")
+    if [ -z "$ihaf_val" ]; then
+        continue
+    fi
+
+    if check_patterns "$ihaf_val"; then
+        finding "$MATCHED_SEV" "$MATCHED_NAME in $ihaf_opt" "$(preview "$ihaf_val")"
+    elif [ -n "$ihaf_val" ]; then
+        [ "$QUIET" -eq 0 ] && finding "LOW" "Code present in $ihaf_opt" "$(preview "$ihaf_val")"
+    fi
+done
+
+########################################################################
+# SECTION 2: WPCode Snippets
+########################################################################
+section "2. WPCode Snippets"
+
+# Check if wpcode post type exists
+wpcode_count=$(wp db query "SELECT COUNT(*) FROM ${DB_PREFIX}posts WHERE post_type = 'wpcode'" --skip-column-names $WP_FLAGS 2>/dev/null | tr -d '[:space:]' || echo "0")
+
+if [ "$wpcode_count" -gt 0 ]; then
+    # Get all wpcode snippets: ID, status, title, content preview
+    wpcode_rows=$(wp db query "SELECT p.ID, p.post_status, p.post_title, LEFT(p.post_content, 500), COALESCE((SELECT meta_value FROM ${DB_PREFIX}postmeta WHERE post_id = p.ID AND meta_key = '_wpcode_type' LIMIT 1), 'unknown') FROM ${DB_PREFIX}posts p WHERE p.post_type = 'wpcode' ORDER BY p.post_status DESC, p.ID" --skip-column-names $WP_FLAGS 2>/dev/null || true)
+
+    if [ -n "$wpcode_rows" ]; then
+        while IFS=$'\t' read -r snippet_id snippet_status snippet_title snippet_code snippet_type; do
+            [ -z "$snippet_id" ] && continue
+            label="WPCode #${snippet_id} '${snippet_title}' (${snippet_type}, ${snippet_status})"
+
+            if check_patterns "$snippet_code"; then
+                # Elevate severity for published PHP/JS snippets
+                local_sev="$MATCHED_SEV"
+                if [ "$snippet_status" = "publish" ] && [[ "$snippet_type" =~ ^(php|js|javascript|universal)$ ]]; then
+                    [ "$local_sev" = "MEDIUM" ] && local_sev="HIGH"
+                fi
+                finding "$local_sev" "$MATCHED_NAME in $label" "$(preview "$snippet_code")"
+            elif [ "$snippet_status" = "publish" ] && [ "$QUIET" -eq 0 ]; then
+                finding "LOW" "Active snippet: $label" "$(preview "$snippet_code")"
+            fi
+        done <<< "$wpcode_rows"
+    fi
+elif [ "$QUIET" -eq 0 ]; then
+    echo -e "  ${DIM}No WPCode snippets found.${RST}"
+fi
+
+########################################################################
+# SECTION 3: Widget Content
+########################################################################
+section "3. Widget Content (text/custom_html)"
+
+for widget_opt in widget_text widget_custom_html; do
+    widget_raw=$(wp option get "$widget_opt" --format=json $WP_FLAGS 2>/dev/null || echo "")
+    [ -z "$widget_raw" ] || [ "$widget_raw" = "[]" ] || [ "$widget_raw" = "{}" ] && continue
+
+    # Extract text/content fields from the serialized widget data
+    widget_texts=$(wp eval "
+        \$data = get_option( '${widget_opt}' );
+        if ( is_array( \$data ) ) {
+            foreach ( \$data as \$i => \$w ) {
+                if ( ! is_array( \$w ) ) continue;
+                \$text = isset( \$w['content'] ) ? \$w['content'] : ( isset( \$w['text'] ) ? \$w['text'] : '' );
+                if ( trim( \$text ) !== '' ) {
+                    echo \"WIDGET_IDX:{\$i}\\n\" . \$text . \"\\nWIDGET_END\\n\";
+                }
+            }
+        }
+    " $WP_FLAGS 2>/dev/null || true)
+
+    [ -z "$widget_texts" ] && continue
+
+    current_idx=""
+    current_content=""
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^WIDGET_IDX: ]]; then
+            current_idx="${line#WIDGET_IDX:}"
+            current_content=""
+        elif [ "$line" = "WIDGET_END" ]; then
+            if [ -n "$current_content" ]; then
+                label="${widget_opt}[${current_idx}]"
+                if check_patterns "$current_content"; then
+                    finding "$MATCHED_SEV" "$MATCHED_NAME in $label" "$(preview "$current_content")"
+                elif echo "$current_content" | grep -qiE '<script|<iframe|onclick|onerror'; then
+                    [ "$QUIET" -eq 0 ] && finding "LOW" "Script/event handler in $label" "$(preview "$current_content")"
+                fi
+            fi
+            current_idx=""
+            current_content=""
+        else
+            current_content="${current_content}${line}
+"
+        fi
+    done <<< "$widget_texts"
+done
+
+########################################################################
+# SECTION 4: Generic wp_options Executable Code Scan
+########################################################################
+section "4. Generic wp_options Code Scan"
+
+# Broader scan for executable code in wp_options, excluding known-safe options
+db_code=$(wp db query "SELECT option_name, LEFT(option_value, 500) FROM ${DB_PREFIX}options WHERE (option_value LIKE '%<script%' OR option_value LIKE '%eval(%' OR option_value LIKE '%base64_decode(%' OR option_value LIKE '%document.write(%' OR option_value LIKE '%String.fromCharCode%') AND option_name NOT IN ('active_plugins','uninstall_plugins','cron','rewrite_rules','jetpack_sync_settings','ihaf_insert_header','ihaf_insert_footer','ihaf_insert_body','widget_text','widget_custom_html','_transient_timeout_%') AND option_name NOT LIKE '\\_transient\\_%' LIMIT 20" --skip-column-names $WP_FLAGS 2>/dev/null || true)
+
+if [ -n "$db_code" ]; then
+    while IFS=$'\t' read -r opt_name opt_val; do
+        [ -z "$opt_name" ] && continue
+        if check_patterns "$opt_val"; then
+            finding "$MATCHED_SEV" "$MATCHED_NAME in wp_options '$opt_name'" "$(preview "$opt_val")"
+        else
+            [ "$QUIET" -eq 0 ] && finding "LOW" "Code in wp_options '$opt_name'" "$(preview "$opt_val")"
+        fi
+    done <<< "$db_code"
+elif [ "$QUIET" -eq 0 ]; then
+    echo -e "  ${DIM}No suspicious code patterns in wp_options.${RST}"
+fi
+
+########################################################################
+# SUMMARY
+########################################################################
+echo ""
+echo -e "${BLD}━━━ DB CODE AUDIT COMPLETE ━━━${RST}"
+echo ""
+
+if [ "$FINDINGS" -eq 0 ]; then
+    echo -e "${GRN}No database-stored code issues detected.${RST}"
+else
+    echo -e "Total findings: ${BLD}$FINDINGS${RST}"
+    [ "$CRITICAL" -gt 0 ] && echo -e "  ${ORED}CRITICAL: $CRITICAL${RST}"
+    [ "$HIGH" -gt 0 ]     && echo -e "  ${RED}HIGH: $HIGH${RST}"
+    [ "$MEDIUM" -gt 0 ]   && echo -e "  ${YEL}MEDIUM: $MEDIUM${RST}"
+    [ "$LOW" -gt 0 ]      && echo -e "  ${DIM}LOW: $LOW${RST}"
+    echo ""
+    if [ "$CRITICAL" -gt 0 ]; then
+        echo -e "${ORED}ACTION REQUIRED: Critical findings need immediate investigation.${RST}"
+    fi
+fi
