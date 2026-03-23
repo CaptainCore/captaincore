@@ -1,0 +1,286 @@
+#!/usr/bin/env bash
+
+#
+#   Detect WordPress roles and users with elevated permissions they shouldn't have
+#
+#   Finds non-admin roles granted dangerous capabilities (manage_options, edit_plugins, etc.)
+#   and individual users with elevated capabilities injected into their usermeta.
+#
+#   Usage:
+#     captaincore ssh <site> --script=detect-elevated-permissions
+#     captaincore ssh @all --script=detect-elevated-permissions --quiet --label
+#
+#   Flags:
+#     --quiet   Only output if issues are found (for bulk scanning)
+#
+
+set -uo pipefail
+
+# ── Argument parsing ─────────────────────────────────────────────
+quiet=""
+for _arg in "$@"; do
+    case "$_arg" in
+        --quiet) quiet=true ;;
+        --*) ;;
+        *)  WP_ROOT="$_arg" ;;
+    esac
+done
+
+WP_ROOT="${WP_ROOT:-.}"
+cd "$WP_ROOT" 2>/dev/null || { echo "ERROR: Cannot access $WP_ROOT"; exit 1; }
+
+if [ ! -f "wp-config.php" ] && [ -f "public/wp-config.php" ]; then
+    cd public
+elif [ ! -f "wp-config.php" ] && [ -f "public_html/wp-config.php" ]; then
+    cd public_html
+fi
+
+if [ ! -f "wp-config.php" ]; then
+    [ -z "$quiet" ] && echo "WordPress not found."
+    exit 0
+fi
+
+if ! command -v wp &>/dev/null; then
+    echo "ERROR: WP-CLI not available"
+    exit 1
+fi
+
+WP_FLAGS="--skip-themes --skip-plugins --skip-packages"
+FOUND=0
+
+# ── Section 1: Role Definition Audit ────────────────────────────
+role_findings=$(wp eval '
+$dangerous_caps = [
+    "manage_options", "edit_files", "edit_plugins", "edit_themes",
+    "install_plugins", "install_themes", "activate_plugins", "delete_plugins",
+    "update_plugins", "update_themes", "update_core",
+    "create_users", "delete_users", "promote_users", "list_users", "edit_users",
+    "switch_themes", "unfiltered_html", "unfiltered_upload",
+    "export", "import",
+];
+
+$critical_caps = [
+    "manage_options", "edit_files", "edit_plugins", "edit_themes",
+    "install_plugins", "delete_plugins", "activate_plugins",
+    "update_core", "update_plugins", "update_themes",
+];
+
+// Known exceptions: capabilities that are legitimately granted to these roles
+$allowed = [
+    "editor"         => [ "unfiltered_html" ],
+    "shop_manager"   => [ "edit_users", "list_users", "unfiltered_html", "export", "import" ],
+    "wpseo_manager"  => [ "unfiltered_html" ],
+    "wpseo_editor"   => [ "unfiltered_html" ],
+];
+
+global $wpdb;
+$roles = get_option( $wpdb->prefix . "user_roles" );
+if ( ! is_array( $roles ) ) {
+    exit;
+}
+
+foreach ( $roles as $slug => $role ) {
+    if ( $slug === "administrator" ) continue;
+    if ( empty( $slug ) ) continue;
+    if ( empty( $role["capabilities"] ) || ! is_array( $role["capabilities"] ) ) continue;
+
+    $exceptions = isset( $allowed[ $slug ] ) ? $allowed[ $slug ] : [];
+
+    foreach ( $role["capabilities"] as $cap => $granted ) {
+        if ( ! $granted ) continue;
+        if ( ! in_array( $cap, $dangerous_caps ) ) continue;
+        if ( in_array( $cap, $exceptions ) ) continue;
+
+        $severity = in_array( $cap, $critical_caps ) ? "CRITICAL" : "HIGH";
+        echo "{$severity}|{$slug}|{$cap}\n";
+    }
+}
+' $WP_FLAGS 2>/dev/null)
+
+# ── Section 2: Individual User Capability Audit ─────────────────
+user_findings=$(wp eval '
+$dangerous_caps = [
+    "manage_options", "edit_files", "edit_plugins", "edit_themes",
+    "install_plugins", "install_themes", "activate_plugins", "delete_plugins",
+    "update_plugins", "update_themes", "update_core",
+    "create_users", "delete_users", "promote_users", "list_users", "edit_users",
+    "switch_themes", "unfiltered_html", "unfiltered_upload",
+    "export", "import",
+];
+
+$critical_caps = [
+    "manage_options", "edit_files", "edit_plugins", "edit_themes",
+    "install_plugins", "delete_plugins", "activate_plugins",
+    "update_core", "update_plugins", "update_themes",
+];
+
+global $wpdb, $wp_roles;
+$cap_key = $wpdb->prefix . "capabilities";
+
+// Get all non-admin users with their capabilities
+$results = $wpdb->get_results(
+    "SELECT u.ID, u.user_login, m.meta_value
+     FROM {$wpdb->users} u
+     INNER JOIN {$wpdb->usermeta} m ON u.ID = m.user_id
+     WHERE m.meta_key = \"" . esc_sql( $cap_key ) . "\"
+     AND m.meta_value NOT LIKE \"%administrator%\"
+     ORDER BY u.ID"
+);
+
+if ( ! $results ) exit;
+
+// Get role definitions to know what caps each role grants
+$role_definitions = get_option( $wpdb->prefix . "user_roles" );
+if ( ! is_array( $role_definitions ) ) $role_definitions = [];
+
+foreach ( $results as $row ) {
+    $caps = maybe_unserialize( $row->meta_value );
+    if ( ! is_array( $caps ) ) continue;
+
+    // Identify user roles vs individual caps
+    $user_roles = [];
+    foreach ( $caps as $key => $val ) {
+        if ( $val && isset( $role_definitions[ $key ] ) ) {
+            $user_roles[] = $key;
+        }
+    }
+
+    // Collect caps granted by the users assigned roles
+    $role_granted_caps = [];
+    foreach ( $user_roles as $role_slug ) {
+        if ( isset( $role_definitions[ $role_slug ]["capabilities"] ) ) {
+            foreach ( $role_definitions[ $role_slug ]["capabilities"] as $cap => $granted ) {
+                if ( $granted ) $role_granted_caps[] = $cap;
+            }
+        }
+    }
+
+    // Find dangerous caps this user has that are NOT from their role
+    $elevated = [];
+    foreach ( $caps as $cap => $granted ) {
+        if ( ! $granted ) continue;
+        if ( ! in_array( $cap, $dangerous_caps ) ) continue;
+        if ( in_array( $cap, $role_granted_caps ) ) continue;
+        $elevated[] = $cap;
+    }
+
+    if ( empty( $elevated ) ) continue;
+
+    $has_critical = false;
+    foreach ( $elevated as $cap ) {
+        if ( in_array( $cap, $critical_caps ) ) {
+            $has_critical = true;
+            break;
+        }
+    }
+
+    $severity  = $has_critical ? "CRITICAL" : "HIGH";
+    $role_str  = ! empty( $user_roles ) ? implode( ",", $user_roles ) : "none";
+    $cap_count = count( $elevated );
+    $cap_list  = implode( ", ", $elevated );
+
+    echo "{$severity}|{$row->user_login}|{$row->ID}|{$role_str}|{$cap_count}|{$cap_list}\n";
+}
+' $WP_FLAGS 2>/dev/null)
+
+# ── Section 3: Configuration Checks ─────────────────────────────
+default_role=$(wp option get default_role $WP_FLAGS 2>/dev/null)
+can_register=$(wp option get users_can_register $WP_FLAGS 2>/dev/null)
+
+config_findings=""
+elevated_roles="administrator editor author shop_manager"
+is_elevated=""
+for er in $elevated_roles; do
+    [ "$default_role" = "$er" ] && is_elevated=true
+done
+if [ -n "$is_elevated" ]; then
+    config_findings+="CRITICAL|default_role|$default_role\n"
+fi
+if [ "$can_register" = "1" ] && [ -n "$is_elevated" ]; then
+    config_findings+="CRITICAL|open_registration_elevated|$default_role\n"
+fi
+
+# ── Count findings ──────────────────────────────────────────────
+role_count=0
+user_count=0
+config_count=0
+
+if [ -n "$role_findings" ]; then
+    role_count=$(echo "$role_findings" | wc -l | tr -d ' ')
+fi
+if [ -n "$user_findings" ]; then
+    user_count=$(echo "$user_findings" | wc -l | tr -d ' ')
+fi
+if [ -n "$config_findings" ]; then
+    config_count=$(echo -e "$config_findings" | grep -c '.' || true)
+fi
+
+FOUND=$((role_count + user_count + config_count))
+
+# ── Quiet mode: exit silently if clean ──────────────────────────
+if [ -n "$quiet" ] && [ "$FOUND" -eq 0 ]; then
+    exit 0
+fi
+
+# ── Output ──────────────────────────────────────────────────────
+if [ -z "$quiet" ]; then
+    echo "Scanning for elevated permissions..."
+    echo ""
+fi
+
+# Role findings
+if [ -n "$role_findings" ] || [ -z "$quiet" ]; then
+    echo "━━━ Role Definitions ━━━"
+    if [ -n "$role_findings" ]; then
+        echo "$role_findings" | while IFS='|' read -r severity role cap; do
+            printf "%-9s Role \"%s\" has dangerous capability: %s\n" "$severity" "$role" "$cap"
+        done
+    else
+        echo "OK        No roles with elevated permissions"
+    fi
+    echo ""
+fi
+
+# User findings
+if [ -n "$user_findings" ] || [ -z "$quiet" ]; then
+    echo "━━━ Individual Users ━━━"
+    if [ -n "$user_findings" ]; then
+        echo "$user_findings" | while IFS='|' read -r severity login uid roles cap_count cap_list; do
+            printf "%-9s User \"%s\" (ID: %s, role: %s) has %s elevated capabilities\n" "$severity" "$login" "$uid" "$roles" "$cap_count"
+            echo "          → $cap_list"
+        done
+    else
+        echo "OK        No users with elevated capabilities"
+    fi
+    echo ""
+fi
+
+# Config findings
+if [ -n "$config_findings" ] || [ -z "$quiet" ]; then
+    echo "━━━ Configuration ━━━"
+    config_shown=0
+    if [ -n "$config_findings" ]; then
+        echo -e "$config_findings" | while IFS='|' read -r severity check value; do
+            case "$check" in
+                default_role)
+                    printf "%-9s Default role is \"%s\" (should be subscriber)\n" "$severity" "$value" ;;
+                open_registration_elevated)
+                    printf "%-9s Open registration enabled with elevated default role \"%s\"\n" "$severity" "$value" ;;
+            esac
+            config_shown=1
+        done
+    fi
+    if [ -z "$config_findings" ]; then
+        [ -n "$default_role" ] && echo "OK        Default role: $default_role"
+        [ -n "$can_register" ] && echo "OK        Open registration: $([ "$can_register" = "1" ] && echo "enabled" || echo "disabled")"
+    fi
+    echo ""
+fi
+
+# ── Summary ─────────────────────────────────────────────────────
+if [ "$FOUND" -eq 0 ]; then
+    echo "No elevated permission issues detected."
+else
+    echo "Found $FOUND issue(s). Immediate investigation required."
+    exit 1
+fi
