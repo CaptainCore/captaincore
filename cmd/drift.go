@@ -28,6 +28,7 @@ var (
 	flagDriftTop         int
 	flagDriftSort        string
 	flagDriftSteer       bool
+	flagDriftHashes      bool
 )
 
 var driftCmd = &cobra.Command{
@@ -65,6 +66,19 @@ type pluginDriftSummary struct {
 	Versions  int    `json:"versions"`
 }
 
+type driftHashEntry struct {
+	Hash  string          `json:"hash"`
+	Count int             `json:"count"`
+	Sites []driftSiteInfo `json:"sites,omitempty"`
+}
+
+type driftVersionHashEntry struct {
+	Version string            `json:"version"`
+	Count   int               `json:"count"`
+	Hashes  []*driftHashEntry `json:"hashes"`
+	Sites   []driftSiteInfo   `json:"sites,omitempty"`
+}
+
 func driftNative(cmd *cobra.Command, args []string) {
 	// Determine mode
 	hasPlugin := flagDriftPlugin != ""
@@ -86,6 +100,25 @@ func driftNative(cmd *cobra.Command, args []string) {
 	if modeCount > 1 {
 		fmt.Println("Error: Specify only one of --plugin, --theme, or --core")
 		return
+	}
+
+	if flagDriftHashes {
+		if !hasPlugin && !hasTheme {
+			fmt.Println("Error: --hashes requires --plugin or --theme")
+			return
+		}
+		if hasCore {
+			fmt.Println("Error: --hashes is not supported with --core")
+			return
+		}
+		if flagDriftSteer {
+			fmt.Println("Error: --hashes cannot be combined with --steer")
+			return
+		}
+		if flagDriftTarget != "" {
+			fmt.Println("Error: --hashes is not yet supported with --target")
+			return
+		}
 	}
 
 	// Normalize environment
@@ -135,6 +168,60 @@ func driftSingleComponent(env string, hasPlugin, hasTheme, hasCore bool) {
 	}
 
 	query.Order("captaincore_sites.name ASC").Find(&results)
+
+	// Hash-aware path
+	if flagDriftHashes {
+		vhMap := make(map[string]*driftVersionHashEntry)
+		for _, r := range results {
+			version, hash := extractVersionAndHash(r, flagDriftPlugin, flagDriftTheme)
+			if version == "" {
+				continue
+			}
+			vhEntry, ok := vhMap[version]
+			if !ok {
+				vhEntry = &driftVersionHashEntry{Version: version}
+				vhMap[version] = vhEntry
+			}
+			vhEntry.Count++
+			site := driftSiteInfo{
+				Site:        r.Site,
+				SiteID:      r.SiteID,
+				Name:        r.Name,
+				Provider:    r.Provider,
+				HomeURL:     r.HomeURL,
+				Environment: r.Environment,
+			}
+			vhEntry.Sites = append(vhEntry.Sites, site)
+
+			// Find or create hash sub-entry
+			found := false
+			for _, he := range vhEntry.Hashes {
+				if he.Hash == hash {
+					he.Count++
+					he.Sites = append(he.Sites, site)
+					found = true
+					break
+				}
+			}
+			if !found {
+				vhEntry.Hashes = append(vhEntry.Hashes, &driftHashEntry{
+					Hash: hash, Count: 1, Sites: []driftSiteInfo{site},
+				})
+			}
+		}
+
+		if len(vhMap) == 0 {
+			label, slug := componentLabel(hasPlugin, hasTheme, hasCore)
+			fmt.Printf("No sites found with %s \"%s\" installed.\n", label, slug)
+			suggestSlugs(results, slug, hasPlugin)
+			return
+		}
+
+		sorted := sortedVersionsFromHashMap(vhMap)
+		label, slug := componentLabel(hasPlugin, hasTheme, hasCore)
+		outputDistributionWithHashes(sorted, vhMap, label, slug, env)
+		return
+	}
 
 	// Aggregate by version
 	versionMap := make(map[string]*driftEntry)
@@ -367,6 +454,35 @@ func extractVersion(r models.SiteEnvironmentResult, pluginSlug, themeSlug string
 		}
 	}
 	return ""
+}
+
+// extractVersionAndHash returns the version and hash for a given result.
+func extractVersionAndHash(r models.SiteEnvironmentResult, pluginSlug, themeSlug string) (string, string) {
+	var jsonData string
+	var slug string
+	if pluginSlug != "" {
+		jsonData = r.Plugins
+		slug = pluginSlug
+	} else {
+		jsonData = r.Themes
+		slug = themeSlug
+	}
+
+	if jsonData == "" {
+		return "", ""
+	}
+	var items []map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonData), &items); err != nil {
+		return "", ""
+	}
+	for _, item := range items {
+		if name, _ := item["name"].(string); name == slug {
+			version, _ := item["version"].(string)
+			hash, _ := item["hash"].(string)
+			return version, hash
+		}
+	}
+	return "", ""
 }
 
 // suggestSlugs searches all environments for plugin/theme slugs that partially match the query.
@@ -932,6 +1048,102 @@ func outputDistribution(sorted []string, versionMap map[string]*driftEntry, labe
 	fmt.Printf("\nTotal: %s sites across %d versions\n", formatNumber(totalSites), len(sorted))
 }
 
+// sortedVersionsFromHashMap returns version strings sorted descending and sorts hashes within each version by count descending.
+func sortedVersionsFromHashMap(vhMap map[string]*driftVersionHashEntry) []string {
+	versions := make([]string, 0, len(vhMap))
+	for v := range vhMap {
+		versions = append(versions, v)
+	}
+	sort.Slice(versions, func(i, j int) bool {
+		return compareVersions(versions[i], versions[j]) > 0
+	})
+	for _, vhEntry := range vhMap {
+		sort.Slice(vhEntry.Hashes, func(i, j int) bool {
+			return vhEntry.Hashes[i].Count > vhEntry.Hashes[j].Count
+		})
+	}
+	return versions
+}
+
+// outputDistributionWithHashes renders the version distribution with hash sub-grouping.
+func outputDistributionWithHashes(sorted []string, vhMap map[string]*driftVersionHashEntry, label, slug, env string) {
+	totalSites := 0
+	totalDistinctHashes := 0
+	for _, vhEntry := range vhMap {
+		totalSites += vhEntry.Count
+		totalDistinctHashes += len(vhEntry.Hashes)
+	}
+
+	if flagDriftJSON {
+		versions := make([]map[string]interface{}, 0, len(sorted))
+		for _, v := range sorted {
+			vhEntry := vhMap[v]
+			hashes := make([]map[string]interface{}, 0, len(vhEntry.Hashes))
+			for _, he := range vhEntry.Hashes {
+				sites := make([]map[string]interface{}, 0, len(he.Sites))
+				for _, s := range he.Sites {
+					sites = append(sites, map[string]interface{}{
+						"site":        s.Site,
+						"site_id":     s.SiteID,
+						"environment": s.Environment,
+						"name":        s.Name,
+						"provider":    s.Provider,
+						"home_url":    s.HomeURL,
+					})
+				}
+				hashes = append(hashes, map[string]interface{}{
+					"hash":  he.Hash,
+					"count": he.Count,
+					"sites": sites,
+				})
+			}
+			versions = append(versions, map[string]interface{}{
+				"version":         v,
+				"count":           vhEntry.Count,
+				"distinct_hashes": len(vhEntry.Hashes),
+				"hashes":          hashes,
+			})
+		}
+		data := map[string]interface{}{
+			"type":                  label,
+			"slug":                  slug,
+			"environment":           env,
+			"total_sites":           totalSites,
+			"total_versions":        len(sorted),
+			"total_distinct_hashes": totalDistinctHashes,
+			"versions":              versions,
+		}
+		result, _ := json.MarshalIndent(data, "", "    ")
+		fmt.Println(string(result))
+		return
+	}
+
+	// Table mode
+	displayLabel := strings.ToUpper(label[:1]) + label[1:]
+	fmt.Printf("%s: %s\n", displayLabel, slug)
+	fmt.Printf("Environment: %s\n\n", env)
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+	fmt.Fprintln(w, "VERSION\tSITES\tHASHES")
+	for _, v := range sorted {
+		vhEntry := vhMap[v]
+		fmt.Fprintf(w, "%s\t%s\t%d\n", v, formatNumber(vhEntry.Count), len(vhEntry.Hashes))
+		for _, he := range vhEntry.Hashes {
+			hashLabel := he.Hash
+			if hashLabel == "" {
+				hashLabel = "(no hash)"
+			} else if len(hashLabel) > 8 {
+				hashLabel = hashLabel[:8]
+			}
+			fmt.Fprintf(w, "  %s\t%s\t\n", hashLabel, formatNumber(he.Count))
+		}
+	}
+	w.Flush()
+
+	fmt.Printf("\nTotal: %s sites across %d versions, %d distinct hashes\n",
+		formatNumber(totalSites), len(sorted), totalDistinctHashes)
+}
+
 // outputTarget renders the drift detection view with --target.
 func outputTarget(sorted []string, versionMap map[string]*driftEntry, label, slug, env string) {
 	// Resolve "latest" to the highest version found
@@ -1101,6 +1313,7 @@ func init() {
 	driftCmd.Flags().StringVar(&flagDriftEnvironment, "environment", "Production", "Filter by environment (Production, Staging, all)")
 	driftCmd.Flags().IntVar(&flagDriftTop, "top", 20, "Overview mode: number of results to show")
 	driftCmd.Flags().StringVar(&flagDriftSort, "sort", "volume", "Overview mode: sort by volume (drifted count) or spread (version count)")
+	driftCmd.Flags().BoolVar(&flagDriftHashes, "hashes", false, "Show hash breakdown within each version (use with --plugin or --theme)")
 	driftCmd.Flags().BoolVar(&flagDriftSteer, "steer", false, "Upgrade all drifted sites to the latest version")
 	driftCmd.Flags().BoolVarP(&flagForce, "force", "", false, "Execute the steer upgrade (required with --steer)")
 	driftCmd.Flags().IntVarP(&flagParallel, "parallel", "p", 10, "Number of parallel deployments")
