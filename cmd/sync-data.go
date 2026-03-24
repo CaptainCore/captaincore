@@ -140,6 +140,15 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	// Merge component hashes into plugins and themes JSON
+	if hashJSON, ok := data["component_hashes"]; ok && hashJSON != "" {
+		var hashMap map[string]string
+		if json.Unmarshal([]byte(hashJSON), &hashMap) == nil {
+			data["plugins"] = mergeComponentHashes(data["plugins"], hashMap)
+			data["themes"] = mergeComponentHashes(data["themes"], hashMap)
+		}
+	}
+
 	environmentUpdate := map[string]interface{}{
 		"environment_id":        environmentID,
 		"plugins":               data["plugins"],
@@ -185,6 +194,16 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 			var parsed interface{}
 			if json.Unmarshal([]byte(v), &parsed) == nil {
 				details[key] = parsed
+			}
+		}
+	}
+
+	// Extract mu_plugins_hash from component_hashes
+	if hashJSON, ok := data["component_hashes"]; ok && hashJSON != "" {
+		var hashMap map[string]string
+		if json.Unmarshal([]byte(hashJSON), &hashMap) == nil {
+			if muHash, ok := hashMap["_mu_plugins"]; ok {
+				details["mu_plugins_hash"] = muHash
 			}
 		}
 	}
@@ -293,6 +312,26 @@ func formatNumber(n int) string {
 		result.WriteRune(ch)
 	}
 	return result.String()
+}
+
+// mergeComponentHashes takes a JSON array of plugin/theme objects and a hash map,
+// and injects the "hash" field into each object whose "name" matches a key in the map.
+func mergeComponentHashes(componentsJSON string, hashMap map[string]string) string {
+	var components []map[string]interface{}
+	if json.Unmarshal([]byte(componentsJSON), &components) != nil {
+		return componentsJSON
+	}
+	for i, component := range components {
+		name, _ := component["name"].(string)
+		if hash, ok := hashMap[name]; ok {
+			components[i]["hash"] = hash
+		}
+	}
+	merged, err := json.Marshal(components)
+	if err != nil {
+		return componentsJSON
+	}
+	return string(merged)
 }
 
 func init() {

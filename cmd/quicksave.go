@@ -344,19 +344,25 @@ func quicksaveAddNative(cmd *cobra.Command, args []string) {
 	versionsDir := filepath.Join(sitePath, "versions")
 	os.MkdirAll(versionsDir, 0755)
 
-	// Pretty-print plugins JSON
+	// Pretty-print plugins JSON (strip hash field — it's infrastructure metadata, not relevant to quicksave diffs)
 	if env.Plugins != "" {
-		var plugins interface{}
+		var plugins []map[string]interface{}
 		if json.Unmarshal([]byte(env.Plugins), &plugins) == nil {
+			for i := range plugins {
+				delete(plugins[i], "hash")
+			}
 			prettyPlugins, _ := json.MarshalIndent(plugins, "", "    ")
 			os.WriteFile(filepath.Join(versionsDir, "plugins.json"), prettyPlugins, 0644)
 		}
 	}
 
-	// Pretty-print themes JSON
+	// Pretty-print themes JSON (strip hash field)
 	if env.Themes != "" {
-		var themes interface{}
+		var themes []map[string]interface{}
 		if json.Unmarshal([]byte(env.Themes), &themes) == nil {
+			for i := range themes {
+				delete(themes[i], "hash")
+			}
 			prettyThemes, _ := json.MarshalIndent(themes, "", "    ")
 			os.WriteFile(filepath.Join(versionsDir, "themes.json"), prettyThemes, 0644)
 		}

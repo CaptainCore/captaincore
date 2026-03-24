@@ -170,6 +170,62 @@ if [[ -z "$error_logs_json" ]]; then
 fi
 echo "error_logs:${error_logs_json}"
 
+# Per-component SHA256 content hashes for plugins, themes, and mu-plugins
+hash_directory() {
+    local dir="$1"
+    find "$dir" -type f \
+        ! -path '*/node_modules/*' \
+        ! -path '*/.git/*' \
+        ! -name .DS_Store \
+        -exec sha256sum {} + 2>/dev/null \
+        | sort -k2 | sha256sum | awk '{print $1}'
+}
+
+# Compute hashes from within wp-content so paths are relative (plugins/slug/file.php)
+pushd wp-content > /dev/null 2>&1
+
+component_hashes="{"
+first=true
+
+# Hash each plugin directory
+if [[ -d "plugins" ]]; then
+    for dir in plugins/*/; do
+        [[ -d "$dir" ]] || continue
+        slug=$(basename "$dir")
+        hash=$(hash_directory "$dir")
+        if [[ "$first" == true ]]; then first=false; else component_hashes+=","; fi
+        component_hashes+="\"${slug}\":\"${hash}\""
+    done
+fi
+
+# Hash each theme directory
+if [[ -d "themes" ]]; then
+    for dir in themes/*/; do
+        [[ -d "$dir" ]] || continue
+        slug=$(basename "$dir")
+        hash=$(hash_directory "$dir")
+        if [[ "$first" == true ]]; then first=false; else component_hashes+=","; fi
+        component_hashes+="\"${slug}\":\"${hash}\""
+    done
+fi
+
+# Hash mu-plugins as a single unit
+if [[ -d "mu-plugins" ]]; then
+    mu_file_count=$(find mu-plugins/ -type f \
+        ! -path '*/node_modules/*' \
+        ! -path '*/.git/*' \
+        ! -name .DS_Store 2>/dev/null | wc -l)
+    if [[ "$mu_file_count" -gt 0 ]]; then
+        hash=$(hash_directory "mu-plugins")
+        if [[ "$first" == true ]]; then first=false; else component_hashes+=","; fi
+        component_hashes+="\"_mu_plugins\":\"${hash}\""
+    fi
+fi
+
+component_hashes+="}"
+popd > /dev/null 2>&1
+echo "component_hashes:${component_hashes}"
+
 # Restic cache size (bytes), 0 if none
 restic_cache_dir="$HOME/.cache/restic"
 if [[ -d "$restic_cache_dir" ]]; then
