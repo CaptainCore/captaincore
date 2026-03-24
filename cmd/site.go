@@ -1066,8 +1066,10 @@ func siteSSHRefreshNative(cmd *cobra.Command, args []string) {
 
 	// Parse ProviderID — default to 1 if empty (matches Manager behavior)
 	providerIDStr := site.ProviderID
+	providerIDDefaulted := false
 	if providerIDStr == "" {
 		providerIDStr = "1"
+		providerIDDefaulted = true
 	}
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 64)
 	if err != nil {
@@ -1104,7 +1106,10 @@ func siteSSHRefreshNative(cmd *cobra.Command, args []string) {
 	}
 	enriched, err := hp.EnrichSite(creds, remoteSite)
 	if err != nil {
-		fmt.Printf("Error fetching credentials from provider: %v\n", err)
+		fmt.Printf("Error fetching credentials from provider '%s' (#%d): %v\n", p.Name, providerID, err)
+		if providerIDDefaulted {
+			fmt.Println("Note: This site has no provider_id set — defaulted to provider #1. Try running 'captaincore connect --sync' to update site data from Manager.")
+		}
 		os.Exit(1)
 	}
 
