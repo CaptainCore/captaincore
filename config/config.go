@@ -40,6 +40,54 @@ type CaptainConfig struct {
 	Vars      map[string]json.RawMessage   `json:"vars,omitempty"`
 }
 
+// MarshalJSON implements custom JSON marshaling for CaptainConfig.
+// When SystemRaw is populated, it merges typed SystemConfig fields with any
+// extra fields from the original JSON, preventing unknown system fields
+// (like rclone_archive) from being silently dropped during save.
+func (c CaptainConfig) MarshalJSON() ([]byte, error) {
+	if c.System != nil && c.SystemRaw != nil {
+		// Serialize typed SystemConfig to get current known fields
+		typedBytes, err := json.Marshal(c.System)
+		if err != nil {
+			return nil, err
+		}
+		var typedMap map[string]interface{}
+		if err := json.Unmarshal(typedBytes, &typedMap); err != nil {
+			return nil, err
+		}
+
+		// Start with SystemRaw (preserves unknown fields), overlay typed fields
+		merged := make(map[string]interface{})
+		for k, v := range c.SystemRaw {
+			merged[k] = v
+		}
+		for k, v := range typedMap {
+			merged[k] = v
+		}
+
+		// Build the output map manually to control field order
+		out := make(map[string]interface{})
+		out["system"] = merged
+		if c.CaptainID != "" {
+			out["captain_id"] = c.CaptainID
+		}
+		if len(c.Keys) > 0 {
+			out["keys"] = c.Keys
+		}
+		if len(c.Remotes) > 0 {
+			out["remotes"] = c.Remotes
+		}
+		if len(c.Vars) > 0 {
+			out["vars"] = c.Vars
+		}
+		return json.Marshal(out)
+	}
+
+	// No SystemRaw — use default behavior via alias to avoid recursion
+	type Alias CaptainConfig
+	return json.Marshal((Alias)(c))
+}
+
 // FullConfig represents the entire config.json array.
 type FullConfig []CaptainConfig
 
