@@ -226,6 +226,27 @@ component_hashes+="}"
 popd > /dev/null 2>&1
 echo "component_hashes:${component_hashes}"
 
+# MU-plugin file listing (root-level files and directories only)
+pushd wp-content > /dev/null 2>&1
+mu_plugin_files="{"
+mu_first=true
+if [[ -d "mu-plugins" ]]; then
+    for entry in mu-plugins/*; do
+        [[ -e "$entry" ]] || continue
+        base=$(basename "$entry")
+        [[ "$base" == ".DS_Store" ]] && continue
+        if [[ "$mu_first" == true ]]; then mu_first=false; else mu_plugin_files+=","; fi
+        if [[ -d "$entry" ]]; then
+            mu_plugin_files+="\"${base}/\":true"
+        else
+            mu_plugin_files+="\"${base}\":true"
+        fi
+    done
+fi
+mu_plugin_files+="}"
+popd > /dev/null 2>&1
+echo "mu_plugin_files:${mu_plugin_files}"
+
 # Restic cache size (bytes), 0 if none
 restic_cache_dir="$HOME/.cache/restic"
 if [[ -d "$restic_cache_dir" ]]; then
