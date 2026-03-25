@@ -111,10 +111,6 @@ func driftNative(cmd *cobra.Command, args []string) {
 			fmt.Println("Error: --hashes is not supported with --core")
 			return
 		}
-		if flagDriftSteer {
-			fmt.Println("Error: --hashes cannot be combined with --steer")
-			return
-		}
 		if flagDriftTarget != "" {
 			fmt.Println("Error: --hashes is not yet supported with --target")
 			return
@@ -266,7 +262,7 @@ func driftSingleComponent(env string, hasPlugin, hasTheme, hasCore bool) {
 			fmt.Println("Error: --steer is not supported with --core")
 			return
 		}
-		driftSteer(sorted, versionMap, slug, hasPlugin, env)
+		driftSteer(sorted, versionMap, slug, hasPlugin, env, results)
 		return
 	}
 
@@ -695,22 +691,17 @@ type driftedSiteWithVersion struct {
 
 // driftSteer upgrades all drifted sites to the latest version by grabbing the
 // plugin/theme zip from a source site and deploying it to each drifted site.
-func driftSteer(sorted []string, versionMap map[string]*driftEntry, slug string, isPlugin bool, env string) {
+func driftSteer(sorted []string, versionMap map[string]*driftEntry, slug string, isPlugin bool, env string, rawResults []models.SiteEnvironmentResult) {
 	latestVersion := sorted[0]
 
 	// Partition sites into source candidates and drifted
 	var drifted []driftedSiteWithVersion
 	onLatestCount := 0
-	var sourceSite *driftSiteInfo
 
 	for _, v := range sorted {
 		entry := versionMap[v]
 		if v == latestVersion {
 			onLatestCount = entry.Count
-			if len(entry.Sites) > 0 {
-				s := entry.Sites[0]
-				sourceSite = &s
-			}
 		} else {
 			for _, s := range entry.Sites {
 				drifted = append(drifted, driftedSiteWithVersion{
@@ -724,6 +715,47 @@ func driftSteer(sorted []string, versionMap map[string]*driftEntry, slug string,
 	if len(drifted) == 0 {
 		fmt.Println("All sites are on the latest version. Nothing to steer.")
 		return
+	}
+
+	// Hash-aware source site selection: group latest-version sites by content hash
+	// and pick from the largest hash group to propagate the most common variant.
+	pluginSlug, themeSlug := "", ""
+	if isPlugin {
+		pluginSlug = slug
+	} else {
+		themeSlug = slug
+	}
+
+	latestSites := versionMap[latestVersion].Sites
+	hashBuckets := make(map[string][]driftSiteInfo)
+
+	// Build a lookup from site name+env to raw result for hash extraction
+	rawLookup := make(map[string]models.SiteEnvironmentResult)
+	for _, r := range rawResults {
+		rawLookup[r.Site+"|"+r.Environment] = r
+	}
+
+	for _, s := range latestSites {
+		if r, ok := rawLookup[s.Site+"|"+s.Environment]; ok {
+			_, hash := extractVersionAndHash(r, pluginSlug, themeSlug)
+			if hash == "" {
+				hash = "unknown"
+			}
+			hashBuckets[hash] = append(hashBuckets[hash], s)
+		}
+	}
+
+	// Find the largest hash group
+	var sourceSite *driftSiteInfo
+	var sourceHash string
+	bestCount := 0
+	for hash, sites := range hashBuckets {
+		if len(sites) > bestCount {
+			bestCount = len(sites)
+			sourceHash = hash
+			s := sites[0]
+			sourceSite = &s
+		}
 	}
 
 	if sourceSite == nil {
@@ -741,6 +773,9 @@ func driftSteer(sorted []string, versionMap map[string]*driftEntry, slug string,
 	fmt.Printf("%s: %s\n", componentType, slug)
 	fmt.Printf("Latest: %s (on %s sites)\n", latestVersion, formatNumber(onLatestCount))
 	fmt.Printf("Drifted: %s sites across %d outdated versions\n\n", formatNumber(len(drifted)), outdatedVersions)
+	if len(hashBuckets) > 1 {
+		fmt.Printf("Source hash: %s (%s of %s sites on %s)\n", sourceHash[:8], formatNumber(bestCount), formatNumber(onLatestCount), latestVersion)
+	}
 	fmt.Printf("Source: %s (%s) — will grab zip from this site\n\n", sourceSite.Site, sourceSite.Name)
 
 	if !flagForce {
