@@ -61,7 +61,7 @@ read -r -d '' build_mu_plugin << 'heredoc'
  * Plugin Name: CaptainCore Helper
  * Plugin URI: https://captaincore.io
  * Description: Collection of helper functions for CaptainCore
- * Version: 0.6.0
+ * Version: 0.6.1
  * Author: CaptainCore
  * Author URI: https://captaincore.io
  * Text Domain: captaincore-helper
@@ -2158,7 +2158,10 @@ class UserEnumerationProtection {
             add_filter( 'wpseo_title', [ __CLASS__, 'force_404_title' ], 999 );
             add_filter( 'pre_get_document_title', [ __CLASS__, 'force_404_title' ], 999 );
             add_filter( 'wp_title', [ __CLASS__, 'force_404_title' ], 999 );
-            include get_404_template();
+            $template = get_404_template();
+            if ( $template ) {
+                include $template;
+            }
             exit;
         }
     }
