@@ -178,7 +178,7 @@ hash_directory() {
         ! -path '*/.git/*' \
         ! -name .DS_Store \
         -exec sha256sum {} + 2>/dev/null \
-        | sort -k2 | sha256sum | awk '{print $1}'
+        | LC_ALL=C sort -k2 | sha256sum | awk '{print $1}'
 }
 
 # Compute hashes from within wp-content so paths are relative (plugins/slug/file.php)
