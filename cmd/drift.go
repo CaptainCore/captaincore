@@ -1511,6 +1511,18 @@ func driftDiffNative(cmd *cobra.Command, args []string) {
 	// Filter to a specific hash if --hash is set
 	filterHash := flagDriftDiffHash
 
+	// When --target is a version string (not "latest"), filter to only that version
+	filterVersion := ""
+	if flagDriftTarget != "" && flagDriftTarget != "latest" {
+		// Check if target was a version (not a hash prefix)
+		for _, hg := range hashMap {
+			if hg.Version == flagDriftTarget {
+				filterVersion = flagDriftTarget
+				break
+			}
+		}
+	}
+
 	// Build variant list
 	var variants []driftDiffVariant
 	for hash, hg := range hashMap {
@@ -1518,6 +1530,9 @@ func driftDiffNative(cmd *cobra.Command, args []string) {
 			continue
 		}
 		if filterHash != "" && !strings.HasPrefix(hash, filterHash) {
+			continue
+		}
+		if filterVersion != "" && hg.Version != filterVersion {
 			continue
 		}
 
