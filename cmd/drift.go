@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -29,6 +30,8 @@ var (
 	flagDriftSort        string
 	flagDriftSteer       bool
 	flagDriftHashes      bool
+	flagDriftDiffSummary bool
+	flagDriftDiffHash    string
 )
 
 var driftCmd = &cobra.Command{
@@ -1336,6 +1339,498 @@ func compareVersions(a, b string) int {
 	return 0
 }
 
+// --- drift diff subcommand ---
+
+var driftDiffCmd = &cobra.Command{
+	Use:   "diff",
+	Short: "Show file-level differences between hash variants of a plugin or theme",
+	Long: `Compare actual file contents across different hash variants of a plugin
+or theme found in the fleet. Uses local quicksave directories to produce
+real diffs between variants.
+
+Requires --plugin or --theme. Uses --target to specify the reference
+variant (defaults to "latest" = highest version, most common hash).`,
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveNativeOrWP(cmd, args, driftDiffNative)
+	},
+}
+
+type driftDiffTarget struct {
+	Version       string        `json:"version"`
+	Hash          string        `json:"hash"`
+	Site          driftSiteInfo `json:"site"`
+	ComponentPath string        `json:"-"`
+}
+
+type driftDiffVariant struct {
+	Hash         string          `json:"hash"`
+	Version      string          `json:"version"`
+	Count        int             `json:"count"`
+	Sites        []driftSiteInfo `json:"sites"`
+	SourceSite   *driftSiteInfo  `json:"source_site,omitempty"`
+	ChangedFiles []string        `json:"changed_files,omitempty"`
+	DiffOutput   string          `json:"diff,omitempty"`
+	HasQuicksave bool            `json:"has_quicksave"`
+}
+
+type driftHashGroup struct {
+	Hash    string
+	Version string
+	Count   int
+	Sites   []driftSiteInfo
+}
+
+func driftDiffNative(cmd *cobra.Command, args []string) {
+	hasPlugin := flagDriftPlugin != ""
+	hasTheme := flagDriftTheme != ""
+
+	if !hasPlugin && !hasTheme {
+		fmt.Println("Error: --plugin or --theme is required")
+		return
+	}
+	if hasPlugin && hasTheme {
+		fmt.Println("Error: Specify only one of --plugin or --theme")
+		return
+	}
+
+	_, system, _, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Println("Error: Configuration file not found.")
+		return
+	}
+
+	env := normalizeEnv(flagDriftEnvironment)
+
+	// Query DB for all sites with this component
+	var results []models.SiteEnvironmentResult
+	query := models.DB.Table("captaincore_sites").
+		Select("captaincore_sites.site, captaincore_sites.site_id, captaincore_sites.name, captaincore_sites.provider, captaincore_environments.environment, captaincore_environments.home_url, captaincore_environments.core, captaincore_environments.plugins, captaincore_environments.themes").
+		Joins("INNER JOIN captaincore_environments ON captaincore_sites.site_id = captaincore_environments.site_id").
+		Where("captaincore_sites.status = ?", "active")
+
+	if env != "all" {
+		query = query.Where("captaincore_environments.environment = ?", env)
+	}
+	if flagDriftProvider != "" {
+		query = query.Where("captaincore_sites.provider = ?", flagDriftProvider)
+	}
+	if hasPlugin {
+		query = query.Where("captaincore_environments.plugins LIKE ?", `%"name":"`+flagDriftPlugin+`"%`)
+	}
+	if hasTheme {
+		query = query.Where("captaincore_environments.themes LIKE ?", `%"name":"`+flagDriftTheme+`"%`)
+	}
+
+	query.Order("captaincore_sites.name ASC").Find(&results)
+
+	pluginSlug, themeSlug := "", ""
+	if hasPlugin {
+		pluginSlug = flagDriftPlugin
+	} else {
+		themeSlug = flagDriftTheme
+	}
+
+	// Build hash map: hash -> {version, count, sites}
+	hashMap := make(map[string]*driftHashGroup)
+
+	for _, r := range results {
+		version, hash := extractVersionAndHash(r, pluginSlug, themeSlug)
+		if version == "" {
+			continue
+		}
+		if hash == "" {
+			hash = "(no hash)"
+		}
+		hg, ok := hashMap[hash]
+		if !ok {
+			hg = &driftHashGroup{Hash: hash, Version: version}
+			hashMap[hash] = hg
+		}
+		hg.Count++
+		hg.Sites = append(hg.Sites, driftSiteInfo{
+			Site:        r.Site,
+			SiteID:      r.SiteID,
+			Name:        r.Name,
+			Provider:    r.Provider,
+			HomeURL:     r.HomeURL,
+			Environment: r.Environment,
+		})
+	}
+
+	if len(hashMap) == 0 {
+		label, slug := componentLabel(hasPlugin, hasTheme, false)
+		fmt.Printf("No sites found with %s \"%s\" installed.\n", label, slug)
+		suggestSlugs(results, slug, hasPlugin)
+		return
+	}
+
+	if len(hashMap) == 1 {
+		for hash, hg := range hashMap {
+			hashLabel := hash
+			if len(hashLabel) > 8 {
+				hashLabel = hashLabel[:8]
+			}
+			fmt.Printf("All %s sites have identical content (hash %s, version %s). No drift detected.\n",
+				formatNumber(hg.Count), hashLabel, hg.Version)
+		}
+		return
+	}
+
+	// Resolve target
+	targetHash, targetVersion, err := driftDiffResolveTarget(hashMap)
+	if err != nil {
+		fmt.Printf("Error: %s\n", err)
+		return
+	}
+
+	slug := pluginSlug
+	if slug == "" {
+		slug = themeSlug
+	}
+	componentDir := "plugins"
+	if hasTheme {
+		componentDir = "themes"
+	}
+
+	// Find quicksave for target
+	targetGroup := hashMap[targetHash]
+	targetPath, targetSite, found := findQuicksaveForHash(targetGroup.Sites, slug, componentDir, system)
+	if !found {
+		fmt.Printf("Error: No local quicksave found for target hash %s.\n", targetHash[:8])
+		fmt.Printf("Run 'captaincore quicksave generate %s' to create one.\n", targetGroup.Sites[0].Site)
+		return
+	}
+
+	target := driftDiffTarget{
+		Version:       targetVersion,
+		Hash:          targetHash,
+		Site:          targetSite,
+		ComponentPath: targetPath,
+	}
+
+	// Filter to a specific hash if --hash is set
+	filterHash := flagDriftDiffHash
+
+	// Build variant list
+	var variants []driftDiffVariant
+	for hash, hg := range hashMap {
+		if hash == targetHash {
+			continue
+		}
+		if filterHash != "" && !strings.HasPrefix(hash, filterHash) {
+			continue
+		}
+
+		variant := driftDiffVariant{
+			Hash:    hash,
+			Version: hg.Version,
+			Count:   hg.Count,
+			Sites:   hg.Sites,
+		}
+
+		variantPath, variantSite, found := findQuicksaveForHash(hg.Sites, slug, componentDir, system)
+		if found {
+			variant.HasQuicksave = true
+			variant.SourceSite = &variantSite
+			diffOutput, changedFiles := diffDirectories(targetPath, variantPath, target.Hash, hash)
+			variant.DiffOutput = diffOutput
+			variant.ChangedFiles = changedFiles
+		}
+
+		variants = append(variants, variant)
+	}
+
+	// Sort variants: by version descending, then by count descending
+	sort.Slice(variants, func(i, j int) bool {
+		cmp := compareVersions(variants[i].Version, variants[j].Version)
+		if cmp != 0 {
+			return cmp > 0
+		}
+		return variants[i].Count > variants[j].Count
+	})
+
+	if filterHash != "" && len(variants) == 0 {
+		fmt.Printf("No hash variant found matching prefix \"%s\".\n", filterHash)
+		return
+	}
+
+	// Render
+	if flagDriftJSON {
+		renderDriftDiffJSON(target, variants, slug, hasPlugin, env)
+	} else if flagDriftDiffSummary || (filterHash == "" && len(variants) > 5) {
+		renderDriftDiffSummary(target, variants, slug, hasPlugin, env)
+		if !flagDriftDiffSummary && len(variants) > 5 {
+			fmt.Printf("\n%d variants found. Showing summary. Use --hash=<prefix> to see diff for a specific variant.\n", len(variants))
+		}
+	} else {
+		renderDriftDiffFull(target, variants, slug, hasPlugin, env)
+	}
+}
+
+// driftDiffResolveTarget resolves the --target flag to a specific (hash, version) pair.
+func driftDiffResolveTarget(hashMap map[string]*driftHashGroup) (hash string, version string, err error) {
+	targetFlag := flagDriftTarget
+	if targetFlag == "" {
+		targetFlag = "latest"
+	}
+
+	if targetFlag == "latest" {
+		// Find the highest version, then the most common hash within that version
+		highestVersion := ""
+		for _, hg := range hashMap {
+			if highestVersion == "" || compareVersions(hg.Version, highestVersion) > 0 {
+				highestVersion = hg.Version
+			}
+		}
+		bestHash := ""
+		bestCount := 0
+		for h, hg := range hashMap {
+			if hg.Version == highestVersion && hg.Count > bestCount {
+				bestCount = hg.Count
+				bestHash = h
+			}
+		}
+		return bestHash, highestVersion, nil
+	}
+
+	// Check if target matches a version string
+	for h, hg := range hashMap {
+		if hg.Version == targetFlag {
+			// Find most common hash for this version
+			bestHash := h
+			bestCount := hg.Count
+			for h2, hg2 := range hashMap {
+				if hg2.Version == targetFlag && hg2.Count > bestCount {
+					bestCount = hg2.Count
+					bestHash = h2
+				}
+			}
+			return bestHash, targetFlag, nil
+		}
+	}
+
+	// Check if target matches a hash prefix
+	if len(targetFlag) >= 8 {
+		for h, hg := range hashMap {
+			if strings.HasPrefix(h, targetFlag) {
+				return h, hg.Version, nil
+			}
+		}
+	}
+
+	return "", "", fmt.Errorf("target \"%s\" does not match any version or hash in the fleet", targetFlag)
+}
+
+// findQuicksaveForHash finds a local quicksave directory containing the component for one of the given sites.
+func findQuicksaveForHash(sites []driftSiteInfo, slug, componentDir string, system *config.SystemConfig) (componentPath string, site driftSiteInfo, found bool) {
+	for _, s := range sites {
+		siteDir := fmt.Sprintf("%s_%d", s.Site, s.SiteID)
+		envName := strings.ToLower(s.Environment)
+		cp := filepath.Join(system.Path, siteDir, envName, "quicksave", componentDir, slug)
+		if info, err := os.Stat(cp); err == nil && info.IsDir() {
+			return cp, s, true
+		}
+	}
+	return "", driftSiteInfo{}, false
+}
+
+// diffDirectories runs diff between two component directories, returning the full diff output and a list of changed files.
+func diffDirectories(targetDir, variantDir, targetHash, variantHash string) (output string, changedFiles []string) {
+	// Get changed file list via diff -rq
+	qCmd := exec.Command("diff", "-rq", targetDir, variantDir)
+	qOut, _ := qCmd.CombinedOutput()
+	lines := strings.Split(strings.TrimSpace(string(qOut)), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// diff -rq output: "Files X and Y differ" or "Only in X: file"
+		if strings.HasPrefix(line, "Files ") {
+			parts := strings.SplitN(line, " and ", 2)
+			if len(parts) == 2 {
+				file := strings.TrimPrefix(parts[0], "Files ")
+				// Make relative to targetDir
+				rel, err := filepath.Rel(targetDir, file)
+				if err == nil {
+					changedFiles = append(changedFiles, rel)
+				}
+			}
+		} else if strings.HasPrefix(line, "Only in ") {
+			changedFiles = append(changedFiles, line)
+		}
+	}
+
+	// Get full diff output
+	targetLabel := "target/" + targetHash
+	variantLabel := "variant/" + variantHash
+	if targetHash != "(no hash)" && len(targetHash) > 8 {
+		targetLabel = "target/" + targetHash[:8]
+	}
+	if variantHash != "(no hash)" && len(variantHash) > 8 {
+		variantLabel = "variant/" + variantHash[:8]
+	}
+
+	dCmd := exec.Command("diff", "-rN",
+		"--label", targetLabel,
+		"--label", variantLabel,
+		targetDir, variantDir)
+	dOut, _ := dCmd.CombinedOutput()
+	output = string(dOut)
+
+	return output, changedFiles
+}
+
+// renderDriftDiffSummary prints a summary table of variants with changed file counts.
+func renderDriftDiffSummary(target driftDiffTarget, variants []driftDiffVariant, slug string, isPlugin bool, env string) {
+	label := "Plugin"
+	if !isPlugin {
+		label = "Theme"
+	}
+	targetHashLabel := target.Hash
+	if len(targetHashLabel) > 8 {
+		targetHashLabel = targetHashLabel[:8]
+	}
+
+	fmt.Printf("%s: %s\n", label, slug)
+	fmt.Printf("Target: %s (hash %s, from site %s)\n", target.Version, targetHashLabel, target.Site.Site)
+	fmt.Printf("Environment: %s\n\n", env)
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+	fmt.Fprintln(w, "HASH\tVERSION\tSITES\tCHANGED FILES")
+	fmt.Fprintf(w, "%s\t%s\t\t(target)\n", targetHashLabel, target.Version)
+	for _, v := range variants {
+		hashLabel := v.Hash
+		if hashLabel != "(no hash)" && len(hashLabel) > 8 {
+			hashLabel = hashLabel[:8]
+		}
+		fileInfo := "(no local quicksave)"
+		if v.HasQuicksave {
+			fileInfo = fmt.Sprintf("%d files changed", len(v.ChangedFiles))
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", hashLabel, v.Version, formatNumber(v.Count), fileInfo)
+	}
+	w.Flush()
+}
+
+// renderDriftDiffFull prints full colored diff output for each variant.
+func renderDriftDiffFull(target driftDiffTarget, variants []driftDiffVariant, slug string, isPlugin bool, env string) {
+	label := "Plugin"
+	if !isPlugin {
+		label = "Theme"
+	}
+	targetHashLabel := target.Hash
+	if len(targetHashLabel) > 8 {
+		targetHashLabel = targetHashLabel[:8]
+	}
+
+	fmt.Printf("%s: %s\n", label, slug)
+	fmt.Printf("Target: %s (hash %s, from site %s)\n", target.Version, targetHashLabel, target.Site.Site)
+	fmt.Printf("Environment: %s\n\n", env)
+
+	for _, v := range variants {
+		hashLabel := v.Hash
+		if hashLabel != "(no hash)" && len(hashLabel) > 8 {
+			hashLabel = hashLabel[:8]
+		}
+
+		fmt.Printf("--- Variant: %s (version %s, %s sites) ", hashLabel, v.Version, formatNumber(v.Count))
+		if v.SourceSite != nil {
+			fmt.Printf("from site %s", v.SourceSite.Site)
+		}
+		fmt.Println(" ---")
+
+		if !v.HasQuicksave {
+			fmt.Println("  (no local quicksave available)")
+			if len(v.Sites) > 0 {
+				fmt.Printf("  Run: captaincore quicksave generate %s\n", v.Sites[0].Site)
+			}
+			fmt.Println()
+			continue
+		}
+
+		if len(v.ChangedFiles) == 0 {
+			fmt.Println("  No file differences found.")
+			fmt.Println()
+			continue
+		}
+
+		// Colorize diff output
+		for _, line := range strings.Split(v.DiffOutput, "\n") {
+			if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
+				fmt.Printf("\x1b[32m%s\x1b[0m\n", line)
+			} else if strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---") {
+				fmt.Printf("\x1b[31m%s\x1b[0m\n", line)
+			} else if strings.HasPrefix(line, "@@") {
+				fmt.Printf("\x1b[36m%s\x1b[0m\n", line)
+			} else if strings.HasPrefix(line, "diff ") {
+				fmt.Printf("\x1b[1m%s\x1b[0m\n", line)
+			} else {
+				fmt.Println(line)
+			}
+		}
+		fmt.Println()
+	}
+}
+
+// renderDriftDiffJSON outputs drift diff results as JSON.
+func renderDriftDiffJSON(target driftDiffTarget, variants []driftDiffVariant, slug string, isPlugin bool, env string) {
+	label := "plugin"
+	if !isPlugin {
+		label = "theme"
+	}
+
+	variantsJSON := make([]map[string]interface{}, 0, len(variants))
+	for _, v := range variants {
+		vj := map[string]interface{}{
+			"hash":          v.Hash,
+			"version":       v.Version,
+			"count":         v.Count,
+			"has_quicksave": v.HasQuicksave,
+			"changed_files": v.ChangedFiles,
+		}
+		if v.SourceSite != nil {
+			vj["source_site"] = map[string]interface{}{
+				"site":        v.SourceSite.Site,
+				"site_id":     v.SourceSite.SiteID,
+				"environment": v.SourceSite.Environment,
+			}
+		}
+		if v.DiffOutput != "" {
+			vj["diff"] = v.DiffOutput
+		}
+		sites := make([]map[string]interface{}, 0, len(v.Sites))
+		for _, s := range v.Sites {
+			sites = append(sites, map[string]interface{}{
+				"site":        s.Site,
+				"site_id":     s.SiteID,
+				"environment": s.Environment,
+				"name":        s.Name,
+				"provider":    s.Provider,
+				"home_url":    s.HomeURL,
+			})
+		}
+		vj["sites"] = sites
+		variantsJSON = append(variantsJSON, vj)
+	}
+
+	data := map[string]interface{}{
+		"type":        label,
+		"slug":        slug,
+		"environment": env,
+		"target": map[string]interface{}{
+			"version": target.Version,
+			"hash":    target.Hash,
+			"site":    target.Site.Site,
+			"site_id": target.Site.SiteID,
+		},
+		"variants": variantsJSON,
+	}
+
+	result, _ := json.MarshalIndent(data, "", "    ")
+	fmt.Println(string(result))
+}
+
 func init() {
 	rootCmd.AddCommand(driftCmd)
 	driftCmd.Flags().BoolVar(&flagDriftJSON, "json", false, "Output as JSON")
@@ -1352,4 +1847,15 @@ func init() {
 	driftCmd.Flags().BoolVar(&flagDriftSteer, "steer", false, "Upgrade all drifted sites to the latest version")
 	driftCmd.Flags().BoolVarP(&flagForce, "force", "", false, "Execute the steer upgrade (required with --steer)")
 	driftCmd.Flags().IntVarP(&flagParallel, "parallel", "p", 10, "Number of parallel deployments")
+
+	// drift diff subcommand
+	driftCmd.AddCommand(driftDiffCmd)
+	driftDiffCmd.Flags().StringVar(&flagDriftPlugin, "plugin", "", "Plugin slug to diff")
+	driftDiffCmd.Flags().StringVar(&flagDriftTheme, "theme", "", "Theme slug to diff")
+	driftDiffCmd.Flags().StringVar(&flagDriftTarget, "target", "latest", "Target version or hash (default: latest)")
+	driftDiffCmd.Flags().BoolVar(&flagDriftDiffSummary, "summary", false, "Show only changed file counts per variant")
+	driftDiffCmd.Flags().StringVar(&flagDriftDiffHash, "hash", "", "Show diff for a specific hash variant (prefix match)")
+	driftDiffCmd.Flags().BoolVar(&flagDriftJSON, "json", false, "Output as JSON")
+	driftDiffCmd.Flags().StringVar(&flagDriftProvider, "provider", "", "Filter by hosting provider")
+	driftDiffCmd.Flags().StringVar(&flagDriftEnvironment, "environment", "Production", "Filter by environment (Production, Staging, all)")
 }
