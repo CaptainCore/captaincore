@@ -1547,7 +1547,7 @@ func driftDiffNative(cmd *cobra.Command, args []string) {
 		if found {
 			variant.HasQuicksave = true
 			variant.SourceSite = &variantSite
-			diffOutput, changedFiles := diffDirectories(targetPath, variantPath, target.Hash, hash)
+			diffOutput, changedFiles := diffDirectories(targetPath, variantPath, target.Hash, hash, target.Site.Site, variantSite.Site)
 			variant.DiffOutput = diffOutput
 			variant.ChangedFiles = changedFiles
 		}
@@ -1650,9 +1650,9 @@ func findQuicksaveForHash(sites []driftSiteInfo, slug, componentDir string, syst
 }
 
 // diffDirectories runs diff between two component directories, returning the full diff output and a list of changed files.
-func diffDirectories(targetDir, variantDir, targetHash, variantHash string) (output string, changedFiles []string) {
-	// Get changed file list via diff -rq
-	qCmd := exec.Command("diff", "-rq", targetDir, variantDir)
+func diffDirectories(targetDir, variantDir, targetHash, variantHash, targetSiteName, variantSiteName string) (output string, changedFiles []string) {
+	// Get changed file list via diff -rq (ignore line-ending differences)
+	qCmd := exec.Command("diff", "-rq", "--strip-trailing-cr", targetDir, variantDir)
 	qOut, _ := qCmd.CombinedOutput()
 	lines := strings.Split(strings.TrimSpace(string(qOut)), "\n")
 	for _, line := range lines {
@@ -1676,22 +1676,42 @@ func diffDirectories(targetDir, variantDir, targetHash, variantHash string) (out
 		}
 	}
 
-	// Get full diff output
-	targetLabel := "target/" + targetHash
-	variantLabel := "variant/" + variantHash
-	if targetHash != "(no hash)" && len(targetHash) > 8 {
-		targetLabel = "target/" + targetHash[:8]
+	// Build labels with hash prefix and site name
+	hashLabel := targetHash
+	if hashLabel != "(no hash)" && len(hashLabel) > 8 {
+		hashLabel = hashLabel[:8]
 	}
-	if variantHash != "(no hash)" && len(variantHash) > 8 {
-		variantLabel = "variant/" + variantHash[:8]
-	}
+	targetLabel := fmt.Sprintf("target/%s (%s)", hashLabel, targetSiteName)
 
-	dCmd := exec.Command("diff", "-rN",
+	hashLabel = variantHash
+	if hashLabel != "(no hash)" && len(hashLabel) > 8 {
+		hashLabel = hashLabel[:8]
+	}
+	variantLabel := fmt.Sprintf("variant/%s (%s)", hashLabel, variantSiteName)
+
+	dCmd := exec.Command("diff", "-ruN", "--strip-trailing-cr",
 		"--label", targetLabel,
 		"--label", variantLabel,
 		targetDir, variantDir)
 	dOut, _ := dCmd.CombinedOutput()
-	output = string(dOut)
+
+	// Clean raw diff headers to remove full filesystem paths
+	outputLines := strings.Split(string(dOut), "\n")
+	var cleanedLines []string
+	for _, line := range outputLines {
+		if strings.HasPrefix(line, "diff ") {
+			// Extract the relative file path from the target directory path
+			parts := strings.SplitN(line, targetDir, 2)
+			if len(parts) == 2 {
+				relPath := strings.SplitN(parts[1], " ", 2)
+				if len(relPath) > 0 {
+					line = "diff " + strings.TrimPrefix(relPath[0], "/")
+				}
+			}
+		}
+		cleanedLines = append(cleanedLines, line)
+	}
+	output = strings.Join(cleanedLines, "\n")
 
 	return output, changedFiles
 }
