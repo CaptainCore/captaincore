@@ -184,9 +184,9 @@ run_command() {
 
   # Sync DIRECTLY to quicksave folders
   # Note: Added --exclude ".git/**" to prevent rclone from messing with the repo metadata if a plugin contains a git repo.
-  rclone sync ${environment}:$home_directory${wp_content}/themes/ $path/$site_path/quicksave/themes/ --exclude .DS_Store --exclude *timthumb.txt --exclude "node_modules/**" --exclude ".git/**" --config="$rclone_config_file"
-  rclone sync ${environment}:$home_directory${wp_content}/mu-plugins/ $path/$site_path/quicksave/mu-plugins/ --exclude .DS_Store --exclude *timthumb.txt --exclude "node_modules/**" --exclude ".git/**" --config="$rclone_config_file"
-  rclone sync ${environment}:$home_directory${wp_content}/plugins/ $path/$site_path/quicksave/plugins/ --exclude .DS_Store --exclude *timthumb.txt --exclude "node_modules/**" --exclude ".git/**" --config="$rclone_config_file"
+  rclone sync ${environment}:$home_directory${wp_content}/themes/ $path/$site_path/quicksave/themes/ --exclude .DS_Store --exclude *timthumb.txt --exclude "node_modules/**" --exclude ".git/**" --exclude error_log --config="$rclone_config_file"
+  rclone sync ${environment}:$home_directory${wp_content}/mu-plugins/ $path/$site_path/quicksave/mu-plugins/ --exclude .DS_Store --exclude *timthumb.txt --exclude "node_modules/**" --exclude ".git/**" --exclude error_log --config="$rclone_config_file"
+  rclone sync ${environment}:$home_directory${wp_content}/plugins/ $path/$site_path/quicksave/plugins/ --exclude .DS_Store --exclude *timthumb.txt --exclude "node_modules/**" --exclude ".git/**" --exclude error_log --config="$rclone_config_file"
 
   captaincore sync-data $site-${environment} --captain-id=$CAPTAIN_ID > /dev/null
   captaincore quicksave add $site-$environment --captain-id=$CAPTAIN_ID
