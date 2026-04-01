@@ -1852,7 +1852,7 @@ func init() {
 	driftCmd.AddCommand(driftDiffCmd)
 	driftDiffCmd.Flags().StringVar(&flagDriftPlugin, "plugin", "", "Plugin slug to diff")
 	driftDiffCmd.Flags().StringVar(&flagDriftTheme, "theme", "", "Theme slug to diff")
-	driftDiffCmd.Flags().StringVar(&flagDriftTarget, "target", "latest", "Target version or hash (default: latest)")
+	driftDiffCmd.Flags().StringVar(&flagDriftTarget, "target", "", "Target version or hash (default: latest)")
 	driftDiffCmd.Flags().BoolVar(&flagDriftDiffSummary, "summary", false, "Show only changed file counts per variant")
 	driftDiffCmd.Flags().StringVar(&flagDriftDiffHash, "hash", "", "Show diff for a specific hash variant (prefix match)")
 	driftDiffCmd.Flags().BoolVar(&flagDriftJSON, "json", false, "Output as JSON")
