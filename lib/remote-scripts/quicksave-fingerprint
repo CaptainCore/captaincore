@@ -51,5 +51,6 @@ find plugins/ themes/ mu-plugins/ -type f \
   ! -path '*/node_modules/*' \
   ! -path '*/.git/*' \
   ! -name .DS_Store \
+  ! -name error_log \
   -exec md5sum {} + 2>/dev/null \
   | sort -k2 | md5sum | awk '{print $1}'

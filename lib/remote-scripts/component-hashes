@@ -53,6 +53,7 @@ hash_directory() {
     ! -path '*/node_modules/*' \
     ! -path '*/.git/*' \
     ! -name .DS_Store \
+    ! -name error_log \
     -exec sha256sum {} + 2>/dev/null \
     | LC_ALL=C sort -k2 | sha256sum | awk '{print $1}'
 }
