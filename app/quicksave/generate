@@ -151,6 +151,10 @@ run_command() {
       echo "No file changes detected. Skipping rclone sync."
       captaincore sync-data $site-${environment} --captain-id=$CAPTAIN_ID > /dev/null
 
+      # Still run quicksave add — core checksum changes (extra/modified root files)
+      # won't affect the wp-content fingerprint but should trigger a new quicksave
+      captaincore quicksave add $site-$environment --captain-id=$CAPTAIN_ID
+
       # Touch list.json to mark site as recently checked
       quicksave_list_file="$path/${site}_${site_id}/${environment}/quicksaves/list.json"
       if [ -f "$quicksave_list_file" ]; then

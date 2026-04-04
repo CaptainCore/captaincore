@@ -368,8 +368,9 @@ func quicksaveAddNative(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	// Write core version
-	os.WriteFile(filepath.Join(versionsDir, "core.json"), []byte(env.Core), 0644)
+	// Write core version with checksum details
+	coreJSON := buildCoreJSON(env)
+	os.WriteFile(filepath.Join(versionsDir, "core.json"), coreJSON, 0644)
 
 	// git add -A
 	gitAdd := exec.Command("git", "add", "-A")
@@ -401,6 +402,9 @@ func quicksaveAddNative(cmd *cobra.Command, args []string) {
 
 	// Run malware scan on changed files
 	quicksaveMalwareScan(sitePath, site, env, system, captain)
+
+	// Scan core checksum extra/modified files via SSH + local Wordfence
+	quicksaveCoreChecksumScan(site, env, system, captain)
 
 	// Shell out to quicksave get-generate
 	siteEnvArg := fmt.Sprintf("%s-%s", site.Site, envName)
@@ -562,6 +566,257 @@ func quicksaveMalwareScan(sitePath string, site *models.Site, env *models.Enviro
 	})
 }
 
+// extractCoreVersion extracts just the version string from core.json content.
+// Handles both old format ("6.9.4") and new format ({"version":"6.9.4","checksums":{...}}).
+func extractCoreVersion(coreStr string) string {
+	coreStr = strings.TrimSpace(coreStr)
+	if coreStr == "" {
+		return ""
+	}
+	// Try parsing as JSON object with a "version" field
+	var obj struct {
+		Version string `json:"version"`
+	}
+	if json.Unmarshal([]byte(coreStr), &obj) == nil && obj.Version != "" {
+		return obj.Version
+	}
+	// Already a plain version string
+	return coreStr
+}
+
+// buildCoreJSON creates the versions/core.json content with version and checksum details.
+func buildCoreJSON(env *models.Environment) []byte {
+	// Parse core_checksum_details from environment details
+	var details map[string]interface{}
+	if env.Details != "" {
+		json.Unmarshal([]byte(env.Details), &details)
+	}
+
+	coreData := map[string]interface{}{
+		"version": env.Core,
+	}
+
+	if details != nil {
+		if checksumDetails, ok := details["core_checksum_details"]; ok {
+			coreData["checksums"] = checksumDetails
+		}
+	}
+
+	pretty, err := json.MarshalIndent(coreData, "", "    ")
+	if err != nil {
+		return []byte(env.Core)
+	}
+	return pretty
+}
+
+// quicksaveCoreChecksumScan checks core checksum details for extra/modified files,
+// SCPs them to the local backup directory, and runs Wordfence malware-scan locally.
+func quicksaveCoreChecksumScan(site *models.Site, env *models.Environment, system *config.SystemConfig, captain *config.CaptainConfig) {
+	// Parse core_checksum_details from environment details
+	var details map[string]interface{}
+	if env.Details != "" {
+		json.Unmarshal([]byte(env.Details), &details)
+	}
+	if details == nil {
+		return
+	}
+
+	checksumRaw, ok := details["core_checksum_details"]
+	if !ok {
+		return
+	}
+
+	// Re-marshal and unmarshal to get typed access
+	checksumJSON, _ := json.Marshal(checksumRaw)
+	var checksumDetails struct {
+		Status   string   `json:"status"`
+		Modified []string `json:"modified"`
+		Extra    []string `json:"extra"`
+		Missing  []string `json:"missing"`
+	}
+	if json.Unmarshal(checksumJSON, &checksumDetails) != nil {
+		return
+	}
+
+	// Collect files that need scanning (extra and modified)
+	var remoteFiles []string
+	remoteFiles = append(remoteFiles, checksumDetails.Extra...)
+	remoteFiles = append(remoteFiles, checksumDetails.Modified...)
+	if len(remoteFiles) == 0 {
+		return
+	}
+
+	// Filter to scannable extensions
+	scannableExts := map[string]bool{
+		".php": true, ".js": true, ".html": true, ".htm": true,
+		".svg": true, ".phtml": true, ".phar": true,
+	}
+	var filesToFetch []string
+	for _, f := range remoteFiles {
+		ext := strings.ToLower(filepath.Ext(f))
+		if scannableExts[ext] {
+			filesToFetch = append(filesToFetch, f)
+		}
+	}
+	if len(filesToFetch) == 0 {
+		return
+	}
+
+	// Build SSH connection details
+	siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+	envName := strings.ToLower(env.Environment)
+	backupDir := filepath.Join(system.Path, siteDir, envName, "backup")
+	os.MkdirAll(backupDir, 0755)
+
+	// Determine SSH key
+	key := ""
+	cid, _ := strconv.ParseUint(captainID, 10, 64)
+	configValue, _ := models.GetConfiguration(uint(cid), "configurations")
+	if configValue != "" {
+		var configObj map[string]json.RawMessage
+		if json.Unmarshal([]byte(configValue), &configObj) == nil {
+			if defaultKeyRaw, ok := configObj["default_key"]; ok {
+				json.Unmarshal(defaultKeyRaw, &key)
+			}
+		}
+	}
+	if key == "" {
+		return
+	}
+	keyPath := filepath.Join(system.PathKeys, captainID, key)
+
+	// Determine remote root directory
+	remoteRoot := "public"
+	switch site.Provider {
+	case "rocketdotnet":
+		remoteRoot = env.HomeDirectory
+	default:
+		if env.HomeDirectory != "" {
+			remoteRoot = env.HomeDirectory
+		}
+	}
+
+	// SCP each file to the backup directory
+	sshOptions := fmt.Sprintf("-q -oStrictHostKeyChecking=no -oConnectTimeout=15 -oPreferredAuthentications=publickey -i %s", keyPath)
+	var localFiles []string
+
+	for _, remoteFile := range filesToFetch {
+		remotePath := fmt.Sprintf("%s@%s:%s/%s", env.Username, env.Address, remoteRoot, remoteFile)
+
+		// Ensure local subdirectory exists (for files like wp-admin/foo.php)
+		localPath := filepath.Join(backupDir, remoteFile)
+		os.MkdirAll(filepath.Dir(localPath), 0755)
+
+		// SCP the file
+		scpArgs := strings.Fields(sshOptions)
+		scpArgs = append(scpArgs, "-P", env.Port, remotePath, localPath)
+		scpCmd := exec.Command("scp", scpArgs...)
+		if err := scpCmd.Run(); err != nil {
+			fmt.Printf("  Core checksum scan: failed to SCP %s\n", remoteFile)
+			continue
+		}
+		localFiles = append(localFiles, localPath)
+	}
+
+	if len(localFiles) == 0 {
+		return
+	}
+
+	// Run Wordfence malware-scan on the local copies
+	scanArgs := []string{"malware-scan", "--output-format", "csv", "--output-columns", "filename,signature_id,signature_name,signature_description,matched_text", "--output-headers", "--quiet", "--no-banner"}
+	scanArgs = append(scanArgs, localFiles...)
+
+	scanCmd := exec.Command("wordfence", scanArgs...)
+	var scanOut bytes.Buffer
+	scanCmd.Stdout = &scanOut
+	scanCmd.Stderr = os.Stderr
+	scanCmd.Run()
+
+	// Parse CSV output
+	csvOutput := strings.TrimSpace(scanOut.String())
+	if csvOutput == "" {
+		fmt.Printf("  Core checksum scan: %d file(s) checked, clean\n", len(localFiles))
+		return
+	}
+
+	reader := csv.NewReader(strings.NewReader(csvOutput))
+	headers, err := reader.Read()
+	if err != nil {
+		return
+	}
+
+	colIndex := make(map[string]int)
+	for i, h := range headers {
+		colIndex[h] = i
+	}
+
+	type finding struct {
+		Filename             string `json:"filename"`
+		SignatureID          string `json:"signature_id"`
+		SignatureName        string `json:"signature_name"`
+		SignatureDescription string `json:"signature_description"`
+		MatchedText          string `json:"matched_text"`
+	}
+
+	var findings []finding
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			break
+		}
+		f := finding{}
+		if i, ok := colIndex["filename"]; ok && i < len(record) {
+			// Replace local backup path with the original remote filename for clarity
+			f.Filename = record[i]
+			for _, rf := range filesToFetch {
+				if strings.HasSuffix(f.Filename, rf) {
+					f.Filename = rf
+					break
+				}
+			}
+		}
+		if i, ok := colIndex["signature_id"]; ok && i < len(record) {
+			f.SignatureID = record[i]
+		}
+		if i, ok := colIndex["signature_name"]; ok && i < len(record) {
+			f.SignatureName = record[i]
+		}
+		if i, ok := colIndex["signature_description"]; ok && i < len(record) {
+			f.SignatureDescription = record[i]
+		}
+		if i, ok := colIndex["matched_text"]; ok && i < len(record) {
+			f.MatchedText = record[i]
+		}
+		findings = append(findings, f)
+	}
+
+	if len(findings) == 0 {
+		fmt.Printf("  Core checksum scan: %d file(s) checked, clean\n", len(localFiles))
+		return
+	}
+
+	// Print findings
+	fmt.Printf("Core checksum scan: %d finding(s) on %s-%s\n", len(findings), site.Site, strings.ToLower(env.Environment))
+	for _, f := range findings {
+		fmt.Printf("  %s — %s\n", f.Filename, f.SignatureName)
+	}
+
+	// POST alert to CaptainCore API
+	client := newAPIClient(system, captain)
+	client.Post("malware-alert", map[string]interface{}{
+		"site_id": site.SiteID,
+		"data": map[string]interface{}{
+			"site_name":   site.Name,
+			"environment": env.Environment,
+			"home_url":    env.HomeURL,
+			"findings":    findings,
+		},
+	})
+}
+
 // quicksaveLatestNative implements `captaincore quicksave latest <site>` natively in Go.
 func quicksaveLatestNative(cmd *cobra.Command, args []string) {
 	sa := parseSiteArgument(args[0])
@@ -684,7 +939,7 @@ func quicksaveListGenerateNative(cmd *cobra.Command, args []string) {
 			}
 			if json.Unmarshal(commitData, &commitObj) == nil {
 				if commitObj.Core != "" {
-					item.Core = commitObj.Core
+					item.Core = extractCoreVersion(commitObj.Core)
 				}
 				if commitObj.ThemeCount > 0 {
 					item.ThemeCount = commitObj.ThemeCount
@@ -693,7 +948,7 @@ func quicksaveListGenerateNative(cmd *cobra.Command, args []string) {
 					item.PluginCount = commitObj.PluginCount
 				}
 				if commitObj.CorePrevious != "" {
-					item.CorePrevious = commitObj.CorePrevious
+					item.CorePrevious = extractCoreVersion(commitObj.CorePrevious)
 				}
 			}
 		}
@@ -938,10 +1193,10 @@ func quicksaveGetGenerateNative(cmd *cobra.Command, args []string) {
 		return iName < jName
 	})
 
-	// Build output
+	// Build output (extract version string from core.json — full checksums live in versions/core.json)
 	output := map[string]interface{}{
-		"core":            currentCore,
-		"core_previous":   previousCore,
+		"core":            extractCoreVersion(currentCore),
+		"core_previous":   extractCoreVersion(previousCore),
 		"theme_count":     len(currentThemes),
 		"themes":          currentThemes,
 		"themes_deleted":  themesDeleted,
