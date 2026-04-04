@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+
+#
+#   Deploys performance monitor scripts and crontab entry.
+#
+#   `performance-monitor-deploy --db_user=<user> --db_pass=<pass> --home_url=<url> --private_dir=<dir>`
+#
+
+# Loop through arguments and separate regular arguments from flags
+for arg in "$@"; do
+
+  # Add to arguments array. (Does not starts with "--")
+  if [[ $arg != --* ]]; then
+    count=1+${#arguments[*]}
+    arguments[$count]=$arg
+    continue
+  fi
+
+  # Remove leading "--"
+  flag_name=$( echo $arg | cut -c 3- )
+
+  # Add to flags array
+  count=1+${#flags[*]}
+  flags[$count]=$arg
+
+  # Process flags without data (Assign to variable)
+  if [[ $arg != *"="* ]]; then
+    flag_name=${flag_name//-/_}
+    declare "$flag_name"=true
+  fi
+
+  # Process flags with data (Assign to variable)
+  if [[ $arg == *"="* ]]; then
+    flag_value=$( echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1' ) # extract value
+    flag_name=$( echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1' ) # extract name
+    flag_name=${flag_name/-/_}
+
+    # Remove first and last quote if found
+    flag_value="${flag_value%\"}"
+    flag_value="${flag_value#\"}"
+
+    declare "$flag_name"="$flag_value"
+    continue
+  fi
+
+done
+
+if [[ -z "$db_user" ]] || [[ -z "$db_pass" ]] || [[ -z "$home_url" ]] || [[ -z "$private_dir" ]]; then
+  echo "Error: Missing required flags --db_user, --db_pass, --home_url, --private_dir"
+  exit 1
+fi
+
+# Derive host header from home_url (strip protocol)
+host_header=$(echo "$home_url" | sed 's|https\?://||' | sed 's|/.*||')
+
+# Detect SSH username if not provided
+if [[ -z "$username" ]]; then
+  username=$(whoami)
+fi
+
+# Detect pm.max_children from PHP-FPM pool config
+max_workers=$(grep -rh 'pm.max_children' /etc/php/*/fpm/pool.d/*.conf 2>/dev/null | tail -1 | tr -dc '0-9')
+if [[ -z "$max_workers" ]]; then
+  max_workers=0
+fi
+
+# Create private directory if it doesn't exist
+mkdir -p "$private_dir"
+
+# Deploy php-monitor.sh
+cat > "$private_dir/php-monitor.sh" << MONITOR_EOF
+#!/bin/bash
+echo "Time | DB Conns | Load | HTTPS Code | HTTPS Time | Workers"
+echo "-----|---------|------|-----------|----------|--------"
+while true; do
+    CONNS=\$(mysql -u ${db_user} -p'${db_pass}' -N -e 'SELECT COUNT(*) FROM information_schema.processlist WHERE user="${db_user}"' 2>/dev/null)
+    LOAD=\$(uptime | awk -F'load average:' '{print \$2}' | awk -F, '{print \$1}' | xargs)
+    RESP=\$(curl -kILs --max-time 10 -H 'Host: ${host_header}' https://localhost/ -o /dev/null -w '%{http_code} %{time_total}s' 2>/dev/null)
+    ACTIVE_WORKERS=\$(pgrep -u ${username} -c php-fpm 2>/dev/null || true); ACTIVE_WORKERS=\${ACTIVE_WORKERS:-0}
+    TIME=\$(date '+%H:%M:%S')
+    echo "\$TIME | \$CONNS | \$LOAD | \$RESP | \$ACTIVE_WORKERS/${max_workers}"
+    sleep 30
+done
+MONITOR_EOF
+
+# Deploy php-monitor-check.sh
+cat > "$private_dir/php-monitor-check.sh" << CHECK_EOF
+#!/bin/bash
+if pgrep -f 'php-monitor.sh' > /dev/null; then
+    exit 0
+fi
+nohup bash ${private_dir}/php-monitor.sh >> ${private_dir}/php-monitor.log 2>&1 &
+CHECK_EOF
+
+# Set permissions (protect credentials)
+chmod 700 "$private_dir/php-monitor.sh"
+chmod 700 "$private_dir/php-monitor-check.sh"
+
+# Add crontab entry (remove any existing one first to avoid duplicates)
+(crontab -l 2>/dev/null | grep -v 'php-monitor-check'; echo "*/10 * * * * bash ${private_dir}/php-monitor-check.sh") | crontab -
+
+# Kill any existing monitor process before starting fresh
+pkill -f 'php-monitor.sh' 2>/dev/null || true
+sleep 1
+
+# Start monitor immediately
+nohup bash "$private_dir/php-monitor.sh" >> "$private_dir/php-monitor.log" 2>&1 &
+
+echo "Performance monitor deployed to $private_dir"
+echo "Monitor PID: $!"
+echo "Crontab entry added (every 10 minutes)"

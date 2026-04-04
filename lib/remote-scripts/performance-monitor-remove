@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+
+#
+#   Removes performance monitor scripts and crontab entry.
+#
+#   `performance-monitor-remove --private_dir=<dir> [--clean]`
+#
+
+# Loop through arguments and separate regular arguments from flags
+for arg in "$@"; do
+
+  # Add to arguments array. (Does not starts with "--")
+  if [[ $arg != --* ]]; then
+    count=1+${#arguments[*]}
+    arguments[$count]=$arg
+    continue
+  fi
+
+  # Remove leading "--"
+  flag_name=$( echo $arg | cut -c 3- )
+
+  # Add to flags array
+  count=1+${#flags[*]}
+  flags[$count]=$arg
+
+  # Process flags without data (Assign to variable)
+  if [[ $arg != *"="* ]]; then
+    flag_name=${flag_name//-/_}
+    declare "$flag_name"=true
+  fi
+
+  # Process flags with data (Assign to variable)
+  if [[ $arg == *"="* ]]; then
+    flag_value=$( echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1' ) # extract value
+    flag_name=$( echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1' ) # extract name
+    flag_name=${flag_name/-/_}
+
+    # Remove first and last quote if found
+    flag_value="${flag_value%\"}"
+    flag_value="${flag_value#\"}"
+
+    declare "$flag_name"="$flag_value"
+    continue
+  fi
+
+done
+
+if [[ -z "$private_dir" ]]; then
+  echo "Error: Missing required flag --private_dir"
+  exit 1
+fi
+
+# Kill running monitor process
+pkill -f 'php-monitor.sh' 2>/dev/null && echo "Monitor process stopped" || echo "No monitor process found"
+
+# Remove crontab entry
+(crontab -l 2>/dev/null | grep -v 'php-monitor-check') | crontab - 2>/dev/null
+echo "Crontab entry removed"
+
+# Remove scripts
+rm -f "$private_dir/php-monitor.sh" "$private_dir/php-monitor-check.sh"
+echo "Monitor scripts removed"
+
+# Optionally remove log file
+if [[ "$clean" == "true" ]]; then
+  rm -f "$private_dir/php-monitor.log"
+  echo "Monitor log removed"
+else
+  echo "Monitor log preserved at $private_dir/php-monitor.log"
+fi
+
+echo "Performance monitor deactivated"
