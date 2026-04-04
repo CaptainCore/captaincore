@@ -58,8 +58,12 @@ if [[ -z "$username" ]]; then
   username=$(whoami)
 fi
 
-# Detect pm.max_children from PHP-FPM pool config
-max_workers=$(grep -rh 'pm.max_children' /etc/php/*/fpm/pool.d/*.conf 2>/dev/null | tail -1 | tr -dc '0-9')
+# Detect pm.max_children from this site's PHP-FPM pool config
+max_workers=$(grep -A5 "^\[${username}\]" /etc/php/*/fpm/pool.d/*.conf 2>/dev/null | grep 'pm.max_children' | head -1 | awk -F= '{print $2}' | tr -dc '0-9')
+if [[ -z "$max_workers" ]]; then
+  # Fallback: search for pool file named after the username
+  max_workers=$(grep 'pm.max_children' /etc/php/*/fpm/pool.d/${username}.conf 2>/dev/null | head -1 | awk -F= '{print $2}' | tr -dc '0-9')
+fi
 if [[ -z "$max_workers" ]]; then
   max_workers=0
 fi
