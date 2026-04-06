@@ -279,6 +279,12 @@ done < <(find . -name "*.php" -type f \
     ! -path './plugins/*' \
     ! -path './themes/*' \
     ! -path './mu-plugins/*' \
+    ! -path './cache/*' \
+    ! -path './wps-cache/*' \
+    ! -path './wphb-cache/*' \
+    ! -path './updraft/*' \
+    ! -path './upgrade-temp-backup/*' \
+    ! -path './umbrella-upgrade-temp-backup/*' \
     2>/dev/null | sed 's|^\./||' | LC_ALL=C sort)
 loose_hashes+="}"
 popd > /dev/null 2>&1
