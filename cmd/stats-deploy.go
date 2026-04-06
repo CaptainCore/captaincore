@@ -110,5 +110,6 @@ func statsDeployNative(cmd *cobra.Command, args []string) {
 }
 
 func init() {
+	statsDeployCmd.Flags().IntVarP(&flagParallel, "parallel", "p", 10, "Number of sites to run at same time")
 	rootCmd.AddCommand(statsDeployCmd)
 }
