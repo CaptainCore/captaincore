@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -21,6 +22,11 @@ var statsDeployCmd = &cobra.Command{
 		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
+		// Check for bulk/target mode
+		if strings.HasPrefix(args[0], "@production") || strings.HasPrefix(args[0], "@staging") || strings.HasPrefix(args[0], "@all") || len(args) > 1 {
+			resolveCommand(cmd, args)
+			return
+		}
 		resolveNativeOrWP(cmd, args, statsDeployNative)
 	},
 }
