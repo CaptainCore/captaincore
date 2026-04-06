@@ -146,6 +146,21 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 		if json.Unmarshal([]byte(hashJSON), &hashMap) == nil {
 			data["plugins"] = mergeComponentHashes(data["plugins"], hashMap)
 			data["themes"] = mergeComponentHashes(data["themes"], hashMap)
+
+			// Merge per-component mu-plugin hashes (mu: prefix) into mu_plugins JSON
+			// and also into plugins array (WP-CLI includes must-use in plugins list)
+			muHashMap := make(map[string]string)
+			for k, v := range hashMap {
+				if strings.HasPrefix(k, "mu:") {
+					muHashMap[strings.TrimPrefix(k, "mu:")] = v
+				}
+			}
+			if len(muHashMap) > 0 {
+				if muJSON, ok := data["mu_plugins"]; ok && muJSON != "" && muJSON != "[]" {
+					data["mu_plugins"] = mergeComponentHashes(muJSON, muHashMap)
+				}
+				data["plugins"] = mergeComponentHashes(data["plugins"], muHashMap)
+			}
 		}
 	}
 
@@ -198,13 +213,11 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	// Extract mu_plugins_hash from component_hashes
-	if hashJSON, ok := data["component_hashes"]; ok && hashJSON != "" {
-		var hashMap map[string]string
-		if json.Unmarshal([]byte(hashJSON), &hashMap) == nil {
-			if muHash, ok := hashMap["_mu_plugins"]; ok {
-				details["mu_plugins_hash"] = muHash
-			}
+	// Store mu_plugins array (with per-component hashes) in details
+	if muJSON, ok := data["mu_plugins"]; ok && muJSON != "" && muJSON != "[]" {
+		var parsed interface{}
+		if json.Unmarshal([]byte(muJSON), &parsed) == nil {
+			details["mu_plugins"] = parsed
 		}
 	}
 

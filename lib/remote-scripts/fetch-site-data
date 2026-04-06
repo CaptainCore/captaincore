@@ -20,6 +20,8 @@ fi
 
 plugins=$( wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version )
 themes=$(wp theme list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version )
+mu_plugins=$( wp plugin list --status=must-use --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version 2>/dev/null )
+[[ -z "$mu_plugins" || "$mu_plugins" == "[]" ]] && mu_plugins="[]"
 core=$( wp core version --skip-themes --skip-plugins --skip-packages )
 home_url=$( wp option get home --skip-themes --skip-plugins --skip-packages )
 users=$( wp user list --format=json --skip-themes --skip-plugins --skip-packages )
@@ -101,6 +103,7 @@ trim() { echo "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
 
 echo "plugins:$(trim "$plugins")"
 echo "themes:$(trim "$themes")"
+echo "mu_plugins:$(trim "$mu_plugins")"
 echo "core:$(trim "$core")"
 echo "home_url:$(trim "$home_url")"
 echo "users:$(trim "$users")"
@@ -224,17 +227,44 @@ if [[ -d "themes" ]]; then
     done
 fi
 
-# Hash mu-plugins as a single unit
+# Hash individual mu-plugin components
+# Auto-detect: each .php file is a component; include matching directory + companion files
 if [[ -d "mu-plugins" ]]; then
-    mu_file_count=$(find mu-plugins/ -type f \
-        ! -path '*/node_modules/*' \
-        ! -path '*/.git/*' \
-        ! -name .DS_Store 2>/dev/null | wc -l)
-    if [[ "$mu_file_count" -gt 0 ]]; then
-        hash=$(hash_directory "mu-plugins")
+    for phpfile in mu-plugins/*.php; do
+        [[ -f "$phpfile" ]] || continue
+        slug=$(basename "$phpfile" .php)
+
+        # Collect hashes for all files belonging to this component
+        component_file_hashes=$(
+            # The .php entry file
+            sha256sum "$phpfile" 2>/dev/null
+
+            # Matching directory (slug/)
+            if [[ -d "mu-plugins/$slug" ]]; then
+                find "mu-plugins/$slug" -type f \
+                    ! -path '*/node_modules/*' ! -path '*/.git/*' \
+                    ! -name .DS_Store ! -name error_log \
+                    -exec sha256sum {} + 2>/dev/null
+                find "mu-plugins/$slug" -type l \
+                    ! -path '*/node_modules/*' ! -path '*/.git/*' \
+                    2>/dev/null | while IFS= read -r link; do
+                        target=$(readlink "$link")
+                        echo "$(echo -n "SYMLINK:${target}" | sha256sum | awk '{print $1}')  ${link}"
+                    done
+            fi
+
+            # Companion files (same basename, different extension: .js, .css, etc.)
+            for companion in mu-plugins/${slug}.*; do
+                [[ -f "$companion" && "$companion" != "$phpfile" ]] || continue
+                sha256sum "$companion" 2>/dev/null
+            done
+        )
+
+        hash=$(echo "$component_file_hashes" | grep -v '^$' | LC_ALL=C sort -k2 | sha256sum | awk '{print $1}')
         if [[ "$first" == true ]]; then first=false; else component_hashes+=","; fi
-        component_hashes+="\"_mu_plugins\":\"${hash}\""
-    fi
+        component_hashes+="\"mu:${slug}\":\"${hash}\""
+    done
+
 fi
 
 component_hashes+="}"
