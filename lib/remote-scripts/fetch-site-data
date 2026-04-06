@@ -29,16 +29,20 @@ core_verify_checksums_response=$( wp core verify-checksums --skip-themes --skip-
 modified_files=""
 extra_files=""
 missing_files=""
+modified_paths=()
+extra_paths=()
 
 while IFS= read -r line; do
     case "$line" in
         "Warning: File doesn't verify against checksum: "*)
             file=$( echo "$line" | sed "s/Warning: File doesn't verify against checksum: //" )
             modified_files="${modified_files:+$modified_files,}\"$file\""
+            modified_paths+=("$file")
             ;;
         "Warning: File should not exist: "*)
             file=$( echo "$line" | sed "s/Warning: File should not exist: //" )
             extra_files="${extra_files:+$extra_files,}\"$file\""
+            extra_paths+=("$file")
             ;;
         "Warning: File doesn't exist: "*)
             file=$( echo "$line" | sed "s/Warning: File doesn't exist: //" )
@@ -247,6 +251,38 @@ fi
 mu_plugin_files+="}"
 popd > /dev/null 2>&1
 echo "mu_plugin_files:${mu_plugin_files}"
+
+# Per-file SHA256 hashes for core extra/modified files
+core_file_hashes="{"
+core_hash_first=true
+for file in "${extra_paths[@]}" "${modified_paths[@]}"; do
+    [[ -z "$file" || ! -f "$file" ]] && continue
+    hash=$(sha256sum "$file" 2>/dev/null | awk '{print $1}')
+    [[ -z "$hash" ]] && continue
+    if [[ "$core_hash_first" == true ]]; then core_hash_first=false; else core_file_hashes+=","; fi
+    core_file_hashes+="\"${file}\":\"${hash}\""
+done
+core_file_hashes+="}"
+echo "core_file_hashes:${core_file_hashes}"
+
+# Loose PHP file hashes (everything in wp-content/ outside plugins/themes/mu-plugins)
+pushd wp-content > /dev/null 2>&1
+loose_hashes="{"
+loose_first=true
+while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    hash=$(sha256sum "$file" 2>/dev/null | awk '{print $1}')
+    [[ -z "$hash" ]] && continue
+    if [[ "$loose_first" == true ]]; then loose_first=false; else loose_hashes+=","; fi
+    loose_hashes+="\"${file}\":\"${hash}\""
+done < <(find . -name "*.php" -type f \
+    ! -path './plugins/*' \
+    ! -path './themes/*' \
+    ! -path './mu-plugins/*' \
+    2>/dev/null | sed 's|^\./||' | LC_ALL=C sort)
+loose_hashes+="}"
+popd > /dev/null 2>&1
+echo "loose_file_hashes:${loose_hashes}"
 
 # Restic cache size (bytes), 0 if none
 restic_cache_dir="$HOME/.cache/restic"

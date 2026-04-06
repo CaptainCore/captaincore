@@ -372,6 +372,12 @@ func quicksaveAddNative(cmd *cobra.Command, args []string) {
 	coreJSON := buildCoreJSON(env)
 	os.WriteFile(filepath.Join(versionsDir, "core.json"), coreJSON, 0644)
 
+	// Write loose files manifest (core extra/modified + wp-content loose PHP files)
+	looseFilesJSON := buildLooseFilesJSON(env)
+	if looseFilesJSON != nil {
+		os.WriteFile(filepath.Join(versionsDir, "loose-files.json"), looseFilesJSON, 0644)
+	}
+
 	// git add -A
 	gitAdd := exec.Command("git", "add", "-A")
 	gitAdd.Dir = sitePath
@@ -405,6 +411,9 @@ func quicksaveAddNative(cmd *cobra.Command, args []string) {
 
 	// Scan core checksum extra/modified files via SSH + local Wordfence
 	quicksaveCoreChecksumScan(site, env, system, captain)
+
+	// Scan loose wp-content PHP files via SSH + local Wordfence
+	quicksaveLooseFilesScan(site, env, system, captain)
 
 	// Shell out to quicksave get-generate
 	siteEnvArg := fmt.Sprintf("%s-%s", site.Site, envName)
@@ -609,6 +618,40 @@ func buildCoreJSON(env *models.Environment) []byte {
 	return pretty
 }
 
+// buildLooseFilesJSON creates the versions/loose-files.json content with per-file hashes
+// for core extra/modified files and loose wp-content PHP files.
+func buildLooseFilesJSON(env *models.Environment) []byte {
+	var details map[string]interface{}
+	if env.Details != "" {
+		json.Unmarshal([]byte(env.Details), &details)
+	}
+	if details == nil {
+		return nil
+	}
+
+	looseFiles := map[string]interface{}{}
+	hasData := false
+
+	if coreHashes, ok := details["core_file_hashes"]; ok {
+		looseFiles["core"] = coreHashes
+		hasData = true
+	}
+	if wpContentHashes, ok := details["loose_file_hashes"]; ok {
+		looseFiles["wp_content"] = wpContentHashes
+		hasData = true
+	}
+
+	if !hasData {
+		return nil
+	}
+
+	pretty, err := json.MarshalIndent(looseFiles, "", "    ")
+	if err != nil {
+		return nil
+	}
+	return pretty
+}
+
 // quicksaveCoreChecksumScan checks core checksum details for extra/modified files,
 // SCPs them to the local backup directory, and runs Wordfence malware-scan locally.
 func quicksaveCoreChecksumScan(site *models.Site, env *models.Environment, system *config.SystemConfig, captain *config.CaptainConfig) {
@@ -805,6 +848,190 @@ func quicksaveCoreChecksumScan(site *models.Site, env *models.Environment, syste
 	}
 
 	// POST alert to CaptainCore API
+	client := newAPIClient(system, captain)
+	client.Post("malware-alert", map[string]interface{}{
+		"site_id": site.SiteID,
+		"data": map[string]interface{}{
+			"site_name":   site.Name,
+			"environment": env.Environment,
+			"home_url":    env.HomeURL,
+			"findings":    findings,
+		},
+	})
+}
+
+// quicksaveLooseFilesScan downloads loose wp-content PHP files via SSH and runs
+// Wordfence malware-scan locally, same pattern as quicksaveCoreChecksumScan.
+func quicksaveLooseFilesScan(site *models.Site, env *models.Environment, system *config.SystemConfig, captain *config.CaptainConfig) {
+	var details map[string]interface{}
+	if env.Details != "" {
+		json.Unmarshal([]byte(env.Details), &details)
+	}
+	if details == nil {
+		return
+	}
+
+	looseRaw, ok := details["loose_file_hashes"]
+	if !ok {
+		return
+	}
+
+	looseJSON, _ := json.Marshal(looseRaw)
+	var looseMap map[string]string
+	if json.Unmarshal(looseJSON, &looseMap) != nil || len(looseMap) == 0 {
+		return
+	}
+
+	// Filter to scannable extensions
+	scannableExts := map[string]bool{
+		".php": true, ".phtml": true, ".phar": true,
+	}
+	var filesToFetch []string
+	for path := range looseMap {
+		ext := strings.ToLower(filepath.Ext(path))
+		if scannableExts[ext] {
+			filesToFetch = append(filesToFetch, "wp-content/"+path)
+		}
+	}
+	if len(filesToFetch) == 0 {
+		return
+	}
+
+	// Build SSH connection details
+	siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+	envName := strings.ToLower(env.Environment)
+	backupDir := filepath.Join(system.Path, siteDir, envName, "backup")
+	os.MkdirAll(backupDir, 0755)
+
+	// Determine SSH key
+	key := ""
+	cid, _ := strconv.ParseUint(captainID, 10, 64)
+	configValue, _ := models.GetConfiguration(uint(cid), "configurations")
+	if configValue != "" {
+		var configObj map[string]json.RawMessage
+		if json.Unmarshal([]byte(configValue), &configObj) == nil {
+			if defaultKeyRaw, ok := configObj["default_key"]; ok {
+				json.Unmarshal(defaultKeyRaw, &key)
+			}
+		}
+	}
+	if key == "" {
+		return
+	}
+	keyPath := filepath.Join(system.PathKeys, captainID, key)
+
+	// Determine remote root directory
+	remoteRoot := "public"
+	switch site.Provider {
+	case "rocketdotnet":
+		remoteRoot = env.HomeDirectory
+	default:
+		if env.HomeDirectory != "" {
+			remoteRoot = env.HomeDirectory
+		}
+	}
+
+	// SCP each file to the backup directory
+	sshOptions := fmt.Sprintf("-q -oStrictHostKeyChecking=no -oConnectTimeout=15 -oPreferredAuthentications=publickey -i %s", keyPath)
+	var localFiles []string
+
+	for _, remoteFile := range filesToFetch {
+		remotePath := fmt.Sprintf("%s@%s:%s/%s", env.Username, env.Address, remoteRoot, remoteFile)
+		localPath := filepath.Join(backupDir, remoteFile)
+		os.MkdirAll(filepath.Dir(localPath), 0755)
+
+		scpArgs := strings.Fields(sshOptions)
+		scpArgs = append(scpArgs, "-P", env.Port, remotePath, localPath)
+		scpCmd := exec.Command("scp", scpArgs...)
+		if err := scpCmd.Run(); err != nil {
+			continue
+		}
+		localFiles = append(localFiles, localPath)
+	}
+
+	if len(localFiles) == 0 {
+		return
+	}
+
+	// Run Wordfence malware-scan on the local copies
+	scanArgs := []string{"malware-scan", "--output-format", "csv", "--output-columns", "filename,signature_id,signature_name,signature_description,matched_text", "--output-headers", "--quiet", "--no-banner"}
+	scanArgs = append(scanArgs, localFiles...)
+
+	scanCmd := exec.Command("wordfence", scanArgs...)
+	var scanOut bytes.Buffer
+	scanCmd.Stdout = &scanOut
+	scanCmd.Stderr = os.Stderr
+	scanCmd.Run()
+
+	csvOutput := strings.TrimSpace(scanOut.String())
+	if csvOutput == "" {
+		fmt.Printf("  Loose files scan: %d file(s) checked, clean\n", len(localFiles))
+		return
+	}
+
+	reader := csv.NewReader(strings.NewReader(csvOutput))
+	headers, err := reader.Read()
+	if err != nil {
+		return
+	}
+
+	colIndex := make(map[string]int)
+	for i, h := range headers {
+		colIndex[h] = i
+	}
+
+	type finding struct {
+		Filename             string `json:"filename"`
+		SignatureID          string `json:"signature_id"`
+		SignatureName        string `json:"signature_name"`
+		SignatureDescription string `json:"signature_description"`
+		MatchedText          string `json:"matched_text"`
+	}
+
+	var findings []finding
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			break
+		}
+		f := finding{}
+		if i, ok := colIndex["filename"]; ok && i < len(record) {
+			f.Filename = record[i]
+			for _, rf := range filesToFetch {
+				if strings.HasSuffix(f.Filename, rf) {
+					f.Filename = rf
+					break
+				}
+			}
+		}
+		if i, ok := colIndex["signature_id"]; ok && i < len(record) {
+			f.SignatureID = record[i]
+		}
+		if i, ok := colIndex["signature_name"]; ok && i < len(record) {
+			f.SignatureName = record[i]
+		}
+		if i, ok := colIndex["signature_description"]; ok && i < len(record) {
+			f.SignatureDescription = record[i]
+		}
+		if i, ok := colIndex["matched_text"]; ok && i < len(record) {
+			f.MatchedText = record[i]
+		}
+		findings = append(findings, f)
+	}
+
+	if len(findings) == 0 {
+		fmt.Printf("  Loose files scan: %d file(s) checked, clean\n", len(localFiles))
+		return
+	}
+
+	fmt.Printf("Loose files scan: %d finding(s) on %s-%s\n", len(findings), site.Site, strings.ToLower(env.Environment))
+	for _, f := range findings {
+		fmt.Printf("  %s — %s\n", f.Filename, f.SignatureName)
+	}
+
 	client := newAPIClient(system, captain)
 	client.Post("malware-alert", map[string]interface{}{
 		"site_id": site.SiteID,
