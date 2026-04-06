@@ -46,16 +46,25 @@ fi
 
 cd "$wp_content" 2>/dev/null || exit 1
 
-# Hash a single directory: find all files, sort by path, hash contents, then hash the result
+# Hash a single directory: find all files, sort by path, hash contents, then hash the result.
+# Symlinks are included as "SYMLINK:<target>" so injected symlinks change the hash.
 hash_directory() {
   local dir="$1"
-  find "$dir" -type f \
-    ! -path '*/node_modules/*' \
-    ! -path '*/.git/*' \
-    ! -name .DS_Store \
-    ! -name error_log \
-    -exec sha256sum {} + 2>/dev/null \
-    | LC_ALL=C sort -k2 | sha256sum | awk '{print $1}'
+  {
+    find "$dir" -type f \
+      ! -path '*/node_modules/*' \
+      ! -path '*/.git/*' \
+      ! -name .DS_Store \
+      ! -name error_log \
+      -exec sha256sum {} + 2>/dev/null
+    find "$dir" -type l \
+      ! -path '*/node_modules/*' \
+      ! -path '*/.git/*' \
+      2>/dev/null | while IFS= read -r link; do
+        target=$(readlink "$link")
+        echo "$(echo -n "SYMLINK:${target}" | sha256sum | awk '{print $1}')  ${link}"
+      done
+  } | LC_ALL=C sort -k2 | sha256sum | awk '{print $1}'
 }
 
 # Hash plugins

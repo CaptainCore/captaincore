@@ -175,15 +175,25 @@ fi
 echo "error_logs:${error_logs_json}"
 
 # Per-component SHA256 content hashes for plugins, themes, and mu-plugins
+# Uses -type f to hash regular files, and -type l to include symlink targets/paths.
+# Symlinks are hashed as "SYMLINK:<target>" so a symlink change alters the directory hash.
 hash_directory() {
     local dir="$1"
-    find "$dir" -type f \
-        ! -path '*/node_modules/*' \
-        ! -path '*/.git/*' \
-        ! -name .DS_Store \
-        ! -name error_log \
-        -exec sha256sum {} + 2>/dev/null \
-        | LC_ALL=C sort -k2 | sha256sum | awk '{print $1}'
+    {
+        find "$dir" -type f \
+            ! -path '*/node_modules/*' \
+            ! -path '*/.git/*' \
+            ! -name .DS_Store \
+            ! -name error_log \
+            -exec sha256sum {} + 2>/dev/null
+        find "$dir" -type l \
+            ! -path '*/node_modules/*' \
+            ! -path '*/.git/*' \
+            2>/dev/null | while IFS= read -r link; do
+                target=$(readlink "$link")
+                echo "$(echo -n "SYMLINK:${target}" | sha256sum | awk '{print $1}')  ${link}"
+            done
+    } | LC_ALL=C sort -k2 | sha256sum | awk '{print $1}'
 }
 
 # Compute hashes from within wp-content so paths are relative (plugins/slug/file.php)
