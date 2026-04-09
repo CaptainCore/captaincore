@@ -2,7 +2,7 @@ package models
 
 // Recipe mirrors captaincore_recipes from the PHP schema.
 type Recipe struct {
-	RecipeID  uint   `gorm:"primaryKey;column:recipe_id" json:"recipe_id"`
+	RecipeID  uint   `gorm:"primaryKey;column:recipe_id" json:"recipe_id,string"`
 	Title     string `gorm:"column:title" json:"title"`
 	Content   string `gorm:"column:content;type:text" json:"content"`
 	CreatedAt string `gorm:"column:created_at" json:"created_at"`
