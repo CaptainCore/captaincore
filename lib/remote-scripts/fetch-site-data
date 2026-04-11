@@ -68,6 +68,65 @@ fi
 # Build JSON with categorized details
 core_verify_checksums_json="{\"status\":\"$checksum_status\",\"modified\":[$modified_files],\"extra\":[$extra_files],\"missing\":[$missing_files]}"
 
+# Plugin checksum verification against wordpress.org published hashes.
+# Only plugins hosted on wordpress.org have published checksums; premium
+# plugins without a checksums.json produce "skipping" warnings which are
+# NOT failures. Genuine tampering is reported as tab-delimited rows in the
+# format: slug<TAB>file<TAB>message.
+plugin_verify_checksums_response=$( wp plugin verify-checksums --all --skip-themes --skip-plugins --skip-packages 2>&1 )
+
+plugin_modified_entries=""
+plugin_skipped_count=0
+
+json_escape() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    printf '%s' "$s"
+}
+
+while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    # Skip the header row that WP-CLI emits when there are failures
+    [[ "$line" == "plugin_name"$'\t'* ]] && continue
+
+    case "$line" in
+        "Warning: Couldn't fetch response from"*)
+            # HTTP fetch for the checksums JSON failed; paired with the
+            # "Could not retrieve" line below. Ignored here to avoid double-counting.
+            ;;
+        "Warning: Could not retrieve the checksums"*)
+            plugin_skipped_count=$((plugin_skipped_count + 1))
+            ;;
+        "Warning: Plugin "*"doesn't provide a readme.txt"*)
+            plugin_skipped_count=$((plugin_skipped_count + 1))
+            ;;
+        "Success:"*|"Error:"*)
+            # Terminal status lines are informational only
+            ;;
+        *$'\t'*$'\t'*)
+            # Tab-delimited failure row: slug<TAB>file<TAB>message
+            slug="${line%%$'\t'*}"
+            rest="${line#*$'\t'}"
+            file="${rest%%$'\t'*}"
+            message="${rest#*$'\t'}"
+            slug_esc=$( json_escape "$slug" )
+            file_esc=$( json_escape "$file" )
+            message_esc=$( json_escape "$message" )
+            entry="{\"slug\":\"${slug_esc}\",\"file\":\"${file_esc}\",\"message\":\"${message_esc}\"}"
+            plugin_modified_entries="${plugin_modified_entries:+$plugin_modified_entries,}${entry}"
+            ;;
+    esac
+done <<< "$plugin_verify_checksums_response"
+
+if [[ -n "$plugin_modified_entries" ]]; then
+    plugin_checksum_status="fail"
+else
+    plugin_checksum_status="pass"
+fi
+
+plugin_checksum_details_json="{\"status\":\"${plugin_checksum_status}\",\"modified\":[${plugin_modified_entries}],\"skipped_count\":${plugin_skipped_count}}"
+
 db_name=$( wp eval "echo DB_NAME;" --skip-plugins --skip-themes --skip-packages )
 db_username=$( wp eval "echo DB_USER;" --skip-plugins --skip-themes --skip-packages )
 db_password=$( wp eval "echo DB_PASSWORD;" --skip-plugins --skip-themes --skip-packages )
@@ -117,6 +176,7 @@ echo "default_role:${default_role}"
 echo "registration:${registration}"
 echo "token:${token}"
 echo "core_checksum_details:${core_verify_checksums_json}"
+echo "plugin_checksum_details:${plugin_checksum_details_json}"
 echo "php_version:${php_version}"
 echo "db_size:$(wp db size --size_format=b --skip-themes --skip-plugins --skip-packages 2>/dev/null | tail -1 | cut -f2)"
 

@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+
+#
+#   Show a unified diff between an installed plugin and a clean copy from
+#   wordpress.org. Useful for investigating failed `wp plugin verify-checksums`
+#   results to see exactly what changed.
+#
+#   Usage:
+#     captaincore ssh <site> --script=plugin-diff --plugin=<slug>
+#     captaincore ssh <site> --script=plugin-diff --plugin=<slug> --version=1.2.3
+#     captaincore ssh <site> --script=plugin-diff --plugin=<slug> --stat
+#     captaincore ssh <site> --script=plugin-diff --plugin=<slug> --keep
+#
+#   Flags:
+#     --plugin=<slug>    Plugin slug to diff (required)
+#     --version=<ver>    Override detected version
+#     --stat             Show diffstat only (no full diff)
+#     --keep             Don't remove the downloaded clean copy after running
+#
+
+set -uo pipefail
+
+# ── Parse flags ─────────────────────────────────────────────────
+plugin=""
+version=""
+stat=""
+keep=""
+
+for arg in "$@"; do
+    case "$arg" in
+        --plugin=*)  plugin="${arg#--plugin=}" ;;
+        --version=*) version="${arg#--version=}" ;;
+        --stat)      stat=1 ;;
+        --keep)      keep=1 ;;
+    esac
+done
+
+if [ -z "$plugin" ]; then
+    echo "ERROR: --plugin=<slug> is required" >&2
+    exit 1
+fi
+
+# ── Locate WP root ──────────────────────────────────────────────
+if [ ! -f "wp-config.php" ]; then
+    if [ -f "public/wp-config.php" ]; then
+        cd public
+    elif [ -f "public_html/wp-config.php" ]; then
+        cd public_html
+    fi
+fi
+
+plugin_dir="wp-content/plugins/$plugin"
+if [ ! -d "$plugin_dir" ]; then
+    echo "ERROR: Plugin '$plugin' not found at $plugin_dir" >&2
+    exit 1
+fi
+
+# ── Detect version ──────────────────────────────────────────────
+if [ -z "$version" ]; then
+    version=$(wp plugin get "$plugin" --field=version --skip-themes --skip-plugins --skip-packages 2>/dev/null)
+fi
+if [ -z "$version" ]; then
+    echo "ERROR: Could not detect version for '$plugin'. Pass --version=<ver>." >&2
+    exit 1
+fi
+
+# ── Stage clean copy in ~/private/plugin-diff/ ──────────────────
+stage_dir="$HOME/private/plugin-diff/${plugin}-${version}"
+mkdir -p "$stage_dir"
+
+clean_root="$stage_dir/clean"
+zip_file="$stage_dir/${plugin}.${version}.zip"
+
+if [ ! -d "$clean_root/$plugin" ]; then
+    url="https://downloads.wordpress.org/plugin/${plugin}.${version}.zip"
+    http_code=$(curl -sSL -o "$zip_file" -w "%{http_code}" "$url")
+    if [ "$http_code" != "200" ]; then
+        echo "ERROR: Failed to fetch $url (HTTP $http_code)" >&2
+        echo "       Plugin may be premium/private and not on wordpress.org." >&2
+        rm -f "$zip_file"
+        exit 1
+    fi
+    mkdir -p "$clean_root"
+    unzip -q -o "$zip_file" -d "$clean_root"
+    if [ ! -d "$clean_root/$plugin" ]; then
+        echo "ERROR: Extracted zip did not contain expected directory '$plugin/'" >&2
+        exit 1
+    fi
+fi
+
+# ── Run the diff ────────────────────────────────────────────────
+echo "## Diff: $plugin $version"
+echo "## Clean:    $clean_root/$plugin"
+echo "## Installed: $(pwd)/$plugin_dir"
+echo
+
+if command -v git >/dev/null 2>&1; then
+    if [ -n "$stat" ]; then
+        git --no-pager diff --no-index --stat "$clean_root/$plugin" "$plugin_dir" || true
+    else
+        git --no-pager diff --no-index --stat "$clean_root/$plugin" "$plugin_dir" || true
+        echo
+        git --no-pager diff --no-index "$clean_root/$plugin" "$plugin_dir" || true
+    fi
+else
+    if [ -n "$stat" ]; then
+        diff -ruN "$clean_root/$plugin" "$plugin_dir" | diffstat 2>/dev/null || \
+            diff -ruN "$clean_root/$plugin" "$plugin_dir" | grep -c '^[+-]' || true
+    else
+        diff -ruN "$clean_root/$plugin" "$plugin_dir" || true
+    fi
+fi
+
+# ── Cleanup ─────────────────────────────────────────────────────
+if [ -z "$keep" ]; then
+    rm -rf "$stage_dir"
+fi
+
+exit 0
