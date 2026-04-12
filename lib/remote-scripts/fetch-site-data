@@ -153,12 +153,16 @@ heredoc
 php_memory=$( php -r "$php_code" )
 
 default_role=$( wp option get default_role --skip-themes --skip-plugins --skip-packages )
-registration=$( wp option get users_can_register --skip-themes --skip-plugins --skip-packages )
+if $( wp core is-installed --network --skip-themes --skip-plugins --skip-packages 2>/dev/null ); then
+    registration=$( wp site option get registration --skip-themes --skip-plugins --skip-packages 2>/dev/null )
+else
+    registration=$( wp option get users_can_register --skip-themes --skip-plugins --skip-packages 2>/dev/null )
+fi
 
 token=$( wp eval "echo md5( AUTH_KEY );" --skip-plugins --skip-themes )
 
 # Output key:value pairs (trim whitespace from WP-CLI output)
-trim() { echo "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
+trim() { printf '%s' "$1" | tr -d '\n\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
 
 echo "plugins:$(trim "$plugins")"
 echo "themes:$(trim "$themes")"
