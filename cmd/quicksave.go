@@ -931,22 +931,46 @@ func quicksaveLooseFilesScan(site *models.Site, env *models.Environment, system 
 		}
 	}
 
-	// SCP each file to the backup directory
+	// Batch transfer: stream all files through a single SSH+tar pipe.
+	// Per-file scp doesn't scale — sites with vendored libs (e.g. wpbot's bundled
+	// google/apiclient-services with 10k+ PHP files) take 14+ hours one-by-one.
 	sshOptions := fmt.Sprintf("-q -oStrictHostKeyChecking=no -oConnectTimeout=15 -oPreferredAuthentications=publickey -i %s", keyPath)
+	fileList := strings.Join(filesToFetch, "\n") + "\n"
+
+	sshArgs := strings.Fields(sshOptions)
+	sshArgs = append(sshArgs, "-p", env.Port,
+		fmt.Sprintf("%s@%s", env.Username, env.Address),
+		fmt.Sprintf("cd '%s' && tar czf - --ignore-failed-read -T -", remoteRoot))
+	sshCmd := exec.Command("ssh", sshArgs...)
+	sshCmd.Stdin = strings.NewReader(fileList)
+
+	tarCmd := exec.Command("tar", "xzf", "-", "-C", backupDir)
+	pipe, err := sshCmd.StdoutPipe()
+	if err != nil {
+		return
+	}
+	tarCmd.Stdin = pipe
+
+	if err := tarCmd.Start(); err != nil {
+		return
+	}
+	if err := sshCmd.Run(); err != nil {
+		fmt.Printf("  Loose files scan: SSH transfer failed: %v\n", err)
+		tarCmd.Wait()
+		return
+	}
+	if err := tarCmd.Wait(); err != nil {
+		fmt.Printf("  Loose files scan: tar extract failed: %v\n", err)
+		return
+	}
+
+	// Build localFiles from what actually landed on disk.
 	var localFiles []string
-
 	for _, remoteFile := range filesToFetch {
-		remotePath := fmt.Sprintf("%s@%s:%s/%s", env.Username, env.Address, remoteRoot, remoteFile)
 		localPath := filepath.Join(backupDir, remoteFile)
-		os.MkdirAll(filepath.Dir(localPath), 0755)
-
-		scpArgs := strings.Fields(sshOptions)
-		scpArgs = append(scpArgs, "-P", env.Port, remotePath, localPath)
-		scpCmd := exec.Command("scp", scpArgs...)
-		if err := scpCmd.Run(); err != nil {
-			continue
+		if _, err := os.Stat(localPath); err == nil {
+			localFiles = append(localFiles, localPath)
 		}
-		localFiles = append(localFiles, localPath)
 	}
 
 	if len(localFiles) == 0 {
