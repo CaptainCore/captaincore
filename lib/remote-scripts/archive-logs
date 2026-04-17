@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+
+#
+#   Enumerates rotated access and error log files for archival.
+#
+#   Kinsta rotates logs as:
+#     ~/logs/access.log-YYYY-MM-DD-EPOCH
+#     ~/logs/error.log-YYYY-MM-DD-EPOCH
+#   The bare access.log / error.log is the currently-writing file.
+#
+#   Output: TSV with columns: path, basename, type (access|error), gzipped (0|1)
+#
+
+set -u
+
+home_path="$HOME"
+
+emit_file() {
+  local path="$1"
+  local type="$2"
+
+  [ -f "$path" ] || return
+  [ -s "$path" ] || return
+
+  local base
+  base="$(basename "$path")"
+
+  case "$base" in
+    access.log|error.log)
+      return
+      ;;
+  esac
+
+  local gzipped=0
+  case "$base" in
+    *.gz) gzipped=1 ;;
+  esac
+
+  printf '%s\t%s\t%s\t%d\n' "$path" "$base" "$type" "$gzipped"
+}
+
+shopt -s nullglob
+
+for f in "$home_path"/logs/access.log-* "$home_path"/logs/access.log.*; do
+  emit_file "$f" "access"
+done
+
+for f in "$home_path"/logs/error.log-* "$home_path"/logs/error.log.*; do
+  emit_file "$f" "error"
+done
