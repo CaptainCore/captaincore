@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -375,9 +377,209 @@ func (c *logsConn) runScript(scriptPath string) (string, error) {
 	return string(out), nil
 }
 
+// logsArchiveListCmd lists archived logs in B2 for a site/environment.
+var logsArchiveListCmd = &cobra.Command{
+	Use:   "archive-list <site>",
+	Short: "List archived access/error logs stored in B2",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a <site> argument")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveNativeOrWP(cmd, args, logsArchiveListNative)
+	},
+}
+
+// logsArchiveGetCmd returns a signed B2 download URL for an archived log.
+var logsArchiveGetCmd = &cobra.Command{
+	Use:   "archive-get <site> <file>",
+	Short: "Get a signed download URL for an archived log file",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 2 {
+			return errors.New("requires <site> and <file> arguments")
+		}
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		resolveNativeOrWP(cmd, args, logsArchiveGetNative)
+	},
+}
+
+// archivedLog is the JSON shape emitted by archive-list.
+type archivedLog struct {
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Date    string `json:"date"`
+	Epoch   int64  `json:"epoch"`
+	Size    int64  `json:"size"`
+	ModTime string `json:"modtime"`
+}
+
+// filenamePattern matches Kinsta-rotated log basenames: {type}.log-{YYYY-MM-DD}-{EPOCH}[.gz]
+var filenamePattern = regexp.MustCompile(`^(access|error)\.log-(\d{4}-\d{2}-\d{2})-(\d+)(\.gz)?$`)
+
+// parseArchivedLogName extracts type/date/epoch from a basename.
+// Returns (type, date, epoch, ok).
+func parseArchivedLogName(name string) (string, string, int64, bool) {
+	m := filenamePattern.FindStringSubmatch(name)
+	if m == nil {
+		return "", "", 0, false
+	}
+	epoch, err := strconv.ParseInt(m[3], 10, 64)
+	if err != nil {
+		return "", "", 0, false
+	}
+	return m[1], m[2], epoch, true
+}
+
+func logsArchiveListNative(cmd *cobra.Command, args []string) {
+	sa := parseSiteArgument(args[0])
+	site, err := sa.LookupSite()
+	if err != nil || site == nil {
+		fmt.Printf(`{"error":"site not found"}` + "\n")
+		os.Exit(1)
+	}
+	env, err := sa.LookupEnvironment(site.SiteID)
+	if err != nil || env == nil {
+		fmt.Printf(`{"error":"environment not found"}` + "\n")
+		os.Exit(1)
+	}
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Printf(`{"error":"configuration not found"}` + "\n")
+		os.Exit(1)
+	}
+
+	envName := strings.ToLower(env.Environment)
+	siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+	rcloneBackup := getRcloneBackup(captain, system)
+	logsPath := fmt.Sprintf("%s/%s/%s/logs", rcloneBackup, siteDir, envName)
+
+	entries, err := rcloneListLogs(logsPath)
+	if err != nil {
+		fmt.Printf(`{"error":%q}`+"\n", err.Error())
+		os.Exit(1)
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Epoch > entries[j].Epoch
+	})
+
+	out, _ := json.MarshalIndent(entries, "", "  ")
+	fmt.Println(string(out))
+}
+
+// rcloneListLogs runs rclone lsjson recursively on the logs path and returns
+// parseable entries, skipping anything that doesn't match the Kinsta rotation pattern.
+func rcloneListLogs(remotePath string) ([]archivedLog, error) {
+	cmd := exec.Command("rclone", "lsjson", "--recursive", "--files-only", remotePath)
+	out, err := cmd.Output()
+	if err != nil {
+		s := strings.ToLower(err.Error())
+		if strings.Contains(s, "not found") || strings.Contains(s, "directory not found") {
+			return []archivedLog{}, nil
+		}
+		return nil, err
+	}
+
+	var raw []struct {
+		Path    string `json:"Path"`
+		Name    string `json:"Name"`
+		Size    int64  `json:"Size"`
+		ModTime string `json:"ModTime"`
+		IsDir   bool   `json:"IsDir"`
+	}
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return nil, err
+	}
+
+	entries := make([]archivedLog, 0, len(raw))
+	for _, r := range raw {
+		if r.IsDir {
+			continue
+		}
+		typ, date, epoch, ok := parseArchivedLogName(r.Name)
+		if !ok {
+			continue
+		}
+		entries = append(entries, archivedLog{
+			Name:    r.Name,
+			Type:    typ,
+			Date:    date,
+			Epoch:   epoch,
+			Size:    r.Size,
+			ModTime: r.ModTime,
+		})
+	}
+	return entries, nil
+}
+
+func logsArchiveGetNative(cmd *cobra.Command, args []string) {
+	file := args[1]
+	typ, _, _, ok := parseArchivedLogName(file)
+	if !ok {
+		fmt.Printf(`{"error":"invalid filename"}` + "\n")
+		os.Exit(1)
+	}
+
+	sa := parseSiteArgument(args[0])
+	site, err := sa.LookupSite()
+	if err != nil || site == nil {
+		fmt.Printf(`{"error":"site not found"}` + "\n")
+		os.Exit(1)
+	}
+	env, err := sa.LookupEnvironment(site.SiteID)
+	if err != nil || env == nil {
+		fmt.Printf(`{"error":"environment not found"}` + "\n")
+		os.Exit(1)
+	}
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Printf(`{"error":"configuration not found"}` + "\n")
+		os.Exit(1)
+	}
+
+	envName := strings.ToLower(env.Environment)
+	siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
+	rcloneBackup := getRcloneBackup(captain, system)
+	remote := fmt.Sprintf("%s/%s/%s/logs/%s/%s", rcloneBackup, siteDir, envName, typ, file)
+
+	expireDur := time.Duration(flagLogsArchiveExpire) * time.Hour
+	expireArg := fmt.Sprintf("%dh", flagLogsArchiveExpire)
+
+	linkCmd := exec.Command("rclone", "link", remote, "--expire", expireArg)
+	out, err := linkCmd.Output()
+	if err != nil {
+		stderr := ""
+		if ee, ok := err.(*exec.ExitError); ok {
+			stderr = strings.TrimSpace(string(ee.Stderr))
+		}
+		fmt.Printf(`{"error":%q}`+"\n", fmt.Sprintf("rclone link failed: %s", stderr))
+		os.Exit(1)
+	}
+
+	link := strings.TrimSpace(string(out))
+	resp := map[string]interface{}{
+		"link":       link,
+		"expires_at": time.Now().UTC().Add(expireDur).Format(time.RFC3339),
+		"expires_in": expireArg,
+	}
+	body, _ := json.MarshalIndent(resp, "", "  ")
+	fmt.Println(string(body))
+}
+
+var flagLogsArchiveExpire int
+
 func init() {
 	logsCmd.AddCommand(logsArchiveCmd)
+	logsCmd.AddCommand(logsArchiveListCmd)
+	logsCmd.AddCommand(logsArchiveGetCmd)
+
 	logsArchiveCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "List files that would be archived without uploading")
 	logsArchiveCmd.Flags().StringVar(&flagSkipIfRecent, "skip-if-recent", "", "Skip environments archived within the given duration (e.g., 24h)")
 	logsArchiveCmd.Flags().IntVarP(&flagParallel, "parallel", "p", 5, "Number of sites to archive at the same time (bulk mode)")
+
+	logsArchiveGetCmd.Flags().IntVar(&flagLogsArchiveExpire, "expire", 24, "Signed URL expiry in hours")
 }
