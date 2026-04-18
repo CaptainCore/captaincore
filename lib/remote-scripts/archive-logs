@@ -15,6 +15,15 @@ set -u
 
 home_path="$HOME"
 
+# Canonical Kinsta rotation: {type}.log-YYYY-MM-DD-EPOCH[.gz]
+canonical_re='^(access|error)\.log-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]+(\.gz)?$'
+
+is_gzipped() {
+  local magic
+  magic=$(head -c 2 "$1" 2>/dev/null | od -An -tx1 | tr -d ' \n')
+  [ "$magic" = "1f8b" ]
+}
+
 emit_file() {
   local path="$1"
   local type="$2"
@@ -25,26 +34,20 @@ emit_file() {
   local base
   base="$(basename "$path")"
 
-  case "$base" in
-    access.log|error.log)
-      return
-      ;;
-  esac
+  [[ "$base" =~ $canonical_re ]] || return
 
   local gzipped=0
-  case "$base" in
-    *.gz) gzipped=1 ;;
-  esac
+  is_gzipped "$path" && gzipped=1
 
   printf '%s\t%s\t%s\t%d\n' "$path" "$base" "$type" "$gzipped"
 }
 
 shopt -s nullglob
 
-for f in "$home_path"/logs/access.log-* "$home_path"/logs/access.log.*; do
+for f in "$home_path"/logs/access.log-*; do
   emit_file "$f" "access"
 done
 
-for f in "$home_path"/logs/error.log-* "$home_path"/logs/error.log.*; do
+for f in "$home_path"/logs/error.log-*; do
   emit_file "$f" "error"
 done
