@@ -1327,9 +1327,9 @@ func siteDeployDefaultsNative(cmd *cobra.Command, args []string) {
 	cid, _ := strconv.ParseUint(captainID, 10, 64)
 	configValue, _ := models.GetConfiguration(uint(cid), "configurations")
 	var globalDefaults struct {
-		Timezone string `json:"timezone"`
-		Email    string `json:"email"`
-		Recipes  []uint `json:"recipes"`
+		Timezone string     `json:"timezone"`
+		Email    string     `json:"email"`
+		Recipes  []recipeID `json:"recipes"`
 	}
 	if configValue != "" {
 		var configObj map[string]json.RawMessage
@@ -1350,7 +1350,10 @@ func siteDeployDefaultsNative(cmd *cobra.Command, args []string) {
 	deploymentScript.WriteString("\n")
 
 	for _, rid := range globalDefaults.Recipes {
-		recipeIDs = append(recipeIDs, rid)
+		if rid == 0 {
+			continue
+		}
+		recipeIDs = append(recipeIDs, uint(rid))
 	}
 
 	// Add account defaults (unless --global-only)
@@ -1371,7 +1374,7 @@ func siteDeployDefaultsNative(cmd *cobra.Command, args []string) {
 					FirstName string `json:"first_name"`
 					LastName  string `json:"last_name"`
 				} `json:"users"`
-				Recipes []uint `json:"recipes"`
+				Recipes []recipeID `json:"recipes"`
 			}
 			if account.Defaults != "" {
 				json.Unmarshal([]byte(account.Defaults), &defaults)
@@ -1391,7 +1394,10 @@ func siteDeployDefaultsNative(cmd *cobra.Command, args []string) {
 			deploymentScript.WriteString("\n")
 
 			for _, rid := range defaults.Recipes {
-				recipeIDs = append(recipeIDs, rid)
+				if rid == 0 {
+					continue
+				}
+				recipeIDs = append(recipeIDs, uint(rid))
 			}
 		}
 	}
@@ -1516,6 +1522,31 @@ func uniqueUints(input []uint) []uint {
 		}
 	}
 	return result
+}
+
+// recipeID unmarshals a recipe identifier from JSON that may encode the value
+// as either a number (e.g. 7) or a quoted numeric string (e.g. "7"). The
+// CaptainCore Manager UI persists recipe IDs as strings, so a plain uint target
+// would silently zero them out.
+type recipeID uint
+
+func (r *recipeID) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		*r = 0
+		return nil
+	}
+	unquoted := bytes.Trim(trimmed, `"`)
+	if len(unquoted) == 0 {
+		*r = 0
+		return nil
+	}
+	v, err := strconv.ParseUint(string(unquoted), 10, 64)
+	if err != nil {
+		return fmt.Errorf("recipeID: %w", err)
+	}
+	*r = recipeID(v)
+	return nil
 }
 
 func init() {
