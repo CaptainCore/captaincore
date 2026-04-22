@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,11 +37,12 @@ type MonitorRecord struct {
 
 // MonitorEmailItem holds data for a single row in the notification email.
 type MonitorEmailItem struct {
-	Name     string
-	URL      string
-	HTTPCode string
-	TimeAgo  string
-	Detail   string
+	Name      string
+	URL       string
+	HTTPCode  string
+	TimeAgo   string
+	Detail    string
+	CreatedAt int64
 }
 
 // monitorRunChecks runs health checks in parallel using a bounded worker pool.
@@ -479,10 +481,11 @@ func monitorGenerate(logErrors []MonitorCheckResult, monitorFile string, origina
 		// Check if site is now online (not in error list)
 		if !errorURLs[record.URL] {
 			restored = append(restored, MonitorEmailItem{
-				Name:     record.Name,
-				URL:      record.URL,
-				HTTPCode: record.HTTPCode,
-				TimeAgo:  "offline since " + time.Unix(record.CreatedAt, 0).Format("January 2, 2006, 3:04 pm"),
+				Name:      record.Name,
+				URL:       record.URL,
+				HTTPCode:  record.HTTPCode,
+				TimeAgo:   "offline since " + time.Unix(record.CreatedAt, 0).Format("January 2, 2006, 3:04 pm"),
+				CreatedAt: record.CreatedAt,
 			})
 			continue
 		}
@@ -490,10 +493,11 @@ func monitorGenerate(logErrors []MonitorCheckResult, monitorFile string, origina
 		// Check if notifications count is exceeded (beyond 24hrs)
 		if record.NotifyCount >= len(notifyThresholds) {
 			knownErrors = append(knownErrors, MonitorEmailItem{
-				Name:     record.Name,
-				URL:      record.URL,
-				HTTPCode: record.HTTPCode,
-				TimeAgo:  timeElapsedString(record.CreatedAt),
+				Name:      record.Name,
+				URL:       record.URL,
+				HTTPCode:  record.HTTPCode,
+				TimeAgo:   timeElapsedString(record.CreatedAt),
+				CreatedAt: record.CreatedAt,
 			})
 			keepRecords = append(keepRecords, record)
 			continue
@@ -516,10 +520,11 @@ func monitorGenerate(logErrors []MonitorCheckResult, monitorFile string, origina
 		// Check if "notify at" time is ready
 		if record.CreatedAt > notifyTimeCheck {
 			knownErrors = append(knownErrors, MonitorEmailItem{
-				Name:     record.Name,
-				URL:      record.URL,
-				HTTPCode: record.HTTPCode,
-				TimeAgo:  timeElapsedString(record.CreatedAt),
+				Name:      record.Name,
+				URL:       record.URL,
+				HTTPCode:  record.HTTPCode,
+				TimeAgo:   timeElapsedString(record.CreatedAt),
+				CreatedAt: record.CreatedAt,
 			})
 			keepRecords = append(keepRecords, record)
 			continue
@@ -533,11 +538,12 @@ func monitorGenerate(logErrors []MonitorCheckResult, monitorFile string, origina
 			}
 			record.NotifyCount++
 			emailErrors = append(emailErrors, MonitorEmailItem{
-				Name:     record.Name,
-				URL:      record.URL,
-				HTTPCode: record.HTTPCode,
-				TimeAgo:  timeElapsedString(record.CreatedAt),
-				Detail:   detail,
+				Name:      record.Name,
+				URL:       record.URL,
+				HTTPCode:  record.HTTPCode,
+				TimeAgo:   timeElapsedString(record.CreatedAt),
+				Detail:    detail,
+				CreatedAt: record.CreatedAt,
 			})
 			keepRecords = append(keepRecords, record)
 			continue
@@ -546,9 +552,10 @@ func monitorGenerate(logErrors []MonitorCheckResult, monitorFile string, origina
 		// 301 redirect warning
 		if record.HTTPCode == "301" {
 			warnings = append(warnings, MonitorEmailItem{
-				Name:     record.Name,
-				URL:      record.URL,
-				HTTPCode: record.HTTPCode,
+				Name:      record.Name,
+				URL:       record.URL,
+				HTTPCode:  record.HTTPCode,
+				CreatedAt: record.CreatedAt,
 			})
 			keepRecords = append(keepRecords, record)
 			continue
@@ -557,14 +564,23 @@ func monitorGenerate(logErrors []MonitorCheckResult, monitorFile string, origina
 		// General error
 		record.NotifyCount++
 		emailErrors = append(emailErrors, MonitorEmailItem{
-			Name:     record.Name,
-			URL:      record.URL,
-			HTTPCode: record.HTTPCode,
-			TimeAgo:  timeElapsedString(record.CreatedAt),
-			Detail:   record.Error,
+			Name:      record.Name,
+			URL:       record.URL,
+			HTTPCode:  record.HTTPCode,
+			TimeAgo:   timeElapsedString(record.CreatedAt),
+			Detail:    record.Error,
+			CreatedAt: record.CreatedAt,
 		})
 		keepRecords = append(keepRecords, record)
 	}
+
+	// Sort errors newest first (by original CreatedAt timestamp)
+	sort.SliceStable(emailErrors, func(i, j int) bool {
+		return emailErrors[i].CreatedAt > emailErrors[j].CreatedAt
+	})
+	sort.SliceStable(knownErrors, func(i, j int) bool {
+		return knownErrors[i].CreatedAt > knownErrors[j].CreatedAt
+	})
 
 	// Save updated monitor.json atomically
 	monitorJSON, _ := json.MarshalIndent(keepRecords, "", "    ")
