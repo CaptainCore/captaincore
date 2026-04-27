@@ -61,7 +61,7 @@ read -r -d '' build_mu_plugin << 'heredoc'
  * Plugin Name: CaptainCore Helper
  * Plugin URI: https://captaincore.io
  * Description: Collection of helper functions for CaptainCore
- * Version: 0.7.0
+ * Version: 0.7.1
  * Author: CaptainCore
  * Author URI: https://captaincore.io
  * Text Domain: captaincore-helper
@@ -1681,7 +1681,10 @@ class UserEnumerationProtection {
             return;
         }
         add_action( 'init', [ __CLASS__, 'block_author_query' ] );
-        add_filter( 'rest_pre_dispatch', [ __CLASS__, 'block_rest_users' ], 10, 3 );
+        add_filter( 'rest_user_query', [ __CLASS__, 'force_empty_user_collection' ], PHP_INT_MAX );
+        // PHP_INT_MAX so we run after ACF Pro's rest_pre_dispatch hook, which
+        // returns null and clobbers any earlier callback's WP_Error.
+        add_filter( 'rest_pre_dispatch', [ __CLASS__, 'block_rest_user_single' ], PHP_INT_MAX, 3 );
         add_filter( 'wp_sitemaps_add_provider', [ __CLASS__, 'remove_author_sitemap' ], 10, 2 );
         add_filter( 'oembed_response_data', [ __CLASS__, 'remove_oembed_author_url' ] );
         add_action( 'template_redirect', [ __CLASS__, 'block_author_archives' ] );
@@ -1704,18 +1707,46 @@ class UserEnumerationProtection {
     }
 
     /**
-     * Block REST API /wp/v2/users for unauthenticated users.
+     * Force the /wp/v2/users collection query to return zero rows for
+     * unauthenticated callers.
+     *
+     * Setting include => [0] makes WP_User_Query match no user (no user
+     * has ID 0), so the endpoint returns 200 with an empty array. This
+     * is indistinguishable from a default WP install with no published
+     * authors, and avoids the fingerprint of an unregistered route.
      */
-    public static function block_rest_users( $result, $server, $request ) {
-        if ( $result !== null ) {
+    public static function force_empty_user_collection( $args ) {
+        if ( is_user_logged_in() ) {
+            return $args;
+        }
+        $args['include'] = [ 0 ];
+        return $args;
+    }
+
+    /**
+     * Return rest_user_invalid_id for unauthenticated single-user lookups
+     * (/wp/v2/users/N, /wp/v2/users/me).
+     *
+     * Mimics WP's natural response when the requested user is not
+     * viewable, instead of revealing that the request was actively
+     * blocked. Registered at PHP_INT_MAX so it runs after filters that
+     * fail to return their input (e.g. ACF Pro's
+     * ACF_Rest_Api::initialize, which is hooked to rest_pre_dispatch but
+     * never returns its $response argument).
+     */
+    public static function block_rest_user_single( $result, $server, $request ) {
+        if ( is_wp_error( $result ) ) {
+            return $result;
+        }
+        if ( is_user_logged_in() ) {
             return $result;
         }
         $route = $request->get_route();
-        if ( preg_match( '#^/wp/v2/users#', $route ) && ! is_user_logged_in() ) {
+        if ( preg_match( '#^/wp/v2/users/[^/]+#', $route ) ) {
             return new \WP_Error(
-                'rest_user_cannot_view',
-                'User enumeration is not allowed.',
-                [ 'status' => 401 ]
+                'rest_user_invalid_id',
+                'Invalid user ID.',
+                [ 'status' => 404 ]
             );
         }
         return $result;
@@ -1845,7 +1876,35 @@ class SecurityPatchUpdater {
 	}
 
 	/**
+	 * Find the highest-versioned patch for a given slug + type across all
+	 * manifest entries. Returns null if nothing matches.
+	 *
+	 * Slug-based lookup means one manifest row covers every installed
+	 * version of a hijacked component without requiring per-version rows.
+	 */
+	private function find_patch_by_slug( array $patches, $slug, $type ) {
+		$best = null;
+		foreach ( $patches as $patch ) {
+			if ( ! is_array( $patch ) ) {
+				continue;
+			}
+			if ( ( $patch['slug'] ?? '' ) !== $slug || ( $patch['type'] ?? '' ) !== $type ) {
+				continue;
+			}
+			if ( $best === null || version_compare( $patch['patched_version'] ?? '0', $best['patched_version'] ?? '0', '>' ) ) {
+				$best = $patch;
+			}
+		}
+		return $best;
+	}
+
+	/**
 	 * Inject security patches into plugin update transient.
+	 *
+	 * Match policy: lookup by slug, only inject if our patched_version
+	 * is strictly newer than what's installed AND strictly newer than
+	 * any upstream offer already in the transient. Lets the original
+	 * author reclaim the slug whenever they ship a version above ours.
 	 */
 	public function check_plugin_updates( $transient ) {
 		if ( empty( $transient->checked ) ) {
@@ -1858,19 +1917,37 @@ class SecurityPatchUpdater {
 		}
 
 		foreach ( $transient->checked as $plugin_file => $installed_version ) {
-			$slug = dirname( $plugin_file );
-			$key  = "plugin|{$slug}|{$installed_version}";
-
-			if ( isset( $patches[ $key ] ) ) {
-				$patch = $patches[ $key ];
-				$response              = new \stdClass();
-				$response->slug        = $slug;
-				$response->plugin      = $plugin_file;
-				$response->new_version = $patch['patched_version'];
-				$response->package     = $patch['download_url'];
-				$response->url         = '';
-				$transient->response[ $plugin_file ] = $response;
+			$slug  = dirname( $plugin_file );
+			$patch = $this->find_patch_by_slug( $patches, $slug, 'plugin' );
+			if ( ! $patch ) {
+				continue;
 			}
+
+			$patched_version = $patch['patched_version'] ?? '';
+			if ( $patched_version === '' ) {
+				continue;
+			}
+
+			// Site is already at our patched build (or higher).
+			if ( version_compare( $installed_version, $patched_version, '>=' ) ) {
+				continue;
+			}
+
+			// Upstream is already offering something at least as new as our patch.
+			if ( isset( $transient->response[ $plugin_file ]->new_version ) ) {
+				$upstream = $transient->response[ $plugin_file ]->new_version;
+				if ( version_compare( $upstream, $patched_version, '>=' ) ) {
+					continue;
+				}
+			}
+
+			$response              = new \stdClass();
+			$response->slug        = $slug;
+			$response->plugin      = $plugin_file;
+			$response->new_version = $patched_version;
+			$response->package     = $patch['download_url'];
+			$response->url         = '';
+			$transient->response[ $plugin_file ] = $response;
 		}
 
 		return $transient;
@@ -1878,6 +1955,8 @@ class SecurityPatchUpdater {
 
 	/**
 	 * Inject security patches into theme update transient.
+	 *
+	 * Same match policy as check_plugin_updates().
 	 */
 	public function check_theme_updates( $transient ) {
 		if ( empty( $transient->checked ) ) {
@@ -1890,17 +1969,33 @@ class SecurityPatchUpdater {
 		}
 
 		foreach ( $transient->checked as $theme_slug => $installed_version ) {
-			$key = "theme|{$theme_slug}|{$installed_version}";
-
-			if ( isset( $patches[ $key ] ) ) {
-				$patch = $patches[ $key ];
-				$transient->response[ $theme_slug ] = [
-					'theme'       => $theme_slug,
-					'new_version' => $patch['patched_version'],
-					'package'     => $patch['download_url'],
-					'url'         => '',
-				];
+			$patch = $this->find_patch_by_slug( $patches, $theme_slug, 'theme' );
+			if ( ! $patch ) {
+				continue;
 			}
+
+			$patched_version = $patch['patched_version'] ?? '';
+			if ( $patched_version === '' ) {
+				continue;
+			}
+
+			if ( version_compare( $installed_version, $patched_version, '>=' ) ) {
+				continue;
+			}
+
+			if ( isset( $transient->response[ $theme_slug ]['new_version'] ) ) {
+				$upstream = $transient->response[ $theme_slug ]['new_version'];
+				if ( version_compare( $upstream, $patched_version, '>=' ) ) {
+					continue;
+				}
+			}
+
+			$transient->response[ $theme_slug ] = [
+				'theme'       => $theme_slug,
+				'new_version' => $patched_version,
+				'package'     => $patch['download_url'],
+				'url'         => '',
+			];
 		}
 
 		return $transient;
