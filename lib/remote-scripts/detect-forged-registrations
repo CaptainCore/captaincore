@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+
+#
+#   Detect WordPress users with forged user_registered dates
+#
+#   WordPress assigns user IDs from an auto-increment column, so on a normal
+#   site user_registered should be monotonically non-decreasing as ID increases.
+#   Any user whose user_registered predates the previous extant ID's registration
+#   is flagged. This catches trigger-recreated admin accounts that hardcode a
+#   backdated timestamp to look like long-standing legacy artifacts.
+#
+#   Output format: SEVERITY|ID|login|role|registered|days_backwards
+#
+#   Usage:
+#     captaincore ssh <site> --script=detect-forged-registrations
+#     captaincore ssh @all  --script=detect-forged-registrations --quiet
+#
+#   Flags:
+#     --quiet   Only output if findings are present (for bulk scanning)
+#
+
+set -uo pipefail
+
+# ── Argument parsing ─────────────────────────────────────────────
+quiet=""
+for _arg in "$@"; do
+    case "$_arg" in
+        --quiet) quiet=true ;;
+        --*) ;;
+        *)  WP_ROOT="$_arg" ;;
+    esac
+done
+
+WP_ROOT="${WP_ROOT:-.}"
+cd "$WP_ROOT" 2>/dev/null || { echo "ERROR: Cannot access $WP_ROOT"; exit 1; }
+
+if [ ! -f "wp-config.php" ] && [ -f "public/wp-config.php" ]; then
+    cd public
+elif [ ! -f "wp-config.php" ] && [ -f "public_html/wp-config.php" ]; then
+    cd public_html
+fi
+
+if [ ! -f "wp-config.php" ]; then
+    [ -z "$quiet" ] && echo "WordPress not found."
+    exit 0
+fi
+
+if ! command -v wp &>/dev/null; then
+    echo "ERROR: WP-CLI not available"
+    exit 1
+fi
+
+WP_FLAGS="--skip-themes --skip-plugins --skip-packages"
+
+PREFIX=$(wp db prefix $WP_FLAGS 2>/dev/null)
+if [ -z "$PREFIX" ]; then
+    [ -z "$quiet" ] && echo "ERROR: could not read table prefix (DB unreachable?)"
+    exit 1
+fi
+
+# ── Detection query ──────────────────────────────────────────────
+# Joins each user against the immediately-preceding extant ID (handles
+# deleted-user gaps correctly) and flags rows where user_registered is
+# earlier than the predecessor's. Joins usermeta to surface role inline
+# since admin forgery is the high-impact case.
+read -r -d '' QUERY <<SQL || true
+SELECT
+    u.ID,
+    u.user_login,
+    u.user_email,
+    u.user_registered,
+    prev.ID,
+    prev.user_registered,
+    TIMESTAMPDIFF(DAY, u.user_registered, prev.user_registered),
+    CASE
+        WHEN um.meta_value LIKE '%administrator%' THEN 'administrator'
+        WHEN um.meta_value LIKE '%editor%'        THEN 'editor'
+        WHEN um.meta_value LIKE '%author%'        THEN 'author'
+        WHEN um.meta_value LIKE '%contributor%'   THEN 'contributor'
+        WHEN um.meta_value LIKE '%subscriber%'    THEN 'subscriber'
+        WHEN um.meta_value LIKE '%customer%'      THEN 'customer'
+        WHEN um.meta_value IS NULL                THEN 'none'
+        ELSE 'other'
+    END
+FROM \`${PREFIX}users\` u
+LEFT JOIN \`${PREFIX}users\` prev ON prev.ID = (
+    SELECT MAX(ID) FROM \`${PREFIX}users\` WHERE ID < u.ID
+)
+LEFT JOIN \`${PREFIX}usermeta\` um ON um.user_id = u.ID
+    AND um.meta_key = '${PREFIX}capabilities'
+WHERE prev.ID IS NOT NULL
+    AND u.user_registered < prev.user_registered
+ORDER BY TIMESTAMPDIFF(DAY, u.user_registered, prev.user_registered) DESC
+SQL
+
+results=$(wp db query "$QUERY" --skip-column-names $WP_FLAGS 2>/dev/null)
+
+if [ -z "$results" ]; then
+    [ -z "$quiet" ] && echo "No forged registration dates detected."
+    exit 0
+fi
+
+# ── Output findings ──────────────────────────────────────────────
+# Admin role + large gap = CRITICAL (likely trigger-recreated backdoor account)
+# Admin role + small gap = HIGH     (could be a legitimate import; verify against backups)
+# Non-admin role         = MEDIUM   (lower impact but still anomalous)
+echo "$results" | awk 'BEGIN { FS="\t"; OFS="|" } {
+    id=$1; login=$2; registered=$4; days=$7; role=$8
+    if (role == "administrator") {
+        severity = (days >= 30) ? "CRITICAL" : "HIGH"
+    } else {
+        severity = "MEDIUM"
+    }
+    print severity, id, login, role, registered, days
+}'
