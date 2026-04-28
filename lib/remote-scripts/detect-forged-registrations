@@ -89,7 +89,9 @@ LEFT JOIN \`${PREFIX}users\` prev ON prev.ID = (
 LEFT JOIN \`${PREFIX}usermeta\` um ON um.user_id = u.ID
     AND um.meta_key = '${PREFIX}capabilities'
 WHERE prev.ID IS NOT NULL
-    AND u.user_registered < prev.user_registered
+    AND u.user_registered != '0000-00-00 00:00:00'
+    AND prev.user_registered != '0000-00-00 00:00:00'
+    AND TIMESTAMPDIFF(DAY, u.user_registered, prev.user_registered) >= 1
 ORDER BY TIMESTAMPDIFF(DAY, u.user_registered, prev.user_registered) DESC
 SQL
 
