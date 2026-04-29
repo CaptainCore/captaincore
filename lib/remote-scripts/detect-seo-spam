@@ -99,7 +99,9 @@ if ! wp db prefix $WP_FLAGS &>/dev/null; then
 fi
 
 PREFIX=$(wp db prefix $WP_FLAGS 2>/dev/null)
-SITE_HOST=$(wp option get home $WP_FLAGS 2>/dev/null | sed 's|^https\?://||;s|/.*$||')
+# Strip protocol and trailing path. -E (extended regex) for cross-platform
+# compatibility — BSD sed (macOS) doesn't honor \? in basic regex.
+SITE_HOST=$(wp option get home $WP_FLAGS 2>/dev/null | sed -E 's|^https?://||;s|/.*$||')
 
 strip_wpcli_status() {
     grep -v -E '^(Success|Error|Warning):|^[[:space:]]*$' || true
@@ -165,6 +167,7 @@ is_valid_external_host() {
 }
 
 found_any=""
+seen_post_ids=" "
 
 # Pattern matching shared between scans:
 #
@@ -180,6 +183,21 @@ found_any=""
 
 CLOAK_REGEX='<(div|p)[[:space:]][^>]*style="[^"]*position[[:space:]]*:[[:space:]]*absolute[^"]*left[[:space:]]*:[[:space:]]*-[0-9]{3,}'
 CLOAK_CLASS_REGEX='<div[[:space:]][^>]*class="[^"]*loading-frame-wrapper'
+
+# Spam-domain href pattern for the visible-spam scan (section 1b).
+#
+# Matches <a href="http(s)://...spam-keyword..."> anywhere in content.
+# Keywords are drug names, payday-loan terms, and counterfeit-luxury
+# patterns observed across multiple injection campaigns. Single hit could
+# be a legitimate medical/news reference, so the visible-spam scan
+# requires 2+ matches per post before flagging.
+#
+# This catches the unobfuscated variant where attackers append garbled
+# <p> blocks containing 5-10 anchor tags to spam domains, with no
+# cloaking style — the variant that sailed past CLOAK_REGEX on
+# snlym.com posts 356 and 359.
+
+SPAM_HREF_REGEX='<a[[:space:]]+[^>]*href="https?://[^"]*(cialis|viagra|payday|louisvuitton|kamagra|sildenafil|tadalafil|dapoxetine|nolvadex|propecia|tetracycline|isotretinoin|clomid|doxycycline|prednisone|wellbutrin|abilify|levitra|maxalt|elocon|rxpills|rxtabs|edtabs|pharmacyrx|onlinepharmacy|rxonline|rxbest|cheaprx|fastrx|norxbest|noprescription|nopres)[^"]*"'
 
 # ── 1. wp_posts.post_content scan ───────────────────────────────
 
@@ -206,7 +224,7 @@ if [ -n "$results" ]; then
               'href=\"', -1),
             '\"', 1)
             FROM ${PREFIX}posts WHERE ID = $id
-        " --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status | head -1 | head -c 80 | sed 's|^https\?://||;s|/.*$||')
+        " --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status | head -1 | head -c 80 | sed -E 's|^https?://||;s|/.*$||')
 
         # Skip false positives: honeypot fields, CSS gibberish, self-links
         is_valid_external_host "$sample" "$SITE_HOST" || continue
@@ -224,9 +242,81 @@ if [ -n "$results" ]; then
             *)       sev=HIGH ;;
         esac
 
+        seen_post_ids="${seen_post_ids}${id} "
+
         printf "%s|POST|%s|%s|%s|%s|%s|%s\n" \
             "$sev" "$id" "$ptype" "$pstatus" "$ptitle" "${hits:-?}" "$sample"
     done <<< "$results"
+fi
+
+# ── 1b. Visible spam-link paragraph scan ────────────────────────
+#
+# Catches the unobfuscated injection variant: posts with 2+ <a href>
+# anchors pointing at known pharmacy / payday / luxury / drug-name
+# domains, with no off-screen cloaking style. The attacker just
+# appends garbled English seeded with affiliate links to the bottom
+# of a post — visible to humans, indexed by search engines.
+#
+# Threshold: 2+ matching anchors per post. A single hit could be a
+# legitimate medical/news reference; 2+ is unambiguous spam.
+#
+# Posts already flagged by section 1 are skipped to avoid duplicate
+# rows for the cloaked-AND-visible case (e.g. snlym.com post 346,
+# which had both a cloaked div and 3 trailing visible <p> blocks).
+
+VISIBLE_QUERY="
+SELECT ID, post_type, post_status, post_title
+FROM ${PREFIX}posts
+WHERE post_status IN ('publish', 'draft', 'private')
+  AND post_content REGEXP '${SPAM_HREF_REGEX}'
+ORDER BY post_modified_gmt DESC
+"
+
+vis_results=$(wp db query "$VISIBLE_QUERY" --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status)
+
+if [ -n "$vis_results" ]; then
+    while IFS=$'\t' read -r id ptype pstatus ptitle; do
+        [ -z "${id// }" ] && continue
+
+        # Already emitted by section 1? Skip.
+        case "$seen_post_ids" in
+            *" $id "*) continue ;;
+        esac
+
+        # Count matching anchors. Fetch post_content and grep for the
+        # spam-href pattern. Threshold is 2+ to avoid flagging single
+        # legitimate medical/news references.
+        body=$(wp db query "
+            SELECT post_content
+            FROM ${PREFIX}posts WHERE ID = $id
+        " --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status)
+
+        anchor_hits=$(echo "$body" | grep -ioE '<a[[:space:]]+[^>]*href="https?://[^"]*(cialis|viagra|payday|louisvuitton|kamagra|sildenafil|tadalafil|dapoxetine|nolvadex|propecia|tetracycline|isotretinoin|clomid|doxycycline|prednisone|wellbutrin|abilify|levitra|maxalt|elocon|rxpills|rxtabs|edtabs|pharmacyrx|onlinepharmacy|rxonline|rxbest|cheaprx|fastrx|norxbest|noprescription|nopres)[^"]*"' | wc -l | tr -d ' ')
+
+        [ "${anchor_hits:-0}" -lt 2 ] && continue
+
+        # Sample: first spam href hostname found
+        sample=$(echo "$body" \
+            | grep -ioE '<a[[:space:]]+[^>]*href="https?://[^"]*(cialis|viagra|payday|louisvuitton|kamagra|sildenafil|tadalafil|dapoxetine|nolvadex|propecia|tetracycline|isotretinoin|clomid|doxycycline|prednisone|wellbutrin|abilify|levitra|maxalt|elocon|rxpills|rxtabs|edtabs|pharmacyrx|onlinepharmacy|rxonline|rxbest|cheaprx|fastrx|norxbest|noprescription|nopres)[^"]*"' \
+            | head -1 \
+            | grep -ioE 'href="[^"]*"' \
+            | sed -E 's|href="||;s|".*$||;s|^https?://||;s|/.*$||' \
+            | head -c 80)
+
+        # Sanity: extracted hostname looks like a real external domain
+        is_valid_external_host "$sample" "$SITE_HOST" || continue
+
+        found_any=true
+        seen_post_ids="${seen_post_ids}${id} "
+
+        case "$pstatus" in
+            publish) sev=CRITICAL ;;
+            *)       sev=HIGH ;;
+        esac
+
+        printf "%s|POST|%s|%s|%s|%s|%s|%s\n" \
+            "$sev" "$id" "$ptype" "$pstatus" "$ptitle" "$anchor_hits" "$sample"
+    done <<< "$vis_results"
 fi
 
 # ── 2. wp_options.option_value scan (widgets, theme mods, etc.) ──
@@ -260,7 +350,7 @@ if [ -n "$opt_results" ]; then
               'href=\"', -1),
             '\"', 1)
             FROM ${PREFIX}options WHERE option_id = $opt_id
-        " --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status | head -1 | head -c 80 | sed 's|^https\?://||;s|/.*$||')
+        " --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status | head -1 | head -c 80 | sed -E 's|^https?://||;s|/.*$||')
 
         # Skip false positives: honeypot fields, CSS gibberish, self-links
         is_valid_external_host "$sample" "$SITE_HOST" || continue
@@ -306,7 +396,7 @@ if [ -z "$skip_frontend" ] && command -v curl &>/dev/null && [ -n "$SITE_HOST" ]
                 | grep -ioE '(<(div|p)[^>]*style="[^"]*position[^"]*absolute[^"]*left[^"]*-[0-9]+[^"]*"[^>]*>|<div[^>]*class="[^"]*loading-frame-wrapper[^"]*"[^>]*>)[^<]*<a[^>]*href="[^"]*"' \
                 | grep -ioE 'href="[^"]*"' \
                 | head -1 \
-                | sed 's|href="||;s|".*$||;s|^https\?://||;s|/.*$||')
+                | sed -E 's|href="||;s|".*$||;s|^https?://||;s|/.*$||')
 
             # Skip false positives: honeypot fields with no <a href> in the cloak
             if is_valid_external_host "$sample" "$SITE_HOST"; then
