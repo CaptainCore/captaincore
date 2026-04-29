@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+
+#
+#   Detect WordPress database-layer persistence mechanisms
+#
+#   Stock WordPress has ZERO triggers, events, and stored routines.
+#   Anything found here is a database-layer persistence mechanism that
+#   file-based cleanups will NOT touch — they survive plugin reinstalls,
+#   core reinstalls, password resets, and salt shuffles. Only DROP TRIGGER /
+#   DROP EVENT / DROP PROCEDURE removes them.
+#
+#   Common attack pattern (observed on multiple sites): an after_insert_comment
+#   trigger watches for a magic phrase in trackback comments and INSERTs a
+#   rogue admin account with a hardcoded phpass hash whenever the phrase appears.
+#   The trigger can sit dormant for months between fires.
+#
+#   Output format:
+#     SEVERITY|TYPE|NAME|TABLE|TIMING|EVENT|CREATED|TOOLKIT_FLAG
+#
+#   Where:
+#     TYPE          = TRIGGER / EVENT / ROUTINE
+#     TOOLKIT_FLAG  = TOOLKIT_MATCH if body contains known attacker signatures,
+#                     - otherwise
+#
+#   To inspect the full body of a flagged trigger, run:
+#     wp db query "SELECT ACTION_STATEMENT FROM INFORMATION_SCHEMA.TRIGGERS WHERE TRIGGER_NAME='<name>'\\G"
+#
+#   Usage:
+#     captaincore ssh <site> --script=detect-database-triggers
+#     captaincore ssh @all  --script=detect-database-triggers --quiet
+#
+#   Flags:
+#     --quiet   Only output if findings are present (for bulk scanning)
+#
+
+set -uo pipefail
+
+# ── Argument parsing ─────────────────────────────────────────────
+quiet=""
+for _arg in "$@"; do
+    case "$_arg" in
+        --quiet) quiet=true ;;
+        --*) ;;
+        *)  WP_ROOT="$_arg" ;;
+    esac
+done
+
+WP_ROOT="${WP_ROOT:-.}"
+cd "$WP_ROOT" 2>/dev/null || { echo "ERROR: Cannot access $WP_ROOT"; exit 1; }
+
+if [ ! -f "wp-config.php" ] && [ -f "public/wp-config.php" ]; then
+    cd public
+elif [ ! -f "wp-config.php" ] && [ -f "public_html/wp-config.php" ]; then
+    cd public_html
+fi
+
+if [ ! -f "wp-config.php" ]; then
+    [ -z "$quiet" ] && echo "WordPress not found."
+    exit 0
+fi
+
+if ! command -v wp &>/dev/null; then
+    echo "ERROR: WP-CLI not available"
+    exit 1
+fi
+
+WP_FLAGS="--skip-themes --skip-plugins --skip-packages"
+
+# Sanity check the DB is reachable before issuing schema queries
+if ! wp db prefix $WP_FLAGS &>/dev/null; then
+    [ -z "$quiet" ] && echo "ERROR: WordPress DB unreachable"
+    exit 1
+fi
+
+# wp db query emits "Success: Query succeeded. Rows affected: -1" on empty SELECTs
+# (and similar Error:/Warning: lines on failure). Filter those out so they don't
+# get parsed as data rows.
+strip_wpcli_status() {
+    grep -v -E '^(Success|Error|Warning):' || true
+}
+
+found_any=""
+
+# ── 1. Triggers (most common DB-layer persistence) ──────────────
+# Fetch metadata only (no body) — REPLACE/LEFT on ACTION_STATEMENT longtext
+# returns empty via wp db query, so we use a separate WHERE-clause query
+# to determine toolkit-signature matches.
+TRIGGER_QUERY="SELECT TRIGGER_NAME, EVENT_OBJECT_TABLE, ACTION_TIMING, EVENT_MANIPULATION, COALESCE(CREATED, '-') FROM INFORMATION_SCHEMA.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE()"
+TOOLKIT_TRIGGER_QUERY="SELECT TRIGGER_NAME FROM INFORMATION_SCHEMA.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE() AND (ACTION_STATEMENT LIKE '%are you struggling to get comments%' OR ACTION_STATEMENT LIKE '%articlesuser%' OR ACTION_STATEMENT LIKE '%webauth%' OR ACTION_STATEMENT LIKE '%administrator\";s:1:\"1\"%' OR ACTION_STATEMENT LIKE '%\$P\$%')"
+
+triggers=$(wp db query "$TRIGGER_QUERY" --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status)
+toolkit_names=$(wp db query "$TOOLKIT_TRIGGER_QUERY" --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status | tr '\n' '|')
+
+if [ -n "$triggers" ]; then
+    found_any=true
+    while IFS=$'\t' read -r name table timing event created; do
+        [ -z "$name" ] && continue
+        toolkit="-"
+        # Match against pipe-delimited toolkit names (with leading/trailing | for word-boundary)
+        if [ -n "$toolkit_names" ] && echo "|${toolkit_names}" | grep -qF "|${name}|"; then
+            toolkit="TOOLKIT_MATCH"
+        fi
+        printf "CRITICAL|TRIGGER|%s|%s|%s|%s|%s|%s\n" "$name" "$table" "$timing" "$event" "$created" "$toolkit"
+    done <<< "$triggers"
+fi
+
+# ── 2. Scheduled events ──────────────────────────────────────────
+EVENT_QUERY="SELECT EVENT_NAME, STATUS, EVENT_TYPE, COALESCE(CONCAT('EVERY ', INTERVAL_VALUE, ' ', INTERVAL_FIELD), 'AT_DATE'), COALESCE(CREATED, '-') FROM INFORMATION_SCHEMA.EVENTS WHERE EVENT_SCHEMA = DATABASE()"
+TOOLKIT_EVENT_QUERY="SELECT EVENT_NAME FROM INFORMATION_SCHEMA.EVENTS WHERE EVENT_SCHEMA = DATABASE() AND (EVENT_DEFINITION LIKE '%are you struggling to get comments%' OR EVENT_DEFINITION LIKE '%articlesuser%' OR EVENT_DEFINITION LIKE '%webauth%' OR EVENT_DEFINITION LIKE '%administrator\";s:1:\"1\"%')"
+
+events=$(wp db query "$EVENT_QUERY" --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status)
+toolkit_event_names=$(wp db query "$TOOLKIT_EVENT_QUERY" --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status | tr '\n' '|')
+
+if [ -n "$events" ]; then
+    found_any=true
+    while IFS=$'\t' read -r name status type interval created; do
+        [ -z "$name" ] && continue
+        toolkit="-"
+        if [ -n "$toolkit_event_names" ] && echo "|${toolkit_event_names}" | grep -qF "|${name}|"; then
+            toolkit="TOOLKIT_MATCH"
+        fi
+        # Pack EVENT-specific fields into TABLE/TIMING/EVENT slots: status as TABLE, interval as TIMING, type as EVENT
+        printf "CRITICAL|EVENT|%s|%s|%s|%s|%s|%s\n" "$name" "$status" "$interval" "$type" "$created" "$toolkit"
+    done <<< "$events"
+fi
+
+# ── 3. Stored routines (procedures + functions) ─────────────────
+ROUTINE_QUERY="SELECT ROUTINE_NAME, ROUTINE_TYPE, COALESCE(CREATED, '-') FROM INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_SCHEMA = DATABASE()"
+TOOLKIT_ROUTINE_QUERY="SELECT ROUTINE_NAME FROM INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_SCHEMA = DATABASE() AND (ROUTINE_DEFINITION LIKE '%are you struggling to get comments%' OR ROUTINE_DEFINITION LIKE '%articlesuser%' OR ROUTINE_DEFINITION LIKE '%webauth%' OR ROUTINE_DEFINITION LIKE '%administrator\";s:1:\"1\"%')"
+
+routines=$(wp db query "$ROUTINE_QUERY" --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status)
+toolkit_routine_names=$(wp db query "$TOOLKIT_ROUTINE_QUERY" --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status | tr '\n' '|')
+
+if [ -n "$routines" ]; then
+    found_any=true
+    while IFS=$'\t' read -r name type created; do
+        [ -z "$name" ] && continue
+        toolkit="-"
+        if [ -n "$toolkit_routine_names" ] && echo "|${toolkit_routine_names}" | grep -qF "|${name}|"; then
+            toolkit="TOOLKIT_MATCH"
+        fi
+        # Routines have no table/timing/event — fill with "-"
+        printf "CRITICAL|ROUTINE|%s|-|-|%s|%s|%s\n" "$name" "$type" "$created" "$toolkit"
+    done <<< "$routines"
+fi
+
+if [ -z "$found_any" ]; then
+    [ -z "$quiet" ] && echo "No database triggers, events, or stored routines detected."
+    exit 0
+fi
