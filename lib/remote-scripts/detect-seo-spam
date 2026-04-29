@@ -1,0 +1,254 @@
+#!/usr/bin/env bash
+
+#
+#   Detect SEO spam injection in WordPress content
+#
+#   Scans for the off-screen-cloaking pattern that SEO link-injection
+#   malware uses:
+#
+#     <div style="position:absolute;left:-9999px;width:500px;">
+#       <a href="https://spamcasino.example/">keyword</a>
+#     </div>
+#
+#   The element is shifted thousands of pixels off-screen so human visitors
+#   never see it, but Google's crawler indexes the link as an outbound
+#   endorsement from your domain. The attacker monetizes by selling SEO
+#   link juice to spam clients.
+#
+#   This kind of injection lives in the database (post_content, widget
+#   options) as plain HTML with no PHP execution or obfuscation, so file-
+#   integrity scans, WP core checksums, plugin checksums, and signature-
+#   based malware scanners all walk past it. Only a content-pattern scan
+#   or Googlebot-perspective render check surfaces it.
+#
+#   Detection strategies (all run by default):
+#
+#     1. wp_posts.post_content — finds <div>/<p> with position:absolute and
+#        negative-left in any publish/draft/private post or page.
+#
+#     2. wp_options.option_value — sidebar/footer widget content
+#        (widget_text, widget_custom_html, etc.) is a common spam location
+#        that lives outside post content.
+#
+#     3. Frontend curl as Googlebot via localhost (Host-header routed,
+#        cache-bypass) — confirms what's actually served to crawlers and
+#        catches any server-side cloaking that doesn't appear in the DB.
+#
+#   Output format (pipe-delimited):
+#     SEVERITY|SOURCE|ID|TYPE|STATUS|TITLE|HITS|SAMPLE
+#
+#     SOURCE   = POST / OPTION / FRONTEND
+#     HITS     = number of cloaked elements found
+#     SAMPLE   = first external host found inside cloaking, or "-"
+#
+#   Usage:
+#     captaincore ssh <site> --script=detect-seo-spam
+#     captaincore ssh @all  --script=detect-seo-spam --quiet
+#
+#   Flags:
+#     --quiet         Only emit output when findings exist
+#     --skip-frontend Skip the live curl step (DB scan only)
+#
+
+set -uo pipefail
+
+# ── Argument parsing ─────────────────────────────────────────────
+quiet=""
+skip_frontend=""
+for _arg in "$@"; do
+    case "$_arg" in
+        --quiet) quiet=true ;;
+        --skip-frontend) skip_frontend=true ;;
+        --*) ;;
+        *)  WP_ROOT="$_arg" ;;
+    esac
+done
+
+WP_ROOT="${WP_ROOT:-.}"
+cd "$WP_ROOT" 2>/dev/null || { echo "ERROR: Cannot access $WP_ROOT"; exit 1; }
+
+if [ ! -f "wp-config.php" ] && [ -f "public/wp-config.php" ]; then
+    cd public
+elif [ ! -f "wp-config.php" ] && [ -f "public_html/wp-config.php" ]; then
+    cd public_html
+fi
+
+if [ ! -f "wp-config.php" ]; then
+    [ -z "$quiet" ] && echo "WordPress not found."
+    exit 0
+fi
+
+if ! command -v wp &>/dev/null; then
+    echo "ERROR: WP-CLI not available"
+    exit 1
+fi
+
+WP_FLAGS="--skip-themes --skip-plugins --skip-packages"
+
+if ! wp db prefix $WP_FLAGS &>/dev/null; then
+    [ -z "$quiet" ] && echo "ERROR: WordPress DB unreachable"
+    exit 1
+fi
+
+PREFIX=$(wp db prefix $WP_FLAGS 2>/dev/null)
+
+strip_wpcli_status() {
+    grep -v -E '^(Success|Error|Warning):|^[[:space:]]*$' || true
+}
+
+found_any=""
+
+# Pattern matching shared between scans:
+#
+#   <div|p ... style="...position:absolute...left:-DIGITS...">...</div|p>
+#
+# 3+ digits on the negative-left filters out the rare legitimate -50px-
+# style overlap design while catching every off-screen cloak observed in
+# the wild (typical values are -5000 to -84000).
+#
+# Some cloaking variants use a class instead of inline style:
+#   <div class="loading-frame-wrapper">...</div>
+# combined with a CSS rule defined elsewhere. We match that as a fallback.
+
+CLOAK_REGEX='<(div|p)[[:space:]][^>]*style="[^"]*position[[:space:]]*:[[:space:]]*absolute[^"]*left[[:space:]]*:[[:space:]]*-[0-9]{3,}'
+CLOAK_CLASS_REGEX='<div[[:space:]][^>]*class="[^"]*loading-frame-wrapper'
+
+# ── 1. wp_posts.post_content scan ───────────────────────────────
+
+POST_QUERY="
+SELECT ID, post_type, post_status, post_title
+FROM ${PREFIX}posts
+WHERE post_status IN ('publish', 'draft', 'private')
+  AND (post_content REGEXP '${CLOAK_REGEX}'
+       OR post_content REGEXP '${CLOAK_CLASS_REGEX}')
+ORDER BY post_modified_gmt DESC
+"
+
+results=$(wp db query "$POST_QUERY" --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status)
+
+if [ -n "$results" ]; then
+    while IFS=$'\t' read -r id ptype pstatus ptitle; do
+        [ -z "${id// }" ] && continue
+        found_any=true
+
+        # Hit count: number of "position" tokens (each cloak has one)
+        hits=$(wp db query "
+            SELECT (LENGTH(post_content) - LENGTH(REPLACE(post_content, 'position', '')))/8
+            FROM ${PREFIX}posts WHERE ID = $id
+        " --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status | head -1)
+
+        # Sample external host (best-effort first href= near cloak)
+        sample=$(wp db query "
+            SELECT SUBSTRING_INDEX(
+              SUBSTRING_INDEX(
+                SUBSTRING(post_content, LOCATE('position', post_content)),
+              'href=\"', -1),
+            '\"', 1)
+            FROM ${PREFIX}posts WHERE ID = $id
+        " --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status | head -1 | head -c 80 | sed 's|^https\?://||;s|/.*$||')
+        sample="${sample:--}"
+
+        case "$pstatus" in
+            publish) sev=CRITICAL ;;
+            *)       sev=HIGH ;;
+        esac
+
+        printf "%s|POST|%s|%s|%s|%s|%s|%s\n" \
+            "$sev" "$id" "$ptype" "$pstatus" "$ptitle" "${hits:-?}" "$sample"
+    done <<< "$results"
+fi
+
+# ── 2. wp_options.option_value scan (widgets, theme mods, etc.) ──
+#
+# Widget content (widget_text, widget_custom_html) is a common spam
+# location independent of post_content. These options store serialized
+# arrays where each widget instance has a "text" or "content" field
+# containing raw HTML — directly editable by anyone with admin access.
+#
+# We scan ALL options whose value matches the cloaking pattern. The
+# autoload column doesn't matter — both autoloaded and on-demand options
+# can hold spam.
+
+OPTION_QUERY="
+SELECT option_id, option_name
+FROM ${PREFIX}options
+WHERE option_value REGEXP '${CLOAK_REGEX}'
+   OR option_value REGEXP '${CLOAK_CLASS_REGEX}'
+"
+
+opt_results=$(wp db query "$OPTION_QUERY" --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status)
+
+if [ -n "$opt_results" ]; then
+    while IFS=$'\t' read -r opt_id opt_name; do
+        [ -z "${opt_id// }" ] && continue
+        found_any=true
+
+        hits=$(wp db query "
+            SELECT (LENGTH(option_value) - LENGTH(REPLACE(option_value, 'position', '')))/8
+            FROM ${PREFIX}options WHERE option_id = $opt_id
+        " --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status | head -1)
+
+        sample=$(wp db query "
+            SELECT SUBSTRING_INDEX(
+              SUBSTRING_INDEX(
+                SUBSTRING(option_value, LOCATE('position', option_value)),
+              'href=\"', -1),
+            '\"', 1)
+            FROM ${PREFIX}options WHERE option_id = $opt_id
+        " --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status | head -1 | head -c 80 | sed 's|^https\?://||;s|/.*$||')
+        sample="${sample:--}"
+
+        printf "CRITICAL|OPTION|%s|option|live|%s|%s|%s\n" \
+            "$opt_id" "$opt_name" "${hits:-?}" "$sample"
+    done <<< "$opt_results"
+fi
+
+# ── 3. Frontend curl as Googlebot ───────────────────────────────
+#
+# Cache-bypass headers + cachebuster query parameter ensure we don't
+# see stale cached HTML. This catches server-side UA cloaking and
+# corroborates DB findings (or surfaces spam in unscanned tables).
+#
+
+if [ -z "$skip_frontend" ] && command -v curl &>/dev/null; then
+    SITE_HOST=$(wp option get home $WP_FLAGS 2>/dev/null | sed 's|^https\?://||;s|/.*$||')
+
+    if [ -n "$SITE_HOST" ]; then
+        UA_BOT="Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+        CACHEBUST=$(date +%s)
+
+        body=$(curl -ksL --max-time 20 \
+            -A "$UA_BOT" \
+            -H "Host: $SITE_HOST" \
+            -H "Cache-Control: no-cache" \
+            -H "Pragma: no-cache" \
+            "https://localhost/?nocache=${CACHEBUST}" 2>/dev/null)
+
+        if [ -n "$body" ]; then
+            cloak_hits=$(echo "$body" | grep -ioE 'position[[:space:]]*:[[:space:]]*absolute[^>]*left[[:space:]]*:[[:space:]]*-[0-9]{3,}' | wc -l | tr -d ' ')
+            class_hits=$(echo "$body" | grep -ioE 'class="[^"]*loading-frame-wrapper' | wc -l | tr -d ' ')
+            total_hits=$((cloak_hits + class_hits))
+
+            if [ "$total_hits" -gt 0 ]; then
+                found_any=true
+                # Find first href= inside any cloak block
+                sample=$(echo "$body" \
+                    | grep -ioE '(<(div|p)[^>]*style="[^"]*position[^"]*absolute[^"]*left[^"]*-[0-9]+[^"]*"[^>]*>|<div[^>]*class="[^"]*loading-frame-wrapper[^"]*"[^>]*>)[^<]*<a[^>]*href="[^"]*"' \
+                    | grep -ioE 'href="[^"]*"' \
+                    | head -1 \
+                    | sed 's|href="||;s|".*$||;s|^https\?://||;s|/.*$||')
+                printf "CRITICAL|FRONTEND|home|--|live|%s|%s|%s\n" \
+                    "$SITE_HOST" "$total_hits" "${sample:--}"
+            fi
+        fi
+    fi
+fi
+
+# ── 4. Result ────────────────────────────────────────────────────
+
+if [ -z "$found_any" ]; then
+    [ -z "$quiet" ] && echo "No SEO spam detected."
+    exit 0
+fi
+
+exit 0
