@@ -73,10 +73,11 @@ if ! wp db prefix $WP_FLAGS &>/dev/null; then
 fi
 
 # wp db query emits "Success: Query succeeded. Rows affected: -1" on empty SELECTs
-# (and similar Error:/Warning: lines on failure). Filter those out so they don't
-# get parsed as data rows.
+# (and similar Error:/Warning: lines on failure). On some sites it emits leading
+# whitespace before producing nothing (4 spaces, no real data). Filter both out
+# so they don't get parsed as data rows.
 strip_wpcli_status() {
-    grep -v -E '^(Success|Error|Warning):' || true
+    grep -v -E '^(Success|Error|Warning):|^[[:space:]]*$' || true
 }
 
 found_any=""
@@ -94,7 +95,8 @@ toolkit_names=$(wp db query "$TOOLKIT_TRIGGER_QUERY" --skip-column-names $WP_FLA
 if [ -n "$triggers" ]; then
     found_any=true
     while IFS=$'\t' read -r name table timing event created; do
-        [ -z "$name" ] && continue
+        # Skip empty or whitespace-only names (some sites emit blank wp db query output)
+        [ -z "${name// }" ] && continue
         toolkit="-"
         # Match against pipe-delimited toolkit names (with leading/trailing | for word-boundary)
         if [ -n "$toolkit_names" ] && echo "|${toolkit_names}" | grep -qF "|${name}|"; then
@@ -114,7 +116,7 @@ toolkit_event_names=$(wp db query "$TOOLKIT_EVENT_QUERY" --skip-column-names $WP
 if [ -n "$events" ]; then
     found_any=true
     while IFS=$'\t' read -r name status type interval created; do
-        [ -z "$name" ] && continue
+        [ -z "${name// }" ] && continue
         toolkit="-"
         if [ -n "$toolkit_event_names" ] && echo "|${toolkit_event_names}" | grep -qF "|${name}|"; then
             toolkit="TOOLKIT_MATCH"
@@ -134,7 +136,7 @@ toolkit_routine_names=$(wp db query "$TOOLKIT_ROUTINE_QUERY" --skip-column-names
 if [ -n "$routines" ]; then
     found_any=true
     while IFS=$'\t' read -r name type created; do
-        [ -z "$name" ] && continue
+        [ -z "${name// }" ] && continue
         toolkit="-"
         if [ -n "$toolkit_routine_names" ] && echo "|${toolkit_routine_names}" | grep -qF "|${name}|"; then
             toolkit="TOOLKIT_MATCH"
