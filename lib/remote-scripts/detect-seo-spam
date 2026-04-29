@@ -39,7 +39,15 @@
 #
 #     SOURCE   = POST / OPTION / FRONTEND
 #     HITS     = number of cloaked elements found
-#     SAMPLE   = first external host found inside cloaking, or "-"
+#     SAMPLE   = the external host found inside the cloak block
+#
+#   To eliminate false positives from anti-spam honeypot fields (which use
+#   the same off-screen positioning trick to hide bot-decoy inputs), a row
+#   is only emitted when SAMPLE is a real external hostname — not the site
+#   itself, not a Kinsta staging sibling, and not CSS/text gibberish that
+#   the SAMPLE extraction picked up because no href existed near the cloak.
+#   In short: position:absolute + left:-9999px alone is not enough; there
+#   must also be an <a href> to an external domain inside the block.
 #
 #   Usage:
 #     captaincore ssh <site> --script=detect-seo-spam
@@ -91,9 +99,69 @@ if ! wp db prefix $WP_FLAGS &>/dev/null; then
 fi
 
 PREFIX=$(wp db prefix $WP_FLAGS 2>/dev/null)
+SITE_HOST=$(wp option get home $WP_FLAGS 2>/dev/null | sed 's|^https\?://||;s|/.*$||')
 
 strip_wpcli_status() {
     grep -v -E '^(Success|Error|Warning):|^[[:space:]]*$' || true
+}
+
+# Validate that a SAMPLE looks like a real external hostname. Rejects:
+#   - empty / "-"      → no href was found inside the cloak (honeypot field)
+#   - CSS or text      → contains space/colon/semicolon/<>/parens
+#   - bare label       → no dot (single token, not an FQDN)
+#   - self-references  → matches site's own host or kinsta.cloud sibling
+#                        (the same site's staging or production environment)
+#
+# Returns 0 (valid spam target) / 1 (false positive — skip).
+is_valid_external_host() {
+    local sample="$1"
+    local self_host="${2:-}"
+
+    [ -z "$sample" ] || [ "$sample" = "-" ] && return 1
+
+    # Hostname charset only: letters, digits, dots, hyphens
+    case "$sample" in
+        *[!a-zA-Z0-9.-]*) return 1 ;;
+    esac
+
+    # Must be an FQDN (at least one dot)
+    case "$sample" in
+        *.*) ;;
+        *) return 1 ;;
+    esac
+
+    if [ -n "$self_host" ]; then
+        local self_norm="${self_host#www.}"
+        local sample_norm="${sample#www.}"
+        [ "$sample_norm" = "$self_norm" ] && return 1
+
+        # Same site's staging / production / kinsta.cloud sibling
+        case "$sample_norm" in
+            stg-*"$self_norm"|staging-*"$self_norm"|*-staging.kinsta.cloud|*.kinsta.cloud)
+                # Production->staging or staging->production cross-link.
+                # Only reject when self_host is also a kinsta.cloud or the
+                # bare slug appears in both — otherwise a real spam link
+                # ending in .kinsta.cloud would be hidden.
+                case "$self_norm" in
+                    *.kinsta.cloud) return 1 ;;
+                esac
+                # Strip kinsta.cloud + staging prefix and compare slug
+                local sample_slug="${sample_norm%.kinsta.cloud}"
+                sample_slug="${sample_slug#stg-}"
+                sample_slug="${sample_slug#staging-}"
+                sample_slug="${sample_slug%-staging}"
+                local self_slug="${self_norm%.com}"
+                self_slug="${self_slug%.org}"
+                self_slug="${self_slug%.net}"
+                self_slug="${self_slug%.co}"
+                case "$sample_slug" in
+                    "$self_slug"|"$self_slug"-*) return 1 ;;
+                esac
+                ;;
+        esac
+    fi
+
+    return 0
 }
 
 found_any=""
@@ -129,13 +197,6 @@ results=$(wp db query "$POST_QUERY" --skip-column-names $WP_FLAGS 2>/dev/null | 
 if [ -n "$results" ]; then
     while IFS=$'\t' read -r id ptype pstatus ptitle; do
         [ -z "${id// }" ] && continue
-        found_any=true
-
-        # Hit count: number of "position" tokens (each cloak has one)
-        hits=$(wp db query "
-            SELECT (LENGTH(post_content) - LENGTH(REPLACE(post_content, 'position', '')))/8
-            FROM ${PREFIX}posts WHERE ID = $id
-        " --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status | head -1)
 
         # Sample external host (best-effort first href= near cloak)
         sample=$(wp db query "
@@ -146,7 +207,17 @@ if [ -n "$results" ]; then
             '\"', 1)
             FROM ${PREFIX}posts WHERE ID = $id
         " --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status | head -1 | head -c 80 | sed 's|^https\?://||;s|/.*$||')
-        sample="${sample:--}"
+
+        # Skip false positives: honeypot fields, CSS gibberish, self-links
+        is_valid_external_host "$sample" "$SITE_HOST" || continue
+
+        found_any=true
+
+        # Hit count: number of "position" tokens (each cloak has one)
+        hits=$(wp db query "
+            SELECT (LENGTH(post_content) - LENGTH(REPLACE(post_content, 'position', '')))/8
+            FROM ${PREFIX}posts WHERE ID = $id
+        " --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status | head -1)
 
         case "$pstatus" in
             publish) sev=CRITICAL ;;
@@ -181,12 +252,6 @@ opt_results=$(wp db query "$OPTION_QUERY" --skip-column-names $WP_FLAGS 2>/dev/n
 if [ -n "$opt_results" ]; then
     while IFS=$'\t' read -r opt_id opt_name; do
         [ -z "${opt_id// }" ] && continue
-        found_any=true
-
-        hits=$(wp db query "
-            SELECT (LENGTH(option_value) - LENGTH(REPLACE(option_value, 'position', '')))/8
-            FROM ${PREFIX}options WHERE option_id = $opt_id
-        " --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status | head -1)
 
         sample=$(wp db query "
             SELECT SUBSTRING_INDEX(
@@ -196,7 +261,16 @@ if [ -n "$opt_results" ]; then
             '\"', 1)
             FROM ${PREFIX}options WHERE option_id = $opt_id
         " --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status | head -1 | head -c 80 | sed 's|^https\?://||;s|/.*$||')
-        sample="${sample:--}"
+
+        # Skip false positives: honeypot fields, CSS gibberish, self-links
+        is_valid_external_host "$sample" "$SITE_HOST" || continue
+
+        found_any=true
+
+        hits=$(wp db query "
+            SELECT (LENGTH(option_value) - LENGTH(REPLACE(option_value, 'position', '')))/8
+            FROM ${PREFIX}options WHERE option_id = $opt_id
+        " --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status | head -1)
 
         printf "CRITICAL|OPTION|%s|option|live|%s|%s|%s\n" \
             "$opt_id" "$opt_name" "${hits:-?}" "$sample"
@@ -210,35 +284,35 @@ fi
 # corroborates DB findings (or surfaces spam in unscanned tables).
 #
 
-if [ -z "$skip_frontend" ] && command -v curl &>/dev/null; then
-    SITE_HOST=$(wp option get home $WP_FLAGS 2>/dev/null | sed 's|^https\?://||;s|/.*$||')
+if [ -z "$skip_frontend" ] && command -v curl &>/dev/null && [ -n "$SITE_HOST" ]; then
+    UA_BOT="Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+    CACHEBUST=$(date +%s)
 
-    if [ -n "$SITE_HOST" ]; then
-        UA_BOT="Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
-        CACHEBUST=$(date +%s)
+    body=$(curl -ksL --max-time 20 \
+        -A "$UA_BOT" \
+        -H "Host: $SITE_HOST" \
+        -H "Cache-Control: no-cache" \
+        -H "Pragma: no-cache" \
+        "https://localhost/?nocache=${CACHEBUST}" 2>/dev/null)
 
-        body=$(curl -ksL --max-time 20 \
-            -A "$UA_BOT" \
-            -H "Host: $SITE_HOST" \
-            -H "Cache-Control: no-cache" \
-            -H "Pragma: no-cache" \
-            "https://localhost/?nocache=${CACHEBUST}" 2>/dev/null)
+    if [ -n "$body" ]; then
+        cloak_hits=$(echo "$body" | grep -ioE 'position[[:space:]]*:[[:space:]]*absolute[^>]*left[[:space:]]*:[[:space:]]*-[0-9]{3,}' | wc -l | tr -d ' ')
+        class_hits=$(echo "$body" | grep -ioE 'class="[^"]*loading-frame-wrapper' | wc -l | tr -d ' ')
+        total_hits=$((cloak_hits + class_hits))
 
-        if [ -n "$body" ]; then
-            cloak_hits=$(echo "$body" | grep -ioE 'position[[:space:]]*:[[:space:]]*absolute[^>]*left[[:space:]]*:[[:space:]]*-[0-9]{3,}' | wc -l | tr -d ' ')
-            class_hits=$(echo "$body" | grep -ioE 'class="[^"]*loading-frame-wrapper' | wc -l | tr -d ' ')
-            total_hits=$((cloak_hits + class_hits))
+        if [ "$total_hits" -gt 0 ]; then
+            # Find first href= inside any cloak block
+            sample=$(echo "$body" \
+                | grep -ioE '(<(div|p)[^>]*style="[^"]*position[^"]*absolute[^"]*left[^"]*-[0-9]+[^"]*"[^>]*>|<div[^>]*class="[^"]*loading-frame-wrapper[^"]*"[^>]*>)[^<]*<a[^>]*href="[^"]*"' \
+                | grep -ioE 'href="[^"]*"' \
+                | head -1 \
+                | sed 's|href="||;s|".*$||;s|^https\?://||;s|/.*$||')
 
-            if [ "$total_hits" -gt 0 ]; then
+            # Skip false positives: honeypot fields with no <a href> in the cloak
+            if is_valid_external_host "$sample" "$SITE_HOST"; then
                 found_any=true
-                # Find first href= inside any cloak block
-                sample=$(echo "$body" \
-                    | grep -ioE '(<(div|p)[^>]*style="[^"]*position[^"]*absolute[^"]*left[^"]*-[0-9]+[^"]*"[^>]*>|<div[^>]*class="[^"]*loading-frame-wrapper[^"]*"[^>]*>)[^<]*<a[^>]*href="[^"]*"' \
-                    | grep -ioE 'href="[^"]*"' \
-                    | head -1 \
-                    | sed 's|href="||;s|".*$||;s|^https\?://||;s|/.*$||')
                 printf "CRITICAL|FRONTEND|home|--|live|%s|%s|%s\n" \
-                    "$SITE_HOST" "$total_hits" "${sample:--}"
+                    "$SITE_HOST" "$total_hits" "$sample"
             fi
         fi
     fi
