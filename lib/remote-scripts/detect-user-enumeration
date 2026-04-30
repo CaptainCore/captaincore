@@ -1,0 +1,211 @@
+#!/usr/bin/env bash
+
+#
+#   Detect user enumeration leaks on a public WordPress site.
+#   Runs HTTP checks against the public home_url to verify usernames are not
+#   exposed to anonymous attackers via REST, oEmbed, sitemaps, ?author=N,
+#   xmlrpc.php, or wp-login.php differential responses.
+#
+#   Usage:
+#   captaincore ssh <site> --script=detect-user-enumeration
+#   captaincore ssh @all --script=detect-user-enumeration
+#
+
+if ! command -v wp &> /dev/null || ! wp core is-installed --quiet &>/dev/null; then
+    exit 0
+fi
+
+HOME_URL=$(wp option get home --skip-plugins --skip-themes 2>/dev/null | grep -v '^$')
+if [[ -z "$HOME_URL" ]]; then
+    echo "Could not determine home URL."
+    exit 1
+fi
+HOME_URL="${HOME_URL%/}"
+
+UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+
+ROWS=()
+GAPS=0
+
+add_row () {
+    # add_row "vector" "STATUS" "detail"
+    ROWS+=("$1|$2|$3")
+    [[ "$2" == "FAIL" ]] && GAPS=$((GAPS + 1))
+}
+
+# 1. ?author=N redirect leak
+author_leak=""
+for i in 1 2 3 4 5; do
+    location=$(curl -sI --max-time 15 -A "$UA" "$HOME_URL/?author=$i" \
+        | awk 'tolower($1) == "location:" {print $2}' | tr -d '\r' | tail -1)
+    if [[ -n "$location" && "$location" == *"/author/"* ]]; then
+        slug=$(echo "$location" | sed -E 's|.*/author/([^/?]+).*|\1|')
+        author_leak+="${slug} "
+    fi
+done
+slugs_unique=$(echo "$author_leak" | tr ' ' '\n' | sort -u | grep -v '^$' | tr '\n' ' ' | sed 's/ $//')
+if [[ -n "$slugs_unique" ]]; then
+    add_row "?author=N redirect" "FAIL" "leaks slug(s): $slugs_unique"
+else
+    add_row "?author=N redirect" "PASS" "no /author/ redirect"
+fi
+
+# 2. REST /wp/v2/users collection
+users_body=$(curl -sL --max-time 15 -A "$UA" "$HOME_URL/wp-json/wp/v2/users")
+if [[ "$users_body" == "[]" ]]; then
+    add_row "REST users collection" "PASS" "[]"
+elif echo "$users_body" | grep -qE '"slug"[[:space:]]*:[[:space:]]*"'; then
+    slugs=$(echo "$users_body" | grep -oE '"slug"[[:space:]]*:[[:space:]]*"[^"]+"' \
+        | head -3 | sed -E 's/.*"slug"[[:space:]]*:[[:space:]]*"([^"]+)"/\1/' | tr '\n' ' ' | sed 's/ $//')
+    add_row "REST users collection" "FAIL" "leaks slug(s): $slugs"
+else
+    snippet=$(echo "$users_body" | head -c 80 | tr -d '\n')
+    add_row "REST users collection" "INFO" "$snippet"
+fi
+
+# 3. REST /wp/v2/users/<id> differential
+real_resp=$(curl -sL --max-time 15 -A "$UA" "$HOME_URL/wp-json/wp/v2/users/1" | head -c 400)
+bogus_resp=$(curl -sL --max-time 15 -A "$UA" "$HOME_URL/wp-json/wp/v2/users/99999" | head -c 400)
+if [[ "$real_resp" == "$bogus_resp" ]]; then
+    add_row "REST users/<id>" "PASS" "identical anon responses"
+elif echo "$real_resp" | grep -qE '"slug"[[:space:]]*:'; then
+    slug=$(echo "$real_resp" | grep -oE '"slug"[[:space:]]*:[[:space:]]*"[^"]+"' \
+        | head -1 | sed -E 's/.*"slug"[[:space:]]*:[[:space:]]*"([^"]+)"/\1/')
+    add_row "REST users/<id>" "FAIL" "id=1 leaks slug: ${slug:-?}"
+else
+    add_row "REST users/<id>" "INFO" "responses differ but no slug"
+fi
+
+# 4. User sitemap
+sitemap_status=$(curl -sL -o "$TMP/sitemap" -w "%{http_code}" --max-time 15 -A "$UA" "$HOME_URL/wp-sitemap-users-1.xml")
+if [[ "$sitemap_status" == "200" ]]; then
+    locs=$(grep -oE '<loc>[^<]+</loc>' "$TMP/sitemap" 2>/dev/null | wc -l | tr -d ' ')
+    if [[ "$locs" -gt 0 ]]; then
+        add_row "User sitemap" "FAIL" "$locs <loc> entries (HTTP 200)"
+    else
+        add_row "User sitemap" "PASS" "200 but no <loc> entries"
+    fi
+else
+    add_row "User sitemap" "PASS" "HTTP $sitemap_status"
+fi
+
+# 5. oEmbed author_name leak
+page_urls=$(wp post list --post_type=page --field=url --skip-plugins --skip-themes 2>/dev/null | head -3)
+post_urls=$(wp post list --post_type=post --field=url --skip-plugins --skip-themes 2>/dev/null | head -2)
+test_urls=$'\n'"$HOME_URL/"$'\n'"$page_urls"$'\n'"$post_urls"
+
+oembed_names=""
+checked=0
+while IFS= read -r url; do
+    [[ -z "$url" ]] && continue
+    [[ "$checked" -ge 5 ]] && break
+    checked=$((checked + 1))
+    body=$(curl -sL --max-time 15 -A "$UA" "$HOME_URL/wp-json/oembed/1.0/embed?url=$url")
+    name=$(echo "$body" | grep -oE '"author_name"[[:space:]]*:[[:space:]]*"[^"]*"' \
+        | head -1 | sed -E 's/.*"author_name"[[:space:]]*:[[:space:]]*"([^"]*)"/\1/')
+    [[ -n "$name" ]] && oembed_names+="${name}"$'\n'
+done <<< "$test_urls"
+
+oembed_unique=$(echo "$oembed_names" | sort -u | grep -v '^$')
+if [[ -n "$oembed_unique" ]]; then
+    user_logins=$(wp user list --field=user_login --skip-plugins --skip-themes 2>/dev/null)
+    matched=""
+    while IFS= read -r n; do
+        [[ -z "$n" ]] && continue
+        if echo "$user_logins" | grep -qFx "$n"; then
+            matched+="${n} "
+        fi
+    done <<< "$oembed_unique"
+    matched=$(echo "$matched" | xargs)
+    if [[ -n "$matched" ]]; then
+        add_row "oEmbed author_name" "FAIL" "leaks login slug(s): $matched"
+    else
+        names_csv=$(echo "$oembed_unique" | tr '\n' ',' | sed 's/,$//')
+        add_row "oEmbed author_name" "PASS" "exposes display only: $names_csv"
+    fi
+else
+    add_row "oEmbed author_name" "PASS" "no author_name in oEmbed"
+fi
+
+# 6. Login error parity
+real_user=$(wp user list --role=administrator --field=user_login --skip-plugins --skip-themes 2>/dev/null | head -1)
+[[ -z "$real_user" ]] && real_user=$(wp user list --field=user_login --skip-plugins --skip-themes 2>/dev/null | head -1)
+bogus_user="definitelynotauser_$(date +%s)"
+
+login_size () {
+    curl -s --max-time 15 -A "$UA" \
+        -b "wordpress_test_cookie=WP Cookie check" \
+        -X POST "$HOME_URL/wp-login.php" \
+        --data "log=$1&pwd=wrongpassword&wp-submit=Log+In&testcookie=1" \
+        -o /dev/null -w "%{size_download}"
+}
+
+if [[ -n "$real_user" ]]; then
+    real_size=$(login_size "$real_user")
+    bogus_size=$(login_size "$bogus_user")
+    delta=$(( real_size - bogus_size ))
+    [[ "$delta" -lt 0 ]] && delta=$(( -delta ))
+    # Account for username reflected once in form value="..."
+    name_diff=$(( ${#bogus_user} - ${#real_user} ))
+    [[ "$name_diff" -lt 0 ]] && name_diff=$(( -name_diff ))
+    adjusted=$(( delta - name_diff ))
+    [[ "$adjusted" -lt 0 ]] && adjusted=$(( -adjusted ))
+    if [[ "$adjusted" -gt 50 ]]; then
+        add_row "Login error parity" "FAIL" "size delta ${delta}B (adjusted ${adjusted}B)"
+    else
+        add_row "Login error parity" "PASS" "size delta ${delta}B (adjusted ${adjusted}B)"
+    fi
+else
+    add_row "Login error parity" "INFO" "no users found"
+fi
+
+# 7. xmlrpc.php
+xmlrpc_status=$(curl -sL -o /dev/null -w "%{http_code}" --max-time 15 -A "$UA" -X POST "$HOME_URL/xmlrpc.php")
+case "$xmlrpc_status" in
+    403|404|410)
+        add_row "xmlrpc.php" "PASS" "HTTP $xmlrpc_status (blocked)"
+        ;;
+    200|405)
+        add_row "xmlrpc.php" "FAIL" "HTTP $xmlrpc_status (accessible)"
+        ;;
+    *)
+        add_row "xmlrpc.php" "INFO" "HTTP $xmlrpc_status"
+        ;;
+esac
+
+# 8. Bonus exposure: readme.html, license.txt, wp-config-sample.php
+for path in "/readme.html" "/license.txt" "/wp-config-sample.php"; do
+    code=$(curl -sL -o /dev/null -w "%{http_code}" --max-time 15 -A "$UA" "$HOME_URL$path")
+    label=$(echo "$path" | sed 's|^/||')
+    case "$code" in
+        403|404|410)
+            add_row "$label" "PASS" "HTTP $code"
+            ;;
+        *)
+            if [[ "$path" == "/wp-config-sample.php" ]]; then
+                add_row "$label" "FAIL" "HTTP $code (should block)"
+            else
+                add_row "$label" "INFO" "HTTP $code"
+            fi
+            ;;
+    esac
+done
+
+# Output
+echo ""
+echo "User enumeration scan: $HOME_URL"
+echo ""
+printf "%-22s | %-6s | %s\n" "Vector" "Status" "Detail"
+printf "%s-+-%s-+-%s\n" "----------------------" "------" "------"
+for row in "${ROWS[@]}"; do
+    IFS='|' read -r vector status detail <<< "$row"
+    printf "%-22s | %-6s | %s\n" "$vector" "$status" "$detail"
+done
+echo ""
+if [[ "$GAPS" -eq 0 ]]; then
+    echo "All checks passed."
+else
+    echo "Found $GAPS enumeration gap(s)."
+fi
