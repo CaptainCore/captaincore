@@ -61,7 +61,7 @@ read -r -d '' build_mu_plugin << 'heredoc'
  * Plugin Name: CaptainCore Helper
  * Plugin URI: https://captaincore.io
  * Description: Collection of helper functions for CaptainCore
- * Version: 0.7.1
+ * Version: 0.7.2
  * Author: CaptainCore
  * Author URI: https://captaincore.io
  * Text Domain: captaincore-helper
@@ -396,8 +396,9 @@ class Helpers {
 	 * Determines if a lost password email can be sent based on IP address.
 	 *
 	 * Consults the blocklist file bundled alongside this mu-plugin
-	 * (captaincore-ip-blocklist.php). The file contains both a manually
-	 * maintained list and a geo-block list derived from IP2Location LITE.
+	 * (captaincore-helper/ip-blocklist.php). The file contains both a
+	 * manually maintained list and a geo-block list derived from
+	 * IP2Location LITE.
 	 *
 	 * Client IP is resolved via CF-Connecting-IP → X-Forwarded-For → REMOTE_ADDR
 	 * so Cloudflare-fronted sites don't just see the CF edge.
@@ -448,7 +449,7 @@ class Helpers {
 			return self::$blocklist_cache;
 		}
 		self::$blocklist_cache = [];
-		$file = WPMU_PLUGIN_DIR . '/captaincore-ip-blocklist.php';
+		$file = WPMU_PLUGIN_DIR . '/captaincore-helper/ip-blocklist.php';
 		if ( ! is_readable( $file ) ) {
 			return self::$blocklist_cache;
 		}
@@ -1686,7 +1687,7 @@ class UserEnumerationProtection {
         // returns null and clobbers any earlier callback's WP_Error.
         add_filter( 'rest_pre_dispatch', [ __CLASS__, 'block_rest_user_single' ], PHP_INT_MAX, 3 );
         add_filter( 'wp_sitemaps_add_provider', [ __CLASS__, 'remove_author_sitemap' ], 10, 2 );
-        add_filter( 'oembed_response_data', [ __CLASS__, 'remove_oembed_author_url' ] );
+        add_filter( 'oembed_response_data', [ __CLASS__, 'remove_oembed_author_data' ] );
         add_action( 'template_redirect', [ __CLASS__, 'block_author_archives' ] );
         add_filter( 'login_errors', [ __CLASS__, 'generic_login_error' ] );
         add_filter( 'wpseo_sitemap_exclude_author', '__return_true' );
@@ -1763,12 +1764,13 @@ class UserEnumerationProtection {
     }
 
     /**
-     * Strip author_url from oEmbed responses.
+     * Strip author_url and author_name from oEmbed responses.
+     *
+     * author_name falls back to user_login when display_name is unset,
+     * which leaks the username to anyone hitting /wp-json/oembed/1.0/embed.
      */
-    public static function remove_oembed_author_url( $data ) {
-        if ( isset( $data['author_url'] ) ) {
-            unset( $data['author_url'] );
-        }
+    public static function remove_oembed_author_data( $data ) {
+        unset( $data['author_url'], $data['author_name'] );
         return $data;
     }
 
@@ -8444,11 +8446,110 @@ read -r -d '' build_ip_blocklist << 'heredoc'
 223.255.252.0/23
 heredoc
 
+read -r -d '' build_readme << 'heredoc'
+# CaptainCore Helper
+
+A must-use plugin deployed by CaptainCore to every managed WordPress site.
+It bundles security hardening, magic-login support, an audit log, and a
+handful of UX cleanups for common third-party plugins.
+
+## Files
+
+| Path | Purpose |
+| --- | --- |
+| `captaincore-helper.php` | Main mu-plugin (loaded by WordPress) |
+| `captaincore-helper/ip-blocklist.php` | Bare-IP/CIDR blocklist consumed by the password-reset rate limiter. Auto-generated from a manual list plus IP2Location LITE geo data. |
+| `captaincore-helper/readme.md` | This file |
+
+The subdirectory keeps the blocklist out of the MU-plugins admin list and
+lets the data file update independently of `captaincore-helper.php`.
+
+## Modules
+
+- **MagicLogin** — One-time `wp captaincore login` token URLs and the
+  CaptainCore "quick login" handshake.
+- **Helpers** — Site Health widget removal, CleanTalk/Perfmatters admin
+  cleanup, password-reset IP throttling.
+- **TGMPAUpdater** — Lets bundled plugins receive updates from wp.org.
+- **SecurityLogger** — Audit trail for users, plugins, themes, options,
+  passwords, app passwords, and WPCode snippets. Persisted to a custom
+  table; readable via `wp captaincore security-log`.
+- **UserEnumerationProtection** — Blocks `?author=N`, the
+  `/wp/v2/users` REST collection, single-user lookups, the user
+  sitemap, and strips `author_url` and `author_name` from oEmbed
+  responses. 404's empty author archives.
+- **SecurityPatchUpdater** — Lets CaptainCore push patched versions of
+  vulnerable plugins/themes ahead of upstream releases.
+- **PasswordSecurity** — HIBP-backed password breach checks at login
+  and on profile saves; blocks compromised passwords for enforced roles.
+
+## Deployment
+
+Generated and deployed by `deploy-helper` (a remote script in the
+CaptainCore CLI). Do not edit the deployed files directly — changes will
+be overwritten on the next deploy. Modify the source script at
+`~/.captaincore/lib/remote-scripts/deploy-helper` and redeploy with:
+
+```
+captaincore ssh <site> --script=deploy-helper
+```
+
+## Changelog
+
+### 0.7.2 — 2026-04-30
+- oEmbed responses now strip `author_name` in addition to `author_url`,
+  closing a username leak when a user's `display_name` falls back to
+  `user_login`.
+- Blocklist relocated to `captaincore-helper/ip-blocklist.php` so it no
+  longer shows as a separate entry in the MU-plugins admin list.
+  Legacy top-level `captaincore-ip-blocklist.php` is removed on deploy.
+
+### 0.7.1 — 2026-04-27
+- Client IP resolution now prefers `CF-Connecting-IP` and
+  `X-Forwarded-For` over `REMOTE_ADDR` so Cloudflare-fronted sites
+  enforce the password-reset blocklist against the real visitor IP.
+- IP blocklist moved into a standalone data file and switched from an
+  inline `ip2long` range array to streamed `fgets` parsing.
+
+### 0.7.0 — 2026-04-23
+- Introduced `UserEnumerationProtection`, `SecurityPatchUpdater`, and
+  `PasswordSecurity` modules.
+
+### 0.5.1 — 2026-03-15
+- `SecurityLogger` audit trail (replaces the earlier audit-logger
+  approach).
+- Generic login error message — no longer reveals whether a username
+  exists.
+
+### Earlier
+- 2024-11 — `wp captaincore login` WP-CLI command.
+- 2024-10 — CleanTalk admin clutter cleanup.
+- 2024-09 — Perfmatters compatibility, plugin update check.
+- 2024-02 — Password-reset notification.
+- 2021-02 — iThemes Security compatibility.
+- 2018-11 — Initial `deploy-helper` remote script.
+heredoc
+
+# Write each file via tempfile + atomic rename so PHP never sees a
+# partially-written file. Order matters: write the helper's data
+# dependencies (blocklist, readme) before the helper itself, so the new
+# helper code only goes live once its files are already in place.
+mkdir -p "$wp_content/mu-plugins/captaincore-helper/"
+
+echo "Generating '$wp_content/mu-plugins/captaincore-helper/ip-blocklist.php'"
+printf '%s\n' "$build_ip_blocklist" > "$wp_content/mu-plugins/captaincore-helper/ip-blocklist.php.tmp"
+mv "$wp_content/mu-plugins/captaincore-helper/ip-blocklist.php.tmp" "$wp_content/mu-plugins/captaincore-helper/ip-blocklist.php"
+
+echo "Generating '$wp_content/mu-plugins/captaincore-helper/readme.md'"
+printf '%s\n' "$build_readme" > "$wp_content/mu-plugins/captaincore-helper/readme.md.tmp"
+mv "$wp_content/mu-plugins/captaincore-helper/readme.md.tmp" "$wp_content/mu-plugins/captaincore-helper/readme.md"
+
 echo "Generating '$wp_content/mu-plugins/captaincore-helper.php'"
-mkdir -p "$wp_content/mu-plugins/"
-printf '%s\n' "$build_mu_plugin" > "$wp_content/mu-plugins/captaincore-helper.php"
-echo "Generating '$wp_content/mu-plugins/captaincore-ip-blocklist.php'"
-printf '%s\n' "$build_ip_blocklist" > "$wp_content/mu-plugins/captaincore-ip-blocklist.php"
+printf '%s\n' "$build_mu_plugin" > "$wp_content/mu-plugins/captaincore-helper.php.tmp"
+mv "$wp_content/mu-plugins/captaincore-helper.php.tmp" "$wp_content/mu-plugins/captaincore-helper.php"
+
+# Remove legacy top-level blocklist (was visible in MU-plugins admin list).
+rm -f "$wp_content/mu-plugins/captaincore-ip-blocklist.php"
 
 # Ensure security log table exists
 wp eval 'CaptainCore\SecurityLogger::ensure_table_exists_public();' --skip-themes --skip-plugins 2>/dev/null
