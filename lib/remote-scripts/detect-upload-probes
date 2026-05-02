@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+
+#
+#   Detect attacker upload-probe files.
+#
+#   Pattern: a tiny PHP file (≤ 60 bytes) whose entire content is
+#   `<?php //_<random>` (or similar — a single PHP comment with a random
+#   token, no executable code). Automated upload scanners drop these
+#   as a "calling card" to confirm an upload vulnerability worked,
+#   then return later to plant the real payload.
+#
+#   Real example caught in the wild:
+#     wp-content/plugins/wp-phpmyadmin-extension/lib/name.php
+#     content: <?php //_Rsyr9kf3Tg7ejSiDQJwHx58
+#
+#   Filters out known-benign tiny PHP files: WordPress placeholders
+#   ("Silence is golden"), Backuply directory markers, deprecated-file
+#   stubs, and other commented-out micro-files plugins ship.
+#
+#   Usage:
+#     captaincore ssh <site> --script=detect-upload-probes
+#     captaincore ssh @all --script=detect-upload-probes --label
+#
+
+set -uo pipefail
+
+WP_ROOT="."
+for _arg in "$@"; do
+    case "$_arg" in
+        --*) ;;
+        *)  WP_ROOT="$_arg" ;;
+    esac
+done
+cd "$WP_ROOT" 2>/dev/null || { echo "ERROR: Cannot access $WP_ROOT"; exit 1; }
+
+if [ ! -f "wp-config.php" ] && [ -f "public/wp-config.php" ]; then
+    cd public
+elif [ ! -f "wp-config.php" ] && [ -f "public_html/wp-config.php" ]; then
+    cd public_html
+fi
+
+SCAN_DIRS=("wp-content/plugins" "wp-content/themes" "wp-content/mu-plugins" "wp-content/uploads")
+TMPFILE=$(mktemp)
+trap "rm -f $TMPFILE" EXIT
+
+# ── Pass 1: Find tiny PHP files matching the probe-comment shape ──
+#
+# Shape rule: file ≤ 60 bytes, starts with `<?php //` followed by a
+# token of ≥ 8 alphanumeric / underscore chars (the random ID).
+# Excludes spaces in the token to filter dictionary-word comments
+# like "// Silence is golden".
+for d in "${SCAN_DIRS[@]}"; do
+    [ -d "$d" ] || continue
+    while IFS= read -r f; do
+        # Read up to 60 bytes — if shape matches probe pattern, record
+        if head -c 60 "$f" 2>/dev/null \
+           | grep -qE '^<\?php[[:space:]]*//[[:space:]]*_?[A-Za-z0-9]{8,}[[:space:]]*\??>?[[:space:]]*$'; then
+            stat -c '%Y %s %n' "$f" 2>/dev/null >> "$TMPFILE"
+        fi
+    done < <(find "$d" -type f -name '*.php' -size -61c 2>/dev/null)
+done
+
+# ── Pass 2: Filter known-benign vendor/plugin signatures ──
+#
+# Some plugins legitimately ship tiny commented-out files. Allowlist
+# them by content pattern (not path — paths drift; content is stable).
+# Add entries here when you triage a new false positive.
+ALLOWLIST_REGEX='^<\?php[[:space:]]*//[[:space:]]*(Backuply|Deprecated|Silence is golden|TODO|placeholder)\b'
+
+if [ -s "$TMPFILE" ]; then
+    FILTERED=$(mktemp)
+    while read -r mtime size file; do
+        if head -c 60 "$file" 2>/dev/null | grep -qiE "$ALLOWLIST_REGEX"; then
+            continue
+        fi
+        echo "$mtime $size $file" >> "$FILTERED"
+    done < "$TMPFILE"
+    mv "$FILTERED" "$TMPFILE"
+fi
+
+# ── Result ──
+if [ ! -s "$TMPFILE" ]; then
+    echo "Clean. No upload-probe files detected."
+    exit 0
+fi
+
+found=0
+echo "Suspicious upload-probe files detected:"
+echo ""
+while read -r mtime size file; do
+    found=$((found + 1))
+    mtime_date=$(date -d "@$mtime" '+%Y-%m-%d %H:%M' 2>/dev/null || echo unknown)
+    age_days=$(( ( $(date +%s) - mtime ) / 86400 ))
+    risk="PROBE"
+    [ "$age_days" -lt 90 ] && risk="PROBE-RECENT"
+
+    sample=$(head -c 60 "$file" 2>/dev/null | tr -d '\r\n' | head -c 60)
+    printf "  %-13s %s\n" "$risk" "$file"
+    printf "                size=%s  mtime=%s  age=%dd\n" "$size" "$mtime_date" "$age_days"
+    printf "                content: %s\n\n" "$sample"
+done < "$TMPFILE"
+
+echo "Found $found upload-probe file(s)."
+echo "Each file is an attacker calling-card from an automated upload scan."
+echo "Action: delete the file, then audit access logs around the mtime"
+echo "and patch the plugin/theme that owns the directory."
+exit 1
