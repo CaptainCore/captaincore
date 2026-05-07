@@ -58,6 +58,9 @@ home_directory=$(pwd)
 
 run_command() {
 
+  [[ "$debug" == "true" ]] && echo "[debug] Activating maintenance mode..."
+  silent=$( wp maintenance-mode activate --skip-plugins --skip-themes 2>&1 )
+
   [[ "$debug" == "true" ]] && echo "[debug] Checking Newspaper theme..."
   if $( wp theme is-active Newspaper ); then
     required_theme_plugins=()
