@@ -1325,19 +1325,21 @@ func siteDeployDefaultsNative(cmd *cobra.Command, args []string) {
 
 	// Add global defaults
 	cid, _ := strconv.ParseUint(captainID, 10, 64)
-	configValue, _ := models.GetConfiguration(uint(cid), "configurations")
+	defaultsValue, _ := models.GetConfiguration(uint(cid), "defaults")
 	var globalDefaults struct {
-		Timezone string     `json:"timezone"`
-		Email    string     `json:"email"`
-		Recipes  []recipeID `json:"recipes"`
+		Timezone string `json:"timezone"`
+		Email    string `json:"email"`
+		Users    []struct {
+			Username  string `json:"username"`
+			Email     string `json:"email"`
+			Role      string `json:"role"`
+			FirstName string `json:"first_name"`
+			LastName  string `json:"last_name"`
+		} `json:"users"`
+		Recipes []recipeID `json:"recipes"`
 	}
-	if configValue != "" {
-		var configObj map[string]json.RawMessage
-		if json.Unmarshal([]byte(configValue), &configObj) == nil {
-			if defaultsRaw, ok := configObj["defaults"]; ok {
-				json.Unmarshal(defaultsRaw, &globalDefaults)
-			}
-		}
+	if defaultsValue != "" {
+		json.Unmarshal([]byte(defaultsValue), &globalDefaults)
 	}
 
 	deploymentScript.WriteString("# Global Defaults\n")
@@ -1346,6 +1348,10 @@ func siteDeployDefaultsNative(cmd *cobra.Command, args []string) {
 	}
 	if globalDefaults.Email != "" {
 		deploymentScript.WriteString(fmt.Sprintf("wp option set admin_email %s\n", globalDefaults.Email))
+	}
+	for _, user := range globalDefaults.Users {
+		deploymentScript.WriteString(fmt.Sprintf("wp user create %s %s --role=%s --first_name='%s' --last_name='%s' --send-email\n",
+			user.Username, user.Email, user.Role, user.FirstName, user.LastName))
 	}
 	deploymentScript.WriteString("\n")
 
