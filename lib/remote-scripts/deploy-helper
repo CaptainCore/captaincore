@@ -61,7 +61,7 @@ read -r -d '' build_mu_plugin << 'heredoc'
  * Plugin Name: CaptainCore Helper
  * Plugin URI: https://captaincore.io
  * Description: Collection of helper functions for CaptainCore
- * Version: 0.7.2
+ * Version: 0.7.3
  * Author: CaptainCore
  * Author URI: https://captaincore.io
  * Text Domain: captaincore-helper
@@ -1520,9 +1520,22 @@ class SecurityLogger {
         $limit  = isset( $assoc_args['limit'] ) && is_numeric( $assoc_args['limit'] ) && $assoc_args['limit'] > 0 ? (int) $assoc_args['limit'] : 25;
         $offset = isset( $assoc_args['offset'] ) && is_numeric( $assoc_args['offset'] ) && $assoc_args['offset'] >= 0 ? (int) $assoc_args['offset'] : 0;
 
+        $where  = '';
+        $params = [];
+        if ( ! empty( $assoc_args['action'] ) ) {
+            $actions = array_filter( array_map( 'trim', explode( ',', (string) $assoc_args['action'] ) ) );
+            if ( ! empty( $actions ) ) {
+                $placeholders = implode( ', ', array_fill( 0, count( $actions ), '%s' ) );
+                $where        = "WHERE action IN ($placeholders)";
+                $params       = array_values( $actions );
+            }
+        }
+        $params[] = $limit;
+        $params[] = $offset;
+
         $logs = $wpdb->get_results( $wpdb->prepare(
-            "SELECT log_id, log_time, action, user_type, user_id, user_login, ip_address, log_data FROM $table_name ORDER BY log_id DESC LIMIT %d OFFSET %d",
-            $limit, $offset
+            "SELECT log_id, log_time, action, user_type, user_id, user_login, ip_address, log_data FROM $table_name $where ORDER BY log_id DESC LIMIT %d OFFSET %d",
+            $params
         ));
 
         if ( empty( $logs ) ) {
@@ -1543,7 +1556,7 @@ class SecurityLogger {
             ];
         }
         \WP_CLI\Utils\format_items( 'table', $table_data, [ 'ID', 'Time', 'Action', 'User', 'IP', 'Details' ] );
-        \WP_CLI::log( "\nShowing " . ( $offset + 1 ) . ' to ' . ( $offset + count( $logs ) ) . '. Use --limit=N --offset=N to paginate.' );
+        \WP_CLI::log( "\nShowing " . ( $offset + 1 ) . ' to ' . ( $offset + count( $logs ) ) . '. Use --limit=N --offset=N to paginate, --action=<name>[,<name>] to filter.' );
         \WP_CLI::log( "Use 'wp captaincore security-log get <ID>' for full details." );
     }
 
@@ -8495,6 +8508,11 @@ captaincore ssh <site> --script=deploy-helper
 ```
 
 ## Changelog
+
+### 0.7.3 — 2026-05-11
+- `wp captaincore security-log list` now accepts `--action=<name>[,<name>]`
+  to filter by event type (e.g. `--action=password_compromised_blocked`
+  to surface only compromised-password logins).
 
 ### 0.7.2 — 2026-04-30
 - oEmbed responses now strip `author_name` in addition to `author_url`,
