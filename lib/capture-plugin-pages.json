@@ -1,0 +1,26 @@
+{
+    "plugins": [
+        {
+            "slug": "woocommerce",
+            "discover": [
+                { "type": "option_page_id", "option": "woocommerce_checkout_page_id" },
+                { "type": "option_page_id", "option": "woocommerce_cart_page_id" },
+                { "type": "option_page_id", "option": "woocommerce_myaccount_page_id" }
+            ]
+        },
+        {
+            "slug": "easy-digital-downloads",
+            "discover": [
+                { "type": "option_array_page_id", "option": "edd_settings", "key": "purchase_page" },
+                { "type": "option_array_page_id", "option": "edd_settings", "key": "success_page" }
+            ]
+        },
+        {
+            "slug": "give",
+            "discover": [
+                { "type": "option_array_page_id", "option": "give_settings", "key": "success_page" },
+                { "type": "option_array_page_id", "option": "give_settings", "key": "failure_page" }
+            ]
+        }
+    ]
+}

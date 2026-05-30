@@ -345,6 +345,9 @@ func siteGetNative(cmd *cobra.Command, args []string) {
 	// Parse capture_pages
 	capturePages := env.CapturePages
 
+	// Plugin-discovered pages (cached in env.Details, refreshed by sync-data)
+	capturePluginPages := envDetails.CapturePluginPages
+
 	// Parse updates_exclude fields
 	updatesExcludeThemes := env.UpdatesExcludeThemes
 	updatesExcludePlugins := env.UpdatesExcludePlugins
@@ -392,6 +395,7 @@ func siteGetNative(cmd *cobra.Command, args []string) {
 		"fathom":                  fathomStr,
 		"wp_content":              wpContent,
 		"capture_pages":           capturePages,
+		"capture_plugin_pages":    capturePluginPages,
 		"address":                 env.Address,
 		"username":                env.Username,
 		"password":                env.Password,
@@ -448,6 +452,9 @@ func siteGetNative(cmd *cobra.Command, args []string) {
 			}
 		}
 
+		// Plugin-discovered pages → CSV
+		capturePluginPagesCSV := strings.Join(capturePluginPages, ",")
+
 		// Handle fathom for bash format
 		fathomBash := fathomStr
 		if fathomBash != "" && fathomBash != "null" {
@@ -495,6 +502,7 @@ domain=%s
 key=%s
 fathom=%s
 capture_pages=%s
+capture_plugin_pages=%s
 site=%s
 auth=%s
 environment_vars=%s
@@ -521,6 +529,7 @@ backup_mode=%s`,
 			siteDetails.Key,
 			fathomBash,
 			capturePagesCSV,
+			capturePluginPagesCSV,
 			site.Site,
 			authStr,
 			environmentVars,
@@ -554,6 +563,7 @@ func buildSiteGetJSON(data map[string]interface{}) string {
 	keys := []string{
 		"site_id", "site", "status", "provider", "key", "environment_vars",
 		"name", "home_url", "defaults", "fathom", "wp_content", "capture_pages",
+		"capture_plugin_pages",
 		"address", "username", "password", "protocol", "port", "home_directory",
 		"database_username", "database_password", "monitor_enabled",
 		"updates_enabled", "updates_exclude_themes", "updates_exclude_plugins",
@@ -585,6 +595,11 @@ func buildSiteGetJSON(data map[string]interface{}) string {
 				jsonVal = []byte(s)
 			} else {
 				jsonVal = []byte(`""`)
+			}
+		}
+		if k == "capture_plugin_pages" {
+			if pages, ok := val.([]string); !ok || pages == nil {
+				jsonVal = []byte(`[]`)
 			}
 		}
 

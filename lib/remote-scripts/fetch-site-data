@@ -401,3 +401,106 @@ if [[ -d "$restic_cache_dir" ]]; then
 else
     echo "restic_cache:0"
 fi
+
+# Discover sensitive pages (checkout/cart/account) for active ecommerce plugins.
+# Rules kept in sync with lib/capture-plugin-pages.json on the CaptainCore server.
+# Result is a JSON array of home_url-relative paths consumed by `capture generate`.
+read -r -d '' capture_pages_php << 'CAPPAGESEOF'
+<?php
+$rules = [
+    [
+        'slug' => 'woocommerce',
+        'discover' => [
+            ['type' => 'option_page_id', 'option' => 'woocommerce_checkout_page_id'],
+            ['type' => 'option_page_id', 'option' => 'woocommerce_cart_page_id'],
+            ['type' => 'option_page_id', 'option' => 'woocommerce_myaccount_page_id'],
+        ],
+    ],
+    [
+        'slug' => 'easy-digital-downloads',
+        'discover' => [
+            ['type' => 'option_array_page_id', 'option' => 'edd_settings', 'key' => 'purchase_page'],
+            ['type' => 'option_array_page_id', 'option' => 'edd_settings', 'key' => 'success_page'],
+        ],
+    ],
+    [
+        'slug' => 'give',
+        'discover' => [
+            ['type' => 'option_array_page_id', 'option' => 'give_settings', 'key' => 'success_page'],
+            ['type' => 'option_array_page_id', 'option' => 'give_settings', 'key' => 'failure_page'],
+        ],
+    ],
+];
+
+$is_slug_active = function ($slug) {
+    $active = (array) get_option('active_plugins', []);
+    foreach ($active as $path) {
+        if (dirname($path) === $slug) {
+            return true;
+        }
+    }
+    if (is_multisite()) {
+        $network = (array) get_site_option('active_sitewide_plugins', []);
+        foreach (array_keys($network) as $path) {
+            if (dirname($path) === $slug) {
+                return true;
+            }
+        }
+    }
+    return false;
+};
+
+$resolve_page_id = function ($id) {
+    $id = (int) $id;
+    if ($id <= 0) {
+        return null;
+    }
+    $url = get_permalink($id);
+    if (! $url) {
+        return null;
+    }
+    $home = untrailingslashit(home_url());
+    if (strpos($url, $home) === 0) {
+        $path = substr($url, strlen($home));
+    } else {
+        $path = parse_url($url, PHP_URL_PATH);
+    }
+    if ($path === '' || $path === null) {
+        $path = '/';
+    }
+    if ($path[0] !== '/') {
+        $path = '/' . $path;
+    }
+    return $path;
+};
+
+$paths = [];
+foreach ($rules as $rule) {
+    if (! $is_slug_active($rule['slug'])) {
+        continue;
+    }
+    foreach ($rule['discover'] as $d) {
+        $page_id = 0;
+        if ($d['type'] === 'option_page_id') {
+            $page_id = (int) get_option($d['option'], 0);
+        } elseif ($d['type'] === 'option_array_page_id') {
+            $opt = get_option($d['option'], []);
+            if (is_array($opt) && isset($opt[$d['key']])) {
+                $page_id = (int) $opt[$d['key']];
+            }
+        }
+        $path = $resolve_page_id($page_id);
+        if ($path !== null && ! in_array($path, $paths, true)) {
+            $paths[] = $path;
+        }
+    }
+}
+
+echo json_encode($paths);
+CAPPAGESEOF
+
+capture_plugin_pages_json=$(echo "$capture_pages_php" | wp eval-file - --skip-themes --skip-plugins 2>/dev/null)
+if [[ -z "$capture_plugin_pages_json" ]]; then
+    capture_plugin_pages_json="[]"
+fi
+echo "capture_plugin_pages:${capture_plugin_pages_json}"

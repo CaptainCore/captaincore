@@ -51,10 +51,11 @@ func (Environment) TableName() string {
 
 // EnvironmentDetails represents the JSON stored in the environment details column.
 type EnvironmentDetails struct {
-	Fathom         json.RawMessage `json:"fathom"`
-	Auth           *AuthDetails    `json:"auth"`
-	ScreenshotBase string          `json:"screenshot_base"`
-	ConsoleErrors  json.RawMessage `json:"console_errors"`
+	Fathom             json.RawMessage `json:"fathom"`
+	Auth               *AuthDetails    `json:"auth"`
+	ScreenshotBase     string          `json:"screenshot_base"`
+	ConsoleErrors      json.RawMessage `json:"console_errors"`
+	CapturePluginPages []string        `json:"capture_plugin_pages"`
 }
 
 type AuthDetails struct {

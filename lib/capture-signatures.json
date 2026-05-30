@@ -7,6 +7,16 @@
     "var aysPopupOptions",
     "var wc_cart_fragments_params",
     "var wc_add_to_cart_params",
+    "var wc_checkout_params",
+    "var wc_country_select_params",
+    "var wc_address_i18n_params",
+    "var wc_single_product_params",
+    "var woocommerce_params",
+    "var wc_order_attribution",
+    "wp.apiFetch.use( wp.apiFetch.createNonceMiddleware",
+    "wcSettings",
+    "wcBlocksMiddlewareConfig",
+    "var wpApiSettings",
     "var wpcf7",
     "var flatsomeVars",
     "var ElementorProFrontendConfig",
@@ -110,7 +120,9 @@
     "resources.infolinks.com",
     "js.adsrvr.org",
     "www.idxhome.com",
-    "secure.gravatar.com"
+    "secure.gravatar.com",
+    "cq-logs.cheq-platform.com",
+    "obseu.bmccfortress.com"
   ],
   "signatures": [
     {

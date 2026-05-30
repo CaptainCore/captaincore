@@ -88,6 +88,20 @@ run_command() {
 		capture_pages="/"
 	fi
 
+	# Append plugin-discovered pages (checkout/cart/account on active ecommerce plugins).
+	# These are tracked for HTML/JS drift but skip the Screenshots Cloud screenshot.
+	declare -A nosnap_pages
+	if [[ "$capture_plugin_pages" != "" ]]; then
+		IFS=','; for p in $capture_plugin_pages; do
+			[[ -z "$p" ]] && continue
+			# De-dupe: skip if already in user-configured capture_pages
+			if [[ ",${capture_pages}," != *",${p},"* ]]; then
+				capture_pages="${capture_pages},${p}"
+			fi
+			nosnap_pages["$p"]=1
+		done; unset IFS
+	fi
+
 	echo "Capturing site ${site}-${environment} for pages $capture_pages"
 
 	# Define remote paths
@@ -149,8 +163,16 @@ run_command() {
 		check_status_again=$( git status "$file_name" -s )
 		if [[ "$check_status_again" == "A"* || "$check_status_again" == "M"* || "$check_status_again" == "R"*  ]]; then
 			captured_pages="${captured_pages}${page},"
+
+			# Plugin-discovered pages (checkout/cart/account): skip screenshot, just track HTML diff.
+			# Drift will still flow through `capture check` and trigger alerts on new scripts.
+			if [[ "${nosnap_pages[$page]}" == "1" ]]; then
+				echo "Skipping screenshot for auto-discovered page ${page}"
+				continue
+			fi
+
 			mkdir -p ".screenshots/"
-			
+
 			target_file=".screenshots/${page//\//#}_working.jpg"
 			max_retries=5
 			attempt=1
