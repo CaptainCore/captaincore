@@ -22,13 +22,18 @@
 #     wp-content/themes/twentysixteen.acpid.socket  (sh, reverse shell to :25)
 #     .19235ant_x64.so / .27301ant_x64.so           (ELF, disable_functions bypass)
 #
-#   Detection passes (each pass is deduped against the prior):
-#     A. Extension   — any `*.so` / `*.socket` file OR directory, web-tree-wide.
+#   Detection passes (each pass is deduped against the prior), all web-tree-wide:
+#     A. Extension   — any `*.so` / `*.socket` file OR directory.
 #     B. ELF magic   — any file beginning with the ELF magic (\x7fELF),
-#                      regardless of name (catches renamed payloads).
-#     C. Reverse-shell content — small text files containing /dev/tcp,
-#                      `bash -i >&`, LD_PRELOAD shell-out, or socket-connect
-#                      reverse-shell shapes, regardless of extension.
+#                      regardless of name or directory. Scans the WHOLE tree,
+#                      including non-WordPress dirs (old_site/, backup/, _old/,
+#                      wp-content/cache, wp-admin, wp-includes) — a bare
+#                      `old_site/exploit` ELF with no .so extension slipped past
+#                      an earlier WP-dirs-only scope on phreddcentral.com.
+#     C. Reverse-shell content — small text files containing a /dev/tcp(/udp)
+#                      bash/sh socket redirect, regardless of extension.
+#   node_modules/.git are always pruned; wp-content/uploads is pruned under
+#   --skip-uploads (Pass A still covers .so/.socket names there).
 #
 #   Output format (one row per finding):
 #     SEVERITY|TYPE|PATH|DETAIL|SIZE|MTIME
@@ -133,9 +138,11 @@ emit() {
 # Build the find prune expression for noise dirs.
 PRUNE=( -path '*/node_modules/*' -o -path '*/.git/*' )
 
-# Directories to ELF-magic-scan (Pass B). uploads optional (can be huge).
-SCAN_DIRS=( "wp-content/themes" "wp-content/plugins" "wp-content/mu-plugins" )
-[ -z "$skip_uploads" ] && SCAN_DIRS+=( "wp-content/uploads" )
+# Prune list for the full-tree passes (B + C). Always drop node_modules/.git;
+# drop wp-content/uploads only under --skip-uploads (it's the heavy tree on
+# media-rich sites — the extension pass A still covers .so/.socket there).
+TREE_PRUNE=( -path '*/node_modules/*' -o -path '*/.git/*' )
+[ -n "$skip_uploads" ] && TREE_PRUNE+=( -o -path '*/wp-content/uploads/*' )
 
 # ── Pass A: .so / .socket by name (files AND directories), web-tree-wide ──
 while IFS= read -r f; do
@@ -164,30 +171,29 @@ while IFS= read -r f; do
     fi
 done < <(find . \( "${PRUNE[@]}" \) -prune -o \( -name '*.so' -o -name '*.socket' \) -print 2>/dev/null)
 
-# ── Pass B: ELF magic byte scan in the web tree (catches renamed payloads) ──
-# Top-level web-root files (depth 1) — where hidden `.NNNNNant_x64.so` land — plus
-# the plugin/theme/mu-plugin/uploads trees. Skip files < 4 bytes.
-{
-    find . -maxdepth 1 -type f -size +3c 2>/dev/null
-    for d in "${SCAN_DIRS[@]}"; do
-        [ -d "$d" ] && find "$d" \( "${PRUNE[@]}" \) -prune -o -type f -size +3c -print 2>/dev/null
-    done
-} | while IFS= read -r f; do
+# ── Pass B: ELF magic byte scan across the ENTIRE web tree ──
+# Catches renamed payloads AND ELF binaries hiding in NON-WordPress directories
+# — legacy/migration leftovers (old_site/, backup/, _old/), wp-content/cache,
+# wp-admin/wp-includes, etc. Scoping this to the WordPress dirs is exactly how a
+# bare `old_site/exploit` ELF (no .so extension) slipped past on phreddcentral.com.
+# A WordPress web tree has no legitimate ELF outside the allowlisted image-tool
+# bundles, so a full-tree sweep is the correct scope. node_modules/.git always
+# pruned; uploads pruned under --skip-uploads. (head-c4 per file is the cost — on
+# huge sites prefer --skip-uploads.)
+find . \( "${TREE_PRUNE[@]}" \) -prune -o -type f -size +3c -print 2>/dev/null | while IFS= read -r f; do
     is_allowed "$f" && continue
-    grep -qxF "$f" "$TMPSEEN" 2>/dev/null && continue
+    grep -qxF "${f#./}" "$TMPSEEN" 2>/dev/null && continue
     if is_elf "$f"; then
         emit CRITICAL ELF_BINARY "$f" "ELF binary in web tree (no legitimate use)"
     fi
 done
 
-# ── Pass C: reverse-shell content in small text files (any extension) ──
-# Catches the acpid.socket-style launcher even if renamed to .txt/.dat/.bin etc.
-for d in "." "${SCAN_DIRS[@]}"; do
-    [ -d "$d" ] || continue
-    depth=(); [ "$d" = "." ] && depth=(-maxdepth 1)
-    while IFS= read -r f; do
+# ── Pass C: reverse-shell content in small text files (any extension), tree-wide ──
+# Catches the acpid.socket-style launcher even if renamed to .txt/.dat/.bin etc.,
+# anywhere in the tree (including non-WP dirs like old_site/). Same prune as Pass B.
+while IFS= read -r f; do
         is_allowed "$f" && continue
-        grep -qxF "$f" "$TMPSEEN" 2>/dev/null && continue
+        grep -qxF "${f#./}" "$TMPSEEN" 2>/dev/null && continue
         # text files only; skip if it looks like a normal PHP source (those are
         # covered by the PHP-focused scanners and would FP on legit socket code)
         case "$f" in *.php|*.phtml|*.inc) continue ;; esac
@@ -203,8 +209,7 @@ for d in "." "${SCAN_DIRS[@]}"; do
             [ -n "$c2" ] && det="reverse shell -> ${c2#/dev/*/}"
             emit CRITICAL REVERSE_SHELL "$f" "$det"
         fi
-    done < <(find "$d" "${depth[@]}" \( "${PRUNE[@]}" \) -prune -o -type f -size +10c -size -65536c -print 2>/dev/null)
-done
+done < <(find . \( "${TREE_PRUNE[@]}" \) -prune -o -type f -size +10c -size -65536c -print 2>/dev/null)
 
 # ── Result ───────────────────────────────────────────────────────
 if [ -z "$found_any" ]; then
