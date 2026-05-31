@@ -86,10 +86,25 @@ fi
 # tree are commercial PHP loaders bundled by encoded plugins, and native
 # Node addons under node_modules. Everything else is guilty by default.
 # Matched against the full path; add entries as real false positives surface.
-ALLOW_PATH_REGEX='/(node_modules|\.git)/|/(ioncube|sourceguardian|sg_loader)/|loader[._-].*\.so$|ixed\..*\.so$'
+#
+#   node_modules / .git           — build/VCS noise
+#   ioncube / sourceguardian      — commercial PHP loaders bundled by encoded plugins
+#   rosell-dk/webp-convert        — webp-express, image-sizes, op-dashboard, etc. bundle
+#                                   platform `cwebp-*` ELF binaries from this lib
+#   ewww-image-optimizer/bin*     — bundles jpegtran/gifsicle/optipng/pngquant/cwebp ELFs
+#   wpress-extractor              — All-in-One WP Migration's ELF extractor at web root
+ALLOW_PATH_REGEX='/(node_modules|\.git)/|/(ioncube|sourceguardian|sg_loader)/|loader[._-].*\.so$|ixed\..*\.so$|/rosell-dk/webp-convert/|/ewww-image-optimizer/(binaries|bin)/|(^|/)wpress-extractor$'
+
+# Standard image-optimization / media CLI tool basenames (optionally suffixed
+# with -linux / -fbsd / -solaris / -static / a version). These ship as ELF
+# binaries inside legitimate optimizer plugins. Matched on BASENAME so a bundle
+# in any plugin/vendor path is covered, while a payload dropped under a random
+# name in themes/ or the web root is NOT exempted.
+TOOL_BASENAME_REGEX='^(cwebp|dwebp|webpmux|gif2webp|img2webp|jpegtran|djpeg|cjpeg|jpegoptim|mozjpeg|gifsicle|optipng|pngquant|pngout|pngcrush|zopflipng|advpng|exiftool)([._-][A-Za-z0-9.+-]+)?$'
 
 is_allowed() {
-    printf '%s' "$1" | grep -qE "$ALLOW_PATH_REGEX"
+    printf '%s' "$1" | grep -qE "$ALLOW_PATH_REGEX" && return 0
+    printf '%s' "${1##*/}" | grep -qE "$TOOL_BASENAME_REGEX"
 }
 
 # First 4 bytes == 7f 45 4c 46  ("\x7fELF")
@@ -133,6 +148,7 @@ while IFS= read -r f; do
         continue
     fi
     [ -f "$f" ] || continue
+    [ -s "$f" ] || continue   # empty file (0 bytes) can't be a payload — e.g. asm.js *.so stubs
     if is_elf "$f"; then
         emit CRITICAL ELF_BINARY "$f" "ELF binary with .so/.socket extension"
     elif head -c2 "$f" 2>/dev/null | grep -q '#!' || head -c4096 "$f" 2>/dev/null | grep -qiE '/dev/tcp/|bash -i|sh -i|LD_PRELOAD'; then
@@ -175,10 +191,16 @@ for d in "." "${SCAN_DIRS[@]}"; do
         # text files only; skip if it looks like a normal PHP source (those are
         # covered by the PHP-focused scanners and would FP on legit socket code)
         case "$f" in *.php|*.phtml|*.inc) continue ;; esac
-        if grep -qaE 'bash -i >&[[:space:]]*/dev/tcp/|sh -i >&[[:space:]]*/dev/tcp/|/dev/tcp/[0-9.]+/[0-9]+|fsockopen\(|socket_connect\(.*SOCK_STREAM' "$f" 2>/dev/null; then
-            c2=$(grep -oE '/dev/tcp/[0-9.]+/[0-9]+' "$f" 2>/dev/null | head -1)
+        # Require the genuine reverse-shell shape: a /dev/tcp (or /dev/udp)
+        # bash/sh socket redirect. Bare fsockopen()/socket_connect() are
+        # ubiquitous in legitimate library code, docs, and phpdoc caches
+        # (matched wp-smush-pro's mixpanel docs and astra-pro-sites' phpcs.xml),
+        # so they are NOT used as a signal here — the PHP malware scanners
+        # cover attacker PHP, and this pass targets non-PHP shell launchers.
+        if grep -qaE '(bash|sh) -i[[:space:]]*>&[[:space:]]*/dev/(tcp|udp)/|/dev/(tcp|udp)/[0-9.]+/[0-9]+' "$f" 2>/dev/null; then
+            c2=$(grep -oE '/dev/(tcp|udp)/[0-9.]+/[0-9]+' "$f" 2>/dev/null | head -1)
             det="reverse-shell pattern in non-PHP file"
-            [ -n "$c2" ] && det="reverse shell -> ${c2#/dev/tcp/}"
+            [ -n "$c2" ] && det="reverse shell -> ${c2#/dev/*/}"
             emit CRITICAL REVERSE_SHELL "$f" "$det"
         fi
     done < <(find "$d" "${depth[@]}" \( "${PRUNE[@]}" \) -prune -o -type f -size +10c -size -65536c -print 2>/dev/null)
