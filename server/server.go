@@ -120,6 +120,12 @@ type Task struct {
 	Response  string
 	Origin    string
 	Token     string `gorm:"index"`
+	// ArgsJSON persists the argv for the new array protocol so queued/resumed
+	// tasks reconstruct exactly (the human-readable Command stays display-only).
+	ArgsJSON string `json:"-"`
+	// Args and Payload are decoded from the request body only (never persisted).
+	Args    []string `json:"args" gorm:"-"`
+	Payload string   `json:"payload" gorm:"-"`
 }
 
 type taskWithProgress struct {
@@ -214,10 +220,12 @@ func newRun(w http.ResponseWriter, r *http.Request) {
 	task.CaptainID, err = strconv.Atoi(captainID)
 	task.Token = randomToken
 
+	prepareArgvTask(&task)
 	db.Create(&task)
 
 	// Starts running CaptainCore command
-	response := runCommand("captaincore --captain-id="+captainID+" "+task.Command, task)
+	head, args := buildExec(task, captainID)
+	response := runCommand(head, args, task)
 	fmt.Fprint(w, response)
 }
 
@@ -232,10 +240,12 @@ func newRunStream(w http.ResponseWriter, r *http.Request) {
 	task.CaptainID, err = strconv.Atoi(captainID)
 	task.Token = randomToken
 
+	prepareArgvTask(&task)
 	db.Create(&task)
 
 	// Starts running CaptainCore command
-	runStreamCommand(w, "captaincore --captain-id="+captainID+" "+task.Command, task)
+	head, args := buildExec(task, captainID)
+	runStreamCommand(w, head, args, task)
 }
 
 func newBackground(w http.ResponseWriter, r *http.Request) {
@@ -249,34 +259,27 @@ func newBackground(w http.ResponseWriter, r *http.Request) {
 	task.CaptainID, err = strconv.Atoi(captainID)
 	task.Token = randomToken
 
-	// If command contains payload="<payload>" then then write data to file and change to payload="true"
-	pattern := `(--payload='.+')`
-	payload := regexp.MustCompile(pattern).FindString(task.Command)
+	// Legacy string protocol: extract an inline --payload='...' to a file.
+	if len(task.Args) == 0 {
+		pattern := `(--payload='.+')`
+		payload := regexp.MustCompile(pattern).FindString(task.Command)
 
-	if len(payload) >= 1 {
-		log.Println("Payload found, writing to file.")
-		task.Command = strings.Replace(task.Command, payload, task.Token, -1)
+		if len(payload) >= 1 {
+			log.Println("Payload found, writing to file.")
+			task.Command = strings.Replace(task.Command, payload, task.Token, -1)
 
-		pattern_data := `--payload='(.+)'`
-		payload_data := regexp.MustCompile(pattern_data).FindStringSubmatch(payload)
-
-		usr, err := user.Current()
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		payloadDir := usr.HomeDir + "/.captaincore/data/payload"
-		os.MkdirAll(payloadDir, 0755)
-		writeerr := WriteToFile(payloadDir+"/"+task.Token+".txt", payload_data[1])
-		if writeerr != nil {
-			log.Fatal(writeerr)
+			pattern_data := `--payload='(.+)'`
+			payload_data := regexp.MustCompile(pattern_data).FindStringSubmatch(payload)
+			writePayloadFile(task.Token, payload_data[1])
 		}
 	}
 
+	prepareArgvTask(&task)
 	db.Create(&task)
 
 	// Starts running CaptainCore command
-	go runCommand("captaincore --captain-id="+captainID+" "+task.Command, task)
+	head, args := buildExec(task, captainID)
+	go runCommand(head, args, task)
 	taskID := strconv.FormatUint(uint64(task.ID), 10)
 	response := "{ \"task_id\" : " + taskID + ", \"token\" : \"" + task.Token + "\" }"
 	fmt.Fprint(w, response)
@@ -292,30 +295,22 @@ func newTask(w http.ResponseWriter, r *http.Request) {
 	task.CaptainID, err = strconv.Atoi(captainID)
 	task.Token = randomToken
 
-	// If command contains payload="<payload>" then then write data to file and change to payload="true"
-	pattern := `(--payload='.+')`
-	payload := regexp.MustCompile(pattern).FindString(task.Command)
+	// Legacy string protocol: extract an inline --payload='...' to a file.
+	if len(task.Args) == 0 {
+		pattern := `(--payload='.+')`
+		payload := regexp.MustCompile(pattern).FindString(task.Command)
 
-	if len(payload) >= 1 {
-		log.Println("Payload found, writing to file.")
-		task.Command = strings.Replace(task.Command, payload, task.Token, -1)
+		if len(payload) >= 1 {
+			log.Println("Payload found, writing to file.")
+			task.Command = strings.Replace(task.Command, payload, task.Token, -1)
 
-		pattern_data := `--payload='(.+)'`
-		payload_data := regexp.MustCompile(pattern_data).FindStringSubmatch(payload)
-
-		usr, err := user.Current()
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		payloadDir := usr.HomeDir + "/.captaincore/data/payload"
-		os.MkdirAll(payloadDir, 0755)
-		writeerr := WriteToFile(payloadDir+"/"+task.Token+".txt", payload_data[1])
-		if writeerr != nil {
-			log.Fatal(writeerr)
+			pattern_data := `--payload='(.+)'`
+			payload_data := regexp.MustCompile(pattern_data).FindStringSubmatch(payload)
+			writePayloadFile(task.Token, payload_data[1])
 		}
 	}
 
+	prepareArgvTask(&task)
 	db.Create(&task)
 	taskID := strconv.FormatUint(uint64(task.ID), 10)
 	response := "{ \"task_id\" : " + taskID + ", \"token\" : \"" + randomToken + "\" }"
@@ -489,6 +484,10 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Fatal(err)
 	}
+	// Clear any read/write deadline inherited from the http.Server so the
+	// long-lived websocket isn't severed mid-command. Zero time = no deadline.
+	conn.SetReadDeadline(time.Time{})
+	conn.SetWriteDeadline(time.Time{})
 	// Make sure we close the connection when the function returns
 	defer conn.Close()
 
@@ -539,11 +538,15 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 		// Execute job if requested
 		if data.Action == "start" {
 			captainID := strconv.Itoa(task.CaptainID)
-			go runCommand("captaincore --captain-id="+captainID+" "+task.Command, task)
+			// buildExec reconstructs argv from the persisted ArgsJSON (new
+			// protocol) or tokenizes the stored Command (legacy).
+			head, args := buildExec(task, captainID)
+			go runCommand(head, args, task)
 		}
 		if data.Action == "listen" {
 			captainID := strconv.Itoa(task.CaptainID)
-			go runCommand("captaincore running listen --captain-id="+captainID, task)
+			head, args := parseCommandString("captaincore running listen --captain-id=" + captainID)
+			go runCommand(head, args, task)
 		}
 		if data.Action == "kill" {
 			go killCommand(task)
@@ -592,12 +595,18 @@ func HandleRequests(d bool) {
 	router.HandleFunc("/ws", wsHandler)
 	router.HandleFunc("/", handleIndex)
 
+	// NOTE: ReadTimeout/WriteTimeout are intentionally NOT set. They apply to the
+	// whole request/response — including hijacked websocket connections (/ws) and
+	// the long-lived HTTP streaming endpoints (/run/stream, /task/{id}/stream).
+	// A 60s WriteTimeout silently cut those off mid-stream (e.g. a sync-data with
+	// a long, output-silent SSH phase). ReadHeaderTimeout still guards against
+	// slow-header (slowloris) attacks, and IdleTimeout bounds idle keep-alive
+	// between requests without affecting active streams.
 	httpSrv = &http.Server{
-		ReadTimeout:  60 * time.Second,
-		WriteTimeout: 60 * time.Second,
-		IdleTimeout:  120 * time.Second,
-		Handler:      router,
-		Addr:         ":8000",
+		ReadHeaderTimeout: 15 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		Handler:           router,
+		Addr:              ":8000",
 	}
 	fmt.Println("Starting server http://localhost:8000")
 	log.Fatal(httpSrv.ListenAndServe())
@@ -912,31 +921,78 @@ func killCommand(t Task) {
 	log.Println("Process killed ", strconv.Itoa(t.ProcessID))
 }
 
-// runStreamCommand executes a command and streams its binary output directly to the HTTP response.
-func runStreamCommand(w http.ResponseWriter, cmd string, t Task) {
+// parseCommandString tokenizes a legacy command string into an executable head
+// and its arguments using the historical regex, preserving the --command=/--name=
+// double-quote stripping quirk. Used only for clients that still send a "command"
+// string; the new "args" array protocol skips this entirely.
+func parseCommandString(cmd string) (string, []string) {
 	// See https://regexr.com/4154h for custom regex to parse commands
 	// Inspired by https://gist.github.com/danesparza/a651ac923d6313b9d1b7563c9245743b
 	pattern := `(--[^\s]+="[^"]+")|"([^"]+)"|'([^']+)'|([^\s]+)`
 	parts := regexp.MustCompile(pattern).FindAllString(cmd, -1)
-
-	// The first part is the command, the rest are the args:
+	if len(parts) == 0 {
+		return "", nil
+	}
 	head := parts[0]
-	arguments := parts[1:len(parts)]
-
-	// Loop through arguments and remove quotes from ---command="" due to bug
+	arguments := parts[1:]
 	for i, v := range arguments {
-		if strings.HasPrefix(v, "--command=") {
-			newArgument := strings.Replace(v, "\"", "", 1)
-			newArgument = strings.Replace(newArgument, "\"", "", -1)
-			arguments[i] = newArgument
-		}
-		if strings.HasPrefix(v, "--name=") {
-			newArgument := strings.Replace(v, "\"", "", 1)
-			newArgument = strings.Replace(newArgument, "\"", "", -1)
-			arguments[i] = newArgument
+		if strings.HasPrefix(v, "--command=") || strings.HasPrefix(v, "--name=") {
+			arguments[i] = strings.Replace(v, "\"", "", -1)
 		}
 	}
+	return head, arguments
+}
 
+// writePayloadFile stores a large payload blob to disk, keyed by task token.
+func writePayloadFile(token, data string) {
+	usr, err := user.Current()
+	if err != nil {
+		log.Println("payload: cannot resolve user:", err)
+		return
+	}
+	payloadDir := usr.HomeDir + "/.captaincore/data/payload"
+	os.MkdirAll(payloadDir, 0755)
+	if err := WriteToFile(payloadDir+"/"+token+".txt", data); err != nil {
+		log.Println("payload: write failed:", err)
+	}
+}
+
+// prepareArgvTask bakes the new array protocol onto a task: writes any payload
+// blob to disk (appending --payload=<token>), persists the argv as JSON, and
+// sets a human-readable Command for display. No-op for legacy string requests.
+func prepareArgvTask(t *Task) {
+	if len(t.Args) == 0 {
+		return
+	}
+	if t.Payload != "" {
+		writePayloadFile(t.Token, t.Payload)
+		t.Args = append(t.Args, "--payload="+t.Token)
+		t.Payload = ""
+	}
+	if b, err := json.Marshal(t.Args); err == nil {
+		t.ArgsJSON = string(b)
+	}
+	t.Command = "captaincore " + strings.Join(t.Args, " ")
+}
+
+// buildExec resolves the executable + arguments for a task. New protocol tasks
+// (ArgsJSON set, or Args still in memory) run captaincore with the argv verbatim;
+// legacy tasks fall back to tokenizing the command string.
+func buildExec(t Task, captainID string) (string, []string) {
+	var argv []string
+	if t.ArgsJSON != "" {
+		json.Unmarshal([]byte(t.ArgsJSON), &argv)
+	} else if len(t.Args) > 0 {
+		argv = t.Args
+	}
+	if len(argv) > 0 {
+		return "captaincore", append([]string{"--captain-id=" + captainID}, argv...)
+	}
+	return parseCommandString("captaincore --captain-id=" + captainID + " " + t.Command)
+}
+
+// runStreamCommand executes a command and streams its binary output directly to the HTTP response.
+func runStreamCommand(w http.ResponseWriter, head string, arguments []string, t Task) {
 	log.Printf("Running stream command for Task %d: %s", t.ID, t.Command)
 	// if db != nil {
 	// 	db.Model(&task).Update("Status", "Running")
@@ -963,20 +1019,7 @@ func runStreamCommand(w http.ResponseWriter, cmd string, t Task) {
 	}
 }
 
-func runCommand(cmd string, t Task) string {
-	// See https://regexr.com/4154h for custom regex to parse commands
-	// Inspired by https://gist.github.com/danesparza/a651ac923d6313b9d1b7563c9245743b
-	pattern := `(--[^\s]+="[^"]+")|"([^"]+)"|'([^']+)'|([^\s]+)`
-	parts := regexp.MustCompile(pattern).FindAllString(cmd, -1)
-
-	// The first part is the command, the rest are the args:
-	head := parts[0]
-	//dirname, err := os.UserHomeDir()
-	//path := dirname + "/.captaincore/app/"
-	//head = "/bin/bash -c " + head
-	arguments := parts[1:len(parts)]
-
-	// log.Println("Hunting for socket with token ", t.Token)
+func runCommand(head string, arguments []string, t Task) string {
 
 	// Find current connection write data
 	var client Client
@@ -985,20 +1028,6 @@ func runCommand(cmd string, t Task) string {
 		if c.Token == t.Token {
 			client = c
 			break
-		}
-	}
-
-	// Loop through arguments and remove quotes from ---command="" due to bug
-	for i, v := range arguments {
-		if strings.HasPrefix(v, "--command=") {
-			newArgument := strings.Replace(v, "\"", "", 1)
-			newArgument = strings.Replace(newArgument, "\"", "", -1)
-			arguments[i] = newArgument
-		}
-		if strings.HasPrefix(v, "--name=") {
-			newArgument := strings.Replace(v, "\"", "", 1)
-			newArgument = strings.Replace(newArgument, "\"", "", -1)
-			arguments[i] = newArgument
 		}
 	}
 
