@@ -23,6 +23,43 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// safeRelPath reports whether a remote-supplied file path is safe to join onto
+// a local backup directory: it must be relative (no leading slash) and must not
+// contain any ".." traversal segment. Remote sites (potentially compromised)
+// supply these paths via checksum/loose-file manifests, so they are untrusted.
+func safeRelPath(p string) bool {
+	if p == "" || strings.HasPrefix(p, "/") || strings.Contains(p, "\x00") {
+		return false
+	}
+	clean := filepath.Clean(p)
+	if clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) || filepath.IsAbs(clean) {
+		return false
+	}
+	for _, seg := range strings.Split(clean, string(os.PathSeparator)) {
+		if seg == ".." {
+			return false
+		}
+	}
+	return true
+}
+
+// pathWithinDir reports whether target, once resolved, stays inside base.
+func pathWithinDir(base, target string) bool {
+	absBase, err := filepath.Abs(base)
+	if err != nil {
+		return false
+	}
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(absBase, absTarget)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+}
+
 var quicksaveCmd = &cobra.Command{
 	Use:   "quicksave",
 	Short: "Quicksave commands",
@@ -696,6 +733,9 @@ func quicksaveCoreChecksumScan(site *models.Site, env *models.Environment, syste
 	}
 	var filesToFetch []string
 	for _, f := range remoteFiles {
+		if !safeRelPath(f) {
+			continue // reject traversal/absolute paths from remote manifest
+		}
 		ext := strings.ToLower(filepath.Ext(f))
 		if scannableExts[ext] {
 			filesToFetch = append(filesToFetch, f)
@@ -748,6 +788,10 @@ func quicksaveCoreChecksumScan(site *models.Site, env *models.Environment, syste
 
 		// Ensure local subdirectory exists (for files like wp-admin/foo.php)
 		localPath := filepath.Join(backupDir, remoteFile)
+		if !pathWithinDir(backupDir, localPath) {
+			fmt.Printf("  Core checksum scan: skipping unsafe path %s\n", remoteFile)
+			continue
+		}
 		os.MkdirAll(filepath.Dir(localPath), 0755)
 
 		// SCP the file
@@ -888,6 +932,9 @@ func quicksaveLooseFilesScan(site *models.Site, env *models.Environment, system 
 	}
 	var filesToFetch []string
 	for path := range looseMap {
+		if !safeRelPath(path) {
+			continue // reject traversal/absolute paths from remote manifest
+		}
 		ext := strings.ToLower(filepath.Ext(path))
 		if scannableExts[ext] {
 			filesToFetch = append(filesToFetch, "wp-content/"+path)

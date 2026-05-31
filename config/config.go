@@ -326,7 +326,12 @@ func SaveConfigTo(path string, configs FullConfig) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0600)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		return err
+	}
+	// os.WriteFile does not change the mode of a pre-existing file, so enforce
+	// 0600 explicitly — config.json holds fleet tokens and secrets.
+	return os.Chmod(path, 0600)
 }
 
 // rawToString converts a json.RawMessage to a plain string value.

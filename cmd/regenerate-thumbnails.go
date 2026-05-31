@@ -60,6 +60,13 @@ func regenerateThumbnailsNative(cmd *cobra.Command, args []string) {
 			continue
 		}
 
+		// ScreenshotBase is interpolated into a bash -c script — require a safe
+		// token so a malicious value can't inject shell syntax.
+		if !isSafeShellToken(details.ScreenshotBase) {
+			fmt.Printf("Skipping %s-%s: unsafe screenshot_base %q\n", site.Site, envName, details.ScreenshotBase)
+			continue
+		}
+
 		fmt.Printf("Fetching latest capture screenshot for %s-%s\n", site.Site, envName)
 
 		siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)

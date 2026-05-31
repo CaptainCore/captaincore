@@ -413,6 +413,9 @@ func upsertSites(sites []models.Site, environments []models.Environment, account
 		models.UpsertSite(s)
 	}
 	for _, env := range environments {
+		// Strip shell-dangerous values from structural fields before they reach
+		// the SSH command builder (defends against malicious manager/site data).
+		sanitizeEnvironment(&env)
 		models.UpsertEnvironment(env, false)
 	}
 	for _, as := range accountSites {

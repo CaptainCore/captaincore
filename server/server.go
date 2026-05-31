@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"crypto/rand"
+	"crypto/subtle"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -215,6 +216,10 @@ func newRun(w http.ResponseWriter, r *http.Request) {
 	token := r.Header.Get("token")
 	randomToken := generateToken()
 	captainID := fetchCaptainID(token, r)
+	if captainID == "0" {
+		http.Error(w, "401 - Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	task.Status = "Started"
 	task.CaptainID, err = strconv.Atoi(captainID)
@@ -235,6 +240,10 @@ func newRunStream(w http.ResponseWriter, r *http.Request) {
 	token := r.Header.Get("token")
 	randomToken := generateToken()
 	captainID := fetchCaptainID(token, r)
+	if captainID == "0" {
+		http.Error(w, "401 - Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	task.Status = "Started"
 	task.CaptainID, err = strconv.Atoi(captainID)
@@ -254,6 +263,10 @@ func newBackground(w http.ResponseWriter, r *http.Request) {
 	token := r.Header.Get("token")
 	randomToken := generateToken()
 	captainID := fetchCaptainID(token, r)
+	if captainID == "0" {
+		http.Error(w, "401 - Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	task.Status = "Started"
 	task.CaptainID, err = strconv.Atoi(captainID)
@@ -291,6 +304,10 @@ func newTask(w http.ResponseWriter, r *http.Request) {
 	token := r.Header.Get("token")
 	randomToken := generateToken()
 	captainID := fetchCaptainID(token, r)
+	if captainID == "0" {
+		http.Error(w, "401 - Unauthorized", http.StatusUnauthorized)
+		return
+	}
 	task.Status = "Queued"
 	task.CaptainID, err = strconv.Atoi(captainID)
 	task.Token = randomToken
@@ -482,7 +499,10 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	// Upgrade initial GET request to a websocket
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Fatal(err)
+		// A failed upgrade (e.g. a plain GET with no websocket headers) must not
+		// take down the whole daemon — log and return instead of log.Fatal.
+		log.Println("websocket upgrade failed:", err)
+		return
 	}
 	// Clear any read/write deadline inherited from the http.Server so the
 	// long-lived websocket isn't severed mid-command. Zero time = no deadline.
@@ -602,13 +622,20 @@ func HandleRequests(d bool) {
 	// a long, output-silent SSH phase). ReadHeaderTimeout still guards against
 	// slow-header (slowloris) attacks, and IdleTimeout bounds idle keep-alive
 	// between requests without affecting active streams.
+	// Bind address. Defaults to ":8000" (all interfaces) for backwards
+	// compatibility, but can be pinned to loopback behind a TLS-terminating
+	// reverse proxy via CAPTAINCORE_SERVER_BIND=127.0.0.1:8000.
+	bindAddr := ":8000"
+	if env := os.Getenv("CAPTAINCORE_SERVER_BIND"); env != "" {
+		bindAddr = env
+	}
 	httpSrv = &http.Server{
 		ReadHeaderTimeout: 15 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		Handler:           router,
-		Addr:              ":8000",
+		Addr:              bindAddr,
 	}
-	fmt.Println("Starting server http://localhost:8000")
+	fmt.Println("Starting server http://" + bindAddr)
 	log.Fatal(httpSrv.ListenAndServe())
 }
 
@@ -645,6 +672,8 @@ type progressOutput struct {
 }
 
 func handleProgress(w http.ResponseWriter, r *http.Request) {
+	captainID := fetchCaptainID(r.Header.Get("token"), r)
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -670,6 +699,11 @@ func handleProgress(w http.ResponseWriter, r *http.Request) {
 
 		var meta progressMeta
 		if err := json.Unmarshal(data, &meta); err != nil {
+			continue
+		}
+
+		// Only surface progress runs belonging to the calling tenant.
+		if meta.CaptainID != captainID {
 			continue
 		}
 
@@ -728,7 +762,14 @@ type progressDetailOutput struct {
 
 func handleProgressDetail(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	pid := vars["pid"]
+	// Validate pid is a positive integer before using it in a file path —
+	// prevents path traversal via the {pid} route segment.
+	pid, perr := strconv.Atoi(vars["pid"])
+	if perr != nil || pid <= 0 {
+		http.Error(w, "invalid pid", http.StatusBadRequest)
+		return
+	}
+	captainID := fetchCaptainID(r.Header.Get("token"), r)
 
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -737,7 +778,7 @@ func handleProgressDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	progressDir := home + "/.captaincore/data/progress"
-	metaPath := filepath.Join(progressDir, pid+".json")
+	metaPath := filepath.Join(progressDir, strconv.Itoa(pid)+".json")
 
 	data, err := os.ReadFile(metaPath)
 	if err != nil {
@@ -748,6 +789,12 @@ func handleProgressDetail(w http.ResponseWriter, r *http.Request) {
 	var meta progressMeta
 	if err := json.Unmarshal(data, &meta); err != nil {
 		http.Error(w, "invalid meta", http.StatusInternalServerError)
+		return
+	}
+
+	// Only the owning tenant may read a progress run's detail.
+	if meta.CaptainID != captainID {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -839,11 +886,30 @@ func handleProgressKill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	captainID := fetchCaptainID(r.Header.Get("token"), r)
+
 	home, _ := os.UserHomeDir()
 	progressDir := home + "/.captaincore/data/progress"
-	metaPath := filepath.Join(progressDir, vars["pid"]+".json")
-	logPath := filepath.Join(progressDir, vars["pid"]+".log")
-	lockPath := filepath.Join(progressDir, vars["pid"]+".lock")
+	metaPath := filepath.Join(progressDir, strconv.Itoa(pid)+".json")
+	logPath := filepath.Join(progressDir, strconv.Itoa(pid)+".log")
+	lockPath := filepath.Join(progressDir, strconv.Itoa(pid)+".lock")
+
+	// Require a progress record owned by the caller before signalling any
+	// process. This prevents killing arbitrary host PIDs or another tenant's job.
+	metaData, metaErr := os.ReadFile(metaPath)
+	if metaErr != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	var meta progressMeta
+	if json.Unmarshal(metaData, &meta) != nil {
+		http.Error(w, "invalid meta", http.StatusInternalServerError)
+		return
+	}
+	if meta.CaptainID != captainID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 
 	running := syscall.Kill(pid, 0) == nil
 	status := "cleaned"
@@ -951,10 +1017,24 @@ func writePayloadFile(token, data string) {
 		return
 	}
 	payloadDir := usr.HomeDir + "/.captaincore/data/payload"
-	os.MkdirAll(payloadDir, 0755)
-	if err := WriteToFile(payloadDir+"/"+token+".txt", data); err != nil {
+	os.MkdirAll(payloadDir, 0700)
+	// Payloads can contain secrets — write 0600, not world-readable.
+	if err := os.WriteFile(payloadDir+"/"+token+".txt", []byte(data), 0600); err != nil {
 		log.Println("payload: write failed:", err)
 	}
+}
+
+// removePayloadFile deletes a consumed payload blob. Best-effort; a missing file
+// (e.g. tasks that never had a payload) is fine.
+func removePayloadFile(token string) {
+	if token == "" {
+		return
+	}
+	usr, err := user.Current()
+	if err != nil {
+		return
+	}
+	os.Remove(usr.HomeDir + "/.captaincore/data/payload/" + token + ".txt")
 }
 
 // prepareArgvTask bakes the new array protocol onto a task: writes any payload
@@ -1043,6 +1123,14 @@ func runCommand(head string, arguments []string, t Task) string {
 
 	// Run the command
 	err := command.Start()
+	if err != nil {
+		// Don't crash the daemon if a command fails to start; record it and bail.
+		log.Printf("cmd.Start() failed with '%s'\n", err)
+		t.Status = "Failed"
+		t.Response = "Failed to start command: " + err.Error()
+		db.Save(&t)
+		return t.Response
+	}
 
 	// Grab proccess id
 	t.ProcessID = command.Process.Pid
@@ -1050,9 +1138,6 @@ func runCommand(head string, arguments []string, t Task) string {
 
 	if debug == true {
 		fmt.Println("Starting command process ID " + strconv.Itoa(command.Process.Pid))
-	}
-	if err != nil {
-		log.Fatalf("cmd.Start() failed with '%s'\n", err)
 	}
 
 	s := bufio.NewScanner(io.MultiReader(stdout, stderr))
@@ -1101,20 +1186,18 @@ func runCommand(head string, arguments []string, t Task) string {
 
 		req, err := http.NewRequest(http.MethodPut, url, nil)
 		if err != nil {
-			log.Fatalf("http.NewRequest() failed with '%s'\n", err)
-		}
+			// Origin callback is best-effort — never crash the daemon over it.
+			log.Printf("origin http.NewRequest() failed with '%s'\n", err)
+		} else {
+			req.Header.Set("Content-Type", "application/json; charset=utf-8")
+			req.Header.Add("token", origin.Token)
 
-		req.Header.Set("Content-Type", "application/json; charset=utf-8")
-		req.Header.Add("token", origin.Token)
-
-		resp, err := client.Do(req)
-		if err != nil {
-			log.Fatalf("client.Do() failed with '%s'\n", err)
-		}
-
-		defer resp.Body.Close()
-		if err != nil {
-			log.Fatalf("ioutil.ReadAll() failed with '%s'\n", err)
+			resp, err := client.Do(req)
+			if err != nil {
+				log.Printf("origin client.Do() failed with '%s'\n", err)
+			} else {
+				resp.Body.Close()
+			}
 		}
 	}
 
@@ -1124,6 +1207,9 @@ func runCommand(head string, arguments []string, t Task) string {
 		progressPath := filepath.Join(home, ".captaincore", "data", "task-progress", strconv.Itoa(t.ProcessID)+".json")
 		os.Remove(progressPath)
 	}
+
+	// Remove the consumed payload blob so secrets don't linger on disk.
+	removePayloadFile(t.Token)
 
 	db.Save(&t)
 	output := strings.Join(lines, "\n")
@@ -1143,7 +1229,8 @@ func checkSecurity(next httpHandlerFunc) httpHandlerFunc {
 		header := req.Header.Get("token")
 		unauthorized := true
 		for _, v := range config.Tokens {
-			if v.Token == header {
+			// Constant-time compare to avoid leaking token bytes via timing.
+			if subtle.ConstantTimeCompare([]byte(v.Token), []byte(header)) == 1 {
 				unauthorized = false
 			}
 		}

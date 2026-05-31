@@ -188,7 +188,12 @@ func sshNative(cmd *cobra.Command, args []string) {
 		}
 		if json.Unmarshal(siteDetails.EnvironmentVars, &envVarsList) == nil {
 			for _, item := range envVarsList {
-				environmentVars = fmt.Sprintf("export %s='%s' && %s", item.Key, item.Value, environmentVars)
+				// Key is emitted unquoted (LHS of export) — must be a valid shell
+				// identifier. Value is single-quote escaped so it can't break out.
+				if !isValidEnvKey(item.Key) {
+					continue
+				}
+				environmentVars = fmt.Sprintf("export %s=%s && %s", item.Key, shellSingleQuote(item.Value), environmentVars)
 			}
 		}
 	}
@@ -217,7 +222,9 @@ func sshNative(cmd *cobra.Command, args []string) {
 	if key != "use_password" {
 		remoteOptions = fmt.Sprintf("%s -oPreferredAuthentications=publickey -i %s/%s/%s", remoteOptions, system.PathKeys, captainID, key)
 	} else {
-		beforeSSH = fmt.Sprintf("sshpass -p '%s'", env.Password)
+		// Single-quote escape the password so a embedded quote can't break out
+		// of the sshpass argument into the local shell.
+		beforeSSH = "sshpass -p " + shellSingleQuote(env.Password)
 	}
 
 	// Build command prep and remote server based on provider

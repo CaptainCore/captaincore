@@ -30,6 +30,9 @@ func InitDB() error {
 	DB, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
+	// The SQLite file holds plaintext SSH/DB/offload credentials — keep it
+	// owner-only (best-effort; ignore error if the file isn't present yet).
+	os.Chmod(dbPath, 0600)
 	if err != nil {
 		return err
 	}

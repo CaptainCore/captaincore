@@ -47,6 +47,13 @@ func scanErrorsNative(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	// HomeURL is interpolated into a bash -c command — require a clean http(s)
+	// URL so a malicious value can't inject shell syntax.
+	if !isSafeURL(env.HomeURL) {
+		fmt.Printf("Error: refusing unsafe home_url %q\n", env.HomeURL)
+		return
+	}
+
 	// Run lighthouse scan
 	lighthouseCmd := exec.Command("bash", "-c", fmt.Sprintf(
 		`lighthouse %s --only-audits=errors-in-console --chrome-flags="--headless" --output=json --quiet`,

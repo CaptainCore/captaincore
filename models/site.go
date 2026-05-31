@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
@@ -306,6 +307,12 @@ func SearchSites(search, searchField string) ([]Site, error) {
 		dbField := searchField
 		if searchField == "domain" {
 			dbField = "name"
+		}
+		// dbField is concatenated into SQL — allowlist it to known columns so a
+		// crafted --search-field value can't inject SQL.
+		allowedFields := map[string]bool{"site": true, "name": true, "status": true}
+		if !allowedFields[dbField] {
+			return nil, fmt.Errorf("invalid search field: %s", searchField)
 		}
 		err := DB.Where("status = ? AND "+dbField+" LIKE ?", "active", pattern).
 			Order("name ASC").
