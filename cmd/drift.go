@@ -695,7 +695,31 @@ type driftedSiteWithVersion struct {
 // driftSteer upgrades all drifted sites to the latest version by grabbing the
 // plugin/theme zip from a source site and deploying it to each drifted site.
 func driftSteer(sorted []string, versionMap map[string]*driftEntry, slug string, isPlugin bool, env string, rawResults []models.SiteEnvironmentResult) {
+	// Resolve the version to steer TO. An explicit --target always wins (the
+	// caller — e.g. CaptainCore Manager — supplies the authoritative version,
+	// typically wp.org's published latest); it must have a source site on it to
+	// grab a zip from. Otherwise auto-detect the newest version that MORE THAN
+	// ONE site runs: a version pinned on a single site is almost always a
+	// bogus/dev/anti-update stamp (9999, 99999999, or any arbitrary value) —
+	// steering the whole fleet onto it would push a bad build everywhere and
+	// clobber sites already on the real latest. Identifying it by share (held
+	// by one site) is value-agnostic; we never match on the number itself.
+	// Fall back to the absolute newest only when every version is single-site.
 	latestVersion := sorted[0]
+	if flagDriftTarget != "" && flagDriftTarget != "latest" {
+		if _, ok := versionMap[flagDriftTarget]; !ok {
+			fmt.Printf("Error: No sites are on target version %s — cannot source a zip to steer from.\n", flagDriftTarget)
+			return
+		}
+		latestVersion = flagDriftTarget
+	} else {
+		for _, v := range sorted {
+			if versionMap[v].Count >= 2 {
+				latestVersion = v
+				break
+			}
+		}
+	}
 
 	// Partition sites into source candidates and drifted
 	var drifted []driftedSiteWithVersion
