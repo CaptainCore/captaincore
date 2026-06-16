@@ -101,15 +101,21 @@ func backupCheckNative(cmd *cobra.Command, args []string) {
 }
 
 var backupDownloadCmd = &cobra.Command{
-	Use:   "download <site> <backup-id> <payload> [--email=<email>]",
+	Use:   "download <site> <backup-id> [<payload>] [--payload=<token>] [--email=<email>]",
 	Short: "Download a backup for a site",
 	Args: func(cmd *cobra.Command, args []string) error {
-		if len(args) < 3 {
-			return errors.New("requires <site> <backup-id> <payload> arguments")
+		if len(args) < 2 {
+			return errors.New("requires <site> <backup-id> arguments")
 		}
 		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
+		// The dispatcher passes the payload token via --payload, but the
+		// app/backup/download script expects it as the 3rd positional arg.
+		// Bridge the flag form to a positional so both invocation styles work.
+		if payload, _ := cmd.Flags().GetString("payload"); payload != "" && len(args) < 3 {
+			args = append(args, payload)
+		}
 		resolveCommand(cmd, args)
 	},
 }
@@ -2571,6 +2577,7 @@ func init() {
 	backupCheckCmd.Flags().BoolVarP(&flagInit, "init", "", false, "Initialize repo if missing")
 	backupCheckCmd.Flags().Bool("read-data", false, "Verify all pack data in the repo (thorough but slow)")
 	backupDownloadCmd.Flags().StringVarP(&flagEmail, "email", "e", "", "Email notify")
+	backupDownloadCmd.Flags().String("payload", "", "Payload token naming the files/directories to include")
 	backupGenerateCmd.Flags().IntVarP(&flagParallel, "parallel", "p", 3, "Number of sites to backup at same time")
 	backupGenerateCmd.Flags().BoolVarP(&flagSkipDB, "skip-db", "", false, "Skip database backup")
 	backupGenerateCmd.Flags().BoolVarP(&flagSkipRemote, "skip-remote", "", false, "Skip remote backup")
