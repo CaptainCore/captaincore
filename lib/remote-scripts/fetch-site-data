@@ -241,6 +241,118 @@ if [[ -z "$error_logs_json" ]]; then
 fi
 echo "error_logs:${error_logs_json}"
 
+# Session / privilege signal — compromise telemetry for WP Registry session-anomaly detection.
+# Efficient by design: NEVER loads all users. Scans capability ROLE definitions + a targeted
+# capabilities-meta query, then pulls session_tokens only for the (tiny) privileged set, so
+# cost is ~#privileged-users not #total-users (proven ~3s / <2KB on a 135k-user site).
+# Hunts by effective CAPABILITY not role label: catches subscribers/customers with injected
+# admin caps + low roles silently redefined with takeover caps. injected_users = the backdoor.
+read -r -d '' session_signal_php <<'SESSIONEOF'
+<?php
+global $wpdb;
+$TAKEOVER = [ 'manage_options','edit_users','promote_users','delete_users','create_users',
+    'remove_users','install_plugins','install_themes','update_plugins','update_core',
+    'activate_plugins','edit_plugins','edit_themes' ];
+$CONTENT  = [ 'unfiltered_html','edit_files' ];
+
+// Pass 1: classify ROLE definitions (catches a redefined low role carrying takeover caps).
+$roles = get_option( $wpdb->prefix . 'user_roles', [] );
+$admin_roles = []; $content_only_roles = []; $role_audit = [];
+foreach ( (array) $roles as $rk => $rd ) {
+    $caps = isset( $rd['capabilities'] ) ? array_keys( array_filter( (array) $rd['capabilities'] ) ) : [];
+    $danger = array_values( array_intersect( $caps, array_merge( $TAKEOVER, $CONTENT ) ) );
+    if ( array_intersect( $caps, $TAKEOVER ) )      { $admin_roles[] = $rk; $role_audit[$rk] = $danger; }
+    elseif ( array_intersect( $caps, $CONTENT ) )   { $content_only_roles[] = $rk; $role_audit[$rk] = $danger; }
+}
+$admin_role_set = array_unique( array_merge( $admin_roles, [ 'administrator', 'super_admin' ] ) );
+
+// Pass 2: targeted capabilities-meta scan for admin-capable roles OR direct takeover caps.
+$tokens = array_unique( array_merge( $admin_role_set, $TAKEOVER ) );
+$likes  = [];
+foreach ( $tokens as $t ) { $likes[] = $wpdb->prepare( "meta_value LIKE %s", '%' . $wpdb->esc_like( $t ) . '%' ); }
+$rows = $wpdb->get_results( "SELECT user_id, meta_value FROM {$wpdb->usermeta}
+    WHERE meta_key = '{$wpdb->prefix}capabilities' AND (" . implode( ' OR ', $likes ) . ")" );
+
+$cap_user_ids = []; $admin_ids = []; $injected = []; $user_role_map = [];
+foreach ( $rows as $r ) {
+    $caps = maybe_unserialize( $r->meta_value );
+    if ( ! is_array( $caps ) ) { continue; }
+    $ur = array_keys( array_filter( $caps ) );
+    $takeover_direct = array_values( array_intersect( $ur, $TAKEOVER ) );
+    $via_admin_role  = (bool) array_intersect( $ur, $admin_role_set );
+    if ( ! $takeover_direct && ! $via_admin_role ) { continue; }
+    $uid = (int) $r->user_id;
+    $cap_user_ids[] = $uid;
+    $user_role_map[$uid] = $ur;
+    if ( array_intersect( $ur, [ 'administrator', 'super_admin' ] ) ) { $admin_ids[] = $uid; }
+    // Backdoor signal: takeover caps present but NOT via any admin-capable role label.
+    if ( $takeover_direct && ! $via_admin_role ) {
+        $injected[] = [ 'user_id' => $uid, 'roles' => array_values( $ur ), 'injected_caps' => $takeover_direct ];
+    }
+}
+
+// Pull identities + sessions only for the (small) privileged set.
+$accounts = [];
+$tier = [ 'administrator' => [ 'users' => 0, 's' => 0, 'ips' => [] ],
+          'admin_capable' => [ 'users' => 0, 's' => 0, 'ips' => [] ] ];
+if ( $cap_user_ids ) {
+    $in   = implode( ',', array_map( 'intval', $cap_user_ids ) );
+    $info = $wpdb->get_results( "SELECT ID, user_login, user_registered FROM {$wpdb->users} WHERE ID IN ($in)" );
+    foreach ( $info as $u ) {
+        $uid      = (int) $u->ID;
+        $is_admin = in_array( $uid, $admin_ids, true );
+        $sessions = get_user_meta( $uid, 'session_tokens', true );
+        $s_out = [];
+        if ( is_array( $sessions ) ) {
+            foreach ( $sessions as $s ) {
+                $ip = $s['ip'] ?? '';
+                $s_out[] = [
+                    'ip'         => $ip,
+                    'login'      => isset( $s['login'] ) ? date( 'Y-m-d H:i:s', $s['login'] ) : '',
+                    'expiration' => isset( $s['expiration'] ) ? date( 'Y-m-d H:i:s', $s['expiration'] ) : '',
+                ];
+                $tier['admin_capable']['s']++;
+                if ( $ip ) { $tier['admin_capable']['ips'][ $ip ] = 1; }
+                if ( $is_admin ) {
+                    $tier['administrator']['s']++;
+                    if ( $ip ) { $tier['administrator']['ips'][ $ip ] = 1; }
+                }
+            }
+        }
+        $tier['admin_capable']['users']++;
+        if ( $is_admin ) { $tier['administrator']['users']++; }
+        $accounts[] = [
+            'login'      => $u->user_login,
+            'roles'      => array_values( $user_role_map[ $uid ] ?? [] ),
+            'registered' => $u->user_registered,
+            'is_admin'   => $is_admin,
+            'sessions'   => $s_out,
+        ];
+    }
+}
+
+$out = [
+    'collected_at'         => gmdate( 'Y-m-d\TH:i:s\Z' ),
+    'total_users'          => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->users}" ),
+    'session_token_rows'   => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->usermeta} WHERE meta_key = 'session_tokens'" ),
+    'administrator'        => [ 'users' => $tier['administrator']['users'], 'active_sessions' => $tier['administrator']['s'], 'unique_ips' => count( $tier['administrator']['ips'] ) ],
+    'admin_capable'        => [ 'users' => $tier['admin_capable']['users'], 'active_sessions' => $tier['admin_capable']['s'], 'unique_ips' => count( $tier['admin_capable']['ips'] ) ],
+    'admin_capable_roles'  => array_values( $admin_roles ),
+    'content_only_roles'   => array_values( $content_only_roles ),
+    'redefined_role_audit' => (object) $role_audit,
+    'super_admins'         => function_exists( 'get_super_admins' ) ? array_values( get_super_admins() ) : [],
+    'injected_users'       => $injected,
+    'accounts'             => $accounts,
+];
+echo wp_json_encode( $out );
+SESSIONEOF
+
+session_signal_json=$(echo "$session_signal_php" | wp eval-file - --skip-themes --skip-plugins 2>/dev/null)
+if [[ -z "$session_signal_json" ]]; then
+    session_signal_json="{}"
+fi
+echo "session_signal:${session_signal_json}"
+
 # Per-component SHA256 content hashes for plugins, themes, and mu-plugins
 # Uses -type f to hash regular files, and -type l to include symlink targets/paths.
 # Symlinks are hashed as "SYMLINK:<target>" so a symlink change alters the directory hash.

@@ -267,6 +267,18 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 	} else if !flagSyncDataJSON {
 		fmt.Println("failed")
 	}
+
+	// Post the session / privilege signal as a separate append-only session-snapshot
+	// record (WP Registry compromise telemetry, Phase 1: store-only). Best-effort — a
+	// failure here must never disrupt the core sync-data flow above. Sites running an
+	// older fetch-site-data simply omit the key and this is skipped.
+	if signal, ok := data["session_signal"]; ok && signal != "" && signal != "{}" {
+		client.Post("session-snapshot", map[string]interface{}{
+			"site_id":     siteDetails.SiteID,
+			"environment": sa.Environment,
+			"data":        signal,
+		})
+	}
 }
 
 // parseSiteData parses key:value lines from fetch-site-data into a map.
