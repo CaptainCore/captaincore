@@ -250,13 +250,20 @@ echo "error_logs:${error_logs_json}"
 read -r -d '' session_signal_php <<'SESSIONEOF'
 <?php
 global $wpdb;
-$TAKEOVER = [ 'manage_options','edit_users','promote_users','delete_users','create_users',
-    'remove_users','install_plugins','install_themes','update_plugins','update_core',
-    'activate_plugins','edit_plugins','edit_themes' ];
-$CONTENT  = [ 'unfiltered_html','edit_files' ];
+// Capability tiers. CODE_TAKEOVER = site/code takeover (arbitrary PHP, config, plugin/theme).
+// USER_TAKEOVER = user-management (lower confidence — legit "member managers" hold these).
+$CODE_TAKEOVER = [ 'manage_options','install_plugins','install_themes','update_plugins','update_core',
+    'activate_plugins','edit_plugins','edit_themes','edit_files' ];
+$USER_TAKEOVER = [ 'edit_users','promote_users','delete_users','create_users','remove_users' ];
+$TAKEOVER      = array_merge( $CODE_TAKEOVER, $USER_TAKEOVER );
+$CONTENT       = [ 'unfiltered_html' ];
+// Core admin caps used to recognize an "effective administrator" however their privileges are
+// stored (real role slug, legacy level_10, or a User-Role-Editor cap-bag with no admin slug).
+$CORE_ADMIN    = [ 'manage_options','install_plugins','edit_plugins','update_core','edit_users','edit_files','activate_plugins' ];
 
 // Pass 1: classify ROLE definitions (catches a redefined low role carrying takeover caps).
 $roles = get_option( $wpdb->prefix . 'user_roles', [] );
+$all_role_slugs = array_keys( (array) $roles );
 $admin_roles = []; $content_only_roles = []; $role_audit = [];
 foreach ( (array) $roles as $rk => $rd ) {
     $caps = isset( $rd['capabilities'] ) ? array_keys( array_filter( (array) $rd['capabilities'] ) ) : [];
@@ -278,16 +285,35 @@ foreach ( $rows as $r ) {
     $caps = maybe_unserialize( $r->meta_value );
     if ( ! is_array( $caps ) ) { continue; }
     $ur = array_keys( array_filter( $caps ) );
-    $takeover_direct = array_values( array_intersect( $ur, $TAKEOVER ) );
-    $via_admin_role  = (bool) array_intersect( $ur, $admin_role_set );
-    if ( ! $takeover_direct && ! $via_admin_role ) { continue; }
+    // Separate the user's actual ROLE slugs from individually-granted capabilities. wp_capabilities
+    // stores role slugs + directly-added caps; role-INHERITED caps are resolved at runtime, not stored.
+    $base_roles = array_values( array_intersect( $ur, $all_role_slugs ) );
+    $extra_caps = array_values( array_diff( $ur, $all_role_slugs ) );
+
+    $has_takeover   = (bool) array_intersect( $ur, $TAKEOVER );
+    $via_admin_role = (bool) array_intersect( $base_roles, $admin_role_set );
+    if ( ! $has_takeover && ! $via_admin_role ) { continue; }
     $uid = (int) $r->user_id;
     $cap_user_ids[] = $uid;
-    $user_role_map[$uid] = $ur;
-    if ( array_intersect( $ur, [ 'administrator', 'super_admin' ] ) ) { $admin_ids[] = $uid; }
-    // Backdoor signal: takeover caps present but NOT via any admin-capable role label.
-    if ( $takeover_direct && ! $via_admin_role ) {
-        $injected[] = [ 'user_id' => $uid, 'roles' => array_values( $ur ), 'injected_caps' => $takeover_direct ];
+    $user_role_map[$uid] = $base_roles;
+
+    // Effective administrator: an admin role, legacy level_10, or holds most core-admin caps —
+    // regardless of how privileges are stored. These ARE admins (count in the admin tier), not backdoors.
+    $is_effective_admin = $via_admin_role || in_array( 'level_10', $ur, true )
+        || count( array_intersect( $ur, $CORE_ADMIN ) ) >= 4;
+    if ( $is_effective_admin ) { $admin_ids[] = $uid; }
+
+    // Injected-capability backdoor: a NON-admin account carrying an individually-granted CODE/CONFIG
+    // takeover cap (manage_options, install_plugins, edit_themes/files, ...). Role-inherited caps,
+    // user-management-only grants, and effective-admins are excluded — those were the false positives
+    // on the first fleet run (User-Role-Editor cap-bags, "member manager" roles).
+    if ( ! $is_effective_admin ) {
+        $injected_code = array_values( array_intersect( $extra_caps, $CODE_TAKEOVER ) );
+        if ( $injected_code ) {
+            $injected[] = [ 'user_id' => $uid, 'base_roles' => $base_roles,
+                'extra_caps'    => array_values( array_intersect( $extra_caps, $TAKEOVER ) ),
+                'injected_caps' => $injected_code ];
+        }
     }
 }
 
