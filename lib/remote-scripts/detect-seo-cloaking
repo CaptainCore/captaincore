@@ -1,0 +1,247 @@
+#!/usr/bin/env bash
+
+#
+#   Detect Googlebot-cloaking SEO spam (the doorway / full-page-swap variant)
+#
+#   This is the sibling of detect-seo-spam. That script catches the
+#   off-screen-CSS link-injection variant that lives in wp_posts /
+#   wp_options as plain HTML. This script catches the OTHER variant — the
+#   one that evaded Wordfence AND detect-seo-spam on munshinegroup.com
+#   (June 2026):
+#
+#     * The payload was a mu-plugin ("endurance-pro-plugins.php", spoofing
+#       a "WP Engine Site Optimizer" header) that detects search-engine
+#       crawlers (bcg_is_bot: Googlebot/Bingbot/YandexBot/...) and, for
+#       those visitors only, serves a completely different page — a fake
+#       pharma article ("Buy Xanax Online...") — hijacking the document
+#       title via the wpseo_title / aioseo_title / rank_math /
+#       document_title_parts filters.
+#     * The spam CONTENT lived in a hidden JSON store in uploads
+#       (uploads/wp-data-<md5(host)[:8]>/data-<hash>.json) — not in the DB.
+#     * The spam rendered on DOORWAY slugs (/home-profit/), not on the
+#       homepage.
+#
+#   Why the existing tooling walked past it:
+#     - Wordfence / checksums: the mu-plugin has no eval/base64/remote
+#       calls — it's plain, unobfuscated PHP.
+#     - detect-seo-spam: scans post_content/options (empty here) and does
+#       a Googlebot curl of the HOMEPAGE ONLY, looking for off-screen CSS
+#       (this malware swaps the whole page on doorway URLs instead).
+#
+#   Two complementary signals (both cheap, both run by default):
+#
+#     1. FILE IOCs (deterministic — catches it even while dormant):
+#        a. Hidden spam store: uploads/wp-data-*/ dirs, or any
+#           json/dat/txt file under uploads containing dense spam keywords.
+#        b. Cloaking code in AUTO-LOADED surfaces (mu-plugins, active
+#           theme functions.php, wp-content drop-ins): the combination of
+#           search-bot UA branching AND SEO title-filter hijacking. Either
+#           is unusual in auto-loaded code; together they are the cloaking
+#           doorway signature.
+#
+#     2. BEHAVIORAL differential (generalizes to unknown/DB-resident
+#        variants): fetch the homepage + a sample of sitemap URLs BOTH as
+#        Googlebot and as a normal browser (via localhost + Host header,
+#        cache-bypassed, the Kinsta way). Flag when the crawler is served
+#        materially MORE spam keywords than the human, or a different
+#        <title> — i.e. the site is cloaking. A site that shows identical
+#        content to both is NOT flagged (a real pharmacy is not our
+#        concern); cloaking is the differential.
+#
+#   Output format (pipe-delimited):
+#     SEVERITY|SOURCE|LOCATION|DETAIL|HITS|SAMPLE
+#
+#     SOURCE = STORE  (hidden spam content store in uploads)
+#              CODE   (cloaking/bot-branching code in auto-loaded file)
+#              CLOAK  (behavioral: crawler served different/spam content)
+#
+#   Usage:
+#     captaincore ssh <site> --script=detect-seo-cloaking
+#     captaincore ssh @all  --script=detect-seo-cloaking --quiet
+#
+#   Flags:
+#     --quiet          Only emit output when findings exist
+#     --skip-frontend  Skip the live differential fetch (file IOCs only)
+#     --max-urls N     Sitemap URLs to sample for the differential (default 12)
+#
+
+set -uo pipefail
+
+# ── Argument parsing ─────────────────────────────────────────────
+quiet=""
+skip_frontend=""
+max_urls=12
+_expect_max=""
+for _arg in "$@"; do
+    if [ -n "$_expect_max" ]; then max_urls="$_arg"; _expect_max=""; continue; fi
+    case "$_arg" in
+        --quiet)         quiet=true ;;
+        --skip-frontend) skip_frontend=true ;;
+        --max-urls)      _expect_max=true ;;
+        --*)             ;;
+        *)               WP_ROOT="$_arg" ;;
+    esac
+done
+case "$max_urls" in ''|*[!0-9]*) max_urls=12 ;; esac
+
+WP_ROOT="${WP_ROOT:-.}"
+cd "$WP_ROOT" 2>/dev/null || { echo "ERROR: Cannot access $WP_ROOT"; exit 1; }
+if [ ! -f "wp-config.php" ] && [ -f "public/wp-config.php" ]; then cd public
+elif [ ! -f "wp-config.php" ] && [ -f "public_html/wp-config.php" ]; then cd public_html
+fi
+if [ ! -f "wp-config.php" ]; then
+    [ -z "$quiet" ] && echo "WordPress not found."
+    exit 0
+fi
+command -v wp >/dev/null 2>&1 || { echo "ERROR: WP-CLI not available"; exit 1; }
+
+WP_FLAGS="--skip-themes --skip-plugins --skip-packages"
+SITE_HOST=$(wp option get home $WP_FLAGS 2>/dev/null | sed -E 's|^https?://||;s|/.*$||')
+CONTENT_DIR="wp-content"
+[ -d "$CONTENT_DIR" ] || CONTENT_DIR="$(wp config get WP_CONTENT_DIR $WP_FLAGS 2>/dev/null || echo wp-content)"
+UPLOADS_DIR="$CONTENT_DIR/uploads"
+
+# Spam keyword set — common SEO-spam verticals (pharma, gambling, loans,
+# essay mills, replicas, adult). Used for content/store scans. Kept broad
+# but always paired with density (2+ distinct) or a differential so a
+# legitimate site that merely mentions one term is not flagged.
+SPAM_KW='viagra|cialis|levitra|tadalafil|sildenafil|vardenafil|dapoxetine|xanax|alprazolam|tramadol|ambien|zolpidem|phentermine|klonopin|adderall|oxycodone|hydrocodone|percocet|valium|diazepam|gabapentin|modafinil|without prescription|no prescription|online pharmacy|canadian pharmacy|casino|slots|gambling|roulette|blackjack|baccarat|sportsbook|betting|payday loan|quick loan|essay writing|term paper|write my essay|homework help|replica watch|replica rolex|louis vuitton outlet|escort service'
+
+found_any=""
+
+emit() { found_any=true; printf '%s|%s|%s|%s|%s|%s\n' "$1" "$2" "$3" "$4" "$5" "$6"; }
+
+# ── 1a. Hidden spam content store in uploads ─────────────────────
+# The mu-plugin wrote spam to uploads/wp-data-<hash>/data-<hash>.json.
+# Flag: (a) the wp-data-* dir convention, and (b) ANY data file under
+# uploads carrying dense spam keywords (implementation-independent).
+if [ -d "$UPLOADS_DIR" ]; then
+    # (a) wp-data-* directories (this family's signature)
+    while IFS= read -r d; do
+        [ -z "$d" ] && continue
+        n=$(find "$d" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
+        emit "HIGH" "STORE" "${d#./}" "wp-data-* spam-store directory" "$n files" "-"
+    done < <(find "$UPLOADS_DIR" -maxdepth 2 -type d -name 'wp-data-*' 2>/dev/null)
+
+    # (b) data files (json/dat/txt) under uploads with dense spam keywords
+    while IFS= read -r f; do
+        [ -z "$f" ] && continue
+        hits=$(grep -ioE "$SPAM_KW" "$f" 2>/dev/null | wc -l | tr -d ' ')
+        [ "${hits:-0}" -lt 3 ] && continue
+        sample=$(grep -ioE "$SPAM_KW" "$f" 2>/dev/null | head -1)
+        emit "HIGH" "STORE" "${f#./}" "spam-keyword data file in uploads" "$hits" "$sample"
+    done < <(find "$UPLOADS_DIR" -type f \( -name '*.json' -o -name '*.dat' -o -name '*.txt' \) -size +2k 2>/dev/null | head -400)
+fi
+
+# ── 1b. Cloaking code in auto-loaded surfaces ────────────────────
+# Auto-loaded = runs on every request without activation: mu-plugins,
+# the active theme's functions.php, and wp-content drop-ins. Flag the
+# cloaking-doorway signature: search-bot UA branching + SEO title-filter
+# hijack. Either alone in an auto-loaded file is suspicious; together it
+# is the doorway.
+BOT_RE='HTTP_USER_AGENT|(stri?pos|preg_match)[^;]*(Googlebot|Bingbot|Slurp|DuckDuckBot|YandexBot|bingpreview|facebot)'
+TITLE_RE="add_filter[[:space:]]*\\([[:space:]]*['\"](wpseo_title|aioseo_title|document_title_parts|pre_get_document_title|wp_title)['\"]|rank_math/frontend/title"
+
+scan_code_file() {
+    local f="$1" label="$2"
+    [ -f "$f" ] || return
+    local bot title
+    bot=$(grep -icE "$BOT_RE" "$f" 2>/dev/null)
+    title=$(grep -icE "$TITLE_RE" "$f" 2>/dev/null)
+    # The RELIABLE signature is the COMBINATION: search-bot UA branching AND
+    # an SEO title-filter hijack in the same auto-loaded file. Title filters
+    # alone are common in legitimate SEO/management code (e.g. Anchor's own
+    # captaincore-helper mu-plugin), so title-alone is deliberately NOT
+    # flagged here — the STORE scan and the behavioral differential cover
+    # variants that hide their bot-branching.
+    if [ "${bot:-0}" -gt 0 ] && [ "${title:-0}" -gt 0 ]; then
+        emit "CRITICAL" "CODE" "${f#./}" "bot-UA branching + SEO title hijack ($label)" "bot=$bot title=$title" "-"
+    fi
+}
+
+# mu-plugins (root-level php files only — subdir libs like kinsta-mu-plugins
+# are legit frameworks; scan their top-level loader only)
+if [ -d "$CONTENT_DIR/mu-plugins" ]; then
+    while IFS= read -r f; do scan_code_file "$f" "mu-plugin"; done \
+        < <(find "$CONTENT_DIR/mu-plugins" -maxdepth 1 -type f -name '*.php' 2>/dev/null)
+fi
+# active theme functions.php (+ parent)
+STYLESHEET=$(wp option get stylesheet $WP_FLAGS 2>/dev/null)
+TEMPLATE=$(wp option get template $WP_FLAGS 2>/dev/null)
+for t in "$STYLESHEET" "$TEMPLATE"; do
+    [ -n "$t" ] && scan_code_file "$CONTENT_DIR/themes/$t/functions.php" "active-theme"
+done
+# wp-content drop-ins / stray root php
+for d in "$CONTENT_DIR"/*.php; do scan_code_file "$d" "wp-content-dropin"; done 2>/dev/null
+
+# ── 2. Behavioral differential: Googlebot vs normal browser ──────
+# Fetch homepage + a sample of sitemap URLs both ways (localhost, Host
+# header, cache-bypassed). Cloaking = the crawler is served more spam
+# keywords, or a different <title>, than the human for the SAME url.
+if [ -z "$skip_frontend" ] && command -v curl >/dev/null 2>&1 && [ -n "$SITE_HOST" ]; then
+    UA_BOT="Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+    UA_HUMAN="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+
+    fetch() { # $1=path $2=UA $3=referer(optional) → prints body
+        local ref_args=()
+        [ -n "${3:-}" ] && ref_args=(-H "Referer: $3")
+        curl -ksL --max-time 20 -A "$2" -H "Host: $SITE_HOST" \
+            -H "Cache-Control: no-cache" -H "Pragma: no-cache" "${ref_args[@]}" \
+            "https://localhost${1}" 2>/dev/null
+    }
+    get_title() { grep -ioE '<title[^>]*>[^<]*</title>' | head -1 | sed -E 's/<[^>]*>//g' | tr -s ' ' | sed -E 's/^ +| +$//g'; }
+    kw_count() { grep -ioE "$SPAM_KW" 2>/dev/null | wc -l | tr -d ' '; }
+
+    # Build URL list: homepage + sampled sitemap <loc> paths.
+    urls="/?nocache=$(date +%s)"
+    sm_body=$(fetch "/wp-sitemap.xml" "$UA_BOT" "https://www.google.com/")
+    echo "$sm_body" | grep -qi '<sitemap>' && \
+        sub=$(echo "$sm_body" | grep -ioE '<loc>[^<]+</loc>' | sed -E 's|</?loc>||g' | head -3)
+    all_sitemaps="/wp-sitemap.xml $sub"
+    # also try common alternates if core sitemap empty
+    echo "$sm_body" | grep -qi '<' || all_sitemaps="/sitemap_index.xml /sitemap.xml"
+
+    locs=""
+    for sm in $all_sitemaps; do
+        [ -z "$sm" ] && continue
+        b=$(fetch "$sm" "$UA_BOT" "https://www.google.com/")
+        locs="$locs
+$(echo "$b" | grep -ioE '<loc>[^<]+</loc>' | sed -E 's|</?loc>||g')"
+    done
+    # keep only real page URLs (not nested sitemaps), strip host, sample
+    sample_paths=$(printf '%s\n' "$locs" \
+        | grep -viE '\.xml($|\?)' \
+        | sed -E "s|^https?://[^/]+||" \
+        | grep -E '^/' | grep -vE '^/$' | sort -u | head -n "$max_urls")
+    urls="$urls
+$sample_paths"
+
+    while IFS= read -r path; do
+        [ -z "$path" ] && continue
+        bot=$(fetch "$path" "$UA_BOT" "https://www.google.com/")
+        [ -z "$bot" ] && continue
+        human=$(fetch "$path" "$UA_HUMAN")
+        bkw=$(printf '%s' "$bot"   | kw_count)
+        hkw=$(printf '%s' "$human" | kw_count)
+        btitle=$(printf '%s' "$bot"   | get_title)
+        htitle=$(printf '%s' "$human" | get_title)
+
+        # (a) crawler served materially more spam keywords than the human
+        if [ "${bkw:-0}" -ge 3 ] && [ "${bkw:-0}" -gt $(( ${hkw:-0} + 2 )) ]; then
+            s=$(printf '%s' "$bot" | grep -ioE "$SPAM_KW" | head -1)
+            emit "CRITICAL" "CLOAK" "${path%%\?*}" "crawler served spam a human is not (bot_kw=$bkw human_kw=$hkw)" "$bkw" "$s"
+        # (b) title swapped for the crawler (classic doorway title hijack)
+        elif [ -n "$btitle" ] && [ -n "$htitle" ] && [ "$btitle" != "$htitle" ] \
+             && printf '%s' "$btitle" | grep -qiE "$SPAM_KW"; then
+            emit "CRITICAL" "CLOAK" "${path%%\?*}" "crawler <title> differs and is spam: '$btitle'" "1" "$btitle"
+        fi
+    done <<EOF
+$urls
+EOF
+fi
+
+# ── Result ───────────────────────────────────────────────────────
+if [ -z "$found_any" ]; then
+    [ -z "$quiet" ] && echo "No SEO cloaking detected."
+fi
+exit 0
