@@ -94,6 +94,9 @@ var listCmd = &cobra.Command{
 	},
 }
 
+var flagOrphansWriteList, flagOrphansFromList string
+var flagOrphansIncludeStaleNames bool
+
 var siteOrphansCmd = &cobra.Command{
 	Use:   "orphans",
 	Short: "Lists local site folders that do not match an active site",
@@ -101,8 +104,19 @@ var siteOrphansCmd = &cobra.Command{
 tied to an active site in the local database. Useful for reclaiming disk space left
 behind after sites are deleted or renamed.
 
-Dry-run by default (lists folders and sizes). Pass --confirm to delete.`,
-	Example: "  captaincore site orphans\n  captaincore site orphans --confirm",
+Safety:
+  - Only folders whose trailing site_id is NOT active are candidates (renamed
+    active sites with a leftover old folder name are reported separately and
+    skipped unless --include-stale-names).
+  - Dry-run by default. --confirm re-scans and re-checks each folder before delete.
+  - Prefer: dry-run with --write-list=FILE, review, then
+    --confirm --from-list=FILE so only the reviewed set can be removed.
+  - Deletes never leave system.path (path confinement).
+
+Sync the local DB first (captaincore connect --sync) so the active set is current.`,
+	Example: `  captaincore site orphans
+  captaincore site orphans --write-list=/tmp/orphans.txt
+  captaincore site orphans --confirm --from-list=/tmp/orphans.txt`,
 	Run: func(cmd *cobra.Command, args []string) {
 		siteOrphansNative(cmd, args)
 	},
@@ -1546,6 +1560,129 @@ func siteSearchNative(cmd *cobra.Command, args []string) {
 	fmt.Print(strings.Join(results, " "))
 }
 
+// siteOrphanFolder is a disk folder classified relative to active sites.
+type siteOrphanFolder struct {
+	Name       string
+	SiteID     uint
+	Size       int64
+	// Expected is set when site_id is still active under a different folder name.
+	Expected string
+}
+
+// loadActiveSiteFolders returns expected folder name by exact name and by site_id.
+func loadActiveSiteFolders() (byName map[string]bool, byID map[uint]string, err error) {
+	sites, err := models.GetAllActiveSites()
+	if err != nil {
+		return nil, nil, err
+	}
+	byName = make(map[string]bool, len(sites))
+	byID = make(map[uint]string, len(sites))
+	for _, s := range sites {
+		folder := fmt.Sprintf("%s_%d", s.Site, s.SiteID)
+		byName[folder] = true
+		byID[s.SiteID] = folder
+	}
+	return byName, byID, nil
+}
+
+// parseSiteFolderName returns site_id if name looks like {slug}_{id}.
+func parseSiteFolderName(folder string) (siteID uint, ok bool) {
+	// Reject path separators / traversal in the name itself.
+	if folder == "" || folder != filepath.Base(folder) || strings.Contains(folder, "..") {
+		return 0, false
+	}
+	parts := strings.Split(folder, "_")
+	if len(parts) < 2 {
+		return 0, false
+	}
+	id, err := strconv.ParseUint(parts[len(parts)-1], 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return uint(id), true
+}
+
+// pathUnderRoot reports whether path resolves inside root (no escape via .. or symlink tricks).
+func pathUnderRoot(path, root string) bool {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	// Prefer resolved paths when possible; if the target is already gone, Abs is enough.
+	if resolvedRoot, err := filepath.EvalSymlinks(absRoot); err == nil {
+		absRoot = resolvedRoot
+	}
+	if resolvedPath, err := filepath.EvalSymlinks(absPath); err == nil {
+		absPath = resolvedPath
+	}
+	sep := string(os.PathSeparator)
+	return absPath == absRoot || strings.HasPrefix(absPath, absRoot+sep)
+}
+
+// readOrphanAllowlist loads a newline-separated folder list (one name per line; # comments ok).
+func readOrphanAllowlist(path string) (map[string]bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]bool)
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		// Allow "folder\tsize" lines from --write-list.
+		if fields := strings.Fields(line); len(fields) > 0 {
+			line = fields[0]
+		}
+		if _, ok := parseSiteFolderName(line); ok {
+			out[line] = true
+		}
+	}
+	return out, nil
+}
+
+// scanSiteOrphans classifies disk folders under system.Path.
+func scanSiteOrphans(dataPath string, byName map[string]bool, byID map[uint]string) (orphans []siteOrphanFolder, stale []siteOrphanFolder, err error) {
+	entries, err := os.ReadDir(dataPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		folder := entry.Name()
+		siteID, ok := parseSiteFolderName(folder)
+		if !ok {
+			continue
+		}
+		if byName[folder] {
+			continue // current active folder name
+		}
+		folderPath := filepath.Join(dataPath, folder)
+		if !pathUnderRoot(folderPath, dataPath) {
+			fmt.Printf("Skipping %s (resolves outside data path)\n", folder)
+			continue
+		}
+		size, _ := dirSize(folderPath)
+		item := siteOrphanFolder{Name: folder, SiteID: siteID, Size: size}
+		if expected, active := byID[siteID]; active {
+			item.Expected = expected
+			stale = append(stale, item)
+			continue
+		}
+		orphans = append(orphans, item)
+	}
+	sort.Slice(orphans, func(i, j int) bool { return orphans[i].Name < orphans[j].Name })
+	sort.Slice(stale, func(i, j int) bool { return stale[i].Name < stale[j].Name })
+	return orphans, stale, nil
+}
+
 // siteOrphansNative implements `captaincore site orphans`.
 // Scans system.Path for {site}_{id} folders that do not match an active site.
 func siteOrphansNative(cmd *cobra.Command, args []string) {
@@ -1565,92 +1702,212 @@ func siteOrphansNative(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	sites, err := models.GetAllActiveSites()
+	dataPath, err := filepath.Abs(system.Path)
+	if err != nil {
+		fmt.Printf("Error resolving data path: %v\n", err)
+		return
+	}
+
+	byName, byID, err := loadActiveSiteFolders()
 	if err != nil {
 		fmt.Printf("Error fetching sites: %v\n", err)
 		return
 	}
 
-	activeFolders := make(map[string]bool, len(sites))
-	for _, s := range sites {
-		activeFolders[fmt.Sprintf("%s_%d", s.Site, s.SiteID)] = true
-	}
-
-	if len(activeFolders) == 0 {
+	if len(byName) == 0 {
 		fmt.Println("Error: No active sites found in database. Aborting to prevent accidental deletion.")
 		return
 	}
 
-	fmt.Printf("Scanning %s\n", system.Path)
-	fmt.Printf("Found %d active site folders in database\n", len(activeFolders))
+	fmt.Printf("Scanning %s\n", dataPath)
+	fmt.Printf("Found %d active site folders in database\n", len(byName))
 
-	entries, err := os.ReadDir(system.Path)
+	orphans, stale, err := scanSiteOrphans(dataPath, byName, byID)
 	if err != nil {
 		fmt.Printf("Error reading data path: %v\n", err)
 		return
 	}
 
-	var orphans []string
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
+	// Optional allowlist filter (used for reviewed deletes).
+	var allowlist map[string]bool
+	if flagOrphansFromList != "" {
+		allowlist, err = readOrphanAllowlist(flagOrphansFromList)
+		if err != nil {
+			fmt.Printf("Error reading --from-list: %v\n", err)
+			return
 		}
-		folder := entry.Name()
-		// Only consider folders matching site_id format (trailing _<number>)
-		parts := strings.Split(folder, "_")
-		if len(parts) < 2 {
-			continue
+		if len(allowlist) == 0 {
+			fmt.Println("Error: --from-list is empty or has no valid folder names.")
+			return
 		}
-		if _, err := strconv.Atoi(parts[len(parts)-1]); err != nil {
-			continue
+		filtered := orphans[:0]
+		for _, o := range orphans {
+			if allowlist[o.Name] {
+				filtered = append(filtered, o)
+			}
 		}
-		if !activeFolders[folder] {
-			orphans = append(orphans, folder)
+		orphans = filtered
+
+		if flagOrphansIncludeStaleNames {
+			filteredStale := stale[:0]
+			for _, s := range stale {
+				if allowlist[s.Name] {
+					filteredStale = append(filteredStale, s)
+				}
+			}
+			stale = filteredStale
 		}
 	}
 
-	sort.Strings(orphans)
+	candidates := orphans
+	if flagOrphansIncludeStaleNames {
+		candidates = append(append([]siteOrphanFolder{}, orphans...), stale...)
+		sort.Slice(candidates, func(i, j int) bool { return candidates[i].Name < candidates[j].Name })
+	}
 
-	if len(orphans) == 0 {
-		fmt.Println("No orphaned folders found.")
+	if len(stale) > 0 && !flagOrphansIncludeStaleNames {
+		fmt.Printf("\nSkipping %d stale-name folders (site_id still active under a different name):\n", len(stale))
+		fmt.Printf("%-50s %-12s %s\n", "Folder", "Size", "Active folder")
+		for _, s := range stale {
+			fmt.Printf("%-50s %-12s %s\n", s.Name, formatBytes(strconv.FormatInt(s.Size, 10)), s.Expected)
+		}
+		fmt.Println("(Use --include-stale-names only after verifying data lives under the active folder name.)")
+	}
+
+	if len(candidates) == 0 {
+		if len(stale) == 0 {
+			fmt.Println("No orphaned folders found.")
+		} else {
+			fmt.Println("\nNo deletable orphaned folders (only stale-name leftovers remain).")
+		}
 		return
 	}
 
-	fmt.Printf("\nFound %d orphaned folders:\n\n", len(orphans))
+	label := "orphaned"
+	if flagOrphansIncludeStaleNames {
+		label = "orphaned/stale-name"
+	}
+	fmt.Printf("\nFound %d %s folders:\n\n", len(candidates), label)
 	fmt.Printf("%-50s %s\n", "Folder", "Size")
 
 	var totalSize int64
-	for _, folder := range orphans {
-		folderPath := filepath.Join(system.Path, folder)
-		size, err := dirSize(folderPath)
-		sizeStr := "unknown"
-		if err == nil {
-			totalSize += size
-			sizeStr = formatBytes(strconv.FormatInt(size, 10))
-		}
-		fmt.Printf("%-50s %s\n", folder, sizeStr)
+	for _, c := range candidates {
+		totalSize += c.Size
+		fmt.Printf("%-50s %s\n", c.Name, formatBytes(strconv.FormatInt(c.Size, 10)))
 	}
 
-	fmt.Printf("\nTotal reclaimable: %s across %d folders\n", formatBytes(strconv.FormatInt(totalSize, 10)), len(orphans))
+	fmt.Printf("\nTotal reclaimable: %s across %d folders\n", formatBytes(strconv.FormatInt(totalSize, 10)), len(candidates))
+
+	if flagOrphansWriteList != "" {
+		var b strings.Builder
+		b.WriteString("# captaincore site orphans allowlist\n")
+		b.WriteString("# Review this file, then: captaincore site orphans --confirm --from-list=" + flagOrphansWriteList + "\n")
+		for _, c := range candidates {
+			b.WriteString(c.Name + "\n")
+		}
+		if err := os.WriteFile(flagOrphansWriteList, []byte(b.String()), 0644); err != nil {
+			fmt.Printf("Error writing --write-list: %v\n", err)
+			return
+		}
+		fmt.Printf("Wrote %d folder names to %s\n", len(candidates), flagOrphansWriteList)
+	}
 
 	if !flagConfirm {
-		fmt.Println("\nRun with --confirm to delete these folders.")
+		fmt.Println("\nDry-run only. Recommended:")
+		fmt.Println("  1. captaincore connect --sync   # refresh active site set")
+		fmt.Println("  2. captaincore site orphans --write-list=/tmp/orphans.txt")
+		fmt.Println("  3. Review /tmp/orphans.txt (remove any rows you want to keep)")
+		fmt.Println("  4. captaincore site orphans --confirm --from-list=/tmp/orphans.txt")
 		return
+	}
+
+	if flagOrphansFromList == "" {
+		fmt.Println("\nError: --confirm requires --from-list=<file> so only a reviewed allowlist is deleted.")
+		fmt.Println("Re-run dry-run with --write-list, review the file, then pass it to --from-list.")
+		return
+	}
+
+	// Re-load active set and re-scan so we never act on a stale in-memory list alone.
+	byName, byID, err = loadActiveSiteFolders()
+	if err != nil || len(byName) == 0 {
+		fmt.Println("Error: Could not re-load active sites before delete. Aborting.")
+		return
+	}
+	orphansNow, staleNow, err := scanSiteOrphans(dataPath, byName, byID)
+	if err != nil {
+		fmt.Printf("Error re-scanning before delete: %v\n", err)
+		return
+	}
+	deletable := make(map[string]siteOrphanFolder)
+	for _, o := range orphansNow {
+		deletable[o.Name] = o
+	}
+	if flagOrphansIncludeStaleNames {
+		for _, s := range staleNow {
+			deletable[s.Name] = s
+		}
 	}
 
 	fmt.Println()
 	deleted := 0
-	for _, folder := range orphans {
-		folderPath := filepath.Join(system.Path, folder)
-		fmt.Printf("Deleting %s...\n", folder)
+	skipped := 0
+	for _, c := range candidates {
+		// Must still be on the reviewed allowlist (candidates already filtered).
+		if !allowlist[c.Name] {
+			fmt.Printf("Skipping %s (not in --from-list)\n", c.Name)
+			skipped++
+			continue
+		}
+		// Must still classify as deletable on re-scan.
+		if _, ok := deletable[c.Name]; !ok {
+			fmt.Printf("Skipping %s (no longer an orphan on re-scan)\n", c.Name)
+			skipped++
+			continue
+		}
+		siteID, ok := parseSiteFolderName(c.Name)
+		if !ok {
+			fmt.Printf("Skipping %s (invalid folder name)\n", c.Name)
+			skipped++
+			continue
+		}
+		if expected, active := byID[siteID]; active && !flagOrphansIncludeStaleNames {
+			fmt.Printf("Skipping %s (site_id %d still active as %s)\n", c.Name, siteID, expected)
+			skipped++
+			continue
+		}
+		if byName[c.Name] {
+			fmt.Printf("Skipping %s (matches active folder)\n", c.Name)
+			skipped++
+			continue
+		}
+
+		folderPath := filepath.Join(dataPath, c.Name)
+		if !pathUnderRoot(folderPath, dataPath) {
+			fmt.Printf("Skipping %s (path escapes data directory)\n", c.Name)
+			skipped++
+			continue
+		}
+		info, err := os.Lstat(folderPath)
+		if err != nil {
+			fmt.Printf("Skipping %s (%v)\n", c.Name, err)
+			skipped++
+			continue
+		}
+		if !info.IsDir() {
+			fmt.Printf("Skipping %s (not a directory)\n", c.Name)
+			skipped++
+			continue
+		}
+
+		fmt.Printf("Deleting %s...\n", c.Name)
 		if err := os.RemoveAll(folderPath); err != nil {
-			fmt.Printf("Error deleting %s: %v\n", folder, err)
+			fmt.Printf("Error deleting %s: %v\n", c.Name, err)
 			continue
 		}
 		deleted++
 	}
 
-	fmt.Printf("\nDeleted %d orphaned folders.\n", deleted)
+	fmt.Printf("\nDeleted %d orphaned folders (%d skipped).\n", deleted, skipped)
 }
 
 // uniqueUints returns unique uint values preserving order.
@@ -1729,5 +1986,8 @@ func init() {
 	siteSearchCmd.Flags().StringVarP(&flagField, "field", "", "", "Return certain field")
 	siteSearchCmd.Flags().StringVarP(&flagSearchField, "search-field", "", "", "Search specific field")
 	siteVulnScanCmd.Flags().BoolVarP(&flagCached, "cached", "", false, "Display stored results without re-scanning")
-	siteOrphansCmd.Flags().BoolVar(&flagConfirm, "confirm", false, "Actually delete orphaned folders (default is dry-run)")
+	siteOrphansCmd.Flags().BoolVar(&flagConfirm, "confirm", false, "Actually delete orphaned folders (requires --from-list)")
+	siteOrphansCmd.Flags().StringVar(&flagOrphansWriteList, "write-list", "", "Write candidate folder names to a file for review")
+	siteOrphansCmd.Flags().StringVar(&flagOrphansFromList, "from-list", "", "Only consider/delete folders named in this allowlist file")
+	siteOrphansCmd.Flags().BoolVar(&flagOrphansIncludeStaleNames, "include-stale-names", false, "Also include folders whose site_id is still active under a different name")
 }
