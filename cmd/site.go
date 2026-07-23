@@ -94,6 +94,20 @@ var listCmd = &cobra.Command{
 	},
 }
 
+var siteOrphansCmd = &cobra.Command{
+	Use:   "orphans",
+	Short: "Lists local site folders that do not match an active site",
+	Long: `Scans the CaptainCore data path for site folders ({site}_{id}) that are not
+tied to an active site in the local database. Useful for reclaiming disk space left
+behind after sites are deleted or renamed.
+
+Dry-run by default (lists folders and sizes). Pass --confirm to delete.`,
+	Example: "  captaincore site orphans\n  captaincore site orphans --confirm",
+	Run: func(cmd *cobra.Command, args []string) {
+		siteOrphansNative(cmd, args)
+	},
+}
+
 var keyGenerateCmd = &cobra.Command{
 	Use:   "key-generate <site>",
 	Short: "Generates SFTP/SSH Rclone configs",
@@ -1532,6 +1546,113 @@ func siteSearchNative(cmd *cobra.Command, args []string) {
 	fmt.Print(strings.Join(results, " "))
 }
 
+// siteOrphansNative implements `captaincore site orphans`.
+// Scans system.Path for {site}_{id} folders that do not match an active site.
+func siteOrphansNative(cmd *cobra.Command, args []string) {
+	if !ensureDB() || !dbHasData() {
+		fmt.Println("Error: Database not available. Run 'captaincore connect' to set up your CaptainCore CLI.")
+		return
+	}
+
+	_, system, _, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fmt.Println("Error: Configuration file not found.")
+		return
+	}
+
+	if system.Path == "" {
+		fmt.Println("Error: system.path is empty in config.")
+		return
+	}
+
+	sites, err := models.GetAllActiveSites()
+	if err != nil {
+		fmt.Printf("Error fetching sites: %v\n", err)
+		return
+	}
+
+	activeFolders := make(map[string]bool, len(sites))
+	for _, s := range sites {
+		activeFolders[fmt.Sprintf("%s_%d", s.Site, s.SiteID)] = true
+	}
+
+	if len(activeFolders) == 0 {
+		fmt.Println("Error: No active sites found in database. Aborting to prevent accidental deletion.")
+		return
+	}
+
+	fmt.Printf("Scanning %s\n", system.Path)
+	fmt.Printf("Found %d active site folders in database\n", len(activeFolders))
+
+	entries, err := os.ReadDir(system.Path)
+	if err != nil {
+		fmt.Printf("Error reading data path: %v\n", err)
+		return
+	}
+
+	var orphans []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		folder := entry.Name()
+		// Only consider folders matching site_id format (trailing _<number>)
+		parts := strings.Split(folder, "_")
+		if len(parts) < 2 {
+			continue
+		}
+		if _, err := strconv.Atoi(parts[len(parts)-1]); err != nil {
+			continue
+		}
+		if !activeFolders[folder] {
+			orphans = append(orphans, folder)
+		}
+	}
+
+	sort.Strings(orphans)
+
+	if len(orphans) == 0 {
+		fmt.Println("No orphaned folders found.")
+		return
+	}
+
+	fmt.Printf("\nFound %d orphaned folders:\n\n", len(orphans))
+	fmt.Printf("%-50s %s\n", "Folder", "Size")
+
+	var totalSize int64
+	for _, folder := range orphans {
+		folderPath := filepath.Join(system.Path, folder)
+		size, err := dirSize(folderPath)
+		sizeStr := "unknown"
+		if err == nil {
+			totalSize += size
+			sizeStr = formatBytes(strconv.FormatInt(size, 10))
+		}
+		fmt.Printf("%-50s %s\n", folder, sizeStr)
+	}
+
+	fmt.Printf("\nTotal reclaimable: %s across %d folders\n", formatBytes(strconv.FormatInt(totalSize, 10)), len(orphans))
+
+	if !flagConfirm {
+		fmt.Println("\nRun with --confirm to delete these folders.")
+		return
+	}
+
+	fmt.Println()
+	deleted := 0
+	for _, folder := range orphans {
+		folderPath := filepath.Join(system.Path, folder)
+		fmt.Printf("Deleting %s...\n", folder)
+		if err := os.RemoveAll(folderPath); err != nil {
+			fmt.Printf("Error deleting %s: %v\n", folder, err)
+			continue
+		}
+		deleted++
+	}
+
+	fmt.Printf("\nDeleted %d orphaned folders.\n", deleted)
+}
+
 // uniqueUints returns unique uint values preserving order.
 func uniqueUints(input []uint) []uint {
 	seen := make(map[uint]bool)
@@ -1588,6 +1709,7 @@ func init() {
 	siteCmd.AddCommand(syncSiteCmd)
 	siteCmd.AddCommand(syncBatchSiteCmd)
 	siteCmd.AddCommand(siteSearchCmd)
+	siteCmd.AddCommand(siteOrphansCmd)
 	getCmd.Flags().StringVarP(&flagField, "field", "", "", "Return certain field")
 	getCmd.Flags().BoolVarP(&flagBash, "bash", "", false, "Return bash format")
 	getCmd.Flags().StringVarP(&flagFormat, "format", "", "", "Output format (json)")
@@ -1607,4 +1729,5 @@ func init() {
 	siteSearchCmd.Flags().StringVarP(&flagField, "field", "", "", "Return certain field")
 	siteSearchCmd.Flags().StringVarP(&flagSearchField, "search-field", "", "", "Search specific field")
 	siteVulnScanCmd.Flags().BoolVarP(&flagCached, "cached", "", false, "Display stored results without re-scanning")
+	siteOrphansCmd.Flags().BoolVar(&flagConfirm, "confirm", false, "Actually delete orphaned folders (default is dry-run)")
 }
