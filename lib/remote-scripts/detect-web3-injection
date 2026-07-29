@@ -1,0 +1,234 @@
+#!/usr/bin/env bash
+# detect-web3-injection — hunt for EtherHiding / blockchain-hosted malware loaders
+# and the service-worker delivery shape used to install them.
+#
+# Read-only. Output: SEVERITY|TYPE|PATH|DETAIL
+#
+# WHY THIS EXISTS (cargasenergy.com, 2026-06-12 → 2026-07-29, 47 days undetected)
+#
+#   The "nochain" implant defeated every existing control:
+#
+#     * Wordfence CLI 5.0.4 with same-day signatures  -> 0 detections (verified)
+#     * WP core + plugin checksums                    -> all pass (nothing core touched)
+#     * detect-etherhiding                            -> 0 of 7 checks fired
+#     * Signature scans for eval/base64/obfuscation   -> the PHP is completely clean
+#
+#   It works by registering a service worker that intercepts every navigation,
+#   strips the Content-Security-Policy header, and injects a loader which pulls
+#   executable JavaScript from a smart contract on Base and runs it through the
+#   AsyncFunction constructor. The server holds only the small loader; the actual
+#   payload lives on an immutable public blockchain and is updated without ever
+#   touching the site again.
+#
+#   detect-etherhiding missed it because its blockchain check requires a literal
+#   'eth_call' in server-side code. This family never calls the chain from PHP —
+#   the RPC request happens in the visitor's browser via ethers.js, so no
+#   'eth_call' string exists anywhere on the server. The RPC hostnames DO, and
+#   that is what this script keys on instead.
+#
+# DESIGN: structural, not signature-based. Every check targets a shape the
+# attacker needs in order to function, rather than a string they happen to use,
+# so rotated contracts / domains / variable names still trip it.
+
+cd "$HOME" 2>/dev/null || exit 0
+WP=""
+for d in public public_html www htdocs; do
+  [ -f "$HOME/$d/wp-load.php" ] && WP="$HOME/$d" && break
+done
+[ -z "$WP" ] && exit 0
+CT="$WP/wp-content"
+[ -d "$CT" ] || exit 0
+
+SCAN_DIRS=""
+for d in plugins themes mu-plugins; do [ -d "$CT/$d" ] && SCAN_DIRS="$SCAN_DIRS $CT/$d"; done
+[ -z "$SCAN_DIRS" ] && exit 0
+
+emit() { echo "$1|$2|$3|$4"; }
+
+# Plugin slugs that legitimately talk to a blockchain or register service workers.
+# Anything matching these is downgraded/skipped to keep the signal clean.
+WEB3_OK='plugins/(ethereumico|wp-cryptocurrency|cryptowoo|coinbase|blockonomics|gourl|nowpayments|web3|walletconnect|metamask|nft-|opensea|dlm-crypto)'
+PWA_OK='plugins/(super-progressive-web-apps|pwa-for-wp|pwa|wp-pwa|onesignal|webpushr|push-notification|progressive-wp|firebase|amp|bunyad-amp|koko-analytics|speed-kit|baqend)'
+
+RPC_HOSTS='mainnet\.base\.org|base\.publicnode|base-rpc|base\.drpc|bsc-dataseed|binance\.org|polygon-rpc|polygon\.llamarpc|rpc\.ankr\.com|1rpc\.io|blastapi\.io|gateway\.tenderly\.co|drpc\.org|publicnode\.com|quiknode|nodies|infura\.io|alchemyapi|cloudflare-eth'
+
+# ---------------------------------------------------------------------------
+# 1. Public-chain RPC endpoint inside web-served code.
+#    No eth_call prerequisite — this is the check that would have caught nochain.
+#    A brochure/eCommerce WordPress site has no reason to reference an Ethereum,
+#    Base, BSC or Polygon RPC node anywhere in wp-content.
+# ---------------------------------------------------------------------------
+grep -rlE "$RPC_HOSTS" $SCAN_DIRS \
+  --include='*.php' --include='*.js' --include='*.json' 2>/dev/null \
+  | grep -vE 'node_modules|/vendor/' | while read -r f; do
+    rel="${f#$WP/}"
+    if echo "$rel" | grep -qE "$WEB3_OK"; then
+      emit LOW web3_plugin_expected "$rel" "chain RPC host inside a known crypto plugin"
+    else
+      n=$(grep -coE "$RPC_HOSTS" "$f" 2>/dev/null)
+      emit CRITICAL blockchain_c2 "$rel" "public chain RPC host x$n in web-served code (EtherHiding loader shape)"
+    fi
+done
+
+# ---------------------------------------------------------------------------
+# 2. Web3 client library referenced from server-side PHP.
+#    PHP that names ethers.js / JsonRpcProvider is emitting a browser-side
+#    blockchain client — a loader, not a feature.
+# ---------------------------------------------------------------------------
+grep -rlE 'JsonRpcProvider|ethers\.umd|ethers@[0-9]|web3\.min\.js|new ethers\.Contract' $SCAN_DIRS \
+  --include='*.php' 2>/dev/null | grep -vE 'node_modules|/vendor/' | while read -r f; do
+    rel="${f#$WP/}"
+    echo "$rel" | grep -qE "$WEB3_OK" && continue
+    emit CRITICAL web3_loader_in_php "$rel" "PHP emits a browser-side web3/ethers client"
+done
+
+# ---------------------------------------------------------------------------
+# 3. PHP registering a service worker.
+#    Service workers intercept every navigation and survive server cleanup
+#    because they live in the visitor's browser. Outside PWA plugins this is
+#    almost always a delivery mechanism.
+# ---------------------------------------------------------------------------
+grep -rlF 'serviceWorker.register' $SCAN_DIRS --include='*.php' 2>/dev/null \
+  | grep -vE 'node_modules|/vendor/' | while read -r f; do
+    rel="${f#$WP/}"
+    if echo "$rel" | grep -qE "$PWA_OK"; then
+      emit LOW pwa_expected "$rel" "service worker registration inside a known PWA plugin"
+    else
+      emit CRITICAL sw_register_from_php "$rel" "PHP injects a service worker registration"
+    fi
+done
+
+# ---------------------------------------------------------------------------
+# 4. A service worker that strips Content-Security-Policy.
+#    There is no legitimate reason for a worker to delete CSP from a response.
+#    This is done purely to allow injected script to execute.
+# ---------------------------------------------------------------------------
+find "$WP" -maxdepth 2 -name '*.js' -size -200k 2>/dev/null | while read -r f; do
+  grep -qiF 'content-security-policy' "$f" 2>/dev/null || continue
+  grep -qE '\.delete\s*\(|removeHeader' "$f" 2>/dev/null || continue
+  grep -qE 'respondWith|addEventListener\s*\(\s*.fetch.' "$f" 2>/dev/null || continue
+  emit CRITICAL sw_strips_csp "${f#$WP/}" "service worker deletes Content-Security-Policy from responses"
+done
+
+# ---------------------------------------------------------------------------
+# 5. Service-worker-shaped files in the web root that WordPress never ships.
+# ---------------------------------------------------------------------------
+find "$WP" -maxdepth 1 -type f -name '*.js' 2>/dev/null | while read -r f; do
+  base=$(basename "$f")
+  case "$base" in
+    # Known-legitimate root JS (PWA plugins, analytics loaders)
+    sw.js|service-worker.js|OneSignalSDKWorker.js|OneSignalSDKUpdaterWorker.js|firebase-messaging-sw.js|\
+    superpwa-sw.js|superpwa-amp-sw.js|superpwa-sw-nginx.js|pwa-sw.js|speed-kit-sw.js) LEGIT=1 ;;
+    *) LEGIT=0 ;;
+  esac
+  if grep -qE 'addEventListener\s*\(\s*.(fetch|install|activate).' "$f" 2>/dev/null; then
+    # Anchor's own post-incident revocation stub — deliberately left in place to
+    # unregister a malicious worker from visitor browsers. Not a finding.
+    if grep -qF 'Anchor Hosting - service worker revocation stub' "$f" 2>/dev/null; then
+      emit LOW revocation_stub "${f#$WP/}" "Anchor service-worker revocation stub (intentional, leave in place)"
+      continue
+    fi
+    if [ "$LEGIT" = "1" ]; then
+      emit LOW root_sw_known "${f#$WP/}" "service worker in web root with a recognized name"
+    else
+      emit HIGH root_sw_unknown "${f#$WP/}" "unrecognized service worker in web root"
+    fi
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# 6. MU-plugin allowlist reconciliation.
+#    THE highest-value generic check. MU-plugins auto-execute on every request,
+#    never appear in the normal plugin list, and cannot be deactivated from
+#    wp-admin. This check is technique-independent: it caught nothing about HOW
+#    nochain worked, only that an unrecognized file was present. It would also
+#    have caught the dev-ci-lint family, which defeats every signature scan.
+# ---------------------------------------------------------------------------
+if [ -d "$CT/mu-plugins" ]; then
+  find "$CT/mu-plugins" -maxdepth 1 -type f -name '*.php' 2>/dev/null | while read -r f; do
+    base=$(basename "$f")
+    case "$base" in
+      kinsta-mu-plugins.php|captaincore-helper.php|captaincore-analytics.php|\
+      captaincore-ip-blocklist.php|disable-xmlrpc.php|_WPHealthHandlerMU.php|\
+      InitUmbrella.php|redis-cache-pro.php|object-cache-pro.php|\
+      wp-migrate-db-pro-compatibility.php|index.php|load.php|register-theme-directory.php|\
+      0-worker.php|elementor-safe-mode.php|health-check-troubleshooting-mode.php|\
+      SupportCenterMUAutoloader.php|wp-staging-optimizer.php|PluginOrganizerMU.class.php|\
+      wpe-update-source-selector.php|wp-toolkit.php|as-disable-default-runner.php|\
+      cdn-cache-management.php|learndash-multisite.php|render-command.php)
+        ;;
+      *)
+        total=$(wc -l < "$f" 2>/dev/null | tr -d ' '); total=${total:-0}
+        age=$(find "$f" -mtime -90 2>/dev/null | wc -l)
+        #
+        # Severity by RECENCY, not unfamiliarity. Agencies legitimately ship
+        # bespoke mu-plugins, so a fleet-wide inventory check is inherently
+        # noisy (124 hits / 311 sites on first run, essentially all benign).
+        # A mu-plugin that APPEARED during a compromise window is the real
+        # signal — which is why the durable fix is quicksave change-alerting,
+        # not this inventory sweep. Keep this as a baselining tool.
+        if [ "$age" -gt 0 ]; then
+          emit HIGH mu_plugin_new "${f#$WP/}" "unrecognized mu-plugin (${total} lines), MODIFIED IN LAST 90 DAYS"
+        else
+          emit LOW mu_plugin_unknown "${f#$WP/}" "unrecognized mu-plugin (${total} lines), unchanged 90+ days"
+        fi
+        ;;
+    esac
+  done
+fi
+
+# ---------------------------------------------------------------------------
+# 7. Admin-cloaking state: an option storing a list of operator IPs so the
+#    payload can hide from whoever manages the site.
+# ---------------------------------------------------------------------------
+if command -v wp >/dev/null 2>&1; then
+  cd "$WP" || exit 0
+  PFX=$(wp db prefix --skip-plugins --skip-themes 2>/dev/null)
+  if [ -n "$PFX" ]; then
+    #
+    # An operator-IP allowlist is only meaningful as a cloaking mechanism if
+    # something on the site actually reads it. Legitimate header/CSP testing
+    # tools store the same shape (verified FP: header_fix_tester_admin_ips on
+    # adaptabilitytoolkit — part of a coherent *_csp_enabled/*_url settings
+    # cluster, orphaned after the tool was removed). So: known-malicious names
+    # are CRITICAL, and anything else is reported LOW for triage rather than
+    # paging someone at 2am.
+    wp db query "SELECT option_name FROM ${PFX}options WHERE option_name REGEXP '(admin_ips|_skip_ips)' OR option_name LIKE 'nochain%'" \
+      --skip-column-names --skip-plugins --skip-themes 2>/dev/null | while read -r opt; do
+        [ -z "$opt" ] && continue
+        case "$opt" in
+          nochain*|nc_*)
+            emit CRITICAL admin_cloak_option "db:options/$opt" "known cloaking option (payload hides from admins)" ;;
+          *)
+            # Corroborate: is it referenced by any code on disk?
+            if grep -rqlF "$opt" $SCAN_DIRS 2>/dev/null; then
+              emit LOW admin_ip_option "db:options/$opt" "operator IP allowlist referenced by on-disk code — verify owner" 
+            else
+              emit LOW admin_ip_option_orphan "db:options/$opt" "orphaned operator IP allowlist, no code references it (likely removed tool)"
+            fi ;;
+        esac
+    done
+    # Service worker registration planted into a widget (survives file cleanup)
+    wp db query "SELECT option_name FROM ${PFX}options WHERE option_value LIKE '%serviceWorker.register%'" \
+      --skip-column-names --skip-plugins --skip-themes 2>/dev/null | while read -r opt; do
+        [ -z "$opt" ] && continue
+        emit CRITICAL sw_register_in_db "db:options/$opt" "service worker registration stored in the database"
+    done
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# 8. Known nochain-family IOCs (exact hits = confirmed same operator).
+# ---------------------------------------------------------------------------
+grep -rlF -e '0x58460d0b3d4d6b03761c89120393c0c676676496' \
+          -e 'snake.zooparkko.com' \
+          -e 'fine-work-team.com' \
+          -e 'nochain_should_run' \
+          -e 'nc_skip=1' \
+          -e '__ncSkip' \
+          $SCAN_DIRS "$WP" --include='*.php' --include='*.js' 2>/dev/null \
+  | grep -vE 'node_modules|/vendor/' | sort -u | while read -r f; do
+    emit CRITICAL known_ioc "${f#$WP/}" "matches confirmed nochain/EtherHiding IOC"
+done
+
+exit 0
