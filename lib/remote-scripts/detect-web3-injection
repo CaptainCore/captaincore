@@ -47,7 +47,7 @@ emit() { echo "$1|$2|$3|$4"; }
 
 # Plugin slugs that legitimately talk to a blockchain or register service workers.
 # Anything matching these is downgraded/skipped to keep the signal clean.
-WEB3_OK='plugins/(ethereumico|wp-cryptocurrency|cryptowoo|coinbase|blockonomics|gourl|nowpayments|web3|walletconnect|metamask|nft-|opensea|dlm-crypto)'
+WEB3_OK='plugins/(cryptopay|ethereumico|wp-cryptocurrency|cryptowoo|coinbase|blockonomics|gourl|nowpayments|web3|walletconnect|metamask|nft-|opensea|dlm-crypto)'
 PWA_OK='plugins/(super-progressive-web-apps|pwa-for-wp|pwa|wp-pwa|onesignal|webpushr|push-notification|progressive-wp|firebase|amp|bunyad-amp|koko-analytics|speed-kit|baqend)'
 
 RPC_HOSTS='mainnet\.base\.org|base\.publicnode|base-rpc|base\.drpc|bsc-dataseed|binance\.org|polygon-rpc|polygon\.llamarpc|rpc\.ankr\.com|1rpc\.io|blastapi\.io|gateway\.tenderly\.co|drpc\.org|publicnode\.com|quiknode|nodies|infura\.io|alchemyapi|cloudflare-eth'
