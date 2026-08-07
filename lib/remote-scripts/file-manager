@@ -14,9 +14,13 @@
 #                            (base64 so spaces/quotes survive the ssh hop)
 #     --bytes=<n>            view: max bytes returned (default 512 KB)
 #
-#   Output: a single line prefixed CC_FM_JSON: followed by a JSON document.
-#   Everything resolves through realpath, so any path (including symlinks)
-#   that lands outside the home directory is refused.
+#   Output: the JSON document, base64-encoded and wrapped into short lines
+#   between CC_FM_BEGIN / CC_FM_END markers. The dispatch server reads child
+#   output with a line scanner capped at 64 KB per line, so one long JSON line
+#   (a big file view, a huge directory) would wedge the whole request — short
+#   wrapped lines keep every hop happy. Everything resolves through realpath,
+#   so any path (including symlinks) that lands outside the home directory is
+#   refused.
 #
 
 set -uo pipefail
@@ -40,7 +44,9 @@ export FM_ACTION="$action" FM_PATH_B64="$path_b64" FM_BYTES="$bytes"
 read -r -d '' FM_PHP <<'PHPEOF'
 <?php
 function fm_out( $data ) {
-    echo "CC_FM_JSON:" . json_encode( $data ) . "\n";
+    echo "CC_FM_BEGIN\n";
+    echo chunk_split( base64_encode( json_encode( $data ) ), 8192, "\n" );
+    echo "CC_FM_END\n";
     exit( 0 );
 }
 

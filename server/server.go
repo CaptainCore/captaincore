@@ -1141,6 +1141,10 @@ func runCommand(head string, arguments []string, t Task) string {
 	}
 
 	s := bufio.NewScanner(io.MultiReader(stdout, stderr))
+	// Default Scanner caps a line at 64 KB; past that Scan() errors out, the
+	// pipe stops draining, and the child blocks on write forever — the request
+	// then hangs until the caller's HTTP timeout. Allow long lines instead.
+	s.Buffer(make([]byte, 64*1024), 8*1024*1024)
 	lines := []string{}
 	for s.Scan() {
 		// Write data to websocket if found
