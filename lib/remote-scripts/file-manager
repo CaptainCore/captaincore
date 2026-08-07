@@ -112,6 +112,34 @@ if ( getenv( "FM_ACTION" ) === "view" ) {
         fm_out( [ "error" => "File is not readable." ] );
     }
     $size = filesize( $target );
+    // Images preview in the browser as data URIs, so they need the WHOLE file
+    // (a truncated image is a corrupt image) — read them in full, bypassing
+    // FM_BYTES, up to a hard 8 MB cap. Larger files fall through to the
+    // generic binary/no-preview answer. SVG rides this path too: the UI
+    // renders it via <img src="data:…">, which cannot execute scripts, so a
+    // hostile SVG on a managed site stays inert.
+    $image_mimes = [
+        "png"  => "image/png",
+        "jpg"  => "image/jpeg",
+        "jpeg" => "image/jpeg",
+        "gif"  => "image/gif",
+        "webp" => "image/webp",
+        "svg"  => "image/svg+xml",
+        "ico"  => "image/x-icon",
+        "bmp"  => "image/bmp",
+        "avif" => "image/avif",
+    ];
+    $ext = strtolower( pathinfo( $target, PATHINFO_EXTENSION ) );
+    if ( isset( $image_mimes[ $ext ] ) && $size !== false && $size <= 8388608 ) {
+        fm_out( [
+            "path"        => $rel_clean,
+            "size"        => $size,
+            "truncated"   => false,
+            "binary"      => true,
+            "image"       => $image_mimes[ $ext ],
+            "content_b64" => base64_encode( (string) file_get_contents( $target ) ),
+        ] );
+    }
     $max  = max( 1024, (int) ( getenv( "FM_BYTES" ) ?: 524288 ) );
     $content = (string) file_get_contents( $target, false, null, 0, $max );
     // Null byte or invalid UTF-8 in the head = treat as binary, no preview.
