@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+
+#
+#   File manager — list directories and read files, locked to the site's
+#   home directory. Backs the CaptainCore Manager "Files" tab.
+#
+#   Usage:
+#     captaincore ssh <site> --script=file-manager --path-b64=<base64 rel path>
+#     captaincore ssh <site> --script=file-manager --action=view --path-b64=... [--bytes=524288]
+#
+#   Flags:
+#     --action=<list|view>   list a directory (default) or read one file
+#     --path-b64=<base64>    requested path RELATIVE to home, base64-encoded
+#                            (base64 so spaces/quotes survive the ssh hop)
+#     --bytes=<n>            view: max bytes returned (default 512 KB)
+#
+#   Output: a single line prefixed CC_FM_JSON: followed by a JSON document.
+#   Everything resolves through realpath, so any path (including symlinks)
+#   that lands outside the home directory is refused.
+#
+
+set -uo pipefail
+
+action="list"
+path_b64=""
+bytes="524288"
+
+for arg in "$@"; do
+    case "$arg" in
+        --action=*)   action="${arg#--action=}" ;;
+        --path-b64=*) path_b64="${arg#--path-b64=}" ;;
+        --bytes=*)    bytes="${arg#--bytes=}" ;;
+    esac
+done
+
+export FM_ACTION="$action" FM_PATH_B64="$path_b64" FM_BYTES="$bytes"
+
+# The script itself arrives on ssh stdin, so the PHP payload is piped from a
+# variable (fetch-site-data pattern) — php must not read the ssh stream.
+read -r -d '' FM_PHP <<'PHPEOF'
+<?php
+function fm_out( $data ) {
+    echo "CC_FM_JSON:" . json_encode( $data ) . "\n";
+    exit( 0 );
+}
+
+$home = getcwd();
+if ( $home === false ) {
+    fm_out( [ "error" => "Could not resolve home directory." ] );
+}
+$home = rtrim( $home, "/" );
+
+$rel = trim( (string) base64_decode( getenv( "FM_PATH_B64" ) ?: "", true ) );
+$rel = ltrim( $rel, "/" );
+$target = realpath( $rel === "" ? $home : "$home/$rel" );
+
+// The lock: realpath resolves symlinks too, so anything that lands outside
+// the home directory — traversal or symlink — is refused.
+if ( $target === false ) {
+    fm_out( [ "error" => "Path not found." ] );
+}
+if ( $target !== $home && strpos( $target, "$home/" ) !== 0 ) {
+    fm_out( [ "error" => "Path is outside the home directory." ] );
+}
+
+$rel_clean = $target === $home ? "" : substr( $target, strlen( $home ) + 1 );
+
+if ( getenv( "FM_ACTION" ) === "view" ) {
+    if ( ! is_file( $target ) ) {
+        fm_out( [ "error" => "Not a file." ] );
+    }
+    if ( ! is_readable( $target ) ) {
+        fm_out( [ "error" => "File is not readable." ] );
+    }
+    $size = filesize( $target );
+    $max  = max( 1024, (int) ( getenv( "FM_BYTES" ) ?: 524288 ) );
+    $content = (string) file_get_contents( $target, false, null, 0, $max );
+    // Null byte or invalid UTF-8 in the head = treat as binary, no preview.
+    $binary = strpos( $content, "\0" ) !== false || ! preg_match( "//u", substr( $content, 0, 8192 ) );
+    fm_out( [
+        "path"        => $rel_clean,
+        "size"        => $size,
+        "truncated"   => $size > $max,
+        "binary"      => $binary,
+        "content_b64" => $binary ? null : base64_encode( $content ),
+    ] );
+}
+
+if ( ! is_dir( $target ) ) {
+    fm_out( [ "error" => "Not a directory." ] );
+}
+if ( ! is_readable( $target ) ) {
+    fm_out( [ "error" => "Directory is not readable." ] );
+}
+
+$entries = [];
+foreach ( scandir( $target ) as $name ) {
+    if ( $name === "." || $name === ".." ) {
+        continue;
+    }
+    $p      = "$target/$name";
+    $is_dir = is_dir( $p ); // follows symlinks — matches what navigation does
+    $entries[] = [
+        "name"  => $name,
+        "type"  => $is_dir ? "dir" : "file",
+        "link"  => is_link( $p ),
+        "size"  => $is_dir ? null : ( is_file( $p ) ? filesize( $p ) : null ),
+        "mtime" => @filemtime( $p ) ?: null,
+    ];
+}
+
+fm_out( [ "path" => $rel_clean, "entries" => $entries ] );
+PHPEOF
+
+echo "$FM_PHP" | php
