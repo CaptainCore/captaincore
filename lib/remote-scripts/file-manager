@@ -7,9 +7,12 @@
 #   Usage:
 #     captaincore ssh <site> --script=file-manager --path-b64=<base64 rel path>
 #     captaincore ssh <site> --script=file-manager --action=view --path-b64=... [--bytes=524288]
+#     captaincore ssh <site> --script=file-manager --action=delete --path-b64=...
 #
 #   Flags:
-#     --action=<list|view>   list a directory (default) or read one file
+#     --action=<list|view|delete>  list a directory (default), read one file,
+#                                  or delete one REGULAR file (never a
+#                                  directory or symlink)
 #     --path-b64=<base64>    requested path RELATIVE to home, base64-encoded
 #                            (base64 so spaces/quotes survive the ssh hop)
 #     --bytes=<n>            view: max bytes returned (default 512 KB)
@@ -58,6 +61,36 @@ $home = rtrim( $home, "/" );
 
 $rel = trim( (string) base64_decode( getenv( "FM_PATH_B64" ) ?: "", true ) );
 $rel = ltrim( $rel, "/" );
+
+// Delete works on the LITERAL path, not the realpath — realpath resolves a
+// symlink to its target, and unlinking the target of a link is never what a
+// delete click meant. Containment is checked on the parent directory instead,
+// then symlinks and directories are refused outright.
+if ( getenv( "FM_ACTION" ) === "delete" ) {
+    if ( $rel === "" ) {
+        fm_out( [ "error" => "No file specified." ] );
+    }
+    $parent = realpath( dirname( "$home/$rel" ) );
+    if ( $parent === false || ( $parent !== $home && strpos( $parent, "$home/" ) !== 0 ) ) {
+        fm_out( [ "error" => "Path is outside the home directory." ] );
+    }
+    $literal = $parent . "/" . basename( $rel );
+    if ( is_link( $literal ) ) {
+        fm_out( [ "error" => "Symlinks can't be deleted here." ] );
+    }
+    if ( is_dir( $literal ) ) {
+        fm_out( [ "error" => "Directories can't be deleted here." ] );
+    }
+    if ( ! is_file( $literal ) ) {
+        fm_out( [ "error" => "File not found." ] );
+    }
+    if ( ! @unlink( $literal ) ) {
+        fm_out( [ "error" => "Could not delete the file (permissions?)." ] );
+    }
+    $rel_clean = substr( $literal, strlen( $home ) + 1 );
+    fm_out( [ "deleted" => $rel_clean ] );
+}
+
 $target = realpath( $rel === "" ? $home : "$home/$rel" );
 
 // The lock: realpath resolves symlinks too, so anything that lands outside
