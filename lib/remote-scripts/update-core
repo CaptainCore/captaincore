@@ -5,10 +5,10 @@
 #   wp-config, database, and wp-content), probe for PHP fatals, then optionally
 #   apply the update. Failed probes abort before any live core files change.
 #
-#   HTTP probes use Kinsta's on-server loopback:
-#     curl -kILs -H "Host: <site>" https://localhost/
-#   Sideloaded core lives in $HOME/tmp so PHP-FPM open_basedir can read it
-#   (Kinsta does not allow requiring from $HOME/private).
+#   HTTP probes use the host's on-server loopback (Kinsta and Rocket.net):
+#     curl -ksS -H "Host: <site>" https://localhost/
+#   Sideloaded core lives in $HOME/tmp so PHP-FPM can read it (Kinsta
+#   open_basedir does not allow requiring from $HOME/private).
 #
 #   `update-core`
 #
@@ -58,6 +58,7 @@ done
 LIVE="$(pwd)"
 PREVIEW="${HOME}/tmp/captaincore-core-preview"
 PREVIOUS="${HOME}/tmp/captaincore-core-previous"
+BODY_FILE="${HOME}/tmp/cc-core-preview-body"
 BOOT_FILE=""
 BOOT_TOKEN=""
 version="${version:-latest}"
@@ -75,6 +76,7 @@ cleanup() {
     rm -rf "$PREVIEW"
     rm -rf "$PREVIOUS"
   fi
+  rm -f "$BODY_FILE"
 }
 trap cleanup EXIT
 
@@ -86,7 +88,7 @@ http_loopback() {
     extra+=("$1")
     shift
   done
-  curl -ksS --max-time 60 -o /tmp/cc-core-preview-body -w "%{http_code}" \
+  curl -ksS --max-time 60 -o "$BODY_FILE" -w "%{http_code}" \
     -H "Host: ${SITE_HOST}" \
     -H "Cache-Control: no-cache" \
     "${extra[@]}" \
@@ -99,27 +101,54 @@ write_preview_config() {
   preview_config="${PREVIEW}/wp-config.php"
   content_url="${SITE_HOME}/wp-content"
 
-  python3 - "$live_config" "$preview_config" "$LIVE" "$content_url" << 'PY'
-import re, sys
-live_config, preview_config, live_root, content_url = sys.argv[1:5]
-src = open(live_config, "r", encoding="utf-8", errors="replace").read()
-src = re.sub(
-    r"require(?:_once)?\s+ABSPATH\s*\.\s*['\"]wp-settings\.php['\"]\s*;",
-    "/* settings deferred by captaincore update-core */",
-    src,
-    count=1,
-)
-open(preview_config + ".live.php", "w", encoding="utf-8").write(src)
-
-body = """<?php
-define( 'WP_CONTENT_DIR', %s );
-define( 'WP_CONTENT_URL', %s );
-define( 'CORE_PREVIEW', true );
-require __DIR__ . '/wp-config.php.live.php';
-require ABSPATH . 'wp-settings.php';
-""" % (repr(live_root + "/wp-content"), repr(content_url))
-open(preview_config, "w", encoding="utf-8").write(body)
-PY
+  local writer="${PREVIEW}/write-preview-config.php"
+  cat > "$writer" << 'PHP'
+<?php
+$live_config    = $argv[1];
+$preview_config = $argv[2];
+$live_root      = $argv[3];
+$content_url    = $argv[4];
+$src            = file_get_contents( $live_config );
+if ( $src === false ) {
+	fwrite( STDERR, "Unable to read live wp-config.php\n" );
+	exit( 1 );
+}
+$src = preg_replace(
+	'/require(?:_once)?\s+ABSPATH\s*\.\s*[\'"]wp-settings\.php[\'"]\s*;/',
+	'/* settings deferred by captaincore update-core */',
+	$src,
+	1
+);
+// Preview must actually boot the new core, not serve a cached HTML page.
+$src = preg_replace(
+	'/^[ \t]*define\(\s*[\'"]WP_CACHE[\'"].+$/m',
+	'/* WP_CACHE stripped for core preview */',
+	$src
+);
+if ( file_put_contents( $preview_config . '.live.php', $src ) === false ) {
+	fwrite( STDERR, "Unable to write preview wp-config.php.live.php\n" );
+	exit( 1 );
+}
+$content_dir = $live_root . '/wp-content';
+$body        = "<?php\n";
+$body       .= "define( 'WP_CONTENT_DIR', " . var_export( $content_dir, true ) . " );\n";
+$body       .= "define( 'WP_CONTENT_URL', " . var_export( $content_url, true ) . " );\n";
+$body       .= "define( 'WP_CACHE', false );\n";
+$body       .= "define( 'DONOTCACHEPAGE', true );\n";
+$body       .= "define( 'CORE_PREVIEW', true );\n";
+$body       .= "require __DIR__ . '/wp-config.php.live.php';\n";
+$body       .= "require ABSPATH . 'wp-settings.php';\n";
+if ( file_put_contents( $preview_config, $body ) === false ) {
+	fwrite( STDERR, "Unable to write preview wp-config.php\n" );
+	exit( 1 );
+}
+PHP
+  if ! php "$writer" "$live_config" "$preview_config" "$LIVE" "$content_url"; then
+    rm -f "$writer"
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Failed to write preview wp-config.php"
+    exit 1
+  fi
+  rm -f "$writer"
   chmod 644 "$preview_config" "${preview_config}.live.php"
 }
 
@@ -307,7 +336,7 @@ run_command() {
   PREVIEW_BOOT_VER="$(echo "$PREVIEW_HDR" | awk -F': ' 'tolower($1)=="x-core-preview-version" {gsub("\r","",$2); print $2}')"
   echo "preview_http=${PREVIEW_HTTP}"
   echo "preview_http_version=${PREVIEW_BOOT_VER}"
-  if grep -qiE 'Fatal error|Parse error|Uncaught ' /tmp/cc-core-preview-body; then
+  if grep -qiE 'Fatal error|Parse error|Uncaught ' "$BODY_FILE"; then
     echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Preview HTTP response contains a PHP fatal."
     exit 1
   fi
@@ -355,8 +384,10 @@ run_command() {
   if wp core is-installed --network --skip-plugins --skip-themes >/dev/null 2>&1; then
     wp core update-db --network --skip-plugins --skip-themes
   fi
-  wp cache flush --skip-plugins --skip-themes >/dev/null 2>&1 || true
+  wp cache flush --skip-themes >/dev/null 2>&1 || true
   wp kinsta cache purge --skip-plugins --skip-themes --all >/dev/null 2>&1 || true
+  wp cdn purge >/dev/null 2>&1 || true
+  wp eval 'if ( function_exists( "rocket_clean_domain" ) ) { rocket_clean_domain(); echo "wp-rocket-purged\n"; }' >/dev/null 2>&1 || true
 
   echo "HTTP loopback after update..."
   POST_HTTP="$(http_loopback /)"
@@ -366,7 +397,8 @@ run_command() {
   if [[ "$POST_HTTP" != "200" && "$POST_HTTP" != "301" && "$POST_HTTP" != "302" ]]; then
     echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Live site HTTP ${POST_HTTP} after update; restoring previous core."
     restore_live_core
-    wp cache flush --skip-plugins --skip-themes >/dev/null 2>&1 || true
+    wp cache flush --skip-themes >/dev/null 2>&1 || true
+    wp cdn purge >/dev/null 2>&1 || true
     RESTORED_HTTP="$(http_loopback /)"
     echo "restored_http=${RESTORED_HTTP}"
     exit 1
