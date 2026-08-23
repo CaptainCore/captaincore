@@ -1,0 +1,377 @@
+#!/usr/bin/env bash
+
+#
+#   Sideload a WordPress core build, boot the live site against it (same
+#   wp-config, database, and wp-content), probe for PHP fatals, then optionally
+#   apply the update. Failed probes abort before any live core files change.
+#
+#   HTTP probes use Kinsta's on-server loopback:
+#     curl -kILs -H "Host: <site>" https://localhost/
+#   Sideloaded core lives in $HOME/tmp so PHP-FPM open_basedir can read it
+#   (Kinsta does not allow requiring from $HOME/private).
+#
+#   `update-core`
+#
+#   [--version=<latest|nightly|x.y.z>]
+#   Core build to sideload and (optionally) apply. Default: latest.
+#
+#   [--probe-only]
+#   Sideload and probe, but do not update live core files.
+#
+#   [--apply]
+#   Apply the update after a clean probe. Pre-release targets (nightly /
+#   *-alpha* / *-beta* / *-RC*) require this flag; latest stable applies
+#   automatically after a clean probe.
+#
+#   [--keep]
+#   Leave the sideloaded preview directory in place after the run.
+#
+
+COLOR_RED="\033[31m"
+COLOR_NORMAL="\033[39m"
+
+for arg in "$@"; do
+  if [[ $arg != --* ]]; then
+    count=1+${#arguments[*]}
+    arguments[$count]=$arg
+    continue
+  fi
+
+  flag_name=$( echo $arg | cut -c 3- )
+
+  if [[ $arg != *"="* ]]; then
+    flag_name=${flag_name//-/_}
+    declare "$flag_name"=true
+  fi
+
+  if [[ $arg == *"="* ]]; then
+    flag_value=$( echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1' )
+    flag_name=$( echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1' )
+    flag_name=${flag_name/-/_}
+    flag_value="${flag_value%\"}"
+    flag_value="${flag_value#\"}"
+    declare "$flag_name"="$flag_value"
+    continue
+  fi
+done
+
+LIVE="$(pwd)"
+PREVIEW="${HOME}/tmp/captaincore-core-preview"
+PREVIOUS="${HOME}/tmp/captaincore-core-previous"
+BOOT_FILE=""
+BOOT_TOKEN=""
+version="${version:-latest}"
+
+is_prerelease() {
+  local v="$1"
+  [[ "$v" == "nightly" || "$v" == *alpha* || "$v" == *beta* || "$v" == *RC* || "$v" == *rc* ]]
+}
+
+cleanup() {
+  if [[ -n "$BOOT_FILE" && -f "$LIVE/$BOOT_FILE" ]]; then
+    rm -f "$LIVE/$BOOT_FILE"
+  fi
+  if [[ "$keep" != "true" ]]; then
+    rm -rf "$PREVIEW"
+    rm -rf "$PREVIOUS"
+  fi
+}
+trap cleanup EXIT
+
+http_loopback() {
+  local url_path="$1"
+  local extra=()
+  shift || true
+  while [[ $# -gt 0 ]]; do
+    extra+=("$1")
+    shift
+  done
+  curl -ksS --max-time 60 -o /tmp/cc-core-preview-body -w "%{http_code}" \
+    -H "Host: ${SITE_HOST}" \
+    -H "Cache-Control: no-cache" \
+    "${extra[@]}" \
+    "https://localhost${url_path}"
+}
+
+write_preview_config() {
+  local live_config preview_config content_url
+  live_config="${LIVE}/wp-config.php"
+  preview_config="${PREVIEW}/wp-config.php"
+  content_url="${SITE_HOME}/wp-content"
+
+  python3 - "$live_config" "$preview_config" "$LIVE" "$content_url" << 'PY'
+import re, sys
+live_config, preview_config, live_root, content_url = sys.argv[1:5]
+src = open(live_config, "r", encoding="utf-8", errors="replace").read()
+src = re.sub(
+    r"require(?:_once)?\s+ABSPATH\s*\.\s*['\"]wp-settings\.php['\"]\s*;",
+    "/* settings deferred by captaincore update-core */",
+    src,
+    count=1,
+)
+open(preview_config + ".live.php", "w", encoding="utf-8").write(src)
+
+body = """<?php
+define( 'WP_CONTENT_DIR', %s );
+define( 'WP_CONTENT_URL', %s );
+define( 'CORE_PREVIEW', true );
+require __DIR__ . '/wp-config.php.live.php';
+require ABSPATH . 'wp-settings.php';
+""" % (repr(live_root + "/wp-content"), repr(content_url))
+open(preview_config, "w", encoding="utf-8").write(body)
+PY
+  chmod 644 "$preview_config" "${preview_config}.live.php"
+}
+
+write_probe_php() {
+  cat > "${PREVIEW}/probe-render.php" << 'PHP'
+<?php
+$path = $args[0] ?? '/';
+register_shutdown_function( function () {
+	$e = error_get_last();
+	if ( $e && in_array( $e['type'], array( E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR, E_RECOVERABLE_ERROR ), true ) ) {
+		fwrite( STDERR, "FATAL: {$e['message']} in {$e['file']}:{$e['line']}\n" );
+	}
+} );
+$host = wp_parse_url( home_url(), PHP_URL_HOST );
+$_SERVER['REQUEST_METHOD']  = 'GET';
+$_SERVER['HTTP_HOST']       = $host;
+$_SERVER['SERVER_NAME']     = $host;
+$_SERVER['REQUEST_URI']     = $path;
+$_SERVER['QUERY_STRING']    = '';
+$_SERVER['SERVER_PROTOCOL'] = 'HTTP/1.1';
+$_GET  = array();
+$_POST = array();
+remove_action( 'template_redirect', 'redirect_canonical' );
+add_filter( 'redirect_canonical', '__return_false', 99 );
+if ( ! defined( 'WP_USE_THEMES' ) ) {
+	define( 'WP_USE_THEMES', true );
+}
+global $wp;
+ob_start();
+try {
+	$wp->main( '' );
+	require ABSPATH . WPINC . '/template-loader.php';
+} catch ( Throwable $t ) {
+	ob_end_clean();
+	fwrite( STDERR, 'THROW: ' . $t->getMessage() . ' in ' . $t->getFile() . ':' . $t->getLine() . "\n" );
+	exit( 2 );
+}
+$html  = ob_get_clean();
+$title = '';
+if ( preg_match( '/<title>(.*?)<\/title>/is', $html, $m ) ) {
+	$title = preg_replace( '/\s+/', ' ', trim( wp_strip_all_tags( $m[1] ) ) );
+}
+$fatal = preg_match( '/(Fatal error|Parse error|Uncaught )/i', $html ) ? 1 : 0;
+printf(
+	"path=%s bytes=%d is_404=%s title=%s fatal_in_html=%d wp_version=%s\n",
+	$path,
+	strlen( $html ),
+	is_404() ? '1' : '0',
+	$title,
+	$fatal,
+	$GLOBALS['wp_version']
+);
+if ( $fatal ) {
+	exit( 2 );
+}
+PHP
+}
+
+write_http_bootstrap() {
+  BOOT_TOKEN="$(php -r 'echo bin2hex(random_bytes(16));')"
+  BOOT_FILE="core-preview-boot-$(php -r 'echo bin2hex(random_bytes(4));').php"
+  cat > "${LIVE}/${BOOT_FILE}" << PHP
+<?php
+\$expected = '${BOOT_TOKEN}';
+\$given    = isset( \$_SERVER['HTTP_X_CORE_PREVIEW'] ) ? \$_SERVER['HTTP_X_CORE_PREVIEW'] : '';
+if ( ! is_string( \$given ) || \$given === '' || ! hash_equals( \$expected, \$given ) ) {
+	header( 'HTTP/1.1 404 Not Found' );
+	echo 'not found';
+	exit;
+}
+\$path = isset( \$_GET['path'] ) ? \$_GET['path'] : '/';
+if ( ! is_string( \$path ) || \$path === '' || \$path[0] !== '/' ) {
+	\$path = '/';
+}
+\$_SERVER['REQUEST_URI'] = \$path;
+\$_SERVER['SCRIPT_NAME'] = '/index.php';
+\$_SERVER['PHP_SELF']    = '/index.php';
+\$_GET = array();
+include '${PREVIEW}/wp-includes/version.php';
+header( 'X-Robots-Tag: noindex, nofollow' );
+header( 'Cache-Control: private, no-store, no-cache, must-revalidate' );
+header( 'X-Core-Preview-Boot: 1' );
+header( 'X-Core-Preview-Version: ' . \$wp_version );
+define( 'WP_USE_THEMES', true );
+require '${PREVIEW}/wp-blog-header.php';
+PHP
+  chmod 644 "${LIVE}/${BOOT_FILE}"
+}
+
+backup_live_core() {
+  rm -rf "$PREVIOUS"
+  mkdir -p "$PREVIOUS"
+  cp -a "${LIVE}/wp-admin" "${LIVE}/wp-includes" "$PREVIOUS/"
+  shopt -s nullglob
+  for f in "${LIVE}/wp-"*.php "${LIVE}/index.php" "${LIVE}/xmlrpc.php"; do
+    [[ "$(basename "$f")" == "wp-config.php" ]] && continue
+    cp -a "$f" "$PREVIOUS/"
+  done
+  shopt -u nullglob
+}
+
+restore_live_core() {
+  echo "Restoring previous core files..."
+  rm -rf "${LIVE}/wp-admin" "${LIVE}/wp-includes"
+  cp -a "${PREVIOUS}/wp-admin" "${PREVIOUS}/wp-includes" "${LIVE}/"
+  shopt -s nullglob
+  for f in "${PREVIOUS}/wp-"*.php "${PREVIOUS}/index.php" "${PREVIOUS}/xmlrpc.php"; do
+    cp -a "$f" "${LIVE}/"
+  done
+  shopt -u nullglob
+}
+
+run_command() {
+  if [[ ! -f "${LIVE}/wp-config.php" ]]; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} wp-config.php not found in ${LIVE}"
+    exit 1
+  fi
+
+  SITE_HOME="$(wp option get home --skip-plugins --skip-themes)"
+  SITE_HOST="${SITE_HOME#http://}"
+  SITE_HOST="${SITE_HOST#https://}"
+  SITE_HOST="${SITE_HOST%%/*}"
+  CURRENT="$(wp core version --skip-plugins --skip-themes)"
+  DB_BEFORE="$(wp option get db_version --skip-plugins --skip-themes)"
+
+  echo "site=${SITE_HOME}"
+  echo "live_version=${CURRENT}"
+  echo "db_version=${DB_BEFORE}"
+  echo "target=${version}"
+
+  mkdir -p "$(dirname "$PREVIEW")"
+  rm -rf "$PREVIEW"
+  echo "Downloading WordPress ${version} into preview..."
+  if ! wp core download --path="$PREVIEW" --version="$version" --skip-content --force; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Failed to download WordPress ${version}"
+    exit 1
+  fi
+
+  TARGET_VER="$(php -r "include '${PREVIEW}/wp-includes/version.php'; echo \$wp_version;")"
+  TARGET_DB="$(php -r "include '${PREVIEW}/wp-includes/version.php'; echo \$wp_db_version;")"
+  echo "preview_version=${TARGET_VER}"
+  echo "preview_db_version=${TARGET_DB}"
+
+  if [[ "$CURRENT" == "$TARGET_VER" && "$probe_only" != "true" ]]; then
+    echo "Already on ${TARGET_VER}, nothing to update."
+    return 0
+  fi
+
+  write_preview_config
+  write_probe_php
+
+  echo "CLI boot (plugins + themes)..."
+  if ! wp --path="$PREVIEW" eval 'echo "booted=" . $GLOBALS["wp_version"] . " theme=" . get_template() . " plugins=" . count((array) get_option("active_plugins")) . "\n";'; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Preview core failed to boot with live plugins/themes."
+    exit 1
+  fi
+
+  echo "CLI render / ..."
+  if ! wp --path="$PREVIEW" eval-file "${PREVIEW}/probe-render.php" /; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Preview core fatals rendering /"
+    exit 1
+  fi
+
+  ABOUT_PATH="$(wp post list --post_type=page --post_status=publish --field=url --posts_per_page=1 --skip-plugins --skip-themes 2>/dev/null | head -1)"
+  if [[ -n "$ABOUT_PATH" ]]; then
+    ABOUT_PATH="${ABOUT_PATH#http://}"
+    ABOUT_PATH="${ABOUT_PATH#https://}"
+    ABOUT_PATH="/${ABOUT_PATH#*/}"
+    [[ "$ABOUT_PATH" == "//"* ]] && ABOUT_PATH="/"
+    echo "CLI render ${ABOUT_PATH} ..."
+    if ! wp --path="$PREVIEW" eval-file "${PREVIEW}/probe-render.php" "$ABOUT_PATH"; then
+      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Preview core fatals rendering ${ABOUT_PATH}"
+      exit 1
+    fi
+  fi
+
+  echo "HTTP loopback live / ..."
+  LIVE_HTTP="$(http_loopback /)"
+  echo "live_http=${LIVE_HTTP}"
+
+  write_http_bootstrap
+  echo "HTTP loopback preview / ..."
+  PREVIEW_HTTP="$(http_loopback "/${BOOT_FILE}?path=/" -H "X-Core-Preview: ${BOOT_TOKEN}")"
+  PREVIEW_HDR="$(curl -ksS --max-time 30 -D - -o /dev/null -H "Host: ${SITE_HOST}" -H "X-Core-Preview: ${BOOT_TOKEN}" "https://localhost/${BOOT_FILE}?path=/")"
+  PREVIEW_BOOT_VER="$(echo "$PREVIEW_HDR" | awk -F': ' 'tolower($1)=="x-core-preview-version" {gsub("\r","",$2); print $2}')"
+  echo "preview_http=${PREVIEW_HTTP}"
+  echo "preview_http_version=${PREVIEW_BOOT_VER}"
+  if grep -qiE 'Fatal error|Parse error|Uncaught ' /tmp/cc-core-preview-body; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Preview HTTP response contains a PHP fatal."
+    exit 1
+  fi
+  if [[ "$PREVIEW_HTTP" != "200" && "$PREVIEW_HTTP" != "301" && "$PREVIEW_HTTP" != "302" ]]; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Preview HTTP ${PREVIEW_HTTP} (expected 200)."
+    exit 1
+  fi
+  if [[ -n "$PREVIEW_BOOT_VER" && "$PREVIEW_BOOT_VER" != "$TARGET_VER" ]]; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} HTTP booted ${PREVIEW_BOOT_VER}, expected ${TARGET_VER}."
+    exit 1
+  fi
+
+  DB_AFTER="$(wp option get db_version --skip-plugins --skip-themes)"
+  if [[ "$DB_AFTER" != "$DB_BEFORE" ]]; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Probe mutated db_version (${DB_BEFORE} -> ${DB_AFTER})."
+    exit 1
+  fi
+  echo "probe=ok"
+
+  SHOULD_APPLY="false"
+  if [[ "$probe_only" == "true" ]]; then
+    SHOULD_APPLY="false"
+  elif [[ "$apply" == "true" ]]; then
+    SHOULD_APPLY="true"
+  elif ! is_prerelease "$version" && ! is_prerelease "$TARGET_VER"; then
+    SHOULD_APPLY="true"
+  fi
+
+  if [[ "$SHOULD_APPLY" != "true" ]]; then
+    echo "apply=skipped (pass --apply to update live core to ${TARGET_VER})"
+    return 0
+  fi
+
+  echo "Backing up live core ${CURRENT}..."
+  backup_live_core
+
+  echo "Updating live core to ${TARGET_VER}..."
+  if ! wp core update --skip-plugins --skip-themes --force --version="$version"; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} wp core update failed; restoring previous core."
+    restore_live_core
+    exit 1
+  fi
+
+  wp core update-db --skip-plugins --skip-themes
+  if wp core is-installed --network --skip-plugins --skip-themes >/dev/null 2>&1; then
+    wp core update-db --network --skip-plugins --skip-themes
+  fi
+  wp cache flush --skip-plugins --skip-themes >/dev/null 2>&1 || true
+  wp kinsta cache purge --skip-plugins --skip-themes --all >/dev/null 2>&1 || true
+
+  echo "HTTP loopback after update..."
+  POST_HTTP="$(http_loopback /)"
+  POST_VER="$(wp core version --skip-plugins --skip-themes)"
+  echo "post_http=${POST_HTTP}"
+  echo "post_version=${POST_VER}"
+  if [[ "$POST_HTTP" != "200" && "$POST_HTTP" != "301" && "$POST_HTTP" != "302" ]]; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Live site HTTP ${POST_HTTP} after update; restoring previous core."
+    restore_live_core
+    wp cache flush --skip-plugins --skip-themes >/dev/null 2>&1 || true
+    RESTORED_HTTP="$(http_loopback /)"
+    echo "restored_http=${RESTORED_HTTP}"
+    exit 1
+  fi
+  echo "apply=ok"
+}
+
+run_command
