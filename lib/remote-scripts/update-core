@@ -63,20 +63,85 @@ BOOT_FILE=""
 BOOT_TOKEN=""
 version="${version:-latest}"
 
+die() {
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} $*" >&2
+  exit 1
+}
+
 is_prerelease() {
   local v="$1"
   [[ "$v" == "nightly" || "$v" == *alpha* || "$v" == *beta* || "$v" == *RC* || "$v" == *rc* ]]
 }
 
+# Refuse empty/root/HOME paths and anything outside $HOME/tmp/<exact-name>.
+is_our_tmp_dir() {
+  local path="$1"
+  local expected_name="$2"
+  [[ -n "$path" && -n "$expected_name" && -n "$HOME" && "$HOME" != "/" ]] || return 1
+  [[ "$path" != *..* ]] || return 1
+  [[ "$path" == "${HOME}/tmp/${expected_name}" ]] || return 1
+  [[ "$path" != "/" && "$path" != "$HOME" && "$path" != "$LIVE" ]] || return 1
+}
+
+is_wordpress_root() {
+  local dir="$1"
+  [[ -n "$dir" && "$dir" != "/" && "$dir" == /* ]] || return 1
+  [[ -f "${dir}/wp-config.php" && -d "${dir}/wp-admin" && -d "${dir}/wp-includes" && -d "${dir}/wp-content" ]]
+}
+
+# rm -rf only for the two tmp dirs this script creates.
+safe_rm_tree() {
+  local path="$1"
+  local expected_name="$2"
+  if ! is_our_tmp_dir "$path" "$expected_name"; then
+    die "Refusing to remove unexpected path: ${path:-<empty>}"
+  fi
+  if [[ -e "$path" || -L "$path" ]]; then
+    if [[ -L "$path" || ! -d "$path" ]]; then
+      die "Refusing to remove non-directory: $path"
+    fi
+    rm -rf -- "$path"
+  fi
+}
+
+safe_rm_file() {
+  local path="$1"
+  local expected_name="$2"
+  [[ -n "$path" && -n "$expected_name" ]] || return 0
+  [[ "$(basename "$path")" == "$expected_name" ]] || die "Refusing to remove unexpected file: $path"
+  if [[ -e "$path" || -L "$path" ]]; then
+    if [[ -L "$path" || ! -f "$path" ]]; then
+      die "Refusing to remove non-file: $path"
+    fi
+    rm -f -- "$path"
+  fi
+}
+
+safe_rm_boot_file() {
+  local dir="$1"
+  local name="$2"
+  [[ -n "$dir" && -n "$name" ]] || return 0
+  [[ "$name" =~ ^core-preview-boot-[0-9a-f]+\.php$ ]] || die "Refusing to remove unexpected boot file: $name"
+  is_wordpress_root "$dir" || die "Refusing to remove boot file outside a WordPress root: $dir"
+  local path="${dir}/${name}"
+  if [[ -e "$path" || -L "$path" ]]; then
+    if [[ -L "$path" || ! -f "$path" ]]; then
+      die "Refusing to remove non-file boot path: $path"
+    fi
+    if ! grep -q 'X-Core-Preview-Boot' "$path"; then
+      die "Boot file missing preview marker, not removing: $path"
+    fi
+    rm -f -- "$path"
+  fi
+}
+
 cleanup() {
-  if [[ -n "$BOOT_FILE" && -f "$LIVE/$BOOT_FILE" ]]; then
-    rm -f "$LIVE/$BOOT_FILE"
-  fi
+  safe_rm_boot_file "$LIVE" "$BOOT_FILE"
   if [[ "$keep" != "true" ]]; then
-    rm -rf "$PREVIEW"
-    rm -rf "$PREVIOUS"
+    safe_rm_tree "$PREVIEW" "captaincore-core-preview"
+    safe_rm_tree "$PREVIOUS" "captaincore-core-previous"
   fi
-  rm -f "$BODY_FILE"
+  safe_rm_file "$BODY_FILE" "cc-core-preview-body"
 }
 trap cleanup EXIT
 
@@ -144,11 +209,11 @@ if ( file_put_contents( $preview_config, $body ) === false ) {
 }
 PHP
   if ! php "$writer" "$live_config" "$preview_config" "$LIVE" "$content_url"; then
-    rm -f "$writer"
+    safe_rm_file "$writer" "write-preview-config.php"
     echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Failed to write preview wp-config.php"
     exit 1
   fi
-  rm -f "$writer"
+  safe_rm_file "$writer" "write-preview-config.php"
   chmod 644 "$preview_config" "${preview_config}.live.php"
 }
 
@@ -239,7 +304,8 @@ PHP
 }
 
 backup_live_core() {
-  rm -rf "$PREVIOUS"
+  is_wordpress_root "$LIVE" || die "Cannot backup core; ${LIVE} is not a WordPress root."
+  safe_rm_tree "$PREVIOUS" "captaincore-core-previous"
   mkdir -p "$PREVIOUS"
   cp -a "${LIVE}/wp-admin" "${LIVE}/wp-includes" "$PREVIOUS/"
   shopt -s nullglob
@@ -248,24 +314,60 @@ backup_live_core() {
     cp -a "$f" "$PREVIOUS/"
   done
   shopt -u nullglob
+  if [[ ! -f "${PREVIOUS}/wp-includes/version.php" || ! -d "${PREVIOUS}/wp-admin" ]]; then
+    die "Core backup at ${PREVIOUS} is incomplete."
+  fi
 }
 
+# Move live core dirs aside, copy the backup in, then delete the aside copy.
+# If the copy fails, move the original back so we never rm live core first.
 restore_live_core() {
   echo "Restoring previous core files..."
-  rm -rf "${LIVE}/wp-admin" "${LIVE}/wp-includes"
-  cp -a "${PREVIOUS}/wp-admin" "${PREVIOUS}/wp-includes" "${LIVE}/"
+  is_wordpress_root "$LIVE" || die "Cannot restore core; ${LIVE} is not a WordPress root."
+  is_our_tmp_dir "$PREVIOUS" "captaincore-core-previous" || die "Refusing restore from unexpected path: ${PREVIOUS:-<empty>}"
+  if [[ ! -f "${PREVIOUS}/wp-includes/version.php" || ! -d "${PREVIOUS}/wp-admin" || ! -d "${PREVIOUS}/wp-includes" ]]; then
+    die "Previous core backup is incomplete; refusing restore."
+  fi
+
+  local stamp old name
+  stamp="cc-restore-$$"
+  for name in wp-admin wp-includes; do
+    [[ "$name" == "wp-admin" || "$name" == "wp-includes" ]] || die "Refusing restore of unexpected directory: $name"
+    [[ -d "${LIVE}/${name}" && ! -L "${LIVE}/${name}" ]] || die "Live ${name} is not a directory."
+    [[ -d "${PREVIOUS}/${name}" && ! -L "${PREVIOUS}/${name}" ]] || die "Backup ${name} is not a directory."
+    old="${LIVE}/${name}.${stamp}"
+    [[ ! -e "$old" ]] || die "Stale restore directory exists: $old"
+    mv -- "${LIVE}/${name}" "$old" || die "Failed to move live ${name} aside."
+    if ! cp -a -- "${PREVIOUS}/${name}" "${LIVE}/${name}"; then
+      if [[ -e "${LIVE}/${name}" && ( "${LIVE}/${name}" == "${LIVE}/wp-admin" || "${LIVE}/${name}" == "${LIVE}/wp-includes" ) ]]; then
+        rm -rf -- "${LIVE}/${name}"
+      fi
+      mv -- "$old" "${LIVE}/${name}"
+      die "Failed to restore ${name}; original moved back."
+    fi
+    [[ -d "$old" && ! -L "$old" && "$old" == "${LIVE}/${name}.${stamp}" ]] || die "Refusing to remove unexpected aside path: $old"
+    rm -rf -- "$old"
+  done
+
   shopt -s nullglob
   for f in "${PREVIOUS}/wp-"*.php "${PREVIOUS}/index.php" "${PREVIOUS}/xmlrpc.php"; do
+    [[ "$(basename "$f")" == "wp-config.php" ]] && continue
+    [[ -f "$f" ]] || continue
     cp -a "$f" "${LIVE}/"
   done
   shopt -u nullglob
 }
 
 run_command() {
-  if [[ ! -f "${LIVE}/wp-config.php" ]]; then
-    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} wp-config.php not found in ${LIVE}"
+  if ! is_wordpress_root "$LIVE"; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} ${LIVE} is not a WordPress root (need wp-config.php, wp-admin, wp-includes, wp-content)."
     exit 1
   fi
+  if [[ -z "$HOME" || "$HOME" == "/" ]]; then
+    die "HOME is unset or unsafe; refusing to continue."
+  fi
+  is_our_tmp_dir "$PREVIEW" "captaincore-core-preview" || die "Internal path mismatch for PREVIEW."
+  is_our_tmp_dir "$PREVIOUS" "captaincore-core-previous" || die "Internal path mismatch for PREVIOUS."
 
   SITE_HOME="$(wp option get home --skip-plugins --skip-themes)"
   SITE_HOST="${SITE_HOME#http://}"
@@ -280,7 +382,7 @@ run_command() {
   echo "target=${version}"
 
   mkdir -p "$(dirname "$PREVIEW")"
-  rm -rf "$PREVIEW"
+  safe_rm_tree "$PREVIEW" "captaincore-core-preview"
   echo "Downloading WordPress ${version} into preview..."
   if ! wp core download --path="$PREVIEW" --version="$version" --skip-content --force; then
     echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Failed to download WordPress ${version}"
