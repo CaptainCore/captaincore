@@ -63,7 +63,46 @@ BOOT_FILE=""
 BOOT_TOKEN=""
 version="${version:-latest}"
 
+RESULT_STATUS=""
+RESULT_ACTION=""
+RESULT_STAGE=""
+RESULT_REASON=""
+RESULT_FROM=""
+RESULT_TO=""
+RESULT_URL=""
+RESULT_EMITTED=""
+
+emit_result() {
+  [[ -n "$RESULT_EMITTED" ]] && return
+  RESULT_EMITTED=1
+  local status="${RESULT_STATUS:-ok}"
+  printf "result=%s" "$status"
+  [[ -n "$RESULT_ACTION" ]] && printf " action=%s" "$RESULT_ACTION"
+  [[ -n "$RESULT_STAGE" ]] && printf " stage=%s" "$RESULT_STAGE"
+  [[ -n "$RESULT_FROM" ]] && printf " from=%s" "$RESULT_FROM"
+  [[ -n "$RESULT_TO" ]] && printf " to=%s" "$RESULT_TO"
+  [[ -n "$RESULT_URL" ]] && printf " url=%s" "$RESULT_URL"
+  if [[ -n "$RESULT_REASON" ]]; then
+    printf " reason=%s" "$(printf '%s' "$RESULT_REASON" | tr '\n' ' ' | sed 's/[[:space:]]\{1,\}/ /g')"
+  fi
+  printf "\n"
+}
+
+fail_run() {
+  RESULT_STATUS="fail"
+  RESULT_STAGE="$1"
+  shift
+  RESULT_REASON="$*"
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} $*" >&2
+  exit 1
+}
+
 die() {
+  if [[ -z "$RESULT_STATUS" ]]; then
+    RESULT_STATUS="fail"
+    RESULT_STAGE="safety"
+    RESULT_REASON="$*"
+  fi
   echo -e "${COLOR_RED}Error:${COLOR_NORMAL} $*" >&2
   exit 1
 }
@@ -136,6 +175,7 @@ safe_rm_boot_file() {
 }
 
 cleanup() {
+  emit_result
   safe_rm_boot_file "$LIVE" "$BOOT_FILE"
   if [[ "$keep" != "true" ]]; then
     safe_rm_tree "$PREVIEW" "captaincore-core-preview"
@@ -210,8 +250,7 @@ if ( file_put_contents( $preview_config, $body ) === false ) {
 PHP
   if ! php "$writer" "$live_config" "$preview_config" "$LIVE" "$content_url"; then
     safe_rm_file "$writer" "write-preview-config.php"
-    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Failed to write preview wp-config.php"
-    exit 1
+    fail_run config "Failed to write preview wp-config.php"
   fi
   safe_rm_file "$writer" "write-preview-config.php"
   chmod 644 "$preview_config" "${preview_config}.live.php"
@@ -360,8 +399,7 @@ restore_live_core() {
 
 run_command() {
   if ! is_wordpress_root "$LIVE"; then
-    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} ${LIVE} is not a WordPress root (need wp-config.php, wp-admin, wp-includes, wp-content)."
-    exit 1
+    fail_run root "${LIVE} is not a WordPress root (need wp-config.php, wp-admin, wp-includes, wp-content)."
   fi
   if [[ -z "$HOME" || "$HOME" == "/" ]]; then
     die "HOME is unset or unsafe; refusing to continue."
@@ -375,6 +413,8 @@ run_command() {
   SITE_HOST="${SITE_HOST%%/*}"
   CURRENT="$(wp core version --skip-plugins --skip-themes)"
   DB_BEFORE="$(wp option get db_version --skip-plugins --skip-themes)"
+  RESULT_URL="$SITE_HOME"
+  RESULT_FROM="$CURRENT"
 
   echo "site=${SITE_HOME}"
   echo "live_version=${CURRENT}"
@@ -385,16 +425,19 @@ run_command() {
   safe_rm_tree "$PREVIEW" "captaincore-core-preview"
   echo "Downloading WordPress ${version} into preview..."
   if ! wp core download --path="$PREVIEW" --version="$version" --skip-content --force; then
-    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Failed to download WordPress ${version}"
-    exit 1
+    fail_run download "Failed to download WordPress ${version}"
   fi
 
   TARGET_VER="$(php -r "include '${PREVIEW}/wp-includes/version.php'; echo \$wp_version;")"
   TARGET_DB="$(php -r "include '${PREVIEW}/wp-includes/version.php'; echo \$wp_db_version;")"
+  RESULT_TO="$TARGET_VER"
   echo "preview_version=${TARGET_VER}"
   echo "preview_db_version=${TARGET_DB}"
 
   if [[ "$CURRENT" == "$TARGET_VER" && "$probe_only" != "true" ]]; then
+    RESULT_STATUS="ok"
+    RESULT_ACTION="skip"
+    RESULT_REASON="already-current"
     echo "Already on ${TARGET_VER}, nothing to update."
     return 0
   fi
@@ -404,14 +447,12 @@ run_command() {
 
   echo "CLI boot (plugins + themes)..."
   if ! wp --path="$PREVIEW" eval 'echo "booted=" . $GLOBALS["wp_version"] . " theme=" . get_template() . " plugins=" . count((array) get_option("active_plugins")) . "\n";'; then
-    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Preview core failed to boot with live plugins/themes."
-    exit 1
+    fail_run boot "Preview core failed to boot with live plugins/themes."
   fi
 
   echo "CLI render / ..."
   if ! wp --path="$PREVIEW" eval-file "${PREVIEW}/probe-render.php" /; then
-    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Preview core fatals rendering /"
-    exit 1
+    fail_run render "Preview core fatals rendering /"
   fi
 
   ABOUT_PATH="$(wp post list --post_type=page --post_status=publish --field=url --posts_per_page=1 --skip-plugins --skip-themes 2>/dev/null | head -1)"
@@ -422,8 +463,7 @@ run_command() {
     [[ "$ABOUT_PATH" == "//"* ]] && ABOUT_PATH="/"
     echo "CLI render ${ABOUT_PATH} ..."
     if ! wp --path="$PREVIEW" eval-file "${PREVIEW}/probe-render.php" "$ABOUT_PATH"; then
-      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Preview core fatals rendering ${ABOUT_PATH}"
-      exit 1
+      fail_run render "Preview core fatals rendering ${ABOUT_PATH}"
     fi
   fi
 
@@ -439,22 +479,18 @@ run_command() {
   echo "preview_http=${PREVIEW_HTTP}"
   echo "preview_http_version=${PREVIEW_BOOT_VER}"
   if grep -qiE 'Fatal error|Parse error|Uncaught ' "$BODY_FILE"; then
-    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Preview HTTP response contains a PHP fatal."
-    exit 1
+    fail_run http "Preview HTTP response contains a PHP fatal."
   fi
   if [[ "$PREVIEW_HTTP" != "200" && "$PREVIEW_HTTP" != "301" && "$PREVIEW_HTTP" != "302" ]]; then
-    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Preview HTTP ${PREVIEW_HTTP} (expected 200)."
-    exit 1
+    fail_run http "Preview HTTP ${PREVIEW_HTTP} (expected 200)."
   fi
   if [[ -n "$PREVIEW_BOOT_VER" && "$PREVIEW_BOOT_VER" != "$TARGET_VER" ]]; then
-    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} HTTP booted ${PREVIEW_BOOT_VER}, expected ${TARGET_VER}."
-    exit 1
+    fail_run http "HTTP booted ${PREVIEW_BOOT_VER}, expected ${TARGET_VER}."
   fi
 
   DB_AFTER="$(wp option get db_version --skip-plugins --skip-themes)"
   if [[ "$DB_AFTER" != "$DB_BEFORE" ]]; then
-    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Probe mutated db_version (${DB_BEFORE} -> ${DB_AFTER})."
-    exit 1
+    fail_run db "Probe mutated db_version (${DB_BEFORE} -> ${DB_AFTER})."
   fi
   echo "probe=ok"
 
@@ -468,6 +504,13 @@ run_command() {
   fi
 
   if [[ "$SHOULD_APPLY" != "true" ]]; then
+    RESULT_STATUS="ok"
+    RESULT_ACTION="skip"
+    if [[ "$probe_only" == "true" ]]; then
+      RESULT_REASON="probe-only"
+    else
+      RESULT_REASON="prerelease"
+    fi
     echo "apply=skipped (pass --apply to update live core to ${TARGET_VER})"
     return 0
   fi
@@ -477,9 +520,8 @@ run_command() {
 
   echo "Updating live core to ${TARGET_VER}..."
   if ! wp core update --skip-plugins --skip-themes --force --version="$version"; then
-    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} wp core update failed; restoring previous core."
     restore_live_core
-    exit 1
+    fail_run apply "wp core update failed; restoring previous core."
   fi
 
   wp core update-db --skip-plugins --skip-themes
@@ -497,14 +539,16 @@ run_command() {
   echo "post_http=${POST_HTTP}"
   echo "post_version=${POST_VER}"
   if [[ "$POST_HTTP" != "200" && "$POST_HTTP" != "301" && "$POST_HTTP" != "302" ]]; then
-    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Live site HTTP ${POST_HTTP} after update; restoring previous core."
     restore_live_core
     wp cache flush --skip-themes >/dev/null 2>&1 || true
     wp cdn purge >/dev/null 2>&1 || true
     RESTORED_HTTP="$(http_loopback /)"
     echo "restored_http=${RESTORED_HTTP}"
-    exit 1
+    fail_run apply "Live site HTTP ${POST_HTTP} after update; previous core restored."
   fi
+  RESULT_STATUS="ok"
+  RESULT_ACTION="apply"
+  RESULT_TO="$POST_VER"
   echo "apply=ok"
 }
 

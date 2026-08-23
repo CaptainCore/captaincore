@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -59,7 +60,12 @@ func runBulk(cfg BulkConfig) error {
 		parallel = 10
 	}
 
+	summarizeCore := cfg.Command == "ssh" && bulkScriptName(cfg.Flags) == "update-core"
+	started := time.Now()
 	fmt.Printf("Running '%s' on %d sites (parallel: %d)...\n", cfg.Command, len(sites), parallel)
+	if summarizeCore {
+		fmt.Println("Core update mode: one line per site, email summary of failures at the end.")
+	}
 
 	// Set up progress tracking
 	home, _ := os.UserHomeDir()
@@ -104,6 +110,8 @@ func runBulk(cfg BulkConfig) error {
 	var wg sync.WaitGroup
 	var outputMu sync.Mutex
 	var logMu sync.Mutex
+	var resultsMu sync.Mutex
+	results := make([]bulkSiteResult, 0, len(sites))
 
 	for _, site := range sites {
 		sem <- struct{}{}
@@ -122,7 +130,11 @@ func runBulk(cfg BulkConfig) error {
 			cmd := exec.Command(binPath, args...)
 			cmd.Env = append(os.Environ(), "CC_BULK_RUNNING=true")
 
-			if cfg.Label {
+			var output string
+			if summarizeCore {
+				raw, _ := cmd.CombinedOutput()
+				output = string(raw)
+			} else if cfg.Label {
 				runLabeledSite(cmd, s, &outputMu)
 			} else {
 				cmd.Stdout = os.Stdout
@@ -142,10 +154,37 @@ func runBulk(cfg BulkConfig) error {
 				f.Close()
 			}
 			logMu.Unlock()
+
+			if summarizeCore {
+				res := parseUpdateCoreOutput(s, exitCode, output)
+				resultsMu.Lock()
+				results = append(results, res)
+				resultsMu.Unlock()
+				outputMu.Lock()
+				fmt.Print(formatCoreUpdateLine(res))
+				if res.Result == "fail" && strings.TrimSpace(output) != "" {
+					fmt.Print(output)
+					if !strings.HasSuffix(output, "\n") {
+						fmt.Print("\n")
+					}
+				}
+				outputMu.Unlock()
+			}
 		}(site)
 	}
 
 	wg.Wait()
+
+	if summarizeCore {
+		sort.Slice(results, func(i, j int) bool { return results[i].Site < results[j].Site })
+		printCoreUpdateSummary(results, time.Since(started), len(sites), parallel)
+		emailCoreUpdateSummary(cfg, results, time.Since(started), parallel)
+		for _, res := range results {
+			if res.Result == "fail" {
+				return fmt.Errorf("core update finished with failures")
+			}
+		}
+	}
 	return nil
 }
 
@@ -371,4 +410,286 @@ func collectBulkFlags() []string {
 		flags = append(flags, "--filter-status="+flagFilterStatus)
 	}
 	return flags
+}
+
+type bulkSiteResult struct {
+	Site     string
+	URL      string
+	Result   string
+	Action   string
+	Stage    string
+	From     string
+	To       string
+	Reason   string
+	ExitCode int
+	Excerpt  string
+}
+
+func bulkScriptName(flags []string) string {
+	for _, f := range flags {
+		if strings.HasPrefix(f, "--script=") {
+			return filepath.Base(strings.TrimPrefix(f, "--script="))
+		}
+	}
+	return ""
+}
+
+func parseResultFields(line string) map[string]string {
+	out := map[string]string{}
+	rest := strings.TrimSpace(line)
+	for rest != "" {
+		eq := strings.IndexByte(rest, '=')
+		if eq <= 0 {
+			break
+		}
+		key := rest[:eq]
+		rest = rest[eq+1:]
+		if key == "reason" {
+			out[key] = rest
+			break
+		}
+		sp := strings.IndexByte(rest, ' ')
+		if sp < 0 {
+			out[key] = rest
+			break
+		}
+		out[key] = rest[:sp]
+		rest = strings.TrimSpace(rest[sp+1:])
+	}
+	return out
+}
+
+func failureExcerpt(output string) string {
+	var hits []string
+	for _, line := range strings.Split(output, "\n") {
+		trim := strings.TrimSpace(line)
+		if trim == "" {
+			continue
+		}
+		if strings.Contains(trim, "Fatal error") || strings.Contains(trim, "TypeError") || strings.Contains(trim, "Parse error") || strings.HasPrefix(trim, "Error:") {
+			hits = append(hits, trim)
+		}
+	}
+	if len(hits) > 6 {
+		hits = hits[:6]
+	}
+	if len(hits) > 0 {
+		joined := strings.Join(hits, " | ")
+		if len(joined) > 500 {
+			return joined[:500] + "…"
+		}
+		return joined
+	}
+	var last []string
+	for _, line := range strings.Split(output, "\n") {
+		trim := strings.TrimSpace(line)
+		if trim != "" {
+			last = append(last, trim)
+		}
+	}
+	if len(last) > 4 {
+		last = last[len(last)-4:]
+	}
+	joined := strings.Join(last, " | ")
+	if len(joined) > 500 {
+		return joined[:500] + "…"
+	}
+	return joined
+}
+
+func parseUpdateCoreOutput(site string, exitCode int, output string) bulkSiteResult {
+	res := bulkSiteResult{Site: site, ExitCode: exitCode, Result: "ok"}
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "site=") {
+			res.URL = strings.TrimPrefix(line, "site=")
+		}
+		if strings.HasPrefix(line, "result=") {
+			fields := parseResultFields(line)
+			if v := fields["result"]; v != "" {
+				res.Result = v
+			}
+			res.Action = fields["action"]
+			res.Stage = fields["stage"]
+			res.From = fields["from"]
+			res.To = fields["to"]
+			if v := fields["url"]; v != "" {
+				res.URL = v
+			}
+			res.Reason = fields["reason"]
+		}
+	}
+	if exitCode != 0 && res.Result != "fail" {
+		res.Result = "fail"
+		if res.Stage == "" {
+			res.Stage = "ssh"
+		}
+		if res.Reason == "" {
+			res.Reason = fmt.Sprintf("exit %d", exitCode)
+		}
+	}
+	if res.Result == "fail" {
+		res.Excerpt = failureExcerpt(output)
+		if res.Reason == "" {
+			res.Reason = res.Excerpt
+		}
+	}
+	return res
+}
+
+func formatCoreUpdateLine(res bulkSiteResult) string {
+	tag := "ok"
+	if res.Result == "fail" {
+		tag = "FAIL"
+	} else if res.Action == "skip" {
+		tag = "skip"
+	}
+	detail := res.Action
+	if res.From != "" || res.To != "" {
+		if res.From != "" && res.To != "" && res.From != res.To {
+			detail = strings.TrimSpace(detail + " " + res.From + "→" + res.To)
+		} else if res.To != "" {
+			detail = strings.TrimSpace(detail + " " + res.To)
+		}
+	}
+	if res.Result == "fail" {
+		if res.Stage != "" {
+			detail = res.Stage
+		}
+		if res.Reason != "" {
+			detail = strings.TrimSpace(detail + "  " + res.Reason)
+		}
+	} else if res.Action == "skip" && res.Reason != "" {
+		detail = res.Reason
+		if res.To != "" {
+			detail += " " + res.To
+		}
+	}
+	line := fmt.Sprintf("%-4s %-42s %s\n", tag, res.Site, strings.TrimSpace(detail))
+	if res.Result == "fail" {
+		return "\033[31m" + line + "\033[0m"
+	}
+	return line
+}
+
+func countCoreUpdateResults(results []bulkSiteResult) (updated, skipped, failed, probed int) {
+	for _, res := range results {
+		switch {
+		case res.Result == "fail":
+			failed++
+		case res.Action == "apply":
+			updated++
+		case res.Action == "skip":
+			skipped++
+			if res.Reason == "probe-only" {
+				probed++
+			}
+		}
+	}
+	return
+}
+
+func printCoreUpdateSummary(results []bulkSiteResult, elapsed time.Duration, total, parallel int) {
+	updated, skipped, failed, _ := countCoreUpdateResults(results)
+	fmt.Printf("\nCore update finished in %s (%d sites, parallel %d)\n", elapsed.Round(time.Second), total, parallel)
+	fmt.Printf("  updated: %d\n", updated)
+	fmt.Printf("  skipped: %d\n", skipped)
+	fmt.Printf("  failed:  %d\n", failed)
+	if failed == 0 {
+		return
+	}
+	fmt.Printf("\nFailures:\n")
+	for _, res := range results {
+		if res.Result != "fail" {
+			continue
+		}
+		why := res.Reason
+		if why == "" {
+			why = res.Excerpt
+		}
+		fmt.Printf("  %-42s %-8s %s %s\n", res.Site, res.Stage, res.URL, why)
+	}
+}
+
+func emailCoreUpdateSummary(cfg BulkConfig, results []bulkSiteResult, elapsed time.Duration, parallel int) {
+	prevCaptain := captainID
+	if cfg.CaptainID != "" {
+		captainID = cfg.CaptainID
+	}
+	defer func() { captainID = prevCaptain }()
+
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || captain == nil {
+		fmt.Fprintf(os.Stderr, "Core update email skipped: could not load config.\n")
+		return
+	}
+	adminEmail := getVarString(captain, "captaincore_admin_email")
+	if adminEmail == "" {
+		fmt.Fprintf(os.Stderr, "Core update email skipped: captaincore_admin_email is not set.\n")
+		return
+	}
+
+	updated, skipped, failed, _ := countCoreUpdateResults(results)
+	subject := fmt.Sprintf("Core update: %d updated, %d skipped, %d failed", updated, skipped, failed)
+	if failed == 0 {
+		subject = fmt.Sprintf("Core update: %d updated, %d skipped, 0 failed", updated, skipped)
+	}
+
+	var b strings.Builder
+	b.WriteString("<div style=\"text-align:left\">")
+	b.WriteString(fmt.Sprintf("<p><strong>WordPress core update finished</strong> in %s.</p>", html.EscapeString(elapsed.Round(time.Second).String())))
+	b.WriteString("<ul>")
+	b.WriteString(fmt.Sprintf("<li>Sites: %d (parallel %d)</li>", len(results), parallel))
+	b.WriteString(fmt.Sprintf("<li>Updated: %d</li>", updated))
+	b.WriteString(fmt.Sprintf("<li>Skipped: %d</li>", skipped))
+	b.WriteString(fmt.Sprintf("<li>Failed: %d</li>", failed))
+	if len(cfg.Flags) > 0 {
+		b.WriteString(fmt.Sprintf("<li>Flags: %s</li>", html.EscapeString(strings.Join(cfg.Flags, " "))))
+	}
+	b.WriteString("</ul>")
+
+	if failed > 0 {
+		b.WriteString("<p><strong>Failures</strong></p><table cellpadding=\"6\" cellspacing=\"0\" border=\"1\" style=\"border-collapse:collapse;text-align:left\">")
+		b.WriteString("<tr><th>Site</th><th>URL</th><th>Stage</th><th>Reason</th></tr>")
+		const maxRows = 150
+		n := 0
+		for _, res := range results {
+			if res.Result != "fail" {
+				continue
+			}
+			n++
+			if n > maxRows {
+				continue
+			}
+			why := res.Reason
+			if res.Excerpt != "" && res.Excerpt != res.Reason {
+				why = res.Reason + " — " + res.Excerpt
+			}
+			b.WriteString("<tr>")
+			b.WriteString("<td>" + html.EscapeString(res.Site) + "</td>")
+			b.WriteString("<td>" + html.EscapeString(res.URL) + "</td>")
+			b.WriteString("<td>" + html.EscapeString(res.Stage) + "</td>")
+			b.WriteString("<td>" + html.EscapeString(why) + "</td>")
+			b.WriteString("</tr>")
+		}
+		b.WriteString("</table>")
+		if failed > maxRows {
+			b.WriteString(fmt.Sprintf("<p>Showing the first %d of %d failures.</p>", maxRows, failed))
+		}
+	}
+	b.WriteString("</div>")
+
+	contentJSON, _ := json.Marshal(b.String())
+	client := newAPIClient(system, captain)
+	if _, err := client.Post("monitor-notify", map[string]interface{}{
+		"data": map[string]interface{}{
+			"email":   adminEmail,
+			"subject": subject,
+			"content": json.RawMessage(contentJSON),
+		},
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "Core update email failed: %v\n", err)
+		return
+	}
+	fmt.Printf("Summary emailed to %s\n", adminEmail)
 }

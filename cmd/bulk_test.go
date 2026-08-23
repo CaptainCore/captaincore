@@ -108,6 +108,62 @@ func TestBulkRecursionGuardInProcess(t *testing.T) {
 	}
 }
 
+func TestParseUpdateCoreOutput(t *testing.T) {
+	out := `site=https://example.com
+live_version=7.0.4
+CLI boot (plugins + themes)...
+PHP Fatal error:  Uncaught TypeError: substr(): Argument #1 ($string) must be of type string, int given in /wp-content/plugins/wp-rocket/inc/ThirdParty/Plugins/CDN/Cloudflare.php:562
+Error: Preview core failed to boot with live plugins/themes.
+result=fail stage=boot from=7.0.4 to=7.1 url=https://example.com reason=Preview core failed to boot with live plugins/themes.
+`
+	res := parseUpdateCoreOutput("example-production", 1, out)
+	if res.Result != "fail" {
+		t.Fatalf("result=%q want fail", res.Result)
+	}
+	if res.Stage != "boot" {
+		t.Errorf("stage=%q want boot", res.Stage)
+	}
+	if res.URL != "https://example.com" {
+		t.Errorf("url=%q", res.URL)
+	}
+	if res.From != "7.0.4" || res.To != "7.1" {
+		t.Errorf("from=%q to=%q", res.From, res.To)
+	}
+	if !strings.Contains(res.Reason, "Preview core failed") {
+		t.Errorf("reason=%q", res.Reason)
+	}
+	if !strings.Contains(res.Excerpt, "TypeError") {
+		t.Errorf("excerpt missing TypeError: %q", res.Excerpt)
+	}
+
+	ok := parseUpdateCoreOutput("ok-production", 0, "result=ok action=apply from=7.0.4 to=7.1 url=https://ok.example\n")
+	if ok.Result != "ok" || ok.Action != "apply" || ok.From != "7.0.4" || ok.To != "7.1" {
+		t.Errorf("unexpected ok parse: %+v", ok)
+	}
+
+	skip := parseUpdateCoreOutput("skip-production", 0, "result=ok action=skip from=7.1 to=7.1 reason=already-current\n")
+	if skip.Action != "skip" || skip.Reason != "already-current" {
+		t.Errorf("unexpected skip parse: %+v", skip)
+	}
+
+	sshFail := parseUpdateCoreOutput("down-production", 255, "ssh: connect to host timed out\n")
+	if sshFail.Result != "fail" || sshFail.Stage != "ssh" {
+		t.Errorf("unexpected ssh fail parse: %+v", sshFail)
+	}
+}
+
+func TestBulkScriptName(t *testing.T) {
+	if got := bulkScriptName([]string{"--script=update-core", "--apply"}); got != "update-core" {
+		t.Errorf("got %q", got)
+	}
+	if got := bulkScriptName([]string{"--script=/home/core/Scripts/update-core"}); got != "update-core" {
+		t.Errorf("got %q", got)
+	}
+	if got := bulkScriptName([]string{"--command=wp option get home"}); got != "" {
+		t.Errorf("got %q want empty", got)
+	}
+}
+
 // TestBulkRecursionGuardEnvVar verifies the env var guard prevents re-entry.
 func TestBulkRecursionGuardEnvVar(t *testing.T) {
 	os.Setenv("CC_BULK_RUNNING", "true")
@@ -207,8 +263,8 @@ func TestCollectBulkFlags(t *testing.T) {
 
 	wantFlags := map[string]bool{
 		"--command=wp option get home": false,
-		"--script=fetch-site-data":    false,
-		"--force":                     false,
+		"--script=fetch-site-data":     false,
+		"--force":                      false,
 	}
 
 	for _, f := range flags {
