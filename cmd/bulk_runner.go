@@ -649,8 +649,16 @@ func emailCoreUpdateSummary(cfg BulkConfig, results []bulkSiteResult, elapsed ti
 	b.WriteString("</ul>")
 
 	if failed > 0 {
-		b.WriteString("<p><strong>Failures</strong></p><table cellpadding=\"6\" cellspacing=\"0\" border=\"1\" style=\"border-collapse:collapse;text-align:left\">")
-		b.WriteString("<tr><th>Site</th><th>URL</th><th>Stage</th><th>Reason</th></tr>")
+		const cell = "padding:4px 6px;vertical-align:top;font-size:12px;line-height:1.35"
+		const head = cell + ";font-size:11px;font-weight:600;white-space:nowrap"
+		b.WriteString("<p><strong>Failures</strong></p>")
+		b.WriteString("<table cellpadding=\"0\" cellspacing=\"0\" border=\"1\" style=\"border-collapse:collapse;text-align:left;font-size:12px;line-height:1.35;width:100%\">")
+		b.WriteString("<tr>")
+		b.WriteString("<th style=\"" + head + "\">Site</th>")
+		b.WriteString("<th style=\"" + head + "\">URL</th>")
+		b.WriteString("<th style=\"" + head + "\">Stage</th>")
+		b.WriteString("<th style=\"" + head + "\">Reason</th>")
+		b.WriteString("</tr>")
 		const maxRows = 150
 		n := 0
 		for _, res := range results {
@@ -666,10 +674,10 @@ func emailCoreUpdateSummary(cfg BulkConfig, results []bulkSiteResult, elapsed ti
 				why = res.Reason + " — " + res.Excerpt
 			}
 			b.WriteString("<tr>")
-			b.WriteString("<td>" + html.EscapeString(res.Site) + "</td>")
-			b.WriteString("<td>" + html.EscapeString(res.URL) + "</td>")
-			b.WriteString("<td>" + html.EscapeString(res.Stage) + "</td>")
-			b.WriteString("<td>" + html.EscapeString(why) + "</td>")
+			b.WriteString("<td style=\"" + cell + "\">" + html.EscapeString(res.Site) + "</td>")
+			b.WriteString("<td style=\"" + cell + "\">" + html.EscapeString(res.URL) + "</td>")
+			b.WriteString("<td style=\"" + cell + "\">" + html.EscapeString(res.Stage) + "</td>")
+			b.WriteString("<td style=\"" + cell + ";word-break:break-word\">" + html.EscapeString(why) + "</td>")
 			b.WriteString("</tr>")
 		}
 		b.WriteString("</table>")
