@@ -261,29 +261,49 @@ http_loopback() {
 }
 
 write_preview_config() {
-  local live_config preview_config content_url
+  local live_config preview_config
   live_config="${LIVE}/wp-config.php"
   preview_config="${PREVIEW}/wp-config.php"
-  content_url="${SITE_HOME}/wp-content"
 
   local writer="${PREVIEW}/write-preview-config.php"
   cat > "$writer" << 'PHP'
 <?php
 $live_config    = $argv[1];
 $preview_config = $argv[2];
-$live_root      = $argv[3];
+$content_dir    = $argv[3];
 $content_url    = $argv[4];
+$table_prefix   = $argv[5];
 $src            = file_get_contents( $live_config );
 if ( $src === false ) {
 	fwrite( STDERR, "Unable to read live wp-config.php\n" );
 	exit( 1 );
 }
+// Strip every common wp-settings require so the preview core loads once.
 $src = preg_replace(
-	'/require(?:_once)?\s+ABSPATH\s*\.\s*[\'"]wp-settings\.php[\'"]\s*;/',
+	'/require(?:_once)?\s*\(?\s*(?:ABSPATH\s*\.\s*[\'"]wp-settings\.php[\'"]|dirname\s*\(\s*__FILE__\s*\)\s*\.\s*[\'"]\/wp-settings\.php[\'"]|__DIR__\s*\.\s*[\'"]\/wp-settings\.php[\'"])\s*\)?\s*;/',
 	'/* settings deferred by captaincore update-core */',
-	$src,
-	1
+	$src
 );
+// Freighter's bootstrap uses dirname(__FILE__) and ABSPATH-relative content dirs.
+// Those resolve inside the preview copy and either miss the bootstrap or point
+// content at preview/content/{id}. Skip it; prefix + content are injected below.
+$src = preg_replace(
+	'/^.*freighter\.php.*$/m',
+	'/* freighter bootstrap skipped by update-core */',
+	$src
+);
+if ( $table_prefix !== '' ) {
+	$replaced = preg_replace(
+		'/\$table_prefix\s*=\s*[\'"].*?[\'"]\s*;/',
+		'$table_prefix = ' . var_export( $table_prefix, true ) . ';',
+		$src,
+		1,
+		$count
+	);
+	if ( $count ) {
+		$src = $replaced;
+	}
+}
 // Preview must actually boot the new core, not serve a cached HTML page.
 $src = preg_replace(
 	'/^[ \t]*define\(\s*[\'"]WP_CACHE[\'"].+$/m',
@@ -294,21 +314,20 @@ if ( file_put_contents( $preview_config . '.live.php', $src ) === false ) {
 	fwrite( STDERR, "Unable to write preview wp-config.php.live.php\n" );
 	exit( 1 );
 }
-$content_dir = $live_root . '/wp-content';
-$body        = "<?php\n";
-$body       .= "define( 'WP_CONTENT_DIR', " . var_export( $content_dir, true ) . " );\n";
-$body       .= "define( 'WP_CONTENT_URL', " . var_export( $content_url, true ) . " );\n";
-$body       .= "define( 'WP_CACHE', false );\n";
-$body       .= "define( 'DONOTCACHEPAGE', true );\n";
-$body       .= "define( 'CORE_PREVIEW', true );\n";
-$body       .= "require __DIR__ . '/wp-config.php.live.php';\n";
-$body       .= "require ABSPATH . 'wp-settings.php';\n";
+$body  = "<?php\n";
+$body .= "define( 'WP_CONTENT_DIR', " . var_export( $content_dir, true ) . " );\n";
+$body .= "define( 'WP_CONTENT_URL', " . var_export( $content_url, true ) . " );\n";
+$body .= "define( 'WP_CACHE', false );\n";
+$body .= "define( 'DONOTCACHEPAGE', true );\n";
+$body .= "define( 'CORE_PREVIEW', true );\n";
+$body .= "require __DIR__ . '/wp-config.php.live.php';\n";
+$body .= "require_once ABSPATH . 'wp-settings.php';\n";
 if ( file_put_contents( $preview_config, $body ) === false ) {
 	fwrite( STDERR, "Unable to write preview wp-config.php\n" );
 	exit( 1 );
 }
 PHP
-  if ! php "$writer" "$live_config" "$preview_config" "$LIVE" "$content_url"; then
+  if ! php "$writer" "$live_config" "$preview_config" "$LIVE_CONTENT_DIR" "$LIVE_CONTENT_URL" "$LIVE_PREFIX"; then
     safe_rm_file "$writer" "write-preview-config.php"
     fail_run config "Failed to write preview wp-config.php"
   fi
@@ -475,10 +494,15 @@ run_command() {
   DB_BEFORE="$(wp option get db_version --skip-plugins --skip-themes)"
   RESULT_URL="$SITE_HOME"
   RESULT_FROM="$CURRENT"
+  LIVE_CONTENT_DIR="$(wp eval 'echo defined("WP_CONTENT_DIR") ? WP_CONTENT_DIR : ABSPATH . "wp-content";' --skip-plugins --skip-themes)"
+  LIVE_CONTENT_URL="$(wp eval 'echo defined("WP_CONTENT_URL") ? WP_CONTENT_URL : ( rtrim( home_url(), "/" ) . "/wp-content" );' --skip-plugins --skip-themes)"
+  LIVE_PREFIX="$(wp eval 'global $wpdb; echo $wpdb->prefix;' --skip-plugins --skip-themes)"
 
   echo "site=${SITE_HOME}"
   echo "live_version=${CURRENT}"
   echo "db_version=${DB_BEFORE}"
+  echo "content_dir=${LIVE_CONTENT_DIR}"
+  echo "table_prefix=${LIVE_PREFIX}"
 
   mkdir -p "$(dirname "$PREVIEW")"
   if [[ "$version" == "next" ]]; then
