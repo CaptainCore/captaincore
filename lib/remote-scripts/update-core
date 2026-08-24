@@ -12,8 +12,10 @@
 #
 #   `update-core`
 #
-#   [--version=<latest|nightly|x.y.z>]
+#   [--version=<latest|nightly|next|x.y.z>]
 #   Core build to sideload and (optionally) apply. Default: latest.
+#   next = RC if wordpress.org publishes one ahead of current stable,
+#   else beta, else nightly.
 #
 #   [--probe-only]
 #   Sideload and probe, but do not update live core files.
@@ -110,6 +112,64 @@ die() {
 is_prerelease() {
   local v="$1"
   [[ "$v" == "nightly" || "$v" == *alpha* || "$v" == *beta* || "$v" == *RC* || "$v" == *rc* ]]
+}
+
+wp_core_offers_json() {
+  local channel="$1"
+  local url="https://api.wordpress.org/core/version-check/1.7/"
+  [[ -n "$channel" ]] && url="${url}?channel=${channel}"
+  curl -fsS --max-time 20 -A "CaptainCore-update-core" "$url"
+}
+
+first_offer_version() {
+  local json="$1"
+  local helper="${HOME}/tmp/cc-first-offer.php"
+  mkdir -p "${HOME}/tmp"
+  cat > "$helper" << 'PHP'
+<?php
+$d = json_decode( stream_get_contents( STDIN ), true );
+if ( ! is_array( $d ) || empty( $d['offers'][0]['version'] ) ) {
+	exit( 1 );
+}
+echo $d['offers'][0]['version'];
+PHP
+  printf '%s' "$json" | php "$helper"
+  local rc=$?
+  rm -f "$helper"
+  return $rc
+}
+
+# RC if published ahead of stable, else beta, else nightly.
+# Sets $version to a wp core download token (7.2-RC1, nightly, …).
+resolve_next_core_version() {
+  local json offered stable channel
+  json="$( wp_core_offers_json "" )" || fail_run version "Could not fetch WordPress stable channel."
+  stable="$( first_offer_version "$json" )" || fail_run version "Could not parse WordPress stable version."
+  echo "stable_latest=${stable}"
+
+  for channel in rc beta; do
+    json="$( wp_core_offers_json "$channel" )" || continue
+    offered="$( first_offer_version "$json" )" || continue
+    if [[ -n "$offered" && "$offered" != "$stable" ]] && is_prerelease "$offered"; then
+      version="$offered"
+      echo "next_channel=${channel}"
+      echo "next_offered=${offered}"
+      return 0
+    fi
+  done
+
+  json="$( wp_core_offers_json "development" )" || true
+  offered="$( first_offer_version "$json" 2>/dev/null || true )"
+  if [[ -n "$offered" && "$offered" != "$stable" ]] && is_prerelease "$offered"; then
+    echo "next_channel=development"
+    echo "next_offered=${offered}"
+    version="nightly"
+    return 0
+  fi
+
+  echo "next_channel=nightly"
+  echo "next_offered=nightly"
+  version="nightly"
 }
 
 # Refuse empty/root/HOME paths and anything outside $HOME/tmp/<exact-name>.
@@ -419,9 +479,12 @@ run_command() {
   echo "site=${SITE_HOME}"
   echo "live_version=${CURRENT}"
   echo "db_version=${DB_BEFORE}"
-  echo "target=${version}"
 
   mkdir -p "$(dirname "$PREVIEW")"
+  if [[ "$version" == "next" ]]; then
+    resolve_next_core_version
+  fi
+  echo "target=${version}"
   safe_rm_tree "$PREVIEW" "captaincore-core-preview"
   echo "Downloading WordPress ${version} into preview..."
   if ! wp core download --path="$PREVIEW" --version="$version" --skip-content --force; then
