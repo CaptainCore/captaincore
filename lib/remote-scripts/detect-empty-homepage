@@ -1,0 +1,237 @@
+#!/usr/bin/env bash
+
+#
+#   Detect empty / hollow homepages (the PageLines-on-WP-7.x class of bug)
+#
+#   Fetches the live homepage over the host's on-server loopback — the
+#   same convention update-core uses for Kinsta and Rocket.net:
+#
+#     curl -ksS -H "Host: <site>" https://localhost/
+#
+#   A 200 with a full HTML shell but no rendered sections is the signal:
+#   PageLines 2.x after WordPress 7.1 dropped the theme's late-bound
+#   section hooks, so header/content/footer wrappers printed empty.
+#   Same shape shows up anywhere a theme prints chrome and then fails
+#   to attach the body.
+#
+#   Output (one pipe-delimited line, safe for `ssh @all --parallel`):
+#     RESULT|<home>|<verdict>|<http>|<bytes>|<visible>|<sections>|<theme>|<reasons>
+#
+#     verdict = ok | empty | sparse | redirect | http_error | skip
+#     reasons = comma-separated flags (empty_dynamic_content, empty_header, …)
+#
+#   Usage:
+#     captaincore ssh <site> --script=detect-empty-homepage
+#     captaincore ssh @all  --script=detect-empty-homepage --quiet --parallel=40
+#
+#   Flags:
+#     --quiet     Only emit empty/sparse/http_error lines
+#     --path=/    Path to fetch (default /)
+#
+
+set -uo pipefail
+
+quiet=""
+path="/"
+for _arg in "$@"; do
+  case "$_arg" in
+    --quiet) quiet=true ;;
+    --path=*) path="${_arg#--path=}" ;;
+    --*) ;;
+    *) WP_ROOT="$_arg" ;;
+  esac
+done
+
+[[ "$path" == /* ]] || path="/$path"
+
+WP_ROOT="${WP_ROOT:-.}"
+cd "$WP_ROOT" 2>/dev/null || { echo "RESULT|unknown|skip|0|0|0|0|-|no_wp_root"; exit 0; }
+
+if [ ! -f "wp-config.php" ] && [ -f "public/wp-config.php" ]; then
+  cd public
+elif [ ! -f "wp-config.php" ] && [ -f "public_html/wp-config.php" ]; then
+  cd public_html
+fi
+
+if [ ! -f "wp-config.php" ]; then
+  echo "RESULT|unknown|skip|0|0|0|0|-|not_wordpress"
+  exit 0
+fi
+
+WP_FLAGS="--skip-themes --skip-plugins --skip-packages"
+SITE_HOME="$(wp option get home $WP_FLAGS 2>/dev/null | tr -d '\r' | tail -1)"
+SITE_HOME="${SITE_HOME:-unknown}"
+SITE_HOST="${SITE_HOME#http://}"
+SITE_HOST="${SITE_HOST#https://}"
+SITE_HOST="${SITE_HOST%%/*}"
+THEME="$(wp option get stylesheet $WP_FLAGS 2>/dev/null | tr -d '\r' | tail -1)"
+THEME="${THEME:--}"
+TEMPLATE="$(wp option get template $WP_FLAGS 2>/dev/null | tr -d '\r' | tail -1)"
+if [[ -n "$TEMPLATE" && "$TEMPLATE" != "$THEME" ]]; then
+  THEME="${THEME} (parent=${TEMPLATE})"
+fi
+
+emit() {
+  local verdict="$1" http="$2" bytes="$3" visible="$4" sections="$5" reasons="$6"
+  if [[ "$quiet" == "true" && "$verdict" == "ok" ]]; then
+    return 0
+  fi
+  if [[ "$quiet" == "true" && "$verdict" == "redirect" ]]; then
+    return 0
+  fi
+  printf "RESULT|%s|%s|%s|%s|%s|%s|%s|%s\n" \
+    "$SITE_HOME" "$verdict" "$http" "$bytes" "$visible" "$sections" "$THEME" "$reasons"
+}
+
+if [[ -z "$SITE_HOST" || "$SITE_HOME" == "unknown" ]]; then
+  emit skip 0 0 0 0 wpcli_home_failed
+  exit 0
+fi
+
+if ! command -v curl >/dev/null 2>&1; then
+  emit skip 0 0 0 0 no_curl
+  exit 0
+fi
+
+BODY_FILE="$(mktemp "${TMPDIR:-/tmp}/cc-empty-hp.XXXXXX")"
+ANALYZER="$(mktemp "${TMPDIR:-/tmp}/cc-empty-hp-php.XXXXXX")"
+trap 'rm -f -- "$BODY_FILE" "$ANALYZER"' EXIT
+
+# Same loopback as lib/remote-scripts/update-core (Kinsta + Rocket.net).
+# No -L: an absolute Location would leave localhost and miss the vhost.
+HTTP="$(
+  curl -ksS --connect-timeout 5 --max-time 25 \
+    -o "$BODY_FILE" -w "%{http_code}" \
+    -H "Host: ${SITE_HOST}" \
+    -H "Cache-Control: no-cache" \
+    -H "Pragma: no-cache" \
+    -A "CaptainCore-detect-empty-homepage" \
+    "https://localhost${path}?cc-empty=$(date +%s)" 2>/dev/null || echo "000"
+)"
+
+if [[ "$HTTP" == "000" || -z "$HTTP" ]]; then
+  emit http_error 000 0 0 0 loopback_fail
+  exit 0
+fi
+
+if [[ "$HTTP" == "301" || "$HTTP" == "302" || "$HTTP" == "303" || "$HTTP" == "307" || "$HTTP" == "308" ]]; then
+  emit redirect "$HTTP" "$(wc -c < "$BODY_FILE" | tr -d ' ')" 0 0 location_redirect
+  exit 0
+fi
+
+cat > "$ANALYZER" << 'PHP'
+<?php
+$html = file_get_contents( $argv[1] );
+if ( $html === false ) {
+	fwrite( STDERR, "unreadable\n" );
+	exit( 1 );
+}
+$bytes = strlen( $html );
+
+$title = '';
+if ( preg_match( '/<title[^>]*>(.*?)<\/title>/is', $html, $m ) ) {
+	$title = trim( preg_replace( '/\s+/', ' ', wp_strip( $m[1] ) ) );
+}
+
+function wp_strip( $s ) {
+	return html_entity_decode( strip_tags( $s ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+}
+
+function empty_open_close( $html, $id ) {
+	$id = preg_quote( $id, '/' );
+	return (bool) preg_match(
+		'/<([a-z0-9]+)[^>]*\bid=["\']' . $id . '["\'][^>]*>\s*(?:<(?:div|span)[^>]*>\s*<\/(?:div|span)>\s*)*<\/\1>/is',
+		$html
+	);
+}
+
+function empty_header_outline( $html ) {
+	return (bool) preg_match(
+		'/<header[^>]*\bid=["\']header["\'][^>]*>\s*<div[^>]*class=["\'][^"\']*outline[^"\']*["\'][^>]*>\s*<\/div>\s*<\/header>/is',
+		$html
+	);
+}
+
+$visible = $html;
+$visible = preg_replace( '#<script\b[^>]*>.*?</script>#is', ' ', $visible );
+$visible = preg_replace( '#<style\b[^>]*>.*?</style>#is', ' ', $visible );
+$visible = preg_replace( '#<noscript\b[^>]*>.*?</noscript>#is', ' ', $visible );
+$visible = preg_replace( '#<!--.*?-->#s', ' ', $visible );
+$visible = preg_replace( '/\s+/', ' ', trim( wp_strip( $visible ) ) );
+$visible_len = strlen( $visible );
+
+$sections = preg_match_all( '/<section\b/i', $html, $discard );
+if ( $sections === false ) {
+	$sections = 0;
+}
+
+$reasons = array();
+$empty_dynamic = empty_open_close( $html, 'dynamic-content' );
+$empty_header  = empty_header_outline( $html ) || empty_open_close( $html, 'header' );
+$empty_main    = empty_open_close( $html, 'content' ) || empty_open_close( $html, 'main' ) || empty_open_close( $html, 'primary' );
+$pagelines     = (bool) preg_match( '/wp-theme-pagelines|class="[^"]*\bpagelines\b/i', $html );
+$has_body      = (bool) preg_match( '/<body\b/i', $html );
+
+if ( $empty_dynamic ) {
+	$reasons[] = 'empty_dynamic_content';
+}
+if ( $empty_header ) {
+	$reasons[] = 'empty_header';
+}
+if ( $empty_main ) {
+	$reasons[] = 'empty_main';
+}
+if ( $pagelines ) {
+	$reasons[] = 'pagelines';
+}
+if ( $sections === 0 ) {
+	$reasons[] = 'no_sections';
+}
+
+$verdict = 'ok';
+if ( ! $has_body ) {
+	$verdict = 'empty';
+	$reasons[] = 'no_body';
+} elseif ( $empty_dynamic || ( $empty_header && $sections === 0 ) ) {
+	$verdict = 'empty';
+} elseif ( $pagelines && $sections === 0 && $visible_len < 400 ) {
+	$verdict = 'empty';
+} elseif ( $sections === 0 && $visible_len < 80 && $bytes > 2000 ) {
+	$verdict = 'empty';
+} elseif ( $visible_len < 150 && $sections <= 1 ) {
+	$verdict = 'sparse';
+}
+
+if ( ! $reasons ) {
+	$reasons[] = '-';
+}
+
+printf(
+	"%s\t%d\t%d\t%d\t%s\n",
+	$verdict,
+	$bytes,
+	$visible_len,
+	$sections,
+	implode( ',', $reasons )
+);
+PHP
+
+ANALYZED="$(php "$ANALYZER" "$BODY_FILE" 2>/dev/null || true)"
+if [[ -z "$ANALYZED" ]]; then
+  emit http_error "$HTTP" "$(wc -c < "$BODY_FILE" | tr -d ' ')" 0 0 php_analyze_failed
+  exit 0
+fi
+
+VERDICT="$(printf '%s' "$ANALYZED" | cut -f1)"
+BYTES="$(printf '%s' "$ANALYZED" | cut -f2)"
+VISIBLE="$(printf '%s' "$ANALYZED" | cut -f3)"
+SECTIONS="$(printf '%s' "$ANALYZED" | cut -f4)"
+REASONS="$(printf '%s' "$ANALYZED" | cut -f5)"
+
+if [[ "$HTTP" != "200" && "$VERDICT" == "ok" ]]; then
+  VERDICT="http_error"
+  REASONS="${REASONS},http_${HTTP}"
+fi
+
+emit "$VERDICT" "$HTTP" "$BYTES" "$VISIBLE" "$SECTIONS" "$REASONS"
+exit 0
