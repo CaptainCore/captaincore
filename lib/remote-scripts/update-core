@@ -101,7 +101,7 @@ fail_run() {
   RESULT_STAGE="$1"
   shift
   RESULT_REASON="$*"
-  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} $*" >&2
+  echo -e "${COLOR_RED}Error:${COLOR_NORMAL} $*"
   exit 1
 }
 
@@ -121,7 +121,7 @@ is_prerelease() {
 }
 
 http_ok() {
-  [[ "$1" == "200" || "$1" == "301" || "$1" == "302" ]]
+  [[ "$1" == "200" || "$1" == "301" || "$1" == "302" || "$1" == "208" ]]
 }
 
 wp_core_offers_json() {
@@ -559,12 +559,24 @@ run_command() {
   write_probe_php
 
   echo "CLI boot (plugins + themes)..."
-  if ! wp --path="$PREVIEW" eval 'echo "booted=" . $GLOBALS["wp_version"] . " theme=" . get_template() . " plugins=" . count((array) get_option("active_plugins")) . "\n";'; then
+  boot_out="$(wp --path="$PREVIEW" eval 'echo "booted=" . $GLOBALS["wp_version"] . " theme=" . get_template() . " plugins=" . count((array) get_option("active_plugins")) . "\n";' 2>&1)"
+  boot_rc=$?
+  echo "$boot_out"
+  if [[ $boot_rc -ne 0 ]]; then
+    if echo "$boot_out" | grep -qi 'Allowed memory size'; then
+      fail_run memory "CLI boot exhausted memory."
+    fi
     fail_run boot "Preview core failed to boot with live plugins/themes."
   fi
 
   echo "CLI render / ..."
-  if ! wp --path="$PREVIEW" eval-file "${PREVIEW}/probe-render.php" /; then
+  render_out="$(wp --path="$PREVIEW" eval-file "${PREVIEW}/probe-render.php" / 2>&1)"
+  render_rc=$?
+  echo "$render_out"
+  if [[ $render_rc -ne 0 ]]; then
+    if echo "$render_out" | grep -qi 'Allowed memory size'; then
+      fail_run memory "CLI render exhausted memory."
+    fi
     fail_run render "Preview core fatals rendering /"
   fi
 
@@ -575,7 +587,13 @@ run_command() {
     ABOUT_PATH="/${ABOUT_PATH#*/}"
     [[ "$ABOUT_PATH" == "//"* ]] && ABOUT_PATH="/"
     echo "CLI render ${ABOUT_PATH} ..."
-    if ! wp --path="$PREVIEW" eval-file "${PREVIEW}/probe-render.php" "$ABOUT_PATH"; then
+    render_out="$(wp --path="$PREVIEW" eval-file "${PREVIEW}/probe-render.php" "$ABOUT_PATH" 2>&1)"
+    render_rc=$?
+    echo "$render_out"
+    if [[ $render_rc -ne 0 ]]; then
+      if echo "$render_out" | grep -qi 'Allowed memory size'; then
+        fail_run memory "CLI render exhausted memory."
+      fi
       fail_run render "Preview core fatals rendering ${ABOUT_PATH}"
     fi
   fi

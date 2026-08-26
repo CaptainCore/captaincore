@@ -178,7 +178,13 @@ func runBulk(cfg BulkConfig) error {
 	if summarizeCore {
 		sort.Slice(results, func(i, j int) bool { return results[i].Site < results[j].Site })
 		printCoreUpdateSummary(results, time.Since(started), len(sites), parallel)
-		emailCoreUpdateSummary(cfg, results, time.Since(started), parallel)
+		runID, storeErr := storeCoreUpdateRun(cfg, results, time.Since(started), parallel)
+		if storeErr != nil {
+			fmt.Fprintf(os.Stderr, "Core update results store failed: %v\n", storeErr)
+		} else if runID > 0 {
+			fmt.Printf("Results stored as core update run %d\n", runID)
+		}
+		emailCoreUpdateSummary(cfg, results, time.Since(started), parallel, runID)
 		for _, res := range results {
 			if res.Result == "fail" {
 				return fmt.Errorf("core update finished with failures")
@@ -541,6 +547,9 @@ func parseUpdateCoreOutput(site string, exitCode int, output string) bulkSiteRes
 
 func coreUpdateShouldDumpOutput(res bulkSiteResult) bool {
 	blob := res.Excerpt + "\n" + res.Reason
+	if strings.Contains(blob, "Allowed memory size") {
+		return false
+	}
 	for _, needle := range []string{"Fatal error", "TypeError", "Parse error", "Uncaught "} {
 		if strings.Contains(blob, needle) {
 			return true
@@ -623,7 +632,127 @@ func printCoreUpdateSummary(results []bulkSiteResult, elapsed time.Duration, tot
 	}
 }
 
-func emailCoreUpdateSummary(cfg BulkConfig, results []bulkSiteResult, elapsed time.Duration, parallel int) {
+func coreUpdateFlagValue(flags []string, name string) string {
+	prefix := name + "="
+	for _, f := range flags {
+		if strings.HasPrefix(f, prefix) {
+			return strings.TrimPrefix(f, prefix)
+		}
+	}
+	return ""
+}
+
+func mostCommonCoreAfter(results []bulkSiteResult) string {
+	counts := map[string]int{}
+	best, n := "", 0
+	for _, res := range results {
+		if res.To == "" {
+			continue
+		}
+		counts[res.To]++
+		if counts[res.To] > n {
+			best, n = res.To, counts[res.To]
+		}
+	}
+	return best
+}
+
+func coreUpdateFailureGroups(results []bulkSiteResult) []struct {
+	Label string
+	N     int
+} {
+	counts := map[string]int{}
+	for _, res := range results {
+		if res.Result != "fail" {
+			continue
+		}
+		label := res.Stage
+		if label == "" {
+			label = "unknown"
+		}
+		counts[label]++
+	}
+	out := make([]struct {
+		Label string
+		N     int
+	}, 0, len(counts))
+	for k, v := range counts {
+		out = append(out, struct {
+			Label string
+			N     int
+		}{Label: k, N: v})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].N == out[j].N {
+			return out[i].Label < out[j].Label
+		}
+		return out[i].N > out[j].N
+	})
+	return out
+}
+
+func storeCoreUpdateRun(cfg BulkConfig, results []bulkSiteResult, elapsed time.Duration, parallel int) (int, error) {
+	prevCaptain := captainID
+	if cfg.CaptainID != "" {
+		captainID = cfg.CaptainID
+	}
+	defer func() { captainID = prevCaptain }()
+
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || captain == nil {
+		return 0, fmt.Errorf("could not load config")
+	}
+
+	updated, skipped, failed, probed := countCoreUpdateResults(results)
+	rows := make([]map[string]interface{}, 0, len(results))
+	for _, res := range results {
+		rows = append(rows, map[string]interface{}{
+			"site":        res.Site,
+			"url":         res.URL,
+			"result":      res.Result,
+			"action":      res.Action,
+			"stage":       res.Stage,
+			"core_before": res.From,
+			"core_after":  res.To,
+			"reason":      res.Reason,
+			"excerpt":     res.Excerpt,
+			"exit_code":   res.ExitCode,
+		})
+	}
+
+	client := newAPIClient(system, captain)
+	client.Timeout = 120 * time.Second
+	resp, err := client.Post("core-update-run", map[string]interface{}{
+		"data": map[string]interface{}{
+			"target":            strings.Join(cfg.Targets, " "),
+			"flags":             strings.Join(cfg.Flags, " "),
+			"version_requested": coreUpdateFlagValue(cfg.Flags, "--version"),
+			"version_resolved":  mostCommonCoreAfter(results),
+			"parallel":          parallel,
+			"duration_seconds":  int(elapsed.Round(time.Second).Seconds()),
+			"counts": map[string]int{
+				"total":   len(results),
+				"updated": updated,
+				"skipped": skipped,
+				"failed":  failed,
+				"probed":  probed,
+			},
+			"results": rows,
+		},
+	})
+	if err != nil {
+		return 0, err
+	}
+	var parsed struct {
+		RunID int `json:"run_id"`
+	}
+	if err := json.Unmarshal(resp, &parsed); err != nil {
+		return 0, fmt.Errorf("parse store response: %w", err)
+	}
+	return parsed.RunID, nil
+}
+
+func emailCoreUpdateSummary(cfg BulkConfig, results []bulkSiteResult, elapsed time.Duration, parallel int, runID int) {
 	prevCaptain := captainID
 	if cfg.CaptainID != "" {
 		captainID = cfg.CaptainID
@@ -643,9 +772,6 @@ func emailCoreUpdateSummary(cfg BulkConfig, results []bulkSiteResult, elapsed ti
 
 	updated, skipped, failed, _ := countCoreUpdateResults(results)
 	subject := fmt.Sprintf("Core update: %d updated, %d skipped, %d failed", updated, skipped, failed)
-	if failed == 0 {
-		subject = fmt.Sprintf("Core update: %d updated, %d skipped, 0 failed", updated, skipped)
-	}
 
 	var b strings.Builder
 	b.WriteString("<div style=\"text-align:left\">")
@@ -655,47 +781,26 @@ func emailCoreUpdateSummary(cfg BulkConfig, results []bulkSiteResult, elapsed ti
 	b.WriteString(fmt.Sprintf("<li>Updated: %d</li>", updated))
 	b.WriteString(fmt.Sprintf("<li>Skipped: %d</li>", skipped))
 	b.WriteString(fmt.Sprintf("<li>Failed: %d</li>", failed))
-	if len(cfg.Flags) > 0 {
-		b.WriteString(fmt.Sprintf("<li>Flags: %s</li>", html.EscapeString(strings.Join(cfg.Flags, " "))))
+	if v := coreUpdateFlagValue(cfg.Flags, "--version"); v != "" {
+		resolved := mostCommonCoreAfter(results)
+		b.WriteString(fmt.Sprintf("<li>Version: %s", html.EscapeString(v)))
+		if resolved != "" && resolved != v {
+			b.WriteString(" resolved to " + html.EscapeString(resolved))
+		}
+		b.WriteString("</li>")
+	}
+	if runID > 0 {
+		b.WriteString(fmt.Sprintf("<li>Full results: core update run %d (wp captaincore core-update-runs %d --result=fail --format=json)</li>", runID, runID))
 	}
 	b.WriteString("</ul>")
 
 	if failed > 0 {
-		const cell = "padding:4px 6px;vertical-align:top;font-size:12px;line-height:1.35"
-		const head = cell + ";font-size:11px;font-weight:600;white-space:nowrap"
-		b.WriteString("<p><strong>Failures</strong></p>")
-		b.WriteString("<table cellpadding=\"0\" cellspacing=\"0\" border=\"1\" style=\"border-collapse:collapse;text-align:left;font-size:12px;line-height:1.35;width:100%\">")
-		b.WriteString("<tr>")
-		b.WriteString("<th style=\"" + head + "\">Site</th>")
-		b.WriteString("<th style=\"" + head + "\">URL</th>")
-		b.WriteString("<th style=\"" + head + "\">Stage</th>")
-		b.WriteString("<th style=\"" + head + "\">Reason</th>")
-		b.WriteString("</tr>")
-		const maxRows = 150
-		n := 0
-		for _, res := range results {
-			if res.Result != "fail" {
-				continue
-			}
-			n++
-			if n > maxRows {
-				continue
-			}
-			why := res.Reason
-			if res.Excerpt != "" && res.Excerpt != res.Reason {
-				why = res.Reason + " — " + res.Excerpt
-			}
-			b.WriteString("<tr>")
-			b.WriteString("<td style=\"" + cell + "\">" + html.EscapeString(res.Site) + "</td>")
-			b.WriteString("<td style=\"" + cell + "\">" + html.EscapeString(res.URL) + "</td>")
-			b.WriteString("<td style=\"" + cell + "\">" + html.EscapeString(res.Stage) + "</td>")
-			b.WriteString("<td style=\"" + cell + ";word-break:break-word\">" + html.EscapeString(why) + "</td>")
-			b.WriteString("</tr>")
+		b.WriteString("<p><strong>Failure groups</strong></p><ul>")
+		for _, g := range coreUpdateFailureGroups(results) {
+			b.WriteString(fmt.Sprintf("<li>%s: %d</li>", html.EscapeString(g.Label), g.N))
 		}
-		b.WriteString("</table>")
-		if failed > maxRows {
-			b.WriteString(fmt.Sprintf("<p>Showing the first %d of %d failures.</p>", maxRows, failed))
-		}
+		b.WriteString("</ul>")
+		b.WriteString("<p>The per-site table is stored on the run, not in this email.</p>")
 	}
 	b.WriteString("</div>")
 
