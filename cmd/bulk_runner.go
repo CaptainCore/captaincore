@@ -789,9 +789,6 @@ func emailCoreUpdateSummary(cfg BulkConfig, results []bulkSiteResult, elapsed ti
 		}
 		b.WriteString("</li>")
 	}
-	if runID > 0 {
-		b.WriteString(fmt.Sprintf("<li>Full results: core update run %d (wp captaincore core-update-runs %d --result=fail --format=json)</li>", runID, runID))
-	}
 	b.WriteString("</ul>")
 
 	if failed > 0 {
@@ -800,7 +797,15 @@ func emailCoreUpdateSummary(cfg BulkConfig, results []bulkSiteResult, elapsed ti
 			b.WriteString(fmt.Sprintf("<li>%s: %d</li>", html.EscapeString(g.Label), g.N))
 		}
 		b.WriteString("</ul>")
-		b.WriteString("<p>The per-site table is stored on the run, not in this email.</p>")
+	}
+	gui := strings.TrimRight(getVarString(captain, "captaincore_gui"), "/")
+	if gui != "" {
+		coreURL := gui + "/account/security/core"
+		b.WriteString(fmt.Sprintf(
+			"<p><a href=\"%s\" style=\"display:inline-block;background:#123E8C;color:#ffffff;font-weight:600;font-size:14px;padding:10px 18px;border-radius:10px;text-decoration:none\">View full results</a></p>",
+			html.EscapeString(coreURL),
+		))
+		b.WriteString(fmt.Sprintf("<p style=\"font-size:12px;color:#A3ACB9\"><a href=\"%s\" style=\"color:#123E8C\">%s</a></p>", html.EscapeString(coreURL), html.EscapeString(coreURL)))
 	}
 	b.WriteString("</div>")
 
