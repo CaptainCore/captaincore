@@ -162,7 +162,7 @@ func runBulk(cfg BulkConfig) error {
 				resultsMu.Unlock()
 				outputMu.Lock()
 				fmt.Print(formatCoreUpdateLine(res))
-				if res.Result == "fail" && strings.TrimSpace(output) != "" {
+				if res.Result == "fail" && coreUpdateShouldDumpOutput(res) && strings.TrimSpace(output) != "" {
 					fmt.Print(output)
 					if !strings.HasSuffix(output, "\n") {
 						fmt.Print("\n")
@@ -502,7 +502,9 @@ func parseUpdateCoreOutput(site string, exitCode int, output string) bulkSiteRes
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "site=") {
-			res.URL = strings.TrimPrefix(line, "site=")
+			if v := strings.TrimSpace(strings.TrimPrefix(line, "site=")); v != "" {
+				res.URL = v
+			}
 		}
 		if strings.HasPrefix(line, "result=") {
 			fields := parseResultFields(line)
@@ -535,6 +537,16 @@ func parseUpdateCoreOutput(site string, exitCode int, output string) bulkSiteRes
 		}
 	}
 	return res
+}
+
+func coreUpdateShouldDumpOutput(res bulkSiteResult) bool {
+	blob := res.Excerpt + "\n" + res.Reason
+	for _, needle := range []string{"Fatal error", "TypeError", "Parse error", "Uncaught "} {
+		if strings.Contains(blob, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func formatCoreUpdateLine(res bulkSiteResult) string {

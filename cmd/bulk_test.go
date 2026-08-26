@@ -150,6 +150,17 @@ result=fail stage=boot from=7.0.4 to=7.1 url=https://example.com reason=Preview 
 	if sshFail.Result != "fail" || sshFail.Stage != "ssh" {
 		t.Errorf("unexpected ssh fail parse: %+v", sshFail)
 	}
+
+	noisy := parseUpdateCoreOutput("staging-site", 1, "site=\nhttps://example.com\nresult=fail stage=boot from=7.1 to=7.2-alpha-1 url=\nhttps://example.com reason=Preview core failed to boot with live plugins/themes.\n")
+	if noisy.Result != "fail" || noisy.Stage != "boot" {
+		t.Errorf("noisy parse: %+v", noisy)
+	}
+	if coreUpdateShouldDumpOutput(noisy) {
+		t.Errorf("table-prefix-style fail should stay compact")
+	}
+	if !coreUpdateShouldDumpOutput(res) {
+		t.Errorf("TypeError fail should dump output")
+	}
 }
 
 func TestBulkScriptName(t *testing.T) {
