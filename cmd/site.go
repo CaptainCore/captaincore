@@ -886,7 +886,7 @@ func siteSyncNative(cmd *cobra.Command, args []string) {
 		deployCmd.Stderr = os.Stderr
 		deployCmd.Run()
 
-		captureCmd := exec.Command("captaincore", "capture", siteIDStr+"-production", "--captain-id="+captainID)
+		captureCmd := exec.Command("captaincore", "capture", "generate", siteIDStr+"-production", "--captain-id="+captainID)
 		captureCmd.Stdout = os.Stdout
 		captureCmd.Stderr = os.Stderr
 		captureCmd.Run()
