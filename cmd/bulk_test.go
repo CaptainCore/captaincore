@@ -146,6 +146,11 @@ result=fail stage=boot from=7.0.4 to=7.1 url=https://example.com reason=Preview 
 		t.Errorf("unexpected skip parse: %+v", skip)
 	}
 
+	notWP := parseUpdateCoreOutput("static-production", 0, "skip: not-wp-root\nresult=ok action=skip stage=root reason=not-wp-root\n")
+	if notWP.Result != "ok" || notWP.Action != "skip" || notWP.Reason != "not-wp-root" || notWP.Stage != "root" {
+		t.Errorf("unexpected not-wp-root skip parse: %+v", notWP)
+	}
+
 	sshFail := parseUpdateCoreOutput("down-production", 255, "ssh: connect to host timed out\n")
 	if sshFail.Result != "fail" || sshFail.Stage != "ssh" {
 		t.Errorf("unexpected ssh fail parse: %+v", sshFail)

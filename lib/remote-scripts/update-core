@@ -7,10 +7,14 @@
 #
 #   HTTP probes use the host's on-server loopback (Kinsta and Rocket.net):
 #     curl -ksS -H "Host: <site>" https://localhost/
+#   Rocket.net jails often have no localhost DNS; fall back to 127.0.0.1.
 #   Sideloaded core lives in /tmp so PHP-FPM can include it. Kinsta FPM
 #   open_basedir allows /tmp and the public web root, not $HOME/tmp or
 #   $HOME/private. CLI PHP has no open_basedir, so a $HOME/tmp preview
 #   boots under WP-CLI and then 500s over HTTP.
+#
+#   Directories that are not a WordPress root (empty staging, static HTML,
+#   non-WP apps) skip with result=ok action=skip — they are not failures.
 #
 #   `update-core`
 #
@@ -69,7 +73,11 @@ PREVIOUS="${HOME}/tmp/captaincore-core-previous"
 BODY_FILE="${HOME}/tmp/cc-core-preview-body"
 BOOT_FILE=""
 BOOT_TOKEN=""
+LOOPBACK_IP="localhost"
 version="${version:-latest}"
+# PHP display_errors / uncaught throwable. Case-sensitive on purpose: page
+# HTML and JS often contain "fatal error" or "uncaught" as prose.
+PHP_FATAL_GREP='(<b>)?(Fatal error|Parse error)(</b>)?:|Uncaught (Error|TypeError|Exception|ErrorException|ArgumentCountError|ValueError|InvalidArgumentException|RuntimeException|DivisionByZeroError|AssertionError|PDOException)\b'
 
 RESULT_STATUS=""
 RESULT_ACTION=""
@@ -103,6 +111,50 @@ fail_run() {
   RESULT_REASON="$*"
   echo -e "${COLOR_RED}Error:${COLOR_NORMAL} $*"
   exit 1
+}
+
+skip_run() {
+  RESULT_STATUS="ok"
+  RESULT_ACTION="skip"
+  RESULT_STAGE="$1"
+  shift
+  RESULT_REASON="$*"
+  echo "skip: $*"
+  exit 0
+}
+
+html_has_php_fatal() {
+  local f="$1"
+  [[ -f "$f" ]] || return 1
+  grep -qE "$PHP_FATAL_GREP" "$f"
+}
+
+raise_cli_memory() {
+  if [[ -z "$WP_CLI_PHP_ARGS" ]]; then
+    export WP_CLI_PHP_ARGS="-d memory_limit=512M"
+  elif [[ "$WP_CLI_PHP_ARGS" != *memory_limit* ]]; then
+    export WP_CLI_PHP_ARGS="$WP_CLI_PHP_ARGS -d memory_limit=512M"
+  fi
+}
+
+resolve_loopback() {
+  local code
+  code="$(curl -ksS --max-time 10 -o /dev/null -w "%{http_code}" \
+    -H "Host: ${SITE_HOST:-localhost}" "https://localhost/" 2>/dev/null || true)"
+  if [[ -n "$code" && "$code" != "000" ]]; then
+    LOOPBACK_IP="localhost"
+    echo "loopback=localhost"
+    return
+  fi
+  code="$(curl -ksS --max-time 10 -o /dev/null -w "%{http_code}" \
+    -H "Host: ${SITE_HOST:-localhost}" "https://127.0.0.1/" 2>/dev/null || true)"
+  if [[ -n "$code" && "$code" != "000" ]]; then
+    LOOPBACK_IP="127.0.0.1"
+    echo "loopback=127.0.0.1"
+    return
+  fi
+  LOOPBACK_IP="localhost"
+  echo "loopback=localhost"
 }
 
 die() {
@@ -280,7 +332,7 @@ http_loopback() {
     -H "Host: ${SITE_HOST}" \
     -H "Cache-Control: no-cache" \
     "${extra[@]}" \
-    "https://localhost${url_path}"
+    "https://${LOOPBACK_IP}${url_path}"
 }
 
 write_preview_config() {
@@ -296,6 +348,7 @@ $preview_config = $argv[2];
 $content_dir    = $argv[3];
 $content_url    = $argv[4];
 $table_prefix   = $argv[5];
+$live_root      = isset( $argv[6] ) ? $argv[6] : '';
 $src            = file_get_contents( $live_config );
 if ( $src === false ) {
 	fwrite( STDERR, "Unable to read live wp-config.php\n" );
@@ -333,6 +386,15 @@ $src = preg_replace(
 	'/* WP_CACHE stripped for core preview */',
 	$src
 );
+// wp-config __DIR__.'/../vendor/autoload.php' would resolve inside /tmp/preview.
+if ( $live_root !== '' ) {
+	$live_parent = dirname( $live_root );
+	$src         = preg_replace(
+		'/(?:__DIR__|dirname\s*\(\s*__FILE__\s*\))\s*\.\s*([\'"])\/\.\.\//',
+		var_export( $live_parent . '/', true ) . ' . $1',
+		$src
+	);
+}
 if ( file_put_contents( $preview_config . '.live.php', $src ) === false ) {
 	fwrite( STDERR, "Unable to write preview wp-config.php.live.php\n" );
 	exit( 1 );
@@ -343,6 +405,12 @@ $body .= "define( 'WP_CONTENT_URL', " . var_export( $content_url, true ) . " );\
 $body .= "define( 'WP_CACHE', false );\n";
 $body .= "define( 'DONOTCACHEPAGE', true );\n";
 $body .= "define( 'CORE_PREVIEW', true );\n";
+if ( $live_root !== '' ) {
+	$body .= "\$_SERVER['DOCUMENT_ROOT'] = " . var_export( $live_root, true ) . ";\n";
+}
+$body .= "@ini_set( 'memory_limit', '512M' );\n";
+$body .= "if ( ! defined( 'WP_MEMORY_LIMIT' ) ) { define( 'WP_MEMORY_LIMIT', '512M' ); }\n";
+$body .= "if ( ! defined( 'WP_MAX_MEMORY_LIMIT' ) ) { define( 'WP_MAX_MEMORY_LIMIT', '512M' ); }\n";
 $body .= "require __DIR__ . '/wp-config.php.live.php';\n";
 $body .= "require_once ABSPATH . 'wp-settings.php';\n";
 if ( file_put_contents( $preview_config, $body ) === false ) {
@@ -350,7 +418,7 @@ if ( file_put_contents( $preview_config, $body ) === false ) {
 	exit( 1 );
 }
 PHP
-  if ! php "$writer" "$live_config" "$preview_config" "$LIVE_CONTENT_DIR" "$LIVE_CONTENT_URL" "$LIVE_PREFIX"; then
+  if ! php "$writer" "$live_config" "$preview_config" "$LIVE_CONTENT_DIR" "$LIVE_CONTENT_URL" "$LIVE_PREFIX" "$LIVE"; then
     safe_rm_file "$writer" "write-preview-config.php"
     fail_run config "Failed to write preview wp-config.php"
   fi
@@ -397,7 +465,10 @@ $title = '';
 if ( preg_match( '/<title>(.*?)<\/title>/is', $html, $m ) ) {
 	$title = preg_replace( '/\s+/', ' ', trim( wp_strip_all_tags( $m[1] ) ) );
 }
-$fatal = preg_match( '/(Fatal error|Parse error|Uncaught )/i', $html ) ? 1 : 0;
+$fatal = preg_match(
+	'/(?:<b>)?(?:Fatal error|Parse error)(?:<\/b>)?:|Uncaught (?:Error|TypeError|Exception|ErrorException|ArgumentCountError|ValueError|InvalidArgumentException|RuntimeException|DivisionByZeroError|AssertionError|PDOException)\b/',
+	$html
+) ? 1 : 0;
 printf(
 	"path=%s bytes=%d is_404=%s title=%s fatal_in_html=%d wp_version=%s\n",
 	$path,
@@ -501,13 +572,14 @@ restore_live_core() {
 
 run_command() {
   if ! is_wordpress_root "$LIVE"; then
-    fail_run root "${LIVE} is not a WordPress root (need wp-config.php, wp-admin, wp-includes, wp-content)."
+    skip_run root "not-wp-root"
   fi
   if [[ -z "$HOME" || "$HOME" == "/" ]]; then
     die "HOME is unset or unsafe; refusing to continue."
   fi
   is_our_tmp_dir "$PREVIEW" "$PREVIEW_NAME" || die "Internal path mismatch for PREVIEW."
   is_our_tmp_dir "$PREVIOUS" "captaincore-core-previous" || die "Internal path mismatch for PREVIOUS."
+  raise_cli_memory
 
   SITE_HOME="$(wp_stdout option get home)"
   SITE_HOST="${SITE_HOME#http://}"
@@ -556,6 +628,9 @@ run_command() {
   fi
 
   write_preview_config
+  if [[ -n "$LIVE_CONTENT_DIR" && -d "$LIVE_CONTENT_DIR" && ! -e "${PREVIEW}/wp-content" ]]; then
+    ln -s "$LIVE_CONTENT_DIR" "${PREVIEW}/wp-content"
+  fi
   write_probe_php
 
   echo "CLI boot (plugins + themes)..."
@@ -598,29 +673,34 @@ run_command() {
     fi
   fi
 
-  echo "HTTP loopback live / ..."
-  LIVE_HTTP="$(http_loopback /)"
-  echo "live_http=${LIVE_HTTP}"
-
-  write_http_bootstrap
-  echo "HTTP loopback preview / ..."
-  PREVIEW_HTTP="$(http_loopback "/${BOOT_FILE}?path=/" -H "X-Core-Preview: ${BOOT_TOKEN}")"
-  PREVIEW_HDR="$(curl -ksS --max-time 30 -D - -o /dev/null -H "Host: ${SITE_HOST}" -H "X-Core-Preview: ${BOOT_TOKEN}" "https://localhost/${BOOT_FILE}?path=/")"
-  PREVIEW_BOOT_VER="$(echo "$PREVIEW_HDR" | awk -F': ' 'tolower($1)=="x-core-preview-version" {gsub("\r","",$2); print $2}')"
-  echo "preview_http=${PREVIEW_HTTP}"
-  echo "preview_http_version=${PREVIEW_BOOT_VER}"
-  if grep -qiE 'Fatal error|Parse error|Uncaught ' "$BODY_FILE"; then
-    fail_run http "Preview HTTP response contains a PHP fatal."
-  fi
-  if http_ok "$PREVIEW_HTTP"; then
-    :
-  elif [[ -n "$PREVIEW_BOOT_VER" && "$PREVIEW_BOOT_VER" == "$TARGET_VER" && "$PREVIEW_HTTP" == "$LIVE_HTTP" ]]; then
-    echo "preview_http_matches_live=${LIVE_HTTP}"
+  if [[ -z "$SITE_HOST" ]]; then
+    echo "http=skipped (empty SITE_HOST)"
   else
-    fail_run http "Preview HTTP ${PREVIEW_HTTP} (expected 200)."
-  fi
-  if [[ -n "$PREVIEW_BOOT_VER" && "$PREVIEW_BOOT_VER" != "$TARGET_VER" ]]; then
-    fail_run http "HTTP booted ${PREVIEW_BOOT_VER}, expected ${TARGET_VER}."
+    resolve_loopback
+    echo "HTTP loopback live / ..."
+    LIVE_HTTP="$(http_loopback /)"
+    echo "live_http=${LIVE_HTTP}"
+
+    write_http_bootstrap
+    echo "HTTP loopback preview / ..."
+    PREVIEW_HTTP="$(http_loopback "/${BOOT_FILE}?path=/" -H "X-Core-Preview: ${BOOT_TOKEN}")"
+    PREVIEW_HDR="$(curl -ksS --max-time 30 -D - -o /dev/null -H "Host: ${SITE_HOST}" -H "X-Core-Preview: ${BOOT_TOKEN}" "https://${LOOPBACK_IP}/${BOOT_FILE}?path=/")"
+    PREVIEW_BOOT_VER="$(echo "$PREVIEW_HDR" | awk -F': ' 'tolower($1)=="x-core-preview-version" {gsub("\r","",$2); print $2}')"
+    echo "preview_http=${PREVIEW_HTTP}"
+    echo "preview_http_version=${PREVIEW_BOOT_VER}"
+    if html_has_php_fatal "$BODY_FILE"; then
+      fail_run http "Preview HTTP response contains a PHP fatal."
+    fi
+    if http_ok "$PREVIEW_HTTP"; then
+      :
+    elif [[ -n "$PREVIEW_BOOT_VER" && "$PREVIEW_BOOT_VER" == "$TARGET_VER" && "$PREVIEW_HTTP" == "$LIVE_HTTP" ]]; then
+      echo "preview_http_matches_live=${LIVE_HTTP}"
+    else
+      fail_run http "Preview HTTP ${PREVIEW_HTTP} (expected 200)."
+    fi
+    if [[ -n "$PREVIEW_BOOT_VER" && "$PREVIEW_BOOT_VER" != "$TARGET_VER" ]]; then
+      fail_run http "HTTP booted ${PREVIEW_BOOT_VER}, expected ${TARGET_VER}."
+    fi
   fi
 
   DB_AFTER="$(wp_stdout option get db_version)"
@@ -668,18 +748,20 @@ run_command() {
   wp cdn purge >/dev/null 2>&1 || true
   wp eval 'if ( function_exists( "rocket_clean_domain" ) ) { rocket_clean_domain(); echo "wp-rocket-purged\n"; }' >/dev/null 2>&1 || true
 
-  echo "HTTP loopback after update..."
-  POST_HTTP="$(http_loopback /)"
   POST_VER="$(wp_stdout core version)"
-  echo "post_http=${POST_HTTP}"
   echo "post_version=${POST_VER}"
-  if [[ "$POST_HTTP" != "200" && "$POST_HTTP" != "301" && "$POST_HTTP" != "302" ]]; then
-    restore_live_core
-    wp cache flush --skip-themes >/dev/null 2>&1 || true
-    wp cdn purge >/dev/null 2>&1 || true
-    RESTORED_HTTP="$(http_loopback /)"
-    echo "restored_http=${RESTORED_HTTP}"
-    fail_run apply "Live site HTTP ${POST_HTTP} after update; previous core restored."
+  if [[ -n "$SITE_HOST" ]]; then
+    echo "HTTP loopback after update..."
+    POST_HTTP="$(http_loopback /)"
+    echo "post_http=${POST_HTTP}"
+    if [[ "$POST_HTTP" != "200" && "$POST_HTTP" != "301" && "$POST_HTTP" != "302" ]]; then
+      restore_live_core
+      wp cache flush --skip-themes >/dev/null 2>&1 || true
+      wp cdn purge >/dev/null 2>&1 || true
+      RESTORED_HTTP="$(http_loopback /)"
+      echo "restored_http=${RESTORED_HTTP}"
+      fail_run apply "Live site HTTP ${POST_HTTP} after update; previous core restored."
+    fi
   fi
   RESULT_STATUS="ok"
   RESULT_ACTION="apply"
