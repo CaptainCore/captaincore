@@ -465,42 +465,71 @@ func parseResultFields(line string) map[string]string {
 	return out
 }
 
-func failureExcerpt(output string) string {
-	var hits []string
-	for _, line := range strings.Split(output, "\n") {
-		trim := strings.TrimSpace(line)
-		if trim == "" {
-			continue
-		}
-		if strings.Contains(trim, "Fatal error") || strings.Contains(trim, "TypeError") || strings.Contains(trim, "Parse error") || strings.HasPrefix(trim, "Error:") {
-			hits = append(hits, trim)
-		}
-	}
-	if len(hits) > 6 {
-		hits = hits[:6]
-	}
-	if len(hits) > 0 {
-		joined := strings.Join(hits, " | ")
-		if len(joined) > 500 {
-			return joined[:500] + "…"
-		}
-		return joined
-	}
-	var last []string
-	for _, line := range strings.Split(output, "\n") {
-		trim := strings.TrimSpace(line)
-		if trim != "" {
-			last = append(last, trim)
-		}
-	}
-	if len(last) > 4 {
-		last = last[len(last)-4:]
-	}
-	joined := strings.Join(last, " | ")
+func clipExcerpt(joined string) string {
 	if len(joined) > 500 {
 		return joined[:500] + "…"
 	}
 	return joined
+}
+
+func isCoreProbeThrowLine(trim string) bool {
+	return strings.HasPrefix(trim, "THROW:") || strings.HasPrefix(trim, "FATAL:") ||
+		strings.Contains(trim, "THROW:") || strings.Contains(trim, "FATAL:")
+}
+
+func isCoreProbeDiagnostic(trim string) bool {
+	if isCoreProbeThrowLine(trim) || strings.HasPrefix(trim, "Error:") {
+		return true
+	}
+	for _, n := range []string{"PHP Fatal error", "Fatal error:", "Parse error:", "Uncaught Error", "Uncaught TypeError", "TypeError"} {
+		if strings.Contains(trim, n) {
+			return true
+		}
+	}
+	return false
+}
+
+func looksLikeHTMLLine(trim string) bool {
+	return strings.HasPrefix(trim, "<") || strings.HasPrefix(trim, "<!")
+}
+
+func failureExcerpt(output string) string {
+	var throws, hits []string
+	for _, line := range strings.Split(output, "\n") {
+		trim := strings.TrimSpace(line)
+		if trim == "" || looksLikeHTMLLine(trim) {
+			continue
+		}
+		if isCoreProbeThrowLine(trim) {
+			throws = append(throws, trim)
+			continue
+		}
+		if isCoreProbeDiagnostic(trim) {
+			hits = append(hits, trim)
+		}
+	}
+	picked := throws
+	if len(picked) == 0 {
+		picked = hits
+	}
+	if len(picked) > 6 {
+		picked = picked[:6]
+	}
+	if len(picked) > 0 {
+		return clipExcerpt(strings.Join(picked, " | "))
+	}
+	var last []string
+	for _, line := range strings.Split(output, "\n") {
+		trim := strings.TrimSpace(line)
+		if trim == "" || looksLikeHTMLLine(trim) {
+			continue
+		}
+		last = append(last, trim)
+	}
+	if len(last) > 4 {
+		last = last[len(last)-4:]
+	}
+	return clipExcerpt(strings.Join(last, " | "))
 }
 
 func parseUpdateCoreOutput(site string, exitCode int, output string) bulkSiteResult {
@@ -550,7 +579,7 @@ func coreUpdateShouldDumpOutput(res bulkSiteResult) bool {
 	if strings.Contains(blob, "Allowed memory size") {
 		return false
 	}
-	for _, needle := range []string{"Fatal error", "TypeError", "Parse error", "Uncaught "} {
+	for _, needle := range []string{"Fatal error", "TypeError", "Parse error", "Uncaught ", "THROW:", "FATAL:"} {
 		if strings.Contains(blob, needle) {
 			return true
 		}

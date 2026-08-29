@@ -168,6 +168,32 @@ result=fail stage=boot from=7.0.4 to=7.1 url=https://example.com reason=Preview 
 	}
 }
 
+func TestFailureExcerptKeepsThrowNotHTML(t *testing.T) {
+	out := `CLI render / ...
+THROW: Call to a member function verify_signature() on null in /wp-content/plugins/oxygen/component-framework/includes/oxygen-dynamic-shortcodes.php:28
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+<meta charset="UTF-8">
+<div id="inner_content-7-2770" class="ct-inner-content">
+Error: Preview core fatals rendering /
+result=fail stage=render from=7.1 to=7.2-alpha-1 url=https://example.com reason=Preview core fatals rendering /
+`
+	res := parseUpdateCoreOutput("oxy-production", 1, out)
+	if res.Result != "fail" || res.Stage != "render" {
+		t.Fatalf("parse: %+v", res)
+	}
+	if !strings.Contains(res.Excerpt, "THROW:") || !strings.Contains(res.Excerpt, "verify_signature") {
+		t.Errorf("excerpt missing THROW: %q", res.Excerpt)
+	}
+	if strings.Contains(res.Excerpt, "<!DOCTYPE") || strings.Contains(res.Excerpt, "<div") {
+		t.Errorf("excerpt kept page HTML: %q", res.Excerpt)
+	}
+	if !coreUpdateShouldDumpOutput(res) {
+		t.Errorf("THROW fail should dump output")
+	}
+}
+
 func TestBulkScriptName(t *testing.T) {
 	if got := bulkScriptName([]string{"--script=update-core", "--apply"}); got != "update-core" {
 		t.Errorf("got %q", got)

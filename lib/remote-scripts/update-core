@@ -447,6 +447,9 @@ $_GET  = array();
 $_POST = array();
 remove_action( 'template_redirect', 'redirect_canonical' );
 add_filter( 'redirect_canonical', '__return_false', 99 );
+// Default WP shutdown flushes leftover buffers and dumps the page after a
+// caught throwable, burying THROW: under HTML in the probe excerpt.
+remove_action( 'shutdown', 'wp_ob_end_flush_all', 1 );
 if ( ! defined( 'WP_USE_THEMES' ) ) {
 	define( 'WP_USE_THEMES', true );
 }
@@ -456,11 +459,16 @@ try {
 	$wp->main( '' );
 	require ABSPATH . WPINC . '/template-loader.php';
 } catch ( Throwable $t ) {
-	ob_end_clean();
+	while ( ob_get_level() > 0 ) {
+		ob_end_clean();
+	}
 	fwrite( STDERR, 'THROW: ' . $t->getMessage() . ' in ' . $t->getFile() . ':' . $t->getLine() . "\n" );
 	exit( 2 );
 }
-$html  = ob_get_clean();
+$html = ob_get_clean();
+while ( ob_get_level() > 0 ) {
+	ob_end_clean();
+}
 $title = '';
 if ( preg_match( '/<title>(.*?)<\/title>/is', $html, $m ) ) {
 	$title = preg_replace( '/\s+/', ' ', trim( wp_strip_all_tags( $m[1] ) ) );
