@@ -47,9 +47,15 @@ done
 
 IFS=',' read -ra plugins <<< "$plugins"
 
+site_root=$(pwd)
 cd wp-content/plugins
 
 for plugin in ${plugins[@]}; do
   rm ${plugin}.zip
 	zip -r ${plugin}.zip $plugin
 done
+
+# Cookbook recipes download these zips over a long-lived CDN cache.
+# Purge so the next install gets the zip we just wrote, not last week's.
+cd "$site_root"
+wp kinsta cache purge --cdn --skip-plugins --skip-themes 2>/dev/null || wp kinsta cache purge --all --skip-plugins --skip-themes 2>/dev/null || true
