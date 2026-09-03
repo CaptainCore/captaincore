@@ -18,16 +18,10 @@ if [ ${#@} -gt 0 ] && [[ "$CAPTAINCORE_CODE" != "" ]]; then
   timestamp=$( date +'%Y-%m-%d' )
   recipe_file=$path_recipes/${CAPTAIN_ID}-${timestamp}-${CAPTAINCORE_CODE:0:8}.sh
   recipe_name=${timestamp}-${CAPTAINCORE_CODE:0:8}
-  read -r -d '' php_code << heredoc
-\$run_code = <<<PHPHEREDOC
-$CAPTAINCORE_CODE
-PHPHEREDOC;
-
-echo base64_decode( \$run_code );
-heredoc
-
-  code=$( php -r "$php_code" )
-  echo -n "$code" > "${recipe_file}"
+  # Decode onto disk via PHP. Do not capture the script into a bash
+  # double-quoted string — that eats backslash-newlines (breaking `|| \`
+  # continuations) and expands $vars before the recipe ever reaches the site.
+  php -r 'echo base64_decode( (string) getenv( "CAPTAINCORE_CODE" ) );' > "${recipe_file}"
 
   # Runs on specifed sites
   captaincore ssh $1 --recipe=$recipe_name --captain-id=$CAPTAIN_ID
