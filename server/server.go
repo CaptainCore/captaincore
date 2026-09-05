@@ -7,7 +7,6 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"io"
 	"log"
 	"mime"
@@ -36,7 +35,7 @@ var err error
 var config Config
 var debug bool
 
-//go:embed logo*.png
+//go:embed *.webp
 var staticFiles embed.FS
 
 // var clients = make(map[*websocket.Conn]bool) // connected clients
@@ -62,24 +61,49 @@ var upgrader = websocket.Upgrader{
 type httpHandlerFunc func(http.ResponseWriter, *http.Request)
 
 const (
-	htmlIndexTemplate = `<html><head><title>CaptainCore</title>
-<link rel="icon" href="assets/logo-32x32.png" sizes="32x32" />
-<link rel="icon" href="assets/logo-192x192.png" sizes="192x192" />
-<link rel="apple-touch-icon" href="assets/logo-180x180.png" />
-<meta name="msapplication-TileImage" content="assets/logo-270x270.png" />
-<script type='text/javascript' src='https://buttons.github.io/buttons.js?ver=5.7.1' id='github-buttons-js'></script>
+	htmlIndexTemplate = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>CaptainCore</title>
+<link rel="icon" type="image/webp" href="/assets/icon-32.webp" sizes="32x32">
+<link rel="icon" type="image/webp" href="/assets/icon-192.webp" sizes="192x192">
+<link rel="apple-touch-icon" href="/assets/icon-180.webp">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@500;700;800&display=swap">
 <style>
-body { margin:0px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol'; text-align:center; background-color: #fff; }
-h2 { color:#fff;padding:5%;background:#1565c0; }
-h2 a { color: #fff; }
-a { color:#1565c0; text-decoration:none; padding: 3px 0px; margin: 0em 1em 1em 1em; display: inline-block; border-bottom: 1px solid #1565c0; }
-a:hover { opacity: 0.75 }
+:root{--accent:#0E8A80;--text:#15181D;--text-2:#565C66;--bg:#F5F7FA;--surface:#FFFFFF;--border:#E3E7EE}
+@media (prefers-color-scheme:dark){:root{--accent:#3FC5B8;--text:#E9ECF1;--text-2:#A3ACB9;--bg:#0B0E13;--surface:#141922;--border:#242C39}}
+*{box-sizing:border-box}
+html,body{height:100%%}
+body{margin:0;display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--text);font-family:"Hanken Grotesk",system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+main{text-align:center;padding:48px 24px}
+.mark{width:96px;height:96px;display:block;margin:0 auto 20px}
+h1{margin:0;font-size:40px;font-weight:800;letter-spacing:-0.01em;line-height:1.1}
+.sub{margin:10px 0 0;color:var(--text-2);font-size:16px;font-weight:500}
+.ver{display:inline-block;margin-left:6px;padding:2px 9px;border:1px solid var(--border);border-radius:999px;background:var(--surface);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;color:var(--text-2)}
+nav{margin-top:32px;display:flex;gap:24px;justify-content:center;flex-wrap:wrap}
+nav a{color:var(--accent);text-decoration:none;font-weight:700;font-size:15px;padding-bottom:2px;border-bottom:1.5px solid transparent}
+nav a:hover{border-bottom-color:var(--accent)}
 </style>
 </head>
 <body>
-<h2><a href="https://captaincore.io"><img src="assets/logo-192x192.png" style="width:32px; filter: invert(100%) grayscale(100%) brightness(100); top: 7px; position: relative; margin-right: 4px;">CaptainCore</a><small style="font-size: .57em;">v%s</small></h2>
-<p><a target="_blank" href="https://docs.captaincore.io">Docs 📖</a><a target="_blank" href="https://captaincore.io/development-updates/">Development Updates 🔔</a></p>
-<p><a class="github-button" href="https://github.com/sponsors/austinginder" data-icon="octicon-heart" data-size="large" aria-label="Sponsor @austinginder on GitHub">Sponsor via Github</a></p>
+<main>
+<picture>
+<source srcset="/assets/mark-256-white.webp" media="(prefers-color-scheme: dark)">
+<img class="mark" src="/assets/mark-256.webp" width="96" height="96" alt="">
+</picture>
+<h1>CaptainCore</h1>
+<p class="sub">CLI server <span class="ver">v%s</span></p>
+<nav>
+<a href="https://captaincore.io">captaincore.io</a>
+<a href="https://captaincore.io/docs/">Docs</a>
+<a href="https://github.com/CaptainCore/captaincore">GitHub</a>
+</nav>
+</main>
 </body>
 </html>`
 )
@@ -482,17 +506,17 @@ func updateTask(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Successfully Updated Task")
 }
 
-func logoHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	size, _ := vars["size"]
-	template.ParseFS(staticFiles, "logo-"+size+".png")
-	//http.ServeFile(w, r, "server/logo-"+size+".png")
-	data, _ := staticFiles.ReadFile("logo-" + size + ".png")
-	//w.writeHead(200, {"Content-Type": "image/png"});
-	w.Header().Set("Content-Type", mime.TypeByExtension("png"))
+// assetHandler serves the embedded brand files behind /assets/<name>.
+func assetHandler(w http.ResponseWriter, r *http.Request) {
+	name := mux.Vars(r)["name"]
+	data, err := staticFiles.ReadFile(name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", mime.TypeByExtension(filepath.Ext(name)))
+	w.Header().Set("Cache-Control", "public, max-age=86400")
 	w.Write(data)
-	//res.Header().Set("Content-Type", "text/html")
-	//fmt.Fprint(data)
 }
 
 func wsHandler(w http.ResponseWriter, r *http.Request) {
@@ -611,7 +635,7 @@ func HandleRequests(d bool) {
 	router.HandleFunc("/progress", checkSecurity(handleProgress)).Methods("GET")
 	router.HandleFunc("/progress/{pid}", checkSecurity(handleProgressDetail)).Methods("GET")
 	router.HandleFunc("/progress/{pid}", checkSecurity(handleProgressKill)).Methods("DELETE")
-	router.HandleFunc("/assets/logo-{size}.png", logoHandler)
+	router.HandleFunc("/assets/{name}", assetHandler)
 	router.HandleFunc("/ws", wsHandler)
 	router.HandleFunc("/", handleIndex)
 
