@@ -1,5 +1,136 @@
 # Changelog
 
+## [1.0.0] - 2026-XX-XX
+
+### Overview
+
+CaptainCore CLI 1.0 runs on SQLite and no longer needs an embedded WordPress. Through 0.13 the CLI kept every site, environment, account and provider record inside a private local WordPress install and reached them by shelling out to WP-CLI and a folder of PHP scripts, so standing up the CLI meant standing up PHP, WP-CLI and a throwaway WordPress site first. Version 1.0 stores all of that in a local SQLite database at `~/.captaincore/data/captaincore.db` (GORM on the pure-Go `glebarez/sqlite` driver, so no cgo and no system SQLite), reads its settings through a native Go `config` package, and talks to the CaptainCore Manager over a plain Go HTTP client. The CaptainCore Manager plugin remains the source of truth the CLI syncs from; what went away is the local WordPress underneath the CLI.
+
+Installation is now one static binary. `curl -fsSL https://raw.githubusercontent.com/CaptainCore/captaincore/master/install.sh | bash` puts it in place, `captaincore connect` points it at your Manager with a WordPress application password and pulls down every site, environment, account, domain and provider, and `captaincore upgrade` keeps it current from GitHub releases. The bash and remote scripts the CLI still uses at runtime ship embedded in the binary and unpack themselves on first run.
+
+Along the way the CLI grew a full restic operations toolkit, fleet-wide version drift reporting, a git-backed quicksave malware scanner, long-term log archival, and 38 new remote scripts, most of them security detection.
+
+### Breaking Changes
+
+- **The private local WordPress install and WP-CLI are no longer read or supported.** Data lives in `~/.captaincore/data/captaincore.db`. Existing installs must run `captaincore connect` (or the one-time `captaincore migrate wp-to-sqlite`) before any data command works. Commands that need data exit with `Error: Database not available. Run 'captaincore connect'`.
+- **`captaincore monitor <site|target>` is now `captaincore monitor run <site|target>`**, and **`captaincore capture <site|target>` is now `captaincore capture generate <site|target>`**. Update cron entries.
+- **`fetch-site-data` emits `key:value` pairs** instead of positional lines. Anything parsing the old output breaks.
+- **Backups now include WordPress core files.** Every core-file exclusion (`wp-admin/`, `wp-includes/`, `index.php`, `wp-login.php`, `xmlrpc.php` and friends) was removed from `lib/excludes` and `lib/restic-excludes`. Expect larger first backups after upgrading.
+- **45 of the 51 PHP scripts in `lib/local-scripts/` were deleted** and 57 files were removed from `app/` (the `dns/`, `key/`, `cli/`, `get/` and `utils/` trees, `monitor`, `copy`, `configs`, `scan-errors`, `regenerate-thumbnails`, `manifest-generate` and the `*-generate` / `*-list` variants). Custom automation that called those files by path will break; the replacements are Cobra commands.
+- **The `configs.php` config layer is retired.** `config.json` is read and written by Go and rewritten with mode `0600`. Bash callers use `captaincore config fetch` instead.
+- **On a binary install the CLI owns `~/.captaincore/app` and `~/.captaincore/lib`** and rewrites them whenever the binary version changes (stamped in `.assets-version`). Local edits there do not survive an upgrade. A git checkout at that path is detected and left alone.
+- **`backup download`** takes the payload as `--payload=<token>` (the third positional argument still works).
+
+### New Features
+
+**Install, connect, upgrade**
+
+- **`install.sh`.** Detects Linux or macOS on x86_64, arm64 or armv7, downloads the release archive and `checksums.txt`, verifies the sha256 and installs to `/usr/local/bin` (`INSTALL_DIR`, `CAPTAINCORE_VERSION=vX.Y.Z` and `--force` are supported).
+- **`captaincore connect [--url=] [--username=] [--password=] [--skip-ssl]`.** Authenticates with a WordPress application password against `/wp-json/captaincore/v1/cli/connect`, upserts sites, environments, accounts, domains, junction rows, providers, configurations and defaults into SQLite, then writes the token, API URL, GUI URL and site list into `config.json`. A re-run shows an add/update/remove preview and asks before applying, then warns about a missing `rclone`, `restic` or `git`. `captaincore connect --sync` does the same non-interactively for cron.
+- **`captaincore upgrade [--check] [--yes] [--force] [--version=vX.Y.Z]`.** Follows the GitHub `releases/latest` redirect (no API token), downloads the archive for this OS and CPU, verifies it against the release checksums, sanity-runs the new binary and swaps it in place, with a `sudo mv` fallback. `--check` exits 1 when behind. A source checkout is refused unless `--force`.
+- **Embedded runtime scripts.** `app/` and `lib/` ship inside the binary (`go:embed`) and unpack into `~/.captaincore/` on the first run of each version. `config.json` and `data/` are never touched.
+- **Release builds** for Linux and macOS on x86_64, arm64 and armv7 (`CGO_ENABLED=0`, static), with stable asset names under `releases/latest/download/`.
+- **`captaincore migrate wp-to-sqlite [<site-id>...]`.** One-time backfill from a Manager for pre-1.0 installs.
+
+**Local data layer**
+
+- **SQLite with GORM.** Fourteen auto-migrated tables (`captaincore_sites`, `_environments`, `_accounts`, `_domains`, `_account_site`, `_account_domain`, `_account_user`, `_captures`, `_snapshots`, `_keys`, `_configurations`, `_recipes`, `_connections`, `_providers`), plus `data/monitor_stats.db` for monitor runs. Both database files are chmod `0600`. Tuned for parallel bulk runs: WAL journal, `busy_timeout=30000`, `synchronous=NORMAL`, one pooled connection so writes queue instead of racing, and a WAL checkpoint after bulk runs.
+- **Native Go API client** (`apiclient/`) for every Manager call.
+- **`captaincore config fetch [<section>] [<key>]`, `config fetch-captain-ids`, `config from-api [--field=]`**, and **`captaincore configuration get [--field=] [--bash]` / `configuration sync`**. **`captaincore cron`** prints the stored scheduled tasks as JSON.
+- **`captaincore info [--json]`.** Version, platform, Manager and API URLs, and site, account, environment and domain counts.
+
+**Hosting providers**
+
+- **Provider framework** (`providers/`) with a registry. Ships **Kinsta** (`api_key`, `company_id`) and **GridPane** (`api_key`), each able to list remote sites and enrich a site with SSH user, host, port, password, home directory, home URL, WordPress version and monthly visits.
+- **`captaincore provider add <name> <slug> --credentials='[{"name":"api_key","value":"..."}]'`, `provider list`, `provider update <id> [--credentials=] [--status=]`, `provider delete <id>`, `provider sync`, `provider remote-sites <id>`, `provider import <id> [--site-ids=] [--account-id=] [--update-extras]`.**
+- **`captaincore connection add <domain> <domain-token> <captaincore-token>` and `connection list`** for CaptainCore-to-CaptainCore links.
+- **`captaincore site ssh-refresh <site>`** pulls fresh SSH credentials from the provider; **`captaincore ssh-detect <user> <address> <port>`** and **`captaincore ssh-verify <conn>`** probe a connection.
+
+**Backups and restic operations (native Go)**
+
+- **Direct backup mode** is the default. `backup generate` pipes the `vault` script plus a temporary secrets payload over SSH and the managed host runs restic straight to B2; the old pull-to-local flow survives only as `backup_mode="local"`. The remote run hands the snapshot list back inline, so `backup list-generate` and `backup verify` never run restic locally. Flags: `--parallel=3`, `--skip-db`, `--skip-remote`, `--skip-if-recent=24h`, `--dry-run`.
+- **Self-healing connections.** When rclone cannot reach a site, `backup generate` regenerates its rclone config, retries, then calls `site ssh-refresh` to pull fresh SSH credentials from the hosting provider. A broken `vault.txt` (missing bucket) is detected and its keys regenerated.
+- **Repository maintenance:** `backup check <site> [--init] [--read-data]`, `backup verify <site>`, `backup snapshots <site> [id] [--sizes] [--format=json]`, `backup repo-info <site> [--stats]`, `backup find <site> <pattern>`, `backup forget <site> <snapshot-id> [--confirm] [--prune]`, `backup prune <site> [--dry-run] [--repack-uncompressed]`, `backup repair <site> [--packs] [--snapshots] [--forget]`, `backup unlock <site> [--remove-all]`.
+- **Restic v2 migration:** `backup upgrade <site>` and `backup migrate-v2 <site> [--force] [--skip-repack] [--skip-cache-cleanup]` move repositories to the v2 format with compression.
+- **Key safety:** `backup key-backup <site> [--type=backup|quicksave]` and `backup key-restore <site>` guard against losing the B2 repository key.
+- **Housekeeping:** `backup cleanup <site> [--dry-run]` removes local `backup/` folders on remote-backup sites; `backup storage-cleanup [--confirm]` removes orphaned site folders from B2 (dry-run by default); `backup show <site> <backup-id> <file-id>`, `backup runtime <site>`, `backup fetch-link`.
+- **Per-site PID locks.** `backup generate`, `prune` and `migrate-v2` take a `backup.lock` holding the PID (stale locks from dead processes are cleared silently) and pass `--retry-lock 30m` so concurrent runs wait or skip instead of colliding. Quicksaves use the same `quicksave.lock` mechanism.
+
+**Quicksaves**
+
+- **`quicksave malware-scan <site|@target> [--full] [--format=json]`** runs the signature set in `lib/malware-signatures.json` over the git history; `--full` runs Wordfence CLI across the whole quicksave directory.
+- **Remote fingerprint fast path.** `quicksave generate` first asks the site for a content hash (`quicksave-fingerprint`); when it matches the stored `.fingerprint` and `--force` is absent, the three rclone syncs are skipped entirely. `quicksave add` still runs so core-checksum drift in root files is caught. `vuln-scan` and `quicksave backup` run only when the quicksave hash actually changed.
+- **`quicksave backup <site> [--parallel=10] [--skip-if-recent=24h]`** pushes the git repository into a restic `quicksave-repo` and purges the local restic cache afterwards; **`quicksave restore-git <site>`** brings it back (refusing to clobber an existing `.git`) and rebuilds the JSON cache.
+- **`quicksave archive <site> <hash> [--plugin=|--theme=]`** extracts a plugin or theme zip from any commit; **`quicksave database <site> <hash>`** extracts and sanitizes the SQL from the nearest backup snapshot.
+- **`quicksave add <site> [--force]`, `quicksave latest <site> [--field=]`, `quicksave search <site> <theme|plugin:title|name:term>`, `quicksave list --field=`, `quicksave cache-check`, `quicksave cache-purge [--dry-run]`, `quicksave unlock`, `quicksave migrate-v2`.** `show-changes` takes an optional match filter; `rollback` gained `--plugin`, `--theme`, `--file`, `--all` (wrapped in maintenance mode) and `--version=previous`.
+- `quicksave generate` gained `--parallel=10`, `--skip-if-recent`, `--dry-run`, `--force`, lock checking, loose-file tracking and core-version detection.
+
+**Fleet visibility**
+
+- **`captaincore drift [--plugin=|--theme=|--core|--themes] [--target=latest] [--hashes] [--provider=] [--environment=] [--top=20] [--sort=volume|spread] [--json]`** shows how a component's versions are spread across the fleet. **`drift --steer --force [--parallel=10]`** upgrades every drifted site. **`drift diff --plugin=<slug> [--hash=] [--summary]`** shows real file-level differences between hash variants, sourced from local quicksaves.
+- **`captaincore capture scan <site|@target> [--filter=critical|warning|external] [--malware] [--format=json]`** scans captured HTML for injected scripts and styles; **`capture check <site>`** flags new injections in the latest capture.
+- **`captaincore site orphans [--write-list=] [--from-list=] [--confirm] [--include-stale-names]`** finds `{site}_{id}` folders with no active site. Dry-run by default; deletes are confined to `system.path` and re-checked at delete time.
+- **`captaincore site search <term> [--field=] [--search-field=]`, `site vuln-scan <site> [--cached]`, `site sync-batch <site-id>... [--update-extras]`.**
+- **Monitor rewritten in Go.** The bash `monitor` and `monitor-check` scripts are gone. `captaincore monitor run <site|@target> [--parallel=10] [--retry=3] [--page=]` uses a bounded worker pool with DNS fallback, records runs in `monitor_stats.db`, and sends an HTML digest; `monitor-check` and `monitor-notify` are Go commands.
+- **`captaincore progress [--clean]`** shows running bulk operations (PID, percent, elapsed, parallelism). **`captaincore task list [--limit=] [--fleet]` / `task get <id>`** read the server task database and mark stalled processes. **`captaincore monitor stats [--limit=20]`** summarizes recent monitor runs.
+- **`captaincore script list`** lists the built-in remote scripts with descriptions parsed from their headers.
+
+**Logs, email, updates, misc**
+
+- **`captaincore logs list <site>`, `logs get <site> --file=<name> [--limit=N]`** with Kinsta and Rocket.net log discovery.
+- **`captaincore logs archive <site|@target> [--dry-run] [--skip-if-recent=24h] [--parallel=5]`** streams rotated access and error logs to B2 under `{rclone_backup}/{site}_{id}/{env}/logs/`, using B2 as the source of truth for what is already archived. **`logs archive-list <site>`** and **`logs archive-get <site> <file> [--expire=24]`** (signed URL) expose the archive for forensics. Matching REST endpoints live in captaincore-manager.
+- **`captaincore email-health send|generate|response <site|target>`** for deliverability testing.
+- **`captaincore update-log get|generate|list|list-generate <site>`** for WordPress update history.
+- **`captaincore performance-monitor activate|deactivate|fetch <site> [--hours=N]`.**
+- **Bulk core-update probe.** `captaincore ssh @target --script=update-core` prints one line per site, stores the full per-site run (core before/after, stage, excerpt) on the Manager, and emails a grouped failure recap.
+- **`captaincore archive list` / `archive share <file>`** (7-day public link), **`snapshot add` / `snapshot list`**, **`account-portal sync|delete`**, **`monitor-notify <account-portal-id>`**, **`default-sync`**, **`manifest-generate`** (site counts, storage and quicksave metrics from SQLite), **`regenerate-thumbnails <site>`** (800px and 100px from capture screenshots), **`account delete`**.
+- **Standby mode** (`captaincore_standby`) pauses automated operations.
+- **`captaincore server`:** `POST /run/stream` streams command output over HTTP, `GET /task/{id}/stream` streams task status as SSE, `GET/PUT/DELETE /task/{id}` manage tasks, `/progress` exposes bulk-run progress. `CAPTAINCORE_SERVER_BIND` pins the bind address (default `:8000`). The splash page carries the current CaptainCore brand as embedded webp assets.
+
+**Remote scripts (38 new)**
+
+- **Security detection:** `malware-hunt` (eight-section scanner with a verified-component exclude list), `db-code-audit` (executable code stored in options, snippets and widgets), `detect-database-triggers`, `detect-binary-payloads`, `detect-web3-injection` (EtherHiding and service-worker loaders), `detect-seo-spam`, `detect-seo-cloaking`, `detect-upload-probes`, `detect-elevated-permissions`, `detect-fake-dates` (timestomped PHP), `detect-forged-registrations`, `detect-malformed-passwords`, `detect-user-enumeration`, `report-compromised-passwords`, `component-hashes`, `plugin-diff` (against a clean wordpress.org copy), `check-security-log-size`.
+- **Maintenance:** `update-core` (sideload a core build, boot the live site against it, probe for fatals, then `--apply`; `--version=latest|nightly|next|x.y.z`, `--probe-only`), `detect-empty-homepage`, `prepare-wordpress`, `php-in-uploads`, `vault` (restic-over-B2 full-site snapshots: `create|snapshots|snapshot-info|mount|info|prune|delete`), `restic-cache-check` / `restic-cache-purge`, `performance-monitor-deploy` / `-remove`, `file-manager` (home-jailed list, view and delete behind the Manager's Files tab).
+- **Data collection:** `fetch-folder-size`, `fetch-database-tables`, `fetch-error-log-size`, `fetch-log-file`, `fetch-log-files`, `fetch-users-logins`, `archive-logs`, `quicksave-fingerprint`, `email-health-check`, `arguments`.
+- **Signature data:** `lib/malware-signatures.json`, `lib/capture-signatures.json`, `lib/capture-plugin-pages.json`.
+
+### Improvements
+
+- **`fetch-site-data`** now reports `mu_plugins`, `core_verify_checksums` with details, `plugin_checksum_details`, `php_version`, `php_memory`, `default_role`, `registration`, `db_size`, `error_logs`, `session_signal`, `component_hashes`, `mu_plugin_files`, `core_file_hashes`, `loose_file_hashes` and `capture_plugin_pages`. Credentials come from `wp config get` instead of grepping `wp-config.php`. The session signal is capability-based and never loads all users.
+- **CaptainCore Helper 0.7.3** (deployed by `deploy-helper`): magic login, a security log with a `security-log` WP-CLI namespace, user-enumeration protection, a security-patch updater, and password-breach blocking via the HIBP k-anonymity API.
+- **`deploy-mailgun` now installs Gravity SMTP** (generic SMTP primary, PHP mail backup) and requires `--name=`.
+- **`captaincore ssh`** parses its own flags so unknown flags pass straight to the remote script; single-site runs are native Go and `@targets` fan out. **Bulk targeting** everywhere: `@all`, `@production`, `@staging` with `.monitor-on`, `.updates-on`, `.updates-off`, `.offload-on`, `.offload-off`, `.backup-local`, `.backup-remote` suffixes, `--parallel=N`, `--label`, `--fleet`, and per-run progress files for `captaincore progress`. `--skip-if-recent` and `--dry-run` are on `backup generate`, `quicksave generate`, `quicksave backup`, `update` and `logs archive`.
+- **Updates:** `captaincore update <site|@target> [--parallel=5] [--skip-if-recent=24h] [--dry-run]` takes a quicksave before and after and writes an update log only when the hash changed, prints `Updated <name> <old> -> <new>` lines, surfaces the first stderr errors when stdout is empty, and emails the admin when the plugin count changes across the run. The remote `update` script toggles maintenance mode, runs a timed second plugin pass after a cache flush, handles Elementor, Elementor Pro, AdRotate Pro and WooCommerce database upgrades (network-aware), flushes Elementor CSS and purges the Kinsta cache.
+- **Monitor** toggle per environment.
+- **Captures:** `capture generate` retries the screenshot fetch five times with backoff and validates the response before accepting it, supports ImageMagick 7 (`magick`) with a `convert` fallback, and tracks checkout, cart and account pages (`lib/capture-plugin-pages.json`) for injected-script diffs without screenshotting them, then runs `capture check` and `sync-data`.
+- **Site data:** `site list` / `site get` gained `--format=json`, `--field` and `--bash`; `site sync --update-extras`; `deploy-defaults --global-only`; `screenshot --parallel`; `sync-data --parallel --json --skip-screenshot`; `stats-deploy --parallel`.
+- **Backup excludes** add `node_modules/`, `/error_log`, `/tmp` and the cache and backup directories of ai1wm, Duplicator, BackupWordPress, Akeeba, BackupBuddy, WP Super Cache and Duplicator.
+- **Loose-file scanning** uses a single SSH plus tar pipe instead of one `scp` per file (sites with vendored libraries went from 14 hours to minutes).
+- **`db-backup`** reads credentials with `wp config get`, accepts `../tmp` as a private directory, and falls back cleanly when `--single-transaction` or `--no-tablespaces` is refused. **`migrate`** URL-decodes the source, rewrites Dropbox links, migrates `mu-plugins`.
+- **`deactivate <site>`** returns HTTP 503, skips admin and WP-CLI, and takes `--name`, `--link`, `--subject`, `--status`, `--action`; paired with `activate`.
+- **`plugins-zip`** accepts a comma-separated slug list and purges the Kinsta CDN so cookbook installs get the fresh zip.
+- **Stats:** official Fathom API replaces Fathom Lite.
+- **Server:** tasks carry an argv array (`Args`) and are executed with `exec.Command` instead of a concatenated shell string (the legacy inline `--payload` form still parses); the `token` header is compared in constant time; `/progress` routes are scoped to the calling tenant and validate the PID; `/task/{id}/stream` streams status as server-sent events; websocket disconnects clean up their client and a failed upgrade no longer kills the daemon; the line scanner buffer is 8 MB so long file-manager lines do not stall a request; `ReadTimeout`/`WriteTimeout` are unset so long streams are not cut off; and the parsed config (which holds API tokens) is no longer printed on start.
+- **Security hardening.** `config.json` and the SQLite files are forced to `0600`. Environment fields reported by a site (address, username, port, home directory, home URL) are validated before they reach a shell command, and environment values are single-quote escaped (`cmd/security.go`).
+- **`update-core` probe harness:** empty and non-WordPress roots skip instead of failing, the loopback falls back to `127.0.0.1`, page HTML mentioning "fatal error" is not treated as a PHP fatal, and probe memory is raised to 512M.
+
+### Bug Fixes
+
+- `backup download` failed when the payload came as `--payload` instead of a positional argument.
+- `backup prune` and `backup migrate-v2` could collide with a running backup.
+- `site sync --update-extras` called the wrong capture path.
+- Recipe `--code` was decoded through a double-quoted bash string, which ate backslash-newline continuations and expanded `$vars`; it is now written to disk byte for byte.
+- `stats-deploy` did not fan out in bulk mode; recursive `bulk` invocations are blocked.
+- Fixed archive share URL generation, numerous PHP 8 warnings, sync and site-sync reliability, bulk usage calculations, WordPress.com stats, email-health concurrency, `xargs` cross-platform compatibility, quicksave backup and directory restore, SSH argument passing and default key selection, an SCP transfer bug, site selection by `site_id`, captain ID handling, Rocket.net staging sites, large and concurrent syncs, `core_verify_checksums` return handling, staging and production deploy defaults, bulk command execution, drift `--hashes` flag binding, and a timeout in long-running operations.
+
+### Removed
+
+- The private WordPress install and WP-CLI under `data/` as the CLI's data store.
+- 45 PHP scripts from `lib/local-scripts/` (six helpers remain and no longer need WordPress).
+- 57 files from `app/`, replaced by Go commands in `cmd/` (which grew from 29 to 59 files): the `cli/`, `captain/`, `dns/`, `key/`, `get/` and `utils/` trees, `monitor`, `monitor-check`, `ssh`, `ssh-detect`, `sync-data`, `size`, `copy`, `configs`, `scan-errors`, `regenerate-thumbnails`, `manifest-generate`, `update-fetch`, `usage-update` and the `*-generate` / `*-list` bash variants (the `backup get-generate`, `backup list-generate`, `quicksave get-generate` and `quicksave list-generate` commands still exist, now in Go).
+- The `_do` remote helper, which was added and retired inside this release window; its snapshot half lives on as `vault`.
+- The old PNG logo set on the server splash page.
+
 ## [0.13.0] - 2021-11-20
 ### Added
 - Commands `quicksave list`, `quicksave list-generate`, `quicksave list-missing`, `quicksave get` and `quicksave get-generate` which power the improved Quicksave GUI.
