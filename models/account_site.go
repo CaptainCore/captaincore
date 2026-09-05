@@ -24,3 +24,8 @@ func UpsertAccountSite(as AccountSite) error {
 	// Update existing
 	return DB.Model(&existing).Updates(as).Error
 }
+
+// DeleteAccountSiteByID removes an account_site junction row by its primary key.
+func DeleteAccountSiteByID(id uint) error {
+	return DB.Where("account_site_id = ?", id).Delete(&AccountSite{}).Error
+}
