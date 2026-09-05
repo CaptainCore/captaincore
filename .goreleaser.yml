@@ -1,32 +1,66 @@
 # https://goreleaser.com
+# Cut a release with: goreleaser release --clean --release-notes <file>
+# Dry run every target:  goreleaser build --snapshot --clean
+version: 2
+
 project_name: captaincore
+
 before:
   hooks:
     - go mod tidy
+
 builds:
-  - env:
+  - id: captaincore
+    main: .
+    binary: captaincore
+    env:
       - CGO_ENABLED=0
     goos:
       - linux
       - darwin
     goarch:
       - amd64
-      - arm
       - arm64
+      - arm
+    goarm:
+      - "7"
+    ignore:
+      - goos: darwin
+        goarch: arm
+    ldflags:
+      - -s -w -X github.com/CaptainCore/captaincore/version.Version={{ .Version }}
+
+# Archive names carry no version so releases/latest/download/<name> is a
+# stable URL for install.sh and `captaincore upgrade`. Both hardcode these
+# exact names: captaincore_{Linux,Darwin}_{x86_64,arm64,armv7}.tar.gz
 archives:
-  - name_template: >-
+  - id: default
+    formats:
+      - tar.gz
+    name_template: >-
       {{ .ProjectName }}_
       {{- title .Os }}_
       {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "arm" }}armv7
       {{- else }}{{ .Arch }}{{ end }}
-      {{- with .Arm }}v{{ . }}{{ end }}
+    files:
+      - license
+      - readme.md
+
 checksum:
-  name_template: 'checksums.txt'
+  name_template: checksums.txt
+
 snapshot:
-  name_template: "{{ .Tag }}-next"
+  version_template: "{{ .Version }}-next"
+
+# Release notes come from changelog.md (passed with --release-notes), not
+# from commit subjects.
 changelog:
-  sort: asc
-  filters:
-    exclude:
-      - '^docs:'
-      - '^test:'
+  disable: true
+
+release:
+  github:
+    owner: CaptainCore
+    name: captaincore
+  draft: false
+  prerelease: auto
