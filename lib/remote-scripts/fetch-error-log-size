@@ -24,7 +24,7 @@ for arg in "$@"; do
   # Process flags without data (Assign to variable)
   if [[ $arg != *"="* ]]; then
     flag_name=${flag_name//-/_}
-    declare "$flag_name"=true
+    [[ $flag_name =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] && declare "$flag_name"=true
   fi
 
   # Process flags with data (Assign to variable)
@@ -37,7 +37,7 @@ for arg in "$@"; do
     flag_value="${flag_value%\"}"
     flag_value="${flag_value#\"}"
 
-    declare "$flag_name"="$flag_value"
+    [[ $flag_name =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] && declare "$flag_name"="$flag_value"
     continue
   fi
 

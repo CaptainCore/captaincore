@@ -24,6 +24,7 @@ while read config; do
   if [[ "$config" == "Error:"* ]]; then
     continue
   fi
+  [[ ${config%%=*} =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
   declare "$config"
 done <<< "$(captaincore config fetch --captain-id=$CAPTAIN_ID)"
 
@@ -50,7 +51,7 @@ run_command() {
   fi
 
   # Load site configs
-  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done; unset IFS
+  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do [[ ${line%%=*} =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] && declare "$line"; done; unset IFS
 
   # Site found, start the backup
   if [[ $domain == "" ]]; then
@@ -151,7 +152,7 @@ run_command() {
       if captaincore site ssh-refresh ${site}-${environment} --captain-id=$CAPTAIN_ID; then
         echo "$(date +'%Y-%m-%d %H:%M') Credentials updated. Retrying connection..."
         # Re-read site configs since credentials changed
-        IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done; unset IFS
+        IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do [[ ${line%%=*} =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] && declare "$line"; done; unset IFS
         ftp_output=$( { timeout 30 rclone lsd ${environment}:$home_directory --config="$rclone_config_file" --contimeout=15s --timeout=30s ; } 2>&1 )
       fi
     fi
@@ -264,7 +265,7 @@ run_command() {
     echo "$(date +'%Y-%m-%d %H:%M') SSH test failed for $site. Attempting credential refresh..."
     if captaincore site ssh-refresh ${site}-${environment} --captain-id=$CAPTAIN_ID; then
       # Re-read site configs since credentials changed
-      IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done; unset IFS
+      IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do [[ ${line%%=*} =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] && declare "$line"; done; unset IFS
     fi
   fi
 

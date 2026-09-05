@@ -10,6 +10,7 @@ while read config; do
   if [[ "$config" == "Error:"* ]]; then
     continue
   fi
+  [[ ${config%%=*} =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
   declare "$config"
 done <<< "$(captaincore config fetch --captain-id=$CAPTAIN_ID)"
 
@@ -21,7 +22,7 @@ fi
 site=$1
 
 # Load site details
-IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done; unset IFS
+IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do [[ ${line%%=*} =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] && declare "$line"; done; unset IFS
 
 IFS=$' \t\n'; environments=( $( captaincore environment list $site --captain-id=$CAPTAIN_ID ) )
 
