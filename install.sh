@@ -123,6 +123,9 @@ if [ -w "$INSTALL_DIR" ]; then
 elif command -v sudo >/dev/null 2>&1; then
     say "${INSTALL_DIR} is not writable, using sudo..."
     sudo mkdir -p "$INSTALL_DIR"
+    # Hand the file to root before it lands on a root-owned PATH directory, so an
+    # unprivileged user cannot later overwrite it without sudo.
+    sudo chown 0:0 "${TMP}/captaincore"
     sudo mv -f "${TMP}/captaincore" "${INSTALL_DIR}/captaincore"
 else
     fail "${INSTALL_DIR} is not writable and sudo is unavailable. Re-run with INSTALL_DIR=<writable dir>."
