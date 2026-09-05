@@ -609,7 +609,9 @@ func HandleRequests(d bool) {
 	}
 
 	config = LoadConfiguration(usr.HomeDir + "/.captaincore/data/config.json")
-	fmt.Println(config)
+	// Summarize only. The config holds the API tokens, and stdout lands in the
+	// service journal.
+	fmt.Printf("Loaded config: %d token(s), %d server(s), host %s (%s)\n", len(config.Tokens), len(config.Servers), config.Host, config.SSLMode)
 	database_file := usr.HomeDir + "/.captaincore/data/sql.db"
 	db, err = gorm.Open(sqlite.Open(database_file), &gorm.Config{})
 	//db, err = gorm.Open("sqlite3", database_file)
