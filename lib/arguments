@@ -11,6 +11,14 @@ COLOR_LIGHT_GRAY="\033[37m"
 COLOR_DARK_GRAY="\033[38m"
 COLOR_NORMAL="\033[39m"
 
+# Bash evaluates an array subscript as an arithmetic expression, and arithmetic
+# evaluation runs command substitution — so `declare "$name"=v` with a name like
+# x[$(cmd)] executes cmd. Every name reaching declare below is a flag name or a
+# config line from outside this script, so each one is checked first.
+is_identifier() {
+  [[ $1 =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]
+}
+
 # Loop through arguments and separate regular arguments from flags (--flag)
 for var in "$@"; do
 
@@ -58,6 +66,7 @@ for i in "${!flags[@]}"; do
     flag_name=${flag_name//-/_}
     flag_value="${flag_value%\"}" # Remove first double quote if found
     flag_value="${flag_value#\"}" # Remove last double quote if found
+    is_identifier "$flag_name" || continue
     declare "$flag_name"="$flag_value" # assigns to $flag_flagname
     continue
   fi
@@ -65,9 +74,7 @@ for i in "${!flags[@]}"; do
   # Defines variables for boolean flags
   flag_name=${flag_name//-/_}
 
-  if [[ "$flag_name" == "\"" ]]; then
-    continue
-  fi
+  is_identifier "$flag_name" || continue
 
   declare "$flag_name"=true
 
@@ -78,8 +85,9 @@ while read config; do
   if [[ "$config" == "Error:"* ]]; then
     continue
   fi
+  is_identifier "${config%%=*}" || continue
   declare "$config"
-done <<< "$(captaincore config fetch --captain-id=$captain_id)"
+done <<< "$(captaincore config fetch --captain-id="$captain_id")"
 
 # Pass Captain ID as environment variable
 export CAPTAIN_ID=$captain_id

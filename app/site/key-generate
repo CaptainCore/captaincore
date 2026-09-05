@@ -10,6 +10,7 @@ while read config; do
   if [[ "$config" == "Error:"* ]]; then
     continue
   fi
+  [[ ${config%%=*} =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
   declare "$config"
 done <<< "$(captaincore config fetch --captain-id=$CAPTAIN_ID)"
 
@@ -27,7 +28,7 @@ run_command() {
   fi
 
   # Load site vars
-  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do declare "$line"; done; unset IFS
+  IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do [[ ${line%%=*} =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] && declare "$line"; done; unset IFS
 
   # Domain not found
   if [[ $domain == "" ]]; then
@@ -44,7 +45,7 @@ run_command() {
 
   for environment in ${environments[@]}; do
 
-    while read site_configs; do if [[ $site_configs == "" ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site-$environment --bash --captain-id=$CAPTAIN_ID)"
+    while read site_configs; do if [[ ! $site_configs =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then continue; fi; declare "$site_configs"; done <<< "$(captaincore site get $site-$environment --bash --captain-id=$CAPTAIN_ID)"
 
     if [[ $address == "" || username == "" ]]; then
       continue
