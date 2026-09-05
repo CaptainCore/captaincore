@@ -229,7 +229,14 @@ func upgradeRun() error {
 	}
 
 	downloadBase := releaseBaseURL() + "/download/" + tag
-	tmpDir, err := os.MkdirTemp("", "captaincore-upgrade-")
+	// Stage under ~/.captaincore rather than the system temp dir: it is always
+	// writable by this user (the install dir often is not) and is less likely to
+	// be mounted noexec, which would break the sanity run below.
+	tmpParent := captaincoreHome()
+	if tmpParent == "" || os.MkdirAll(tmpParent, 0755) != nil {
+		tmpParent = ""
+	}
+	tmpDir, err := os.MkdirTemp(tmpParent, "upgrade-")
 	if err != nil {
 		return err
 	}
@@ -250,30 +257,40 @@ func upgradeRun() error {
 		return err
 	}
 
-	newBinary := target + ".new"
+	newBinary := filepath.Join(tmpDir, "captaincore")
 	if err := extractBinary(archivePath, newBinary); err != nil {
-		os.Remove(newBinary)
 		return err
 	}
-	defer os.Remove(newBinary)
 
 	out, err := exec.Command(newBinary, "version").Output()
 	if err != nil || !strings.HasPrefix(string(out), "captaincore ") {
 		return fmt.Errorf("the downloaded binary did not run (%v)", err)
 	}
 
-	if err := os.Rename(newBinary, target); err != nil {
-		if !errors.Is(err, os.ErrPermission) {
+	if dirWritable(filepath.Dir(target)) {
+		// Copy next to the target (same filesystem) and rename over it atomically.
+		staged := target + ".new"
+		if err := copyFile(newBinary, staged, 0755); err != nil {
+			os.Remove(staged)
 			return err
 		}
+		if err := os.Rename(staged, target); err != nil {
+			os.Remove(staged)
+			return err
+		}
+	} else {
 		if _, sudoErr := exec.LookPath("sudo"); sudoErr != nil {
-			return fmt.Errorf("%s is not writable and sudo is unavailable", target)
+			return fmt.Errorf("%s is not writable and sudo is unavailable", filepath.Dir(target))
 		}
 		fmt.Println(filepath.Dir(target) + " is not writable, using sudo...")
-		mv := exec.Command("sudo", "mv", "-f", newBinary, target)
-		mv.Stdin, mv.Stdout, mv.Stderr = os.Stdin, os.Stdout, os.Stderr
-		if err := mv.Run(); err != nil {
-			return fmt.Errorf("sudo mv failed: %v", err)
+		// Give the new file to root first so the installed binary is not left
+		// owned by the unprivileged user in a root-owned directory.
+		for _, argv := range [][]string{{"chown", "0:0", newBinary}, {"chmod", "0755", newBinary}, {"mv", "-f", newBinary, target}} {
+			c := exec.Command("sudo", argv...)
+			c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+			if err := c.Run(); err != nil {
+				return fmt.Errorf("sudo %s failed: %v", argv[0], err)
+			}
 		}
 	}
 
@@ -387,4 +404,37 @@ func serverRunning() bool {
 		}
 	}
 	return false
+}
+
+// dirWritable reports whether this process can create files in dir.
+func dirWritable(dir string) bool {
+	f, err := os.CreateTemp(dir, ".captaincore-write-test-")
+	if err != nil {
+		return false
+	}
+	name := f.Name()
+	f.Close()
+	os.Remove(name)
+	return true
+}
+
+// copyFile copies src to dst with the given mode, truncating dst.
+func copyFile(src, dst string, mode os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+	return os.Chmod(dst, mode)
 }
