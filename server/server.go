@@ -75,13 +75,25 @@ func checkWebsocketOrigin(r *http.Request) bool {
 	if strings.EqualFold(u.Host, r.Host) {
 		return true
 	}
-	for _, allowed := range strings.Split(os.Getenv("CAPTAINCORE_SERVER_ORIGINS"), ",") {
-		allowed = strings.TrimSpace(allowed)
+	if originAllowed(origin, config.Origins, os.Getenv("CAPTAINCORE_SERVER_ORIGINS")) {
+		return true
+	}
+	log.Println("websocket upgrade refused for origin:", origin)
+	return false
+}
+
+// originAllowed matches origin against the config-file list and the
+// comma-separated environment list, ignoring case and trailing slashes.
+func originAllowed(origin string, fromConfig []string, fromEnv string) bool {
+	origin = strings.TrimRight(strings.TrimSpace(origin), "/")
+	candidates := append([]string{}, fromConfig...)
+	candidates = append(candidates, strings.Split(fromEnv, ",")...)
+	for _, allowed := range candidates {
+		allowed = strings.TrimRight(strings.TrimSpace(allowed), "/")
 		if allowed != "" && strings.EqualFold(allowed, origin) {
 			return true
 		}
 	}
-	log.Println("websocket upgrade refused for origin:", origin)
 	return false
 }
 
@@ -161,6 +173,10 @@ type Config struct {
 	Host    string `json:"host"`
 	Port    string `json:"port"`
 	SSLMode string `json:"ssl_mode"`
+	// Origins lists dashboard origins allowed to open the websocket, written by
+	// `captaincore connect` from the Manager's dashboard URL. Merged with
+	// CAPTAINCORE_SERVER_ORIGINS at check time.
+	Origins []string `json:"origins"`
 }
 
 type Task struct {
