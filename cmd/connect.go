@@ -21,14 +21,20 @@ import (
 	"golang.org/x/term"
 )
 
-var flagConnectURL, flagConnectUsername, flagConnectPassword string
+var flagConnectURL, flagConnectUsername, flagConnectPassword, flagConnectServerURL string
 var flagConnectSkipSSL, flagConnectSync bool
 
 var connectCmd = &cobra.Command{
 	Use:   "connect",
 	Short: "Connect CLI to a CaptainCore WordPress site",
 	Long: `Authenticates with a CaptainCore WordPress site using Application Passwords,
-fetches all site/account/provider data, and sets up the local CLI database and config.`,
+fetches all site/account/provider data, and sets up the local CLI database and config.
+
+Pairing works in both directions. The Manager hands back its CLI token, which is
+written to config.json and to data/config.json so a local 'captaincore server'
+accepts the Manager's requests. Pass --server-url (or answer the prompt) with the
+public URL of this CLI server and the Manager is told where to dispatch jobs, so
+no wp-config.php constant is needed.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		connectRun()
 	},
@@ -39,25 +45,27 @@ func init() {
 	connectCmd.Flags().StringVar(&flagConnectURL, "url", "", "WordPress site URL")
 	connectCmd.Flags().StringVar(&flagConnectUsername, "username", "", "WordPress username")
 	connectCmd.Flags().StringVar(&flagConnectPassword, "password", "", "WordPress application password")
+	connectCmd.Flags().StringVar(&flagConnectServerURL, "server-url", "", "Public URL of this CLI server (https://...), registered with the Manager for job dispatch")
 	connectCmd.Flags().BoolVar(&flagConnectSkipSSL, "skip-ssl", false, "Skip SSL certificate verification")
 	connectCmd.Flags().BoolVar(&flagConnectSync, "sync", false, "Re-sync data using saved credentials (no prompts)")
 }
 
 // connectResponse mirrors the JSON returned by /wp-json/captaincore/v1/cli/connect
 type connectResponse struct {
-	Token          string                   `json:"token"`
-	APIURL         string                   `json:"api_url"`
-	GUIURL         string                   `json:"gui_url"`
-	Sites          []models.Site            `json:"sites"`
-	Environments   []models.Environment     `json:"environments"`
-	Accounts       []models.Account         `json:"accounts"`
-	Providers      []models.Provider        `json:"providers"`
-	Domains        []models.Domain          `json:"domains"`
-	AccountSite    []models.AccountSite     `json:"account_site"`
-	AccountDomain  []models.AccountDomain   `json:"account_domain"`
-	AccountUser    []models.AccountUser     `json:"account_user"`
-	Configurations json.RawMessage          `json:"configurations"`
-	Defaults       json.RawMessage          `json:"defaults"`
+	Token          string                 `json:"token"`
+	CLIAddress     string                 `json:"cli_address"`
+	APIURL         string                 `json:"api_url"`
+	GUIURL         string                 `json:"gui_url"`
+	Sites          []models.Site          `json:"sites"`
+	Environments   []models.Environment   `json:"environments"`
+	Accounts       []models.Account       `json:"accounts"`
+	Providers      []models.Provider      `json:"providers"`
+	Domains        []models.Domain        `json:"domains"`
+	AccountSite    []models.AccountSite   `json:"account_site"`
+	AccountDomain  []models.AccountDomain `json:"account_domain"`
+	AccountUser    []models.AccountUser   `json:"account_user"`
+	Configurations json.RawMessage        `json:"configurations"`
+	Defaults       json.RawMessage        `json:"defaults"`
 }
 
 func connectRun() {
@@ -97,13 +105,25 @@ func connectRun() {
 		password = strings.TrimSpace(string(raw))
 	}
 
+	serverURL := strings.TrimSpace(flagConnectServerURL)
+	if serverURL == "" && flagConnectURL == "" && term.IsTerminal(int(syscall.Stdin)) {
+		fmt.Print("CLI server URL for job dispatch (optional, blank to skip): ")
+		line, _ := reader.ReadString('\n')
+		serverURL = strings.TrimSpace(line)
+	}
+	serverURL = strings.TrimRight(serverURL, "/")
+	if serverURL != "" && !strings.HasPrefix(serverURL, "http://") && !strings.HasPrefix(serverURL, "https://") {
+		fmt.Fprintln(os.Stderr, "Error: --server-url must start with http:// or https://")
+		os.Exit(1)
+	}
+
 	// Build the connect URL
 	connectURL := wpURL + "/wp-json/captaincore/v1/cli/connect"
 
 	fmt.Printf("Connecting to %s...\n", wpURL)
 
 	// POST with Basic Auth
-	body, err := connectPost(connectURL, username, password, flagConnectSkipSSL)
+	body, err := connectPost(connectURL, username, password, serverURL, flagConnectSkipSSL)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -158,12 +178,34 @@ func connectRun() {
 		fmt.Fprintf(os.Stderr, "Warning: Could not update config.json: %v\n", err)
 	}
 
+	// Let a local `captaincore server` accept the Manager's requests.
+	serverConfigAction, err := writeServerTokenFile(resp.Token)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not write data/config.json: %v\n", err)
+	}
+
 	// Print summary
 	fmt.Printf("\nConnected to %s\n\n", wpURL)
 	fmt.Printf("Synced: %d sites, %d accounts, %d providers\n", siteCount, accountCount, providerCount)
 
 	home, _ := os.UserHomeDir()
 	fmt.Printf("Config: %s/config.json (%s)\n", home+"/.captaincore", configAction)
+	if serverConfigAction != "" {
+		fmt.Printf("Server token: %s/data/config.json (%s)\n", home+"/.captaincore", serverConfigAction)
+	}
+	if serverURL != "" {
+		if resp.CLIAddress == serverURL {
+			fmt.Printf("Dispatch: Manager will send jobs to %s\n", resp.CLIAddress)
+		} else if resp.CLIAddress != "" {
+			fmt.Printf("Dispatch: Manager reports CLI address %s (a wp-config constant overrides the saved value)\n", resp.CLIAddress)
+		} else {
+			fmt.Println("Dispatch: Manager did not confirm the CLI server URL. Is the CaptainCore Manager plugin up to date?")
+		}
+	} else if resp.CLIAddress != "" {
+		fmt.Printf("Dispatch: Manager sends jobs to %s\n", resp.CLIAddress)
+	} else {
+		fmt.Println("Dispatch: no CLI server URL registered. Re-run with --server-url=https://... if this machine runs 'captaincore server'.")
+	}
 
 	checkDependencies()
 }
@@ -275,8 +317,13 @@ func connectPostWithToken(url, token string, skipSSL bool) ([]byte, error) {
 	return body, nil
 }
 
-func connectPost(url, username, password string, skipSSL bool) ([]byte, error) {
-	req, err := http.NewRequest("POST", url, bytes.NewReader([]byte("{}")))
+func connectPost(url, username, password, serverURL string, skipSSL bool) ([]byte, error) {
+	payload := map[string]string{}
+	if serverURL != "" {
+		payload["cli_address"] = serverURL
+	}
+	payloadJSON, _ := json.Marshal(payload)
+	req, err := http.NewRequest("POST", url, bytes.NewReader(payloadJSON))
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -418,7 +465,9 @@ func upsertSites(sites []models.Site, environments []models.Environment, account
 		sanitizeEnvironment(&env)
 		models.UpsertEnvironment(env, false)
 	}
+	remoteAccountSiteIDs := make(map[uint]bool)
 	for _, as := range accountSites {
+		remoteAccountSiteIDs[as.AccountSiteID] = true
 		models.UpsertAccountSite(as)
 	}
 
@@ -429,6 +478,18 @@ func upsertSites(sites []models.Site, environments []models.Environment, account
 		for _, id := range localSiteIDs {
 			if !remoteSiteIDs[id] {
 				models.DeleteSiteByID(id)
+			}
+		}
+
+		// Remove orphaned account_site junction rows. Without this, a site
+		// reassigned between accounts on the Manager keeps its old (stale)
+		// join row locally, so deploy-defaults reads the wrong account's
+		// defaults instead of falling back to the site's direct account_id.
+		var localAccountSiteIDs []uint
+		models.DB.Table("captaincore_account_site").Pluck("account_site_id", &localAccountSiteIDs)
+		for _, id := range localAccountSiteIDs {
+			if !remoteAccountSiteIDs[id] {
+				models.DeleteAccountSiteByID(id)
 			}
 		}
 	}
@@ -598,4 +659,62 @@ func checkDependencies() {
 			fmt.Printf("  - %s (%s) — install: %s\n", d.name, d.purpose, d.url)
 		}
 	}
+}
+
+// writeServerTokenFile creates or updates ~/.captaincore/data/config.json, the
+// file `captaincore server` reads its accepted tokens from. Other keys in an
+// existing file are preserved; the captain 1 token is set to the Manager's.
+func writeServerTokenFile(token string) (string, error) {
+	if token == "" {
+		return "", nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	dir := home + "/.captaincore/data"
+	path := dir + "/config.json"
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", err
+	}
+	action := "created"
+	existing := map[string]json.RawMessage{}
+	if raw, err := os.ReadFile(path); err == nil {
+		action = "updated"
+		if len(bytes.TrimSpace(raw)) > 0 {
+			if err := json.Unmarshal(raw, &existing); err != nil {
+				return "", fmt.Errorf("existing file is not a JSON object: %w", err)
+			}
+		}
+	}
+	type tokenEntry struct {
+		CaptainID string `json:"captain_id"`
+		Token     string `json:"token"`
+	}
+	var tokens []tokenEntry
+	if raw, ok := existing["tokens"]; ok {
+		json.Unmarshal(raw, &tokens)
+	}
+	found := false
+	for i := range tokens {
+		if tokens[i].CaptainID == captainID {
+			if tokens[i].Token == token {
+				return "unchanged", nil
+			}
+			tokens[i].Token = token
+			found = true
+		}
+	}
+	if !found {
+		tokens = append(tokens, tokenEntry{CaptainID: captainID, Token: token})
+	}
+	existing["tokens"], _ = json.Marshal(tokens)
+	out, err := json.MarshalIndent(existing, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, append(out, '\n'), 0600); err != nil {
+		return "", err
+	}
+	return action, nil
 }
