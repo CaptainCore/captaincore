@@ -53,7 +53,7 @@ curl -fsSL https://raw.githubusercontent.com/CaptainCore/captaincore/master/inst
 
 The installer downloads the release build for your platform (Linux or macOS on x86_64, arm64 or armv7), verifies it against the release checksums and installs it as `/usr/local/bin/captaincore`. The binary carries its own runtime scripts and unpacks them into `~/.captaincore/` the first time it runs, so there is nothing else to clone. Set `INSTALL_DIR` to install somewhere else, or `CAPTAINCORE_VERSION=v1.0.0` to pin a release.
 
-Then connect it to your CaptainCore Manager site. One command pairs both directions: it fetches the Manager's CLI token, and with `--server-url` it registers this machine's address so the Manager can dispatch jobs to `captaincore server`. No wp-config constants needed.
+Then connect it to your CaptainCore Manager site (a WordPress site with pretty permalinks enabled and the [CaptainCore Manager](https://github.com/CaptainCore/captaincore-manager) plugin active). One command pairs both directions: it fetches the Manager's CLI token, and with `--server-url` it registers this machine's address so the Manager can dispatch jobs to `captaincore server`. No wp-config constants needed.
 
 ```bash
 captaincore connect --server-url=https://captaincore-api.example.com
