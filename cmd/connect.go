@@ -779,6 +779,10 @@ func writeServerConfig(token, guiURL string) (string, error) {
 	if err := os.WriteFile(path, append(out, '\n'), 0600); err != nil {
 		return "", err
 	}
+	// WriteFile only applies the mode on create; tighten a pre-existing file too.
+	if err := os.Chmod(path, 0600); err != nil {
+		return "", err
+	}
 	return action, nil
 }
 
