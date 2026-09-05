@@ -11,6 +11,7 @@ import (
 	"log"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/user"
@@ -51,11 +52,37 @@ type Client struct {
 var clients []Client
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
+	// /ws authenticates on the per-task token carried in the first frame, not
+	// on a cookie, so a cross-site connection has nothing to replay. Browsers
+	// are still kept out by default: only a same-host page, or an origin named
+	// in CAPTAINCORE_SERVER_ORIGINS, may upgrade. Non-browser clients (the
+	// Manager) send no Origin header and are unaffected.
+	CheckOrigin:     checkWebsocketOrigin,
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
+}
+
+// checkWebsocketOrigin allows same-host and explicitly allow-listed origins.
+func checkWebsocketOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true // not a browser
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	if strings.EqualFold(u.Host, r.Host) {
+		return true
+	}
+	for _, allowed := range strings.Split(os.Getenv("CAPTAINCORE_SERVER_ORIGINS"), ",") {
+		allowed = strings.TrimSpace(allowed)
+		if allowed != "" && strings.EqualFold(allowed, origin) {
+			return true
+		}
+	}
+	log.Println("websocket upgrade refused for origin:", origin)
+	return false
 }
 
 type httpHandlerFunc func(http.ResponseWriter, *http.Request)
@@ -177,12 +204,16 @@ func LoadConfiguration(file string) Config {
 }
 
 func fetchCaptainID(t string, r *http.Request) string {
+	// Constant-time compare: this maps a token onto the tenant every handler
+	// scopes its queries by, so a byte-at-a-time timing difference would leak
+	// one tenant's token to another.
+	captainID := "0"
 	for _, v := range config.Tokens {
-		if v.Token == t {
-			return v.CaptainID
+		if subtle.ConstantTimeCompare([]byte(v.Token), []byte(t)) == 1 {
+			captainID = v.CaptainID
 		}
 	}
-	return "0"
+	return captainID
 }
 
 func fetchToken(captainID string) string {
@@ -500,6 +531,15 @@ func updateTask(w http.ResponseWriter, r *http.Request) {
 
 	var task Task
 	db.Where("id = ?", id).Where("captain_id = ?", captainID).Find(&task)
+
+	// Find() leaves a zero-value struct when nothing matched, and Save() on a
+	// zero primary key INSERTs — so without this a PUT for someone else's task
+	// id would silently create a new row.
+	if task.ID == 0 {
+		http.Error(w, "Task not found", http.StatusNotFound)
+		return
+	}
+
 	task.Status = "Completed"
 	db.Save(&task)
 
@@ -537,7 +577,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 
 	newClient := Client{Token: "", conn: conn, send: make(chan []byte, 256)}
 	clients = append(clients, newClient)
-	log.Println("Successfully established connection", clients)
+	log.Printf("Successfully established connection (%d client(s))", len(clients))
 
 	for {
 		data := SocketRequest{}
@@ -547,7 +587,6 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 			// Find current connection and remove from clients
 			for i := 0; i < len(clients); i++ {
 				if clients[i].conn == conn {
-					log.Println("Removing client: ", clients[i])
 					clients = append(clients[:i], clients[i+1:]...)
 					i--
 				}
@@ -563,7 +602,6 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 			// Find current connection and remove from clients
 			for i := 0; i < len(clients); i++ {
 				if clients[i].conn == conn {
-					log.Println("Removing client: ", clients[i])
 					clients = append(clients[:i], clients[i+1:]...)
 					i-- // form the remove item index to start iterate next item
 				}
@@ -595,8 +633,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 		if data.Action == "kill" {
 			go killCommand(task)
 		}
-		log.Println("Socket data request:", data)
-		log.Println("Executing command for client:", clients)
+		log.Println("Socket action requested:", data.Action)
 
 	}
 }
@@ -856,6 +893,9 @@ func handleProgressDetail(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			parts := strings.Fields(line)
+			if len(parts) == 0 {
+				continue
+			}
 			entry := progressLogEntry{Site: parts[0]}
 			if len(parts) >= 2 {
 				entry.ExitCode, _ = strconv.Atoi(parts[1])
@@ -1081,9 +1121,48 @@ func prepareArgvTask(t *Task) {
 	t.Command = "captaincore " + strings.Join(t.Args, " ")
 }
 
+// reservedTaskFlags are the global flags the server owns on a task's behalf. A
+// caller must never supply its own copy: pflag keeps the LAST occurrence of a
+// flag, so a trailing --captain-id would re-scope the run onto another tenant,
+// --fleet fans it out across every tenant at once, and --config repoints the
+// CLI at a different config file. They are dropped from caller argv before the
+// server prepends the --captain-id its token resolved to.
+var reservedTaskFlags = map[string]bool{
+	"--captain-id": true,
+	"--fleet":      true,
+	"--config":     true,
+}
+
+// stripReservedFlags removes any reserved global flag (and its separate value,
+// for the "--flag value" form) from a caller-supplied argument list.
+func stripReservedFlags(args []string) []string {
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		name := arg
+		hasInlineValue := false
+		if idx := strings.Index(arg, "="); idx >= 0 {
+			name = arg[:idx]
+			hasInlineValue = true
+		}
+		if !reservedTaskFlags[name] {
+			out = append(out, arg)
+			continue
+		}
+		log.Printf("task: dropped reserved flag %s from caller arguments", name)
+		// "--captain-id 7" carries its value in the next element.
+		if !hasInlineValue && name != "--fleet" && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+			i++
+		}
+	}
+	return out
+}
+
 // buildExec resolves the executable + arguments for a task. New protocol tasks
 // (ArgsJSON set, or Args still in memory) run captaincore with the argv verbatim;
-// legacy tasks fall back to tokenizing the command string.
+// legacy tasks fall back to tokenizing the command string. In both cases the
+// tenant's --captain-id is prepended by the server and any caller-supplied copy
+// of a reserved global flag is discarded first.
 func buildExec(t Task, captainID string) (string, []string) {
 	var argv []string
 	if t.ArgsJSON != "" {
@@ -1092,9 +1171,13 @@ func buildExec(t Task, captainID string) (string, []string) {
 		argv = t.Args
 	}
 	if len(argv) > 0 {
-		return "captaincore", append([]string{"--captain-id=" + captainID}, argv...)
+		return "captaincore", append([]string{"--captain-id=" + captainID}, stripReservedFlags(argv)...)
 	}
-	return parseCommandString("captaincore --captain-id=" + captainID + " " + t.Command)
+	head, args := parseCommandString("captaincore " + t.Command)
+	if head == "" {
+		return "", nil
+	}
+	return head, append([]string{"--captain-id=" + captainID}, stripReservedFlags(args)...)
 }
 
 // runStreamCommand executes a command and streams its binary output directly to the HTTP response.
@@ -1130,7 +1213,6 @@ func runCommand(head string, arguments []string, t Task) string {
 	// Find current connection write data
 	var client Client
 	for _, c := range clients {
-		log.Println("Client:", c.Token)
 		if c.Token == t.Token {
 			client = c
 			break
