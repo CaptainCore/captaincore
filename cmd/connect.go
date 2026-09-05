@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -186,8 +187,9 @@ func connectRun() {
 		fmt.Fprintf(os.Stderr, "Warning: Could not update config.json: %v\n", err)
 	}
 
-	// Let a local `captaincore server` accept the Manager's requests.
-	serverConfigAction, err := writeServerTokenFile(resp.Token)
+	// Let a local `captaincore server` accept the Manager's requests and the
+	// dashboard's websocket.
+	serverConfigAction, err := writeServerConfig(resp.Token, resp.GUIURL)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Could not write data/config.json: %v\n", err)
 	}
@@ -199,7 +201,7 @@ func connectRun() {
 	home, _ := os.UserHomeDir()
 	fmt.Printf("Config: %s/config.json (%s)\n", home+"/.captaincore", configAction)
 	if serverConfigAction != "" {
-		fmt.Printf("Server token: %s/data/config.json (%s)\n", home+"/.captaincore", serverConfigAction)
+		fmt.Printf("Server config: %s/data/config.json (%s; token + websocket origin %s)\n", home+"/.captaincore", serverConfigAction, originFromURL(resp.GUIURL))
 	}
 	if serverURL != "" {
 		if resp.CLIAddress == serverURL {
@@ -285,8 +287,12 @@ func connectSyncRun() {
 		models.SetConfiguration(1, "defaults", string(resp.Defaults))
 	}
 
-	// Update config with any new token/URL values
+	// Update config with any new token/URL values, and keep the server's
+	// token + websocket origin current too.
 	updateConfigFile(resp)
+	if _, err := writeServerConfig(resp.Token, resp.GUIURL); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not update data/config.json: %v\n", err)
+	}
 
 	fmt.Printf("\nSynced: %d sites, %d accounts, %d providers\n", siteCount, accountCount, providerCount)
 
@@ -679,10 +685,21 @@ func checkDependencies() {
 	}
 }
 
-// writeServerTokenFile creates or updates ~/.captaincore/data/config.json, the
-// file `captaincore server` reads its accepted tokens from. Other keys in an
-// existing file are preserved; the captain 1 token is set to the Manager's.
-func writeServerTokenFile(token string) (string, error) {
+// originFromURL reduces a dashboard URL to its origin (scheme://host[:port]).
+func originFromURL(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	return strings.ToLower(u.Scheme + "://" + u.Host)
+}
+
+// writeServerConfig creates or updates ~/.captaincore/data/config.json, the
+// file `captaincore server` reads its accepted tokens and websocket origins
+// from. Other keys in an existing file are preserved; the captain's token is
+// set to the Manager's and the Manager's dashboard origin is added to
+// "origins" so the dashboard can open the live-output websocket.
+func writeServerConfig(token, guiURL string) (string, error) {
 	if token == "" {
 		return "", nil
 	}
@@ -705,6 +722,8 @@ func writeServerTokenFile(token string) (string, error) {
 			}
 		}
 	}
+	changed := false
+
 	type tokenEntry struct {
 		CaptainID string `json:"captain_id"`
 		Token     string `json:"token"`
@@ -716,17 +735,43 @@ func writeServerTokenFile(token string) (string, error) {
 	found := false
 	for i := range tokens {
 		if tokens[i].CaptainID == captainID {
-			if tokens[i].Token == token {
-				return "unchanged", nil
-			}
-			tokens[i].Token = token
 			found = true
+			if tokens[i].Token != token {
+				tokens[i].Token = token
+				changed = true
+			}
 		}
 	}
 	if !found {
 		tokens = append(tokens, tokenEntry{CaptainID: captainID, Token: token})
+		changed = true
 	}
 	existing["tokens"], _ = json.Marshal(tokens)
+
+	var origins []string
+	if raw, ok := existing["origins"]; ok {
+		json.Unmarshal(raw, &origins)
+	}
+	if origin := originFromURL(guiURL); origin != "" {
+		present := false
+		for _, o := range origins {
+			if strings.EqualFold(strings.TrimRight(o, "/"), origin) {
+				present = true
+			}
+		}
+		if !present {
+			origins = append(origins, origin)
+			changed = true
+		}
+	}
+	if origins == nil {
+		origins = []string{}
+	}
+	existing["origins"], _ = json.Marshal(origins)
+
+	if !changed && action == "updated" {
+		return "unchanged", nil
+	}
 	out, err := json.MarshalIndent(existing, "", "  ")
 	if err != nil {
 		return "", err
