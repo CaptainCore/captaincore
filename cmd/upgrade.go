@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -24,6 +25,11 @@ import (
 )
 
 const upgradeRepo = "CaptainCore/captaincore"
+
+// reReleaseTag is the shape of a release tag. It gates both the --version flag
+// and the tag read back out of the releases/latest redirect before either is
+// spliced into a download URL.
+var reReleaseTag = regexp.MustCompile(`^v[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$`)
 
 var flagUpgradeCheck, flagUpgradeYes, flagUpgradeForce bool
 var flagUpgradeVersion string
@@ -114,7 +120,7 @@ func latestReleaseTag(client *http.Client) (string, error) {
 		return "", fmt.Errorf("unexpected release redirect: %s", loc)
 	}
 	tag := strings.TrimSpace(loc[idx+len("/tag/"):])
-	if tag == "" {
+	if !reReleaseTag.MatchString(tag) {
 		return "", fmt.Errorf("unexpected release redirect: %s", loc)
 	}
 	return tag, nil
@@ -159,6 +165,12 @@ func upgradeRun() error {
 	tag := flagUpgradeVersion
 	if tag != "" && !strings.HasPrefix(tag, "v") {
 		tag = "v" + tag
+	}
+	// The tag becomes a path segment of the download URL, so keep it to the
+	// shape of a release tag rather than letting ../ repoint the download at
+	// another repository's assets.
+	if tag != "" && !reReleaseTag.MatchString(tag) {
+		return fmt.Errorf("%q is not a valid release tag", flagUpgradeVersion)
 	}
 	if tag == "" {
 		fmt.Println("Checking github.com/" + upgradeRepo + " for the latest release...")
