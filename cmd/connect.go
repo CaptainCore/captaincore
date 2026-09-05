@@ -455,9 +455,19 @@ func getRemovalNames(table, idCol, nameCol string, remoteIDs map[uint]bool) []st
 
 func upsertSites(sites []models.Site, environments []models.Environment, accountSites []models.AccountSite, isResync bool) int {
 	remoteSiteIDs := make(map[uint]bool)
+	stored := 0
 	for _, s := range sites {
+		// The slug is used as a path component and interpolated into shell
+		// commands throughout the CLI. Refuse a record that cannot be handled
+		// safely instead of storing it; leaving it out of remoteSiteIDs also
+		// drops any copy already in the local database.
+		if !sanitizeSite(&s) {
+			fmt.Fprintf(os.Stderr, "Warning: skipping site %d, unsafe slug %q\n", s.SiteID, s.Site)
+			continue
+		}
 		remoteSiteIDs[s.SiteID] = true
 		models.UpsertSite(s)
+		stored++
 	}
 	for _, env := range environments {
 		// Strip shell-dangerous values from structural fields before they reach
@@ -494,7 +504,7 @@ func upsertSites(sites []models.Site, environments []models.Environment, account
 		}
 	}
 
-	return len(sites)
+	return stored
 }
 
 func upsertAccounts(accounts []models.Account, accountUsers []models.AccountUser, accountDomains []models.AccountDomain, accountSites []models.AccountSite, isResync bool) int {

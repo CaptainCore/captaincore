@@ -173,6 +173,13 @@ func sshNative(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	// Defence in depth: connect refuses these at ingest, but the slug is
+	// interpolated into the bash -c command string below either way.
+	if !isSafeSiteSlug(site.Site) {
+		fmt.Fprintf(os.Stderr, "%sError:%s Refusing unsafe site slug %q.\n", colorRed, colorNormal, site.Site)
+		return
+	}
+
 	if env.Protocol != "sftp" {
 		fmt.Fprintf(os.Stderr, "%sError:%s SSH not supported (Protocol is %s).", colorRed, colorNormal, env.Protocol)
 		return
@@ -193,7 +200,10 @@ func sshNative(cmd *cobra.Command, args []string) {
 				if !isValidEnvKey(item.Key) {
 					continue
 				}
-				environmentVars = fmt.Sprintf("export %s=%s && %s", item.Key, shellSingleQuote(item.Value), environmentVars)
+				// The value is single-quoted for the remote shell, then escaped
+				// again because commandPrep lands inside the double-quoted ssh
+				// payload that bash -c reads locally first.
+				environmentVars = fmt.Sprintf("export %s=%s && %s", item.Key, escapeLocalExpansion(shellSingleQuote(item.Value)), environmentVars)
 			}
 		}
 	}
@@ -220,6 +230,11 @@ func sshNative(cmd *cobra.Command, args []string) {
 	}
 
 	if key != "use_password" {
+		// The key name is emitted unquoted after `ssh -i` in a bash -c string.
+		if !isSafeShellToken(key) {
+			fmt.Fprintf(os.Stderr, "%sError:%s Refusing unsafe SSH key name %q for '%s'.\n", colorRed, colorNormal, key, site.Site)
+			return
+		}
 		remoteOptions = fmt.Sprintf("%s -oPreferredAuthentications=publickey -i %s/%s/%s", remoteOptions, system.PathKeys, captainID, key)
 	} else {
 		// Single-quote escape the password so a embedded quote can't break out
