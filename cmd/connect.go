@@ -117,13 +117,21 @@ func connectRun() {
 		os.Exit(1)
 	}
 
-	// Build the connect URL
-	connectURL := wpURL + "/wp-json/captaincore/v1/cli/connect"
-
 	fmt.Printf("Connecting to %s...\n", wpURL)
 
-	// POST with Basic Auth
-	body, err := connectPost(connectURL, username, password, serverURL, flagConnectSkipSSL)
+	// POST with Basic Auth. A site still on plain permalinks serves its
+	// homepage for /wp-json/, so fall back to the ?rest_route= form.
+	var body []byte
+	var err error
+	for i, connectURL := range connectEndpoints(wpURL) {
+		body, err = connectPost(connectURL, username, password, serverURL, flagConnectSkipSSL)
+		if err == nil && looksLikeJSON(body) {
+			break
+		}
+		if err == nil && i == 0 {
+			fmt.Println("The /wp-json/ path did not answer with JSON (plain permalinks?), retrying with ?rest_route=...")
+		}
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -727,4 +735,18 @@ func writeServerTokenFile(token string) (string, error) {
 		return "", err
 	}
 	return action, nil
+}
+
+// connectEndpoints lists the connect URL forms to try, pretty permalinks first.
+func connectEndpoints(wpURL string) []string {
+	return []string{
+		wpURL + "/wp-json/captaincore/v1/cli/connect",
+		wpURL + "/?rest_route=/captaincore/v1/cli/connect",
+	}
+}
+
+// looksLikeJSON reports whether a response body starts like a JSON document.
+func looksLikeJSON(body []byte) bool {
+	trimmed := bytes.TrimSpace(body)
+	return len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[')
 }

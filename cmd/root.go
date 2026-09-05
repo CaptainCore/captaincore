@@ -127,9 +127,16 @@ func resolveNativeOrWP(c *cobra.Command, args []string, native func(*cobra.Comma
 }
 
 // dbHasData checks whether the SQLite database has been populated with site data.
+// dbHasData reports whether `captaincore connect` has populated the database.
+// A freshly connected Manager may legitimately have zero sites, so the stored
+// configurations row counts as connected too.
 func dbHasData() bool {
 	var count int64
 	models.DB.Table("captaincore_sites").Count(&count)
+	if count > 0 {
+		return true
+	}
+	models.DB.Table("captaincore_configurations").Count(&count)
 	return count > 0
 }
 
