@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- `snapshot fetch-link` hands back a working download link again. It read the Backblaze account id, key and bucket id from captain config keys that only ever existed in the embedded-WordPress era, so after 1.0.0 it authorized as nobody, and because the Backblaze responses were never checked for an error status it reported success and returned a URL whose `Authorization` was blank. Anyone following it got a storage password prompt instead of their archive. The link is now minted with `rclone link` against the same remote `snapshot generate` uploads to, where the credentials already live, and anything that is not a link is reported as an error rather than printed as one.
+
 ## [1.0.0] - 2026-09-05
 
 ### Overview
