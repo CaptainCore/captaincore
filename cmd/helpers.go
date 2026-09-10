@@ -1,13 +1,9 @@
 package cmd
 
 import (
-	"bytes"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -384,71 +380,6 @@ func getVarString(captain *config.CaptainConfig, key string) string {
 		return s
 	}
 	return strings.TrimSpace(string(v))
-}
-
-// b2AuthorizeDownload performs the two-step Backblaze B2 authorization flow
-// and returns a download authorization token.
-func b2AuthorizeDownload(accountID, accountKey, bucketID, fileNamePrefix string) (string, error) {
-	// Step 1: Authorize account
-	credentials := base64.StdEncoding.EncodeToString([]byte(accountID + ":" + accountKey))
-	req, err := http.NewRequest("GET", "https://api.backblazeb2.com/b2api/v1/b2_authorize_account", nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", "Basic "+credentials)
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	var authResp struct {
-		AuthorizationToken string `json:"authorizationToken"`
-	}
-	if err := json.Unmarshal(body, &authResp); err != nil {
-		return "", err
-	}
-
-	// Step 2: Get download authorization
-	postData, _ := json.Marshal(map[string]interface{}{
-		"bucketId":               bucketID,
-		"validDurationInSeconds": 604800,
-		"fileNamePrefix":         fileNamePrefix,
-	})
-
-	req2, err := http.NewRequest("POST", "https://api001.backblazeb2.com/b2api/v1/b2_get_download_authorization", bytes.NewReader(postData))
-	if err != nil {
-		return "", err
-	}
-	req2.Header.Set("Authorization", authResp.AuthorizationToken)
-
-	resp2, err := client.Do(req2)
-	if err != nil {
-		return "", err
-	}
-	defer resp2.Body.Close()
-
-	body2, err := io.ReadAll(resp2.Body)
-	if err != nil {
-		return "", err
-	}
-
-	var dlResp struct {
-		AuthorizationToken string `json:"authorizationToken"`
-	}
-	if err := json.Unmarshal(body2, &dlResp); err != nil {
-		return "", err
-	}
-
-	return dlResp.AuthorizationToken, nil
 }
 
 // parseThresholdDuration converts a human-friendly threshold string into a time.Duration.

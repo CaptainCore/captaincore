@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -277,20 +279,64 @@ func snapshotFetchLinkNative(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	accountID := captain.Keys["b2_account_id"]
-	accountKey := captain.Keys["b2_account_key"]
-	bucketID := captain.Keys["b2_bucket_id"]
-
-	b2Snapshots, b2Folder := getB2SnapshotsPath(captain, system)
-
-	auth, err := b2AuthorizeDownload(accountID, accountKey, bucketID, b2Folder+"/")
-	if err != nil {
-		fmt.Printf("Error: B2 authorization failed: %v\n", err)
+	// Mint the link with rclone against the same remote `snapshot generate`
+	// uploaded to. The storage credentials live in the rclone config and
+	// nowhere else: the hand-rolled Backblaze call this replaced read them
+	// from captain keys that the embedded-WordPress era used to define, so
+	// after that era ended it authorized with an empty account and handed
+	// back a URL whose Authorization was blank.
+	remote := ""
+	if system != nil {
+		if idx := strings.Index(system.RcloneSnapshot, ":"); idx > 0 {
+			remote = system.RcloneSnapshot[:idx]
+		}
+	}
+	if remote == "" {
+		fmt.Println("Error: No snapshot remote configured (system.rclone_snapshot).")
 		return
 	}
 
-	url := fmt.Sprintf("https://f001.backblazeb2.com/file/%s/%s?Authorization=%s", b2Snapshots, snapshot.SnapshotName, auth)
-	fmt.Print(url)
+	b2Snapshots, _ := getB2SnapshotsPath(captain, system)
+	if b2Snapshots == "" {
+		fmt.Println("Error: No snapshot path configured.")
+		return
+	}
+
+	rclonePath, err := exec.LookPath("rclone")
+	if err != nil {
+		fmt.Println("Error: rclone is not installed on this server.")
+		return
+	}
+
+	target := fmt.Sprintf("%s:%s/%s", remote, strings.Trim(b2Snapshots, "/"), snapshot.SnapshotName)
+	command := exec.Command(rclonePath, "link", "--expire", "24h", target)
+	// Keep stderr off stdout so a warning can never end up inside the URL.
+	var stdout, stderr bytes.Buffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	if err := command.Run(); err != nil {
+		detail := strings.TrimSpace(stderr.String())
+		if detail == "" {
+			detail = err.Error()
+		}
+		fmt.Printf("Error: Could not generate a download link: %s\n", lastLine(detail))
+		return
+	}
+
+	link := strings.TrimSpace(stdout.String())
+	// Never hand back anything that is not a link - the caller redirects to
+	// whatever this prints.
+	if !strings.HasPrefix(link, "https://") {
+		fmt.Println("Error: Storage returned no download link for this snapshot.")
+		return
+	}
+	fmt.Print(link)
+}
+
+// lastLine keeps an error message to its final, most specific line.
+func lastLine(text string) string {
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	return strings.TrimSpace(lines[len(lines)-1])
 }
 
 func init() {
