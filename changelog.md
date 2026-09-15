@@ -5,6 +5,7 @@
 ### Added
 
 - **`captaincore scan <path>...`** and the `scan` package: a native malware scanner that runs CaptainCore's own rule set (`lib/malware-signatures.json`, version 2 schema, plus drop-ins under `lib/malware-signatures.d/`) over files or directories with literal prefilters, RE2 patterns, per-rule path scoping and sha256 indicators. Output as text, JSON or the CSV columns the quicksave malware alerts already use; `--files-from=-` takes a path list on stdin; exit status 1 when anything is found. The rule file carries the detections from the `malware-hunt` and `sals-detector` remote scripts plus the createadmin theme backdoor, and `go test ./scan` checks the shipped rules against synthetic samples, a set of legitimate code shapes that must stay quiet, and, when `CAPTAINCORE_SCAN_CORPUS` is set, the Wordfence ground-truth corpus. Groundwork for retiring the Wordfence CLI dependency, which is discontinued on 2026-10-14.
+- **Shadow mode for the quicksave malware hooks.** The three scans inside `quicksave generate` (changed files, core checksum extras, loose wp-content PHP) now share one helper that runs the Wordfence CLI and the native scanner side by side, appends a comparison line per run to `~/.captaincore/logs/malware-shadow.jsonl`, and alerts from Wordfence while it works and from the native scanner (high severity and above) the moment the binary is missing or fails. `CAPTAINCORE_MALWARE_ENGINE=native|wordfence|both` picks the mode; the malware-alert payload gains a `source` field.
 
 ### Fixed
 
