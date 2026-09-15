@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`captaincore scan <path>...`** and the `scan` package: a native malware scanner that runs CaptainCore's own rule set (`lib/malware-signatures.json`, version 2 schema, plus drop-ins under `lib/malware-signatures.d/`) over files or directories with literal prefilters, RE2 patterns, per-rule path scoping and sha256 indicators. Output as text, JSON or the CSV columns the quicksave malware alerts already use; `--files-from=-` takes a path list on stdin; exit status 1 when anything is found. The rule file carries the detections from the `malware-hunt` and `sals-detector` remote scripts plus the createadmin theme backdoor, and `go test ./scan` checks the shipped rules against synthetic samples, a set of legitimate code shapes that must stay quiet, and, when `CAPTAINCORE_SCAN_CORPUS` is set, the Wordfence ground-truth corpus. Groundwork for retiring the Wordfence CLI dependency, which is discontinued on 2026-10-14.
+
 ### Fixed
 
 - `snapshot fetch-link` hands back a working download link again. It read the Backblaze account id, key and bucket id from captain config keys that only ever existed in the embedded-WordPress era, so after 1.0.0 it authorized as nobody, and because the Backblaze responses were never checked for an error status it reported success and returned a URL whose `Authorization` was blank. Anyone following it got a storage password prompt instead of their archive. The link is now minted with `rclone link` against the same remote `snapshot generate` uploads to, where the credentials already live, and anything that is not a link is reported as an error rather than printed as one.
