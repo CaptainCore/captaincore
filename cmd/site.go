@@ -3,7 +3,6 @@ package cmd
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,7 +14,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"github.com/CaptainCore/captaincore/models"
@@ -230,20 +228,6 @@ var sshRefreshCmd = &cobra.Command{
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		resolveNativeOrWP(cmd, args, siteSSHRefreshNative)
-	},
-}
-
-var siteVulnScanCmd = &cobra.Command{
-	Use:   "vuln-scan <site>",
-	Short: "Run vulnerability scan on a site",
-	Args: func(cmd *cobra.Command, args []string) error {
-		if len(args) < 1 {
-			return errors.New("requires a <site> argument")
-		}
-		return nil
-	},
-	Run: func(cmd *cobra.Command, args []string) {
-		resolveNativeOrWP(cmd, args, siteVulnScanNative)
 	},
 }
 
@@ -893,159 +877,6 @@ func siteSyncNative(cmd *cobra.Command, args []string) {
 	}
 }
 
-// siteVulnScanNative implements `captaincore site vuln-scan <site>` natively in Go.
-func siteVulnScanNative(cmd *cobra.Command, args []string) {
-	sa := parseSiteArgument(args[0])
-	site, err := sa.LookupSite()
-	if err != nil || site == nil {
-		fmt.Printf("Error: Site '%s' not found.", sa.SiteName)
-		return
-	}
-
-	env, err := sa.LookupEnvironment(site.SiteID)
-	if err != nil || env == nil {
-		return
-	}
-
-	// --cached: display stored results without re-scanning
-	if flagCached {
-		displayVulnResults(env, site.Site)
-		return
-	}
-
-	_, system, captain, err := loadCaptainConfig()
-	if err != nil || system == nil {
-		fmt.Println("Error: Configuration file not found.")
-		return
-	}
-
-	siteDir := fmt.Sprintf("%s_%d", site.Site, site.SiteID)
-	envName := strings.ToLower(env.Environment)
-	sitePath := filepath.Join(system.Path, siteDir, envName, "quicksave")
-
-	fmt.Printf("Running Wordfence scan %s %s environment\n", site.Site, env.Environment)
-
-	// Run wordfence vuln-scan
-	scanCmd := exec.Command("bash", "-c", fmt.Sprintf(
-		"if [ -d %s ]; then cd %s; wordfence vuln-scan --plugin-directory plugins/ --theme-directory themes/ --output-format csv --output-headers --no-banner --quiet 2>/dev/null; fi",
-		sitePath, sitePath))
-	scanOutput, _ := scanCmd.Output()
-	responseStr := strings.TrimSpace(string(scanOutput))
-
-	if responseStr == "" {
-		fmt.Println("Discovered 0 vulnerabilities")
-		updateEnvironmentDetails(env.EnvironmentID, site.SiteID, map[string]interface{}{
-			"vuln_scan": []interface{}{},
-		}, system, captain)
-		return
-	}
-
-	// Parse CSV
-	reader := csv.NewReader(strings.NewReader(responseStr))
-	records, err := reader.ReadAll()
-	if err != nil || len(records) < 1 {
-		fmt.Println("Discovered 0 vulnerabilities")
-		updateEnvironmentDetails(env.EnvironmentID, site.SiteID, map[string]interface{}{
-			"vuln_scan": []interface{}{},
-		}, system, captain)
-		return
-	}
-
-	headers := records[0]
-	var data []map[string]string
-	for _, row := range records[1:] {
-		entry := make(map[string]string)
-		for i, header := range headers {
-			if i < len(row) {
-				entry[header] = row[i]
-			}
-		}
-		data = append(data, entry)
-	}
-
-	fmt.Printf("Discovered %d vulnerabilities\n", len(data))
-
-	updateEnvironmentDetails(env.EnvironmentID, site.SiteID, map[string]interface{}{
-		"vuln_scan": data,
-	}, system, captain)
-
-	// Re-fetch environment to get updated details
-	env, _ = models.GetEnvironmentByID(env.EnvironmentID)
-	displayVulnResults(env, site.Site)
-}
-
-// displayVulnResults reads the vuln_scan key from environment details and prints a formatted table.
-func displayVulnResults(env *models.Environment, siteName string) {
-	var details map[string]json.RawMessage
-	if env.Details == "" {
-		fmt.Println("No vulnerability data found.")
-		return
-	}
-	if err := json.Unmarshal([]byte(env.Details), &details); err != nil {
-		fmt.Println("No vulnerability data found.")
-		return
-	}
-	raw, ok := details["vuln_scan"]
-	if !ok {
-		fmt.Println("No vulnerability data found.")
-		return
-	}
-
-	var vulns []map[string]string
-	if err := json.Unmarshal(raw, &vulns); err != nil {
-		fmt.Println("No vulnerability data found.")
-		return
-	}
-
-	if len(vulns) == 0 {
-		fmt.Printf("\nVulnerabilities for %s (%s)\n\nNo vulnerabilities found.\n", siteName, env.Environment)
-		return
-	}
-
-	// Sort by CVSS score descending (critical first)
-	sort.Slice(vulns, func(i, j int) bool {
-		scoreI, _ := strconv.ParseFloat(vulns[i]["cvss_score"], 64)
-		scoreJ, _ := strconv.ParseFloat(vulns[j]["cvss_score"], 64)
-		return scoreI > scoreJ
-	})
-
-	fmt.Printf("\nVulnerabilities for %s (%s)\n\n", siteName, env.Environment)
-
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, "SEVERITY\tCVE\tSOFTWARE\tTITLE\tPATCHED")
-
-	for _, v := range vulns {
-		severity := v["cvss_rating"]
-		if severity == "" {
-			severity = "-"
-		}
-		cve := v["cve"]
-		if cve == "" {
-			cve = "-"
-		}
-		software := v["slug"]
-		if ver := v["version"]; ver != "" {
-			software += " " + ver
-		}
-		title := v["title"]
-		if len(title) > 55 {
-			title = title[:52] + "..."
-		}
-		patched := v["patched"]
-		switch strings.ToLower(patched) {
-		case "true", "1":
-			patched = "Yes"
-		case "false", "0":
-			patched = "No"
-		case "":
-			patched = "-"
-		}
-
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", severity, cve, software, title, patched)
-	}
-	w.Flush()
-}
-
 // siteSSHFailNative implements `captaincore site ssh-fail <site>` natively in Go.
 func siteSSHFailNative(cmd *cobra.Command, args []string) {
 	sa := parseSiteArgument(args[0])
@@ -1562,9 +1393,9 @@ func siteSearchNative(cmd *cobra.Command, args []string) {
 
 // siteOrphanFolder is a disk folder classified relative to active sites.
 type siteOrphanFolder struct {
-	Name       string
-	SiteID     uint
-	Size       int64
+	Name   string
+	SiteID uint
+	Size   int64
 	// Expected is set when site_id is still active under a different folder name.
 	Expected string
 }
@@ -1962,7 +1793,6 @@ func init() {
 	siteCmd.AddCommand(siteDeployDefaultsCmd)
 	siteCmd.AddCommand(siteDeployKeysCmd)
 	siteCmd.AddCommand(siteStatsGenerateCmd)
-	siteCmd.AddCommand(siteVulnScanCmd)
 	siteCmd.AddCommand(syncSiteCmd)
 	siteCmd.AddCommand(syncBatchSiteCmd)
 	siteCmd.AddCommand(siteSearchCmd)
@@ -1985,7 +1815,6 @@ func init() {
 	listCmd.Flags().StringVarP(&flagField, "field", "", "", "Return certain field")
 	siteSearchCmd.Flags().StringVarP(&flagField, "field", "", "", "Return certain field")
 	siteSearchCmd.Flags().StringVarP(&flagSearchField, "search-field", "", "", "Search specific field")
-	siteVulnScanCmd.Flags().BoolVarP(&flagCached, "cached", "", false, "Display stored results without re-scanning")
 	siteOrphansCmd.Flags().BoolVar(&flagConfirm, "confirm", false, "Actually delete orphaned folders (requires --from-list)")
 	siteOrphansCmd.Flags().StringVar(&flagOrphansWriteList, "write-list", "", "Write candidate folder names to a file for review")
 	siteOrphansCmd.Flags().StringVar(&flagOrphansFromList, "from-list", "", "Only consider/delete folders named in this allowlist file")
