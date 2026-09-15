@@ -20,6 +20,7 @@ import (
 
 	"github.com/CaptainCore/captaincore/config"
 	"github.com/CaptainCore/captaincore/models"
+	"github.com/CaptainCore/captaincore/scan"
 	"github.com/spf13/cobra"
 )
 
@@ -1313,15 +1314,15 @@ func quicksaveGetGenerateNative(cmd *cobra.Command, args []string) {
 	status := gitShow("show", hash, "--shortstat", "--format=")
 
 	type themePlugin struct {
-		Name           string      `json:"name"`
-		Title          string      `json:"title,omitempty"`
-		Status         string      `json:"status"`
-		Version        string      `json:"version"`
-		Changed        *bool       `json:"changed,omitempty"`
-		New            *bool       `json:"new,omitempty"`
-		ChangedVersion string      `json:"changed_version,omitempty"`
-		ChangedStatus  string      `json:"changed_status,omitempty"`
-		ChangedTitle   string      `json:"changed_title,omitempty"`
+		Name           string                     `json:"name"`
+		Title          string                     `json:"title,omitempty"`
+		Status         string                     `json:"status"`
+		Version        string                     `json:"version"`
+		Changed        *bool                      `json:"changed,omitempty"`
+		New            *bool                      `json:"new,omitempty"`
+		ChangedVersion string                     `json:"changed_version,omitempty"`
+		ChangedStatus  string                     `json:"changed_status,omitempty"`
+		ChangedTitle   string                     `json:"changed_title,omitempty"`
 		Extra          map[string]json.RawMessage `json:"-"`
 	}
 
@@ -1727,17 +1728,8 @@ var quicksaveMalwareScanCmd = &cobra.Command{
 	},
 }
 
-// malwareSignature represents a single malware detection rule.
-type malwareSignature struct {
-	ID           string   `json:"id"`
-	Name         string   `json:"name"`
-	Severity     string   `json:"severity"`
-	Patterns     []string `json:"patterns"`
-	Description  string   `json:"description"`
-	ExcludePaths []string `json:"exclude_paths"`
-}
-
-// malwareFinding represents a single match found during scanning.
+// malwareFinding is the output row of `quicksave malware-scan`, built from a
+// scan.Finding so the JSON shape stays stable.
 type malwareFinding struct {
 	SignatureID   string `json:"signature_id"`
 	SignatureName string `json:"signature_name"`
@@ -1745,87 +1737,6 @@ type malwareFinding struct {
 	File          string `json:"file"`
 	Line          int    `json:"line"`
 	Match         string `json:"match"`
-}
-
-// loadMalwareSignatures reads the signatures JSON file.
-func loadMalwareSignatures() ([]malwareSignature, error) {
-	home, _ := os.UserHomeDir()
-	sigPath := filepath.Join(home, ".captaincore", "lib", "malware-signatures.json")
-	data, err := os.ReadFile(sigPath)
-	if err != nil {
-		return nil, fmt.Errorf("could not read malware signatures: %w", err)
-	}
-	var sigs []malwareSignature
-	if err := json.Unmarshal(data, &sigs); err != nil {
-		return nil, fmt.Errorf("could not parse malware signatures: %w", err)
-	}
-	return sigs, nil
-}
-
-// compiledSig holds a malware signature with pre-compiled regex patterns.
-type compiledSig struct {
-	Sig      malwareSignature
-	Patterns []*regexp.Regexp
-}
-
-// scanFileForMalware checks a single file against all compiled signature patterns.
-func scanFileForMalware(filePath string, relPath string, compiledSigs []compiledSig) []malwareFinding {
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil
-	}
-
-	// Skip binary files (check first 512 bytes for null bytes)
-	checkLen := 512
-	if len(data) < checkLen {
-		checkLen = len(data)
-	}
-	for _, b := range data[:checkLen] {
-		if b == 0 {
-			return nil
-		}
-	}
-
-	lines := strings.Split(string(data), "\n")
-	var findings []malwareFinding
-
-	for _, cs := range compiledSigs {
-		// Check exclude paths
-		excluded := false
-		for _, ep := range cs.Sig.ExcludePaths {
-			if strings.Contains(relPath, ep) {
-				excluded = true
-				break
-			}
-		}
-		if excluded {
-			continue
-		}
-
-		for lineNum, line := range lines {
-			for _, pat := range cs.Patterns {
-				if pat.MatchString(line) {
-					matchText := line
-					if len(matchText) > 200 {
-						matchText = matchText[:200] + "..."
-					}
-					findings = append(findings, malwareFinding{
-						SignatureID:   cs.Sig.ID,
-						SignatureName: cs.Sig.Name,
-						Severity:      cs.Sig.Severity,
-						File:          relPath,
-						Line:          lineNum + 1,
-						Match:         strings.TrimSpace(matchText),
-					})
-					// One match per signature per file is enough
-					goto nextSig
-				}
-			}
-		}
-	nextSig:
-	}
-
-	return findings
 }
 
 // malwareScanTarget represents a site environment to scan for malware.
@@ -2038,37 +1949,19 @@ func quicksaveMalwareScanFull(targets []malwareScanTarget) {
 
 // quicksaveMalwareScanSignatures runs the built-in signature scanner against quicksave directories.
 func quicksaveMalwareScanSignatures(targets []malwareScanTarget) {
-	sigs, err := loadMalwareSignatures()
+	rs, err := scan.LoadDefaultRuleSet()
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-
-	// Compile all regex patterns once
-	var compiled []compiledSig
-	for _, sig := range sigs {
-		var patterns []*regexp.Regexp
-		for _, p := range sig.Patterns {
-			re, err := regexp.Compile(p)
-			if err != nil {
-				fmt.Printf("Warning: invalid regex in signature %s: %s\n", sig.ID, p)
-				continue
-			}
-			patterns = append(patterns, re)
-		}
-		if len(patterns) > 0 {
-			compiled = append(compiled, compiledSig{Sig: sig, Patterns: patterns})
-		}
+	scanner := scan.New(rs, scan.Options{})
+	for _, e := range scanner.Errors {
+		fmt.Printf("Warning: %v\n", e)
 	}
 
 	// Scan each target
 	totalFindings := 0
 	infectedSites := 0
-
-	// File extensions to scan
-	scannableExts := map[string]bool{
-		".php": true, ".phtml": true, ".phar": true, ".php5": true,
-	}
 
 	isFleet := len(targets) > 1
 
@@ -2083,27 +1976,15 @@ func quicksaveMalwareScanSignatures(targets []malwareScanTarget) {
 		}
 
 		var siteFindings []malwareFinding
-
-		// Walk plugins/, themes/, mu-plugins/
-		for _, subdir := range []string{"plugins", "themes", "mu-plugins"} {
-			dirPath := filepath.Join(target.ScanPath, subdir)
-			if _, err := os.Stat(dirPath); os.IsNotExist(err) {
-				continue
-			}
-
-			filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
-				if err != nil || info.IsDir() {
-					return nil
-				}
-				ext := strings.ToLower(filepath.Ext(path))
-				if !scannableExts[ext] {
-					return nil
-				}
-				relPath, _ := filepath.Rel(target.ScanPath, path)
-				findings := scanFileForMalware(path, relPath, compiled)
-				siteFindings = append(siteFindings, findings...)
-				return nil
+		result := scanner.ScanDir(target.ScanPath)
+		for _, f := range result.Findings {
+			siteFindings = append(siteFindings, malwareFinding{
+				SignatureID: f.RuleID, SignatureName: f.Name, Severity: f.Severity,
+				File: f.File, Line: f.Line, Match: f.Match,
 			})
+		}
+		for _, e := range result.Errors {
+			fmt.Fprintf(os.Stderr, "Warning: %s\n", e)
 		}
 
 		if len(siteFindings) > 0 {
@@ -2414,8 +2295,8 @@ func sanitizeDatabaseSQL(sqlPath string, stdout io.Writer, cache *os.File) {
 	detectedPrefix := ""
 	inMultiLineComment := false
 	inSkippedInsert := false
-	inMultiValueInsert := false   // inside a multi-value INSERT VALUES block
-	multiValueInsertPrefix := ""  // "INSERT INTO `table` VALUES " for rewriting rows
+	inMultiValueInsert := false  // inside a multi-value INSERT VALUES block
+	multiValueInsertPrefix := "" // "INSERT INTO `table` VALUES " for rewriting rows
 
 	// Regex patterns for prefix detection from known WP tables
 	// Captures prefix WITH trailing underscore (e.g. "wp_", "custom_")
@@ -3006,11 +2887,11 @@ func quicksaveCacheCheckNative(cmd *cobra.Command, args []string) {
 	formatFlag, _ := cmd.Flags().GetString("format")
 	if formatFlag == "json" {
 		jsonOut, _ := json.Marshal(map[string]interface{}{
-			"site":       siteLabel,
-			"repo_id":    repoConfig.ID,
-			"cache_path": cachePath,
+			"site":        siteLabel,
+			"repo_id":     repoConfig.ID,
+			"cache_path":  cachePath,
 			"cache_bytes": cacheSize,
-			"cache_size": formatBytes(strconv.FormatInt(cacheSize, 10)),
+			"cache_size":  formatBytes(strconv.FormatInt(cacheSize, 10)),
 		})
 		fmt.Println(string(jsonOut))
 	} else {
