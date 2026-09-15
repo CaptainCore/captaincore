@@ -170,18 +170,18 @@ echo "mu_plugins:$(trim "$mu_plugins")"
 echo "core:$(trim "$core")"
 echo "home_url:$(trim "$home_url")"
 echo "users:$(trim "$users")"
-echo "database_name:${db_name}"
-echo "database_username:${db_username}"
-echo "database_password:${db_password}"
-echo "core_verify_checksums:${core_verify_checksums}"
+echo "database_name:$(trim "$db_name")"
+echo "database_username:$(trim "$db_username")"
+echo "database_password:$(trim "$db_password")"
+echo "core_verify_checksums:$(trim "$core_verify_checksums")"
 echo "subsite_count:$(trim "$subsite_count")"
-echo "php_memory:${php_memory}"
-echo "default_role:${default_role}"
-echo "registration:${registration}"
-echo "token:${token}"
-echo "core_checksum_details:${core_verify_checksums_json}"
-echo "plugin_checksum_details:${plugin_checksum_details_json}"
-echo "php_version:${php_version}"
+echo "php_memory:$(trim "$php_memory")"
+echo "default_role:$(trim "$default_role")"
+echo "registration:$(trim "$registration")"
+echo "token:$(trim "$token")"
+echo "core_checksum_details:$(trim "$core_verify_checksums_json")"
+echo "plugin_checksum_details:$(trim "$plugin_checksum_details_json")"
+echo "php_version:$(trim "$php_version")"
 echo "db_size:$(wp db size --size_format=b --skip-themes --skip-plugins --skip-packages 2>/dev/null | tail -1 | cut -f2)"
 
 # Security log table size (bytes) and row count from information_schema
@@ -239,7 +239,7 @@ error_logs_json=$(echo "$error_log_php" | wp eval-file - --skip-themes --skip-pl
 if [[ -z "$error_logs_json" ]]; then
     error_logs_json="[]"
 fi
-echo "error_logs:${error_logs_json}"
+echo "error_logs:$(trim "$error_logs_json")"
 
 # Session / privilege signal — compromise telemetry for WP Registry session-anomaly detection.
 # Efficient by design: NEVER loads all users. Scans capability ROLE definitions + a targeted
@@ -377,7 +377,7 @@ session_signal_json=$(echo "$session_signal_php" | wp eval-file - --skip-themes 
 if [[ -z "$session_signal_json" ]]; then
     session_signal_json="{}"
 fi
-echo "session_signal:${session_signal_json}"
+echo "session_signal:$(trim "$session_signal_json")"
 
 # Per-component SHA256 content hashes for plugins, themes, and mu-plugins
 # Uses -type f to hash regular files, and -type l to include symlink targets/paths.
@@ -641,4 +641,4 @@ capture_plugin_pages_json=$(echo "$capture_pages_php" | wp eval-file - --skip-th
 if [[ -z "$capture_plugin_pages_json" ]]; then
     capture_plugin_pages_json="[]"
 fi
-echo "capture_plugin_pages:${capture_plugin_pages_json}"
+echo "capture_plugin_pages:$(trim "$capture_plugin_pages_json")"
