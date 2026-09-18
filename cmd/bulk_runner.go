@@ -307,9 +307,6 @@ func collectBulkFlags() []string {
 	if flagUpdateExtras {
 		flags = append(flags, "--update-extras")
 	}
-	if flagDeleteAfterSnapshot {
-		flags = append(flags, "--delete-after-snapshot")
-	}
 	if flagNotes != "" {
 		flags = append(flags, "--notes="+flagNotes)
 	}

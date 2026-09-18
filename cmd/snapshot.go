@@ -24,7 +24,7 @@ var snapshotCmd = &cobra.Command{
 }
 
 var snapshotGenerateCmd = &cobra.Command{
-	Use:   "generate <site> [--email=<email>] [--notes=<notes>] [--filter=<filter-options>] [--skip-remote] [--delete-after-snapshot]",
+	Use:   "generate <site> [--email=<email>] [--notes=<notes>] [--filter=<filter-options>] [--skip-remote]",
 	Short: "Generates new snapshot for a site",
 	Args: func(cmd *cobra.Command, args []string) error {
 		if len(args) < 1 {
@@ -346,7 +346,6 @@ func init() {
 	snapshotCmd.AddCommand(snapshotListCmd)
 	snapshotCmd.AddCommand(snapshotAddCmd)
 	snapshotGenerateCmd.Flags().BoolVarP(&flagSkipRemote, "skip-remote", "", false, "Skip sending snapshot to remote storage provider")
-	snapshotGenerateCmd.Flags().BoolVarP(&flagDeleteAfterSnapshot, "delete-after-snapshot", "", false, "Delete site after making final snapshot")
 	snapshotGenerateCmd.Flags().StringVarP(&flagEmail, "email", "e", "", "Notify email address")
 	snapshotGenerateCmd.Flags().StringVarP(&flagNotes, "notes", "n", "", "Adds a note about the snapshot")
 	snapshotGenerateCmd.Flags().StringVarP(&flagUserId, "user-id", "u", "", "User ID")

@@ -41,8 +41,20 @@ var siteDeployKeysCmd = &cobra.Command{
 }
 
 var deleteCmd = &cobra.Command{
-	Use:   "delete <site>",
+	Use:   "delete <site> [--keep-files] [--skip-snapshot] [--dry-run]",
 	Short: "Delete a site",
+	Long: `Removes a site from CaptainCore.
+
+Takes a final full-site snapshot of every environment (uploaded to the
+snapshot archive, emailed to the admin address), removes the site's folder
+under system.path, purges the site's folder under rclone_backup, drops the
+site from the local database and tells the Manager. Only {slug}_{id}
+directly under those two roots is ever touched; anything that resolves
+elsewhere (a symlink, an odd slug, a bare remote) stops the delete.
+
+  --keep-files      only drop the database rows; leave local and remote files
+  --skip-snapshot   delete without the final snapshot
+  --dry-run         print what would happen and exit`,
 	Args: func(cmd *cobra.Command, args []string) error {
 		if len(args) < 1 {
 			return errors.New("requires a <site> argument")
@@ -1321,44 +1333,6 @@ func siteDeployDefaultsNative(cmd *cobra.Command, args []string) {
 	}
 }
 
-// siteDeleteNative implements `captaincore site delete <site>` natively in Go.
-func siteDeleteNative(cmd *cobra.Command, args []string) {
-	siteArg := args[0]
-	var site *models.Site
-	var err error
-
-	// If numeric, treat as site_id; otherwise parse site argument
-	if id, parseErr := strconv.ParseUint(siteArg, 10, 64); parseErr == nil {
-		site, err = models.GetSiteByID(uint(id))
-	} else {
-		sa := parseSiteArgument(siteArg)
-		site, err = sa.LookupSite()
-	}
-
-	if err != nil || site == nil {
-		fmt.Printf("Error: Site '%s' not found.\n", siteArg)
-		return
-	}
-
-	_, system, captain, err := loadCaptainConfig()
-	if err != nil || system == nil {
-		fmt.Println("Error: Configuration file not found.")
-		return
-	}
-
-	// Delete from local database
-	models.DeleteSiteByID(site.SiteID)
-
-	// Post to CaptainCore API
-	client := newAPIClient(system, captain)
-	resp, err := client.Post("site-delete", map[string]interface{}{
-		"site_id": site.SiteID,
-	})
-	if err == nil {
-		fmt.Print(string(resp))
-	}
-}
-
 // siteSearchNative implements `captaincore site search <search-term>` natively in Go.
 func siteSearchNative(cmd *cobra.Command, args []string) {
 	search := args[0]
@@ -1782,6 +1756,9 @@ func (r *recipeID) UnmarshalJSON(data []byte) error {
 func init() {
 	rootCmd.AddCommand(siteCmd)
 	siteCmd.AddCommand(deleteCmd)
+	deleteCmd.Flags().BoolVar(&flagDeleteKeepFiles, "keep-files", false, "Only remove the site from the database; keep local and remote files")
+	deleteCmd.Flags().BoolVar(&flagDeleteSkipSnapshot, "skip-snapshot", false, "Skip the final snapshot before deleting files")
+	deleteCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "Show what would be deleted without deleting anything")
 	siteCmd.AddCommand(getCmd)
 	siteCmd.AddCommand(listCmd)
 	siteCmd.AddCommand(keyGenerateCmd)

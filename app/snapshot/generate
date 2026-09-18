@@ -23,9 +23,6 @@
 #   [--skip-remote]
 #   Skips sending to rclone remote
 #
-#   [--delete-after-snapshot]
-#   Deletes local and remote copies of site
-#
 #   [--notes=<notes>]
 #   Add description for the snapshot
 #
@@ -81,70 +78,59 @@ run_command() {
   snapshot_name="$site-$environment-$timedate.zip"
   cd $path/${site}_${site_id}/
 
-  if [[ $DELETE_AFTER_SNAPSHOT == true ]]; then
-    cd $path/
-    if [ ! -d "${site}_${site_id}/" ]; then
-      echo "Skipping snapshot, can't find $path/${site}_${site_id}/"
-      exit
-    fi
-    zip --test -q -r $snapshot_name ${site}_${site_id}/ && echo "Completed generating $snapshot_name" || echo "Failed generating $snapshot_name"
+  # Restore latest snapshot from restic to a temp directory
+  restic_repo="rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo"
+  restic_args=(--repo "$restic_repo" --password-file "${CAPTAINCORE_PATH}/data/restic.key")
+  restore_dir="$path/${site}_${site_id}/${environment}/snapshot-staging-$$"
+
+  restic restore latest --target "$restore_dir" "${restic_args[@]}"
+
+  ln -s "$restore_dir" "$snapshot_path" # create directory shortcut for naming purposes
+
+  if [[ "$FLAG_FILTER" != "" ]]; then
+
+    # Turn filter in array
+    filters=($( echo $FLAG_FILTER | tr , " "))
+
+    for option in ${filters[@]}; do
+
+      if [[ $option == "database" ]]; then
+        zip -r $snapshot_name $snapshot_path/database-backup.sql
+      fi
+
+      if [[ $option == "themes" ]]; then
+        zip --test -q -r $snapshot_name $snapshot_path/wp-content/themes/ && echo "Completed adding /wp-content/themes/ to $snapshot_name" || echo "Failed generating $snapshot_name"
+      fi
+
+      if [[ $option == "plugins" ]]; then
+        zip --test -q -r $snapshot_name $snapshot_path/wp-content/plugins/ && echo "Completed adding /wp-content/plugins/ to $snapshot_name" || echo "Failed generating $snapshot_name"
+      fi
+
+      if [[ $option == "uploads" ]]; then
+        zip --test -q -r $snapshot_name $snapshot_path/wp-content/uploads/ && echo "Completed adding /wp-content/uploads/ to $snapshot_name" || echo "Failed generating $snapshot_name"
+      fi
+
+      if [[ $option == "everything-else" ]]; then
+        zip --test -q -r $snapshot_name $snapshot_path/ --exclude=$snapshot_path/database-backup.sql --exclude=$snapshot_path/wp-content/themes/\* --exclude=$snapshot_path/wp-content/plugins/\* --exclude=$snapshot_path/wp-content/uploads/\* --exclude=$snapshot_path/_wpeprivate/\* --exclude=\*.git\* --exclude=$snapshot_path/wp-content/advanced-cache.php --exclude=$snapshot_path/wp-content/mu-plugins/mu-plugin.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$snapshot_path/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$snapshot_path/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$snapshot_path/wp-content/mu-plugins/wpengine-common/\* && echo "Completed adding everything else to $snapshot_name" || echo "Failed generating $snapshot_name"
+      fi
+
+    done
+
   fi
 
-  if [[ $DELETE_AFTER_SNAPSHOT != true ]]; then
-    # Restore latest snapshot from restic to a temp directory
-    restic_repo="rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo"
-    restic_args=(--repo "$restic_repo" --password-file "${CAPTAINCORE_PATH}/data/restic.key")
-    restore_dir="$path/${site}_${site_id}/${environment}/snapshot-staging-$$"
-
-    restic restore latest --target "$restore_dir" "${restic_args[@]}"
-
-    ln -s "$restore_dir" "$snapshot_path" # create directory shortcut for naming purposes
-
-    if [[ "$FLAG_FILTER" != "" ]]; then
-
-      # Turn filter in array
-      filters=($( echo $FLAG_FILTER | tr , " "))
-
-      for option in ${filters[@]}; do
-
-        if [[ $option == "database" ]]; then
-          zip -r $snapshot_name $snapshot_path/database-backup.sql
-        fi
-
-        if [[ $option == "themes" ]]; then
-          zip --test -q -r $snapshot_name $snapshot_path/wp-content/themes/ && echo "Completed adding /wp-content/themes/ to $snapshot_name" || echo "Failed generating $snapshot_name"
-        fi
-
-        if [[ $option == "plugins" ]]; then
-          zip --test -q -r $snapshot_name $snapshot_path/wp-content/plugins/ && echo "Completed adding /wp-content/plugins/ to $snapshot_name" || echo "Failed generating $snapshot_name"
-        fi
-
-        if [[ $option == "uploads" ]]; then
-          zip --test -q -r $snapshot_name $snapshot_path/wp-content/uploads/ && echo "Completed adding /wp-content/uploads/ to $snapshot_name" || echo "Failed generating $snapshot_name"
-        fi
-
-        if [[ $option == "everything-else" ]]; then
-          zip --test -q -r $snapshot_name $snapshot_path/ --exclude=$snapshot_path/database-backup.sql --exclude=$snapshot_path/wp-content/themes/\* --exclude=$snapshot_path/wp-content/plugins/\* --exclude=$snapshot_path/wp-content/uploads/\* --exclude=$snapshot_path/_wpeprivate/\* --exclude=\*.git\* --exclude=$snapshot_path/wp-content/advanced-cache.php --exclude=$snapshot_path/wp-content/mu-plugins/mu-plugin.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$snapshot_path/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$snapshot_path/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$snapshot_path/wp-content/mu-plugins/wpengine-common/\* && echo "Completed adding everything else to $snapshot_name" || echo "Failed generating $snapshot_name"
-        fi
-
-      done
-
-    fi
-
-    if [[ "$FLAG_FILTER" == "" ]]; then
-      # Add everything to ZIP
-      zip --test -q -r $snapshot_name $snapshot_path/ --exclude=$snapshot_path/_wpeprivate/\* --exclude=\*.git\* --exclude=$snapshot_path/wp-content/advanced-cache.php --exclude=$snapshot_path/wp-content/mu-plugins/mu-plugin.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$snapshot_path/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$snapshot_path/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$snapshot_path/wp-content/mu-plugins/wpengine-common/\*
-    fi
-
-    rm $snapshot_path  # remove directory shortcut
-    # Cleanup temp restore (safeguard: only remove if path is non-empty and inside the site directory)
-    if [[ -n "$restore_dir" && "$restore_dir" == "$path/${site}_${site_id}/${environment}/snapshot-staging-"* ]]; then
-      rm -rf "$restore_dir"
-    fi
-    mkdir -p ${environment}/snapshots
-    mv $snapshot_name ${environment}/snapshots
-    cd ${environment}/snapshots
+  if [[ "$FLAG_FILTER" == "" ]]; then
+    # Add everything to ZIP
+    zip --test -q -r $snapshot_name $snapshot_path/ --exclude=$snapshot_path/_wpeprivate/\* --exclude=\*.git\* --exclude=$snapshot_path/wp-content/advanced-cache.php --exclude=$snapshot_path/wp-content/mu-plugins/mu-plugin.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$snapshot_path/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$snapshot_path/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$snapshot_path/wp-content/mu-plugins/wpengine-common/\*
   fi
+
+  rm $snapshot_path  # remove directory shortcut
+  # Cleanup temp restore (safeguard: only remove if path is non-empty and inside the site directory)
+  if [[ -n "$restore_dir" && "$restore_dir" == "$path/${site}_${site_id}/${environment}/snapshot-staging-"* ]]; then
+    rm -rf "$restore_dir"
+  fi
+  mkdir -p ${environment}/snapshots
+  mv $snapshot_name ${environment}/snapshots
+  cd ${environment}/snapshots
 
   # Grab snapshot size in bytes
   if [[ "$OSTYPE" == "linux-gnu" ]]; then
@@ -181,18 +167,6 @@ EOM
   fi
 
     captaincore snapshot add --site-id=$site_id --environment=$environment --user-id=$FLAG_USER_ID --storage=$snapshot_size --archive="${site}-${environment}-${timedate}.zip" --email=$FLAG_EMAIL --notes="$FLAG_NOTES" --captain-id=$CAPTAIN_ID
-
-  fi
-
-  if [[ $DELETE_AFTER_SNAPSHOT == true ]]; then
-
-    echo "Removing files after snapshot"
-
-    # Removes directory from backup server
-    rm -rf $path/${site}_${site_id}/
-
-    # Remove from remote storage
-    rclone purge --fast-list $rclone_backup/${site}_${site_id}
 
   fi
 
