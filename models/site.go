@@ -330,6 +330,14 @@ func SearchSites(search, searchField string) ([]Site, error) {
 	return sites, err
 }
 
+// GetAllSites returns every site row regardless of status. The orphan
+// cleaners use this: an inactive or blank-status site still owns its folder.
+func GetAllSites() ([]Site, error) {
+	var sites []Site
+	err := DB.Order("site_id ASC").Find(&sites).Error
+	return sites, err
+}
+
 // GetAllActiveSites returns all active sites.
 func GetAllActiveSites() ([]Site, error) {
 	var sites []Site

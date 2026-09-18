@@ -1880,17 +1880,12 @@ func backupStorageCleanupNative(cmd *cobra.Command, args []string) {
 
 	rcloneBackup := getRcloneBackup(captain, system)
 
-	// Build set of active site folders from database
-	results, err := models.FetchSitesMatching(models.FetchSiteMatchingArgs{})
+	// Build the set of folders a site row still claims. Any status counts
+	// (see loadActiveSiteFolders): an inactive site still owns its backups.
+	activeFolders, _, err := loadActiveSiteFolders()
 	if err != nil {
 		fmt.Printf("Error fetching sites: %v\n", err)
 		return
-	}
-
-	activeFolders := make(map[string]bool)
-	for _, r := range results {
-		folder := fmt.Sprintf("%s_%d", r.Site, r.SiteID)
-		activeFolders[folder] = true
 	}
 
 	if len(activeFolders) == 0 {
