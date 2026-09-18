@@ -13,6 +13,7 @@
 
 ### Fixed
 
+- `captaincore server` can no longer wedge its task database. The server opened `sql.db` in rollback-journal mode with the driver's 5s busy timeout and an unbounded connection pool, so under load a writer could fail at COMMIT, keep SQLite's PENDING lock, and be returned to the pool still inside that transaction; from then on every read and write (the dashboard's task tracking and `captaincore task list`) got `SQLITE_BUSY` until a restart. The task database now runs in WAL mode with a 30s busy timeout and one connection, the same setup `captaincore.db` already had, and a failed task insert is logged instead of silently dropped.
 - `snapshot fetch-link` hands back a working download link again. It read the Backblaze account id, key and bucket id from captain config keys that only ever existed in the embedded-WordPress era, so after 1.0.0 it authorized as nobody, and because the Backblaze responses were never checked for an error status it reported success and returned a URL whose `Authorization` was blank. Anyone following it got a storage password prompt instead of their archive. The link is now minted with `rclone link` against the same remote `snapshot generate` uploads to, where the credentials already live, and anything that is not a link is reported as an error rather than printed as one.
 
 ## [1.0.0] - 2026-09-05

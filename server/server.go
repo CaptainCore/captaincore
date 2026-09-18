@@ -297,7 +297,9 @@ func newRun(w http.ResponseWriter, r *http.Request) {
 	task.Token = randomToken
 
 	prepareArgvTask(&task)
-	db.Create(&task)
+	if err := db.Create(&task).Error; err != nil {
+		log.Printf("task insert failed (command still runs): %v", err)
+	}
 
 	// Starts running CaptainCore command
 	head, args := buildExec(task, captainID)
@@ -321,7 +323,9 @@ func newRunStream(w http.ResponseWriter, r *http.Request) {
 	task.Token = randomToken
 
 	prepareArgvTask(&task)
-	db.Create(&task)
+	if err := db.Create(&task).Error; err != nil {
+		log.Printf("task insert failed (command still runs): %v", err)
+	}
 
 	// Starts running CaptainCore command
 	head, args := buildExec(task, captainID)
@@ -359,7 +363,9 @@ func newBackground(w http.ResponseWriter, r *http.Request) {
 	}
 
 	prepareArgvTask(&task)
-	db.Create(&task)
+	if err := db.Create(&task).Error; err != nil {
+		log.Printf("task insert failed (command still runs): %v", err)
+	}
 
 	// Starts running CaptainCore command
 	head, args := buildExec(task, captainID)
@@ -399,7 +405,9 @@ func newTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	prepareArgvTask(&task)
-	db.Create(&task)
+	if err := db.Create(&task).Error; err != nil {
+		log.Printf("task insert failed (command still runs): %v", err)
+	}
 	taskID := strconv.FormatUint(uint64(task.ID), 10)
 	response := "{ \"task_id\" : " + taskID + ", \"token\" : \"" + randomToken + "\" }"
 	fmt.Fprint(w, response)
@@ -670,6 +678,21 @@ func HandleRequests(d bool) {
 	//db, err = gorm.Open("sqlite3", database_file)
 	if err != nil {
 		panic("failed to connect database" + database_file)
+	}
+
+	// Same treatment models/db.go gives captaincore.db. Every request handler
+	// and every runCommand goroutine writes to `tasks`; in rollback-journal
+	// mode a reader holding SHARED past the driver's 5s busy timeout made a
+	// writer fail at COMMIT while keeping its PENDING lock, and gorm handed
+	// that connection back to the pool still inside the transaction. Nothing
+	// ever rolled it back, so every later read and write got SQLITE_BUSY until
+	// the service was restarted (2026-09-18). WAL lets readers and the writer
+	// coexist, and one connection serializes writers so the lock cannot wedge.
+	db.Exec("PRAGMA journal_mode = WAL")
+	db.Exec("PRAGMA busy_timeout = 30000")
+	db.Exec("PRAGMA synchronous = NORMAL")
+	if sqlDB, err := db.DB(); err == nil {
+		sqlDB.SetMaxOpenConns(1)
 	}
 
 	initialMigration()
