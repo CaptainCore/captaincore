@@ -19,7 +19,7 @@ import (
 )
 
 var flagDebug, flagSkipDB, flagSkipScreenshot, flagForce, flagBash, flagUpdateExtras, flagSkipRemote, flagFleet, flagInit, flagLabel, flagDryRun bool
-var flagAll, flagHtml, flagPublic, flagSkipAlreadyGenerated, flagGlobalOnly, flagDeleteAfterSnapshot, flagCached, flagRepackUncompressed, flagFull bool
+var flagAll, flagHtml, flagPublic, flagSkipAlreadyGenerated, flagGlobalOnly, flagCached, flagRepackUncompressed, flagFull bool
 var flagCode, flagCommand, flagFilter, flagFilterName, flagFilterVersion, flagFilterStatus, flagField, flagPage, flagRecipe, flagScript, flagProvider string
 var captainID, cfgFile, flagTheme, flagPlugin, flagFile, flagLimit, flagEmail, flagName, flagLink, flagNotes, flagUserId, flagFormat, flagVersion, flagSkipIfRecent, flagSubject, flagStatus, flagAction string
 var flagSearchField string
@@ -283,9 +283,6 @@ func resolveCommand(c *cobra.Command, args []string) {
 	}
 	if flagUpdateExtras == true {
 		env = append([]string{"CAPTAINCORE_UPDATE_EXTRAS=true"}, env...)
-	}
-	if flagDeleteAfterSnapshot == true {
-		env = append([]string{"DELETE_AFTER_SNAPSHOT=true"}, env...)
 	}
 	if flagNotes != "" {
 		env = append([]string{"FLAG_NOTES=" + flagNotes}, env...)

@@ -50,3 +50,17 @@ func GetSnapshotsByEnvironmentID(envID uint, limit int) ([]Snapshot, error) {
 		Find(&snapshots).Error
 	return snapshots, err
 }
+
+// LatestSnapshotByEnvironmentID returns the most recently inserted snapshot
+// for an environment, by primary key rather than created_at so two records
+// stamped in the same second still order correctly.
+func LatestSnapshotByEnvironmentID(envID uint) (*Snapshot, error) {
+	var snapshot Snapshot
+	err := DB.Where("environment_id = ?", envID).
+		Order("snapshot_id DESC").
+		First(&snapshot).Error
+	if err != nil {
+		return nil, err
+	}
+	return &snapshot, nil
+}
