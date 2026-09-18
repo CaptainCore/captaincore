@@ -143,21 +143,18 @@ func siteRemoteForDelete(rcloneBackup string, site *models.Site) (parent, target
 	return parent, target, nil
 }
 
-// remoteFolderExists lists the parent on the remote and reports whether the
-// site folder is one of its direct children. A listing failure is an error,
-// not a "no", so a bad remote never turns into a skipped purge that looks
-// clean.
-func remoteFolderExists(parent, name string) (bool, error) {
-	out, err := exec.Command("rclone", "lsf", "--dirs-only", parent+"/").Output()
+// remoteFolderExists lists the target prefix one level deep and reports
+// whether anything lives under it. On an object store a "folder" is only
+// its contents, so an empty listing means there is nothing to purge. A
+// listing failure is an error, not a "no", so a bad remote never turns into
+// a skipped purge that looks clean. (Listing the parent instead would page
+// through every site prefix on the remote: minutes on a fleet-sized bucket.)
+func remoteFolderExists(target string) (bool, error) {
+	out, err := exec.Command("rclone", "lsf", "--max-depth", "1", target+"/").Output()
 	if err != nil {
-		return false, fmt.Errorf("rclone lsf %s: %w", parent, err)
+		return false, fmt.Errorf("rclone lsf %s: %w", target, err)
 	}
-	for _, line := range strings.Split(string(out), "\n") {
-		if strings.TrimRight(strings.TrimSpace(line), "/") == name {
-			return true, nil
-		}
-	}
-	return false, nil
+	return strings.TrimSpace(string(out)) != "", nil
 }
 
 // finalSnapshotLanded checks that a snapshot newer than sinceID exists for the
@@ -233,8 +230,9 @@ func siteDeleteNative(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	name, err := siteFolderName(site)
-	if err != nil {
+	// Validate the slug up front so --keep-files and --dry-run refuse the
+	// same sites a real delete would.
+	if _, err := siteFolderName(site); err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -315,12 +313,12 @@ func siteDeleteNative(cmd *cobra.Command, args []string) {
 
 		// 3. Remote backup folder, guarded to a direct child of rclone_backup
 		//    and only when the remote listing actually shows it.
-		parent, target, err := siteRemoteForDelete(getRcloneBackup(captain, system), site)
+		_, target, err := siteRemoteForDelete(getRcloneBackup(captain, system), site)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			os.Exit(1)
 		}
-		exists, err := remoteFolderExists(parent, name)
+		exists, err := remoteFolderExists(target)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			os.Exit(1)
@@ -329,7 +327,7 @@ func siteDeleteNative(cmd *cobra.Command, args []string) {
 		case !exists:
 			fmt.Printf("Remote folder %s not present, nothing to purge.\n", target)
 		case flagDryRun:
-			fmt.Printf("  would purge remote folder %s (listed under %s/)\n", target, parent)
+			fmt.Printf("  would purge remote folder %s (has contents on the remote)\n", target)
 		default:
 			fmt.Printf("Purging remote folder %s...\n", target)
 			purge := exec.Command("rclone", "purge", "--fast-list", target)
