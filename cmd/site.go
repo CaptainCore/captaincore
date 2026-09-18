@@ -1375,8 +1375,11 @@ type siteOrphanFolder struct {
 }
 
 // loadActiveSiteFolders returns expected folder name by exact name and by site_id.
+// loadActiveSiteFolders returns every folder name a site row still claims.
+// Any status counts: an inactive site (paused, removal requested but not yet
+// deleted) still owns its folder and must never scan as an orphan.
 func loadActiveSiteFolders() (byName map[string]bool, byID map[uint]string, err error) {
-	sites, err := models.GetAllActiveSites()
+	sites, err := models.GetAllSites()
 	if err != nil {
 		return nil, nil, err
 	}
