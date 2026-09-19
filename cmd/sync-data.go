@@ -253,6 +253,28 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 		}
 	}
 
+	// Database scan (see fetch-site-data and lib/remote-scripts/db-scan): the
+	// exported rows are judged here with the malware rules, the fixed checks
+	// use the previous sync's user list, and the summary (no row contents)
+	// goes into environment details.
+	if v := strings.TrimSpace(data["db_scan"]); v != "" && v != "[]" {
+		findings, summary, err := dbScanFindings(v, knownUserLogins(envRecord.Users), nativeAlertSeverity)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  Database scan: %v\n", err)
+		} else {
+			summary.At = timeNow
+			details["db_scan"] = summary
+			if !flagSyncDataJSON {
+				fmt.Printf("  Database scan: %d option(s), %d post(s) exported; %d finding(s)\n", summary.Stats["options_exported"], summary.Stats["posts_exported"], len(findings))
+			}
+			if len(findings) > 0 {
+				if site, err := sa.LookupSite(); err == nil && site != nil {
+					postMalwareAlert(site, &matchedEnv, system, captain, findings, "db-scan")
+				}
+			}
+		}
+	}
+
 	// Payloads stashed in recently changed media (see fetch-site-data): alert
 	// on the critical and high rows the same way file findings alert.
 	if v := strings.TrimSpace(data["media_payloads"]); v != "" && v != "[]" {
