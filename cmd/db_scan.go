@@ -107,7 +107,8 @@ func dbScanFindings(raw string, knownUsers map[string]bool, minSeverity string) 
 	if err == nil {
 		defer os.RemoveAll(dir)
 		label := map[string]string{}
-		write := func(kind, key, content string) {
+		context := map[string]string{} // what the row is, for the finding description
+		write := func(kind, key, content, about string) {
 			base := kind + "-" + unsafeName.ReplaceAllString(key, "_")
 			if len(base) > 120 {
 				base = base[:120]
@@ -116,16 +117,17 @@ func dbScanFindings(raw string, knownUsers map[string]bool, minSeverity string) 
 				p := filepath.Join(dir, base+ext)
 				os.WriteFile(p, []byte(content), 0o600)
 				label[base+ext] = "db:" + kind + "/" + key
+				context[base+ext] = about
 			}
 		}
 		for _, o := range ex.Options {
-			write("option", o.Name, o.Content)
+			write("option", o.Name, o.Content, fmt.Sprintf("Option %s (%d bytes)", o.Name, o.Size))
 		}
 		for _, p := range ex.Posts {
-			write("post", fmt.Sprintf("%d", p.ID), p.Content)
+			write("post", fmt.Sprintf("%d", p.ID), p.Content, fmt.Sprintf("%s %d %q (%s, modified %s)", strings.Title(p.Type), p.ID, p.Title, p.Status, p.Modified))
 		}
 		for _, c := range ex.Comments {
-			write("comment", fmt.Sprintf("%d", c.ID), c.Content)
+			write("comment", fmt.Sprintf("%d", c.ID), c.Content, fmt.Sprintf("Comment %d on post %d", c.ID, c.Post))
 		}
 		if len(label) > 0 {
 			if rs, err := scan.LoadDefaultRuleSet(); err == nil {
@@ -144,6 +146,9 @@ func dbScanFindings(raw string, knownUsers map[string]bool, minSeverity string) 
 					seen[key] = true
 					l := f.Legacy()
 					l.Filename = where
+					if about := context[f.File]; about != "" {
+						l.SignatureDescription = about + ": " + l.SignatureDescription
+					}
 					out = append(out, l)
 				}
 			}
