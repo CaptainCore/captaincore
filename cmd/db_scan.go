@@ -165,7 +165,10 @@ func dbScanFindings(raw string, knownUsers map[string]bool, minSeverity string) 
 		add("critical", "db:event/"+e, "db-event", "Database scheduled event", "WordPress never creates MySQL events; one here runs on a timer inside the database", e)
 	}
 	for _, r := range ex.Routines {
-		add("high", "db:routine/"+r, "db-routine", "Stored routine in the database", "WordPress and its plugins do not use stored procedures or functions", r)
+		if knownRoutine(r) {
+			continue // a plugin that ships stored functions by design
+		}
+		add("high", "db:routine/"+r, "db-routine", "Stored routine in the database", "WordPress does not use stored procedures or functions, and only a handful of plugins do (those are skipped)", r)
 	}
 	// A stale active_plugins entry is ordinary: plugins deleted over SFTP stay
 	// listed until the plugins screen is opened, and WordPress skips them.
@@ -186,7 +189,7 @@ func dbScanFindings(raw string, knownUsers map[string]bool, minSeverity string) 
 			sample = sample[:5]
 		}
 		add("high", "db:option/toolkit-markers", "db-toolkit-session-markers", "Backdoor session markers in wp_options",
-			fmt.Sprintf("%d option(s) named wp_<md5 of an IP> holding a Unix timestamp, or prefixed __: the SMILODON toolkit records every admin session it sees this way, and the markers outlive file-only cleanups; a re-drop after cleanup starts by writing a new one", n),
+			fmt.Sprintf("%d option(s) named wp_<md5 of an IP> holding a Unix timestamp: the SMILODON toolkit records every admin session it sees this way, and the markers outlive file-only cleanups; a re-drop after cleanup starts by writing a new one", n),
 			strings.Join(sample, ", "))
 	}
 	for _, a := range ex.Admins {
@@ -202,6 +205,18 @@ func dbScanFindings(raw string, knownUsers map[string]bool, minSeverity string) 
 	}
 	sort.Strings(sum.Admins)
 	return out, sum, nil
+}
+
+// knownRoutine reports stored routines that plugins create on purpose:
+// Real Media Library's folder tree functions, for one.
+func knownRoutine(name string) bool {
+	n := strings.ToLower(name)
+	for _, k := range []string{"realmedialibrary", "wp_rml_", "wpstg", "sqlbuddy"} {
+		if strings.Contains(n, k) {
+			return true
+		}
+	}
+	return false
 }
 
 // knownUserLogins reads the logins out of a synced `wp user list` JSON.

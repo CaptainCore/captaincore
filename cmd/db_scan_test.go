@@ -28,7 +28,7 @@ func TestDBScanFindings(t *testing.T) {
 		"routines":           []string{},
 		"unknown_tables":     []string{"wp_html_injections"},
 		"suspicious_options": []string{"wp_html_inject_code"},
-		"toolkit_markers":    []string{"wp_612c5c61ba6218085de887a0a01f2daf", "__config_x"},
+		"toolkit_markers":    []string{"wp_612c5c61ba6218085de887a0a01f2daf"},
 		"stats":              map[string]int{"options_total": 900, "options_exported": 2, "posts_checked": 12, "posts_exported": 1},
 	}
 	raw, _ := json.Marshal(export)
