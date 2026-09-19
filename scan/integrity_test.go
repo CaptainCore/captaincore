@@ -97,7 +97,7 @@ func TestIntegrityCheckTree(t *testing.T) {
 	write(t, root, "plugins/akismet/notes.md", "hi\n")                            // unknown, not reportable
 	write(t, root, "plugins/better-search-replace/better-search-replace.php", "<?php\n/*\nPlugin Name: Better Search Replace\nVersion: 1.4.10\n*/\n")
 	write(t, root, "plugins/better-search-replace/ext/class-bsr-plugin-updater.php", "<?php // WP Engine build updater\n")
-	write(t, root, "plugins/akismet/views/two.php", "<?php // tagged build\n")    // the second accepted hash
+	write(t, root, "plugins/akismet/views/two.php", "<?php // tagged build\n") // the second accepted hash
 	write(t, root, "plugins/premium-thing/premium-thing.php", "<?php\n/*\nPlugin Name: Premium\nVersion: 2.0\n*/\n")
 	write(t, root, "plugins/no-header/lib.php", "<?php\n")
 	write(t, root, "themes/twentytwentyfour/style.css", twenty["style.css"])
