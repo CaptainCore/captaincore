@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/CaptainCore/captaincore/scan"
 )
@@ -80,6 +81,10 @@ type dbScanSummary struct {
 }
 
 var unsafeName = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
+
+// newAdminMaxAge: an administrator registered longer ago than this is a
+// stale sync list, not a new account.
+const newAdminMaxAge = 30 * 24 * time.Hour
 
 // dbScanFindings judges an export. knownUsers are the user logins the Manager
 // already had for the environment (the previous sync), so an administrator
@@ -192,11 +197,19 @@ func dbScanFindings(raw string, knownUsers map[string]bool, minSeverity string) 
 			fmt.Sprintf("%d option(s) named wp_<md5 of an IP> holding a Unix timestamp: the SMILODON toolkit records every admin session it sees this way, and the markers outlive file-only cleanups; a re-drop after cleanup starts by writing a new one", n),
 			strings.Join(sample, ", "))
 	}
+	// A new administrator is one the previous sync did not list AND whose
+	// account is young. The previous list alone is not enough: the first
+	// fleet run flagged accounts from 2016 on sites whose stored list was
+	// stale or partial.
 	for _, a := range ex.Admins {
-		if knownUsers != nil && !knownUsers[strings.ToLower(a.Login)] {
-			add("high", "db:user/"+a.Login, "db-new-administrator", "Administrator the Manager had not seen",
-				fmt.Sprintf("%s (%s) holds the administrator role and was not in the previously synced user list; registered %s", a.Login, a.Email, a.Registered), a.Login)
+		if knownUsers == nil || knownUsers[strings.ToLower(a.Login)] {
+			continue
 		}
+		if reg, err := time.Parse("2006-01-02 15:04:05", a.Registered); err != nil || time.Since(reg) > newAdminMaxAge {
+			continue
+		}
+		add("high", "db:user/"+a.Login, "db-new-administrator", "Administrator the Manager had not seen",
+			fmt.Sprintf("%s (%s) holds the administrator role, was not in the previously synced user list, and registered %s", a.Login, a.Email, a.Registered), a.Login)
 	}
 	sum := dbScanSummary{Stats: ex.Stats, Findings: len(out), PluginsMissing: ex.PluginsMissing, Triggers: ex.Triggers, Events: ex.Events,
 		Routines: ex.Routines, UnknownTables: ex.UnknownTables, SuspiciousOptions: ex.SuspiciousOptions, ToolkitMarkers: ex.ToolkitMarkers, Truncated: ex.Truncated}

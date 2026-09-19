@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDBScanFindings(t *testing.T) {
@@ -20,7 +21,8 @@ func TestDBScanFindings(t *testing.T) {
 		"comments": []map[string]any{},
 		"admins": []map[string]any{
 			{"id": 1, "login": "austin", "email": "a@example.invalid", "registered": "2020-01-01 00:00:00"},
-			{"id": 99, "login": "wpsupp-user", "email": "x@example.invalid", "registered": "2026-09-18 03:12:00"},
+			{"id": 99, "login": "wpsupp-user", "email": "x@example.invalid", "registered": time.Now().UTC().Add(-36 * time.Hour).Format("2006-01-02 15:04:05")},
+			{"id": 7, "login": "oldtimer", "email": "o@example.invalid", "registered": "2018-10-09 18:10:38"},
 		},
 		"plugins_missing":    []string{"wp-cache-helper/loader.php", "../../uploads/2024/loader.php"},
 		"triggers":           []string{"after_user_insert"},
@@ -58,6 +60,9 @@ func TestDBScanFindings(t *testing.T) {
 	if _, ok := got["db:user/austin"]; ok {
 		t.Error("a previously synced administrator must not be reported")
 	}
+	if _, ok := got["db:user/oldtimer"]; ok {
+		t.Error("an administrator registered years ago is a stale sync list, not a new account")
+	}
 	if _, ok := got["db:post/43"]; ok {
 		t.Error("a clean post must not be reported")
 	}
@@ -72,7 +77,7 @@ func TestDBScanFindings(t *testing.T) {
 	if ruleHits == 0 {
 		t.Errorf("expected rule findings on the injected rows, got %v", got)
 	}
-	if sum.Findings != len(findings) || len(sum.Admins) != 2 || sum.Stats["posts_checked"] != 12 {
+	if sum.Findings != len(findings) || len(sum.Admins) != 3 || sum.Stats["posts_checked"] != 12 {
 		t.Errorf("summary: %+v", sum)
 	}
 	// No previous user list: nothing is "new".
