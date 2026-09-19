@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -391,17 +391,21 @@ func hiddenPluginsToAlert(hidden []string, quicksave string) (alert []string, sk
 			alert = append(alert, h)
 			continue
 		}
-		if dirContains(dir, "all_plugins") {
+		if dirMatches(dir, allPluginsFilter) {
 			alert = append(alert, h)
 		} else {
-			skipped = append(skipped, h+": its code never touches the plugin list, so the listing itself is inconsistent")
+			skipped = append(skipped, h+": its code never hooks the plugin list, so the listing itself is inconsistent")
 		}
 	}
 	return alert, skipped
 }
 
-// dirContains reports whether any PHP file under dir contains needle.
-func dirContains(dir, needle string) bool {
+// allPluginsFilter is the hook registration that lets a plugin edit the
+// plugin list; "$all_plugins = get_plugins()" is ordinary and does not count.
+var allPluginsFilter = regexp.MustCompile(`add_filter\s*\(\s*['"]all_plugins['"]`)
+
+// dirMatches reports whether any PHP file under dir matches re.
+func dirMatches(dir string, re *regexp.Regexp) bool {
 	found := false
 	filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || found {
@@ -417,7 +421,7 @@ func dirContains(dir, needle string) bool {
 			return nil
 		}
 		b, err := os.ReadFile(p)
-		if err == nil && bytes.Contains(b, []byte(needle)) {
+		if err == nil && re.Match(b) {
 			found = true
 		}
 		return nil
