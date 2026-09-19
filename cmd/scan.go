@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/pprof"
 	"strings"
 
 	"github.com/CaptainCore/captaincore/scan"
@@ -54,6 +55,14 @@ malware; JSON gains a "triage" object per finding. Needs typesafe_api_key.`,
 }
 
 func runScan(args []string) int {
+	// CAPTAINCORE_CPUPROFILE=<file> writes a CPU profile of the scan for
+	// `go tool pprof`; used when tuning the engine against a rule import.
+	if prof := os.Getenv("CAPTAINCORE_CPUPROFILE"); prof != "" {
+		if f, err := os.Create(prof); err == nil {
+			pprof.StartCPUProfile(f)
+			defer func() { pprof.StopCPUProfile(); f.Close() }()
+		}
+	}
 	var rs *scan.RuleSet
 	var err error
 	if len(scanRules) > 0 {

@@ -375,6 +375,16 @@ func TestShippedRulesStayQuietOnLegitimateCode(t *testing.T) {
 		"<?php\n$response = wp_remote_get( $_REQUEST['soundcloud_url'] );\n")
 	write(t, dir, "plugins/all-in-one-wp-migration-pro/lib/model/reset/class-ai1wmke-reset-database.php",
 		"<?php\n$user_id = wp_insert_user( array( 'user_login' => $login, 'user_pass' => $pass, 'role' => 'administrator' ) );\n$user = new WP_User( $user_id );\nwp_set_auth_cookie( $user_id );\n")
+	write(t, dir, "plugins/mainwp-child/class/class-mainwp-utility.php",
+		"<?php\n$manager = WP_Session_Tokens::get_instance( $current_user->ID );\n$token = $manager->create( time() + DAY_IN_SECONDS );\n")
+	write(t, dir, "plugins/worker/src/MWP/EventListener/PublicRequest/CommandLine.php",
+		"<?php\n$code = 'if (true) { @unlink(__FILE__); exit; } ' . $command;\nfile_put_contents($tmp, $code);\n")
+	write(t, dir, "plugins/wpforms/src/Admin/Tools/Views/Export.php",
+		"<?php\n$forms = ! empty( $_POST['forms'] ) ? array_map( 'intval', $_POST['forms'] ) : []; //phpcs:ignore WordPress.Security.NonceVerification\n")
+	write(t, dir, "plugins/wp-landing-kit/app/Utils/ConnectionGuide.php",
+		"<?php\n/* Check $_SERVER['LOCAL_ADDR'] (for IIS servers). */\n$ip = $_SERVER['SERVER_ADDR'] ?? '';\n")
+	write(t, dir, "plugins/import-users-from-csv-with-meta/classes/export.php",
+		"<?php\n$roles = array_filter( $_POST['role'] );\n$running = array_filter( $_GET['already_running_backup'], self::class . '::sanitize_running_backup' );\n")
 	write(t, dir, "plugins/fusion-builder/inc/class-fusion-form-auth-actions.php",
 		"<?php\n$user = wp_signon( array( 'user_login' => $_POST['user'], 'user_password' => $_POST['pass'] ) );\nif ( ! is_wp_error( $user ) ) { wp_set_auth_cookie( $user_id, false, is_ssl() ); }\n")
 	write(t, dir, "plugins/jetpack/extensions/blocks/premium-content/_inc/subscription-service/class-jwt.php",

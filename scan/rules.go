@@ -22,14 +22,20 @@ import (
 // YARA-style "3 of them" condition is MinMatches: 3). Paths are compared as substrings of
 // the slash-separated relative path.
 type Rule struct {
-	ID           string   `json:"id"`
-	Name         string   `json:"name"`
-	Family       string   `json:"family,omitempty"` // backdoor, obfuscation, spam, ioc, hacktool, ...
-	Severity     string   `json:"severity"`         // critical, high, medium, low
-	Description  string   `json:"description,omitempty"`
-	Prefilter    []string `json:"prefilter,omitempty"`     // literal substrings, all required
-	Patterns     []string `json:"patterns,omitempty"`      // RE2, MinMatches of them must match (default 1)
-	MinMatches   int      `json:"min_matches,omitempty"`   // how many Patterns must match; 0 or 1 means any one
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Family      string   `json:"family,omitempty"` // backdoor, obfuscation, spam, ioc, hacktool, ...
+	Severity    string   `json:"severity"`         // critical, high, medium, low
+	Description string   `json:"description,omitempty"`
+	Prefilter   []string `json:"prefilter,omitempty"`   // literal substrings, all required
+	Patterns    []string `json:"patterns,omitempty"`    // RE2, MinMatches of them must match (default 1)
+	MinMatches  int      `json:"min_matches,omitempty"` // how many Patterns must match; 0 or 1 means any one
+	// Window, when set with a prefilter, runs the patterns only over this
+	// many bytes on either side of each occurrence of the first prefilter
+	// literal instead of the whole file. Imported signature regexes with
+	// long bounded repeats are slow over a 100 KB file and only ever match
+	// next to their literal.
+	Window       int      `json:"window,omitempty"`
 	Require      []string `json:"require,omitempty"`       // RE2, all must match
 	IncludePaths []string `json:"include_paths,omitempty"` // when set, path must contain one
 	ExcludePaths []string `json:"exclude_paths,omitempty"` // path must contain none
@@ -197,6 +203,10 @@ type compiledRule struct {
 	literals   []*literalPattern // parallel to patterns; non-nil when the pattern is a plain literal
 	require    []*regexp.Regexp
 	extensions map[string]bool
+	// Indices into the scanner's literal index, filled by New: one per
+	// prefilter, and one per pattern (-1 when the pattern is not a literal).
+	prefilterIDs []int32
+	literalIDs   []int32
 }
 
 // literalPattern is a pattern that is nothing but an escaped literal,
