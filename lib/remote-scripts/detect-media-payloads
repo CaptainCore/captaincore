@@ -148,8 +148,8 @@ done | FULL=$FULL MAX_MB=$MAX_MB QUIET=$QUIET perl -0ne '
                 $report->("CRITICAL", "APPENDED_PAYLOAD", "$detail, contains $1");
             } elsif ($after =~ m{[A-Za-z0-9+/]{64,}={0,2}}) {
                 $report->("CRITICAL", "APPENDED_PAYLOAD", "$detail, base64 run in the trailer");
-            } elsif ($trail >= 0 && $trail <= 4096) {
-                $report->("MEDIUM", "TRAILING_DATA", "$detail (small trailer without code: phone cameras append metadata after the image)");
+            } elsif ($trail < 0 || $trail <= 4096) {
+                $report->("MEDIUM", "TRAILING_DATA", "$detail (no code or base64 in it: phone cameras append metadata after the image, edited photos carry a second image)");
             } else {
                 $report->("HIGH", "TRAILING_DATA", $detail);
             }
