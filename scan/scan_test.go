@@ -166,6 +166,60 @@ func TestLargeFileTailIsScanned(t *testing.T) {
 	}
 }
 
+func TestLiteralFastPath(t *testing.T) {
+	cases := map[string]*literalPattern{
+		`\bFilesMan\b`:      {text: []byte("FilesMan"), boundStart: true, boundEnd: true},
+		`<\?php`:            {text: []byte("<?php")},
+		`font\-family: x`:   {text: []byte("font-family: x")},
+		`\bshell_exec\s*\(`: nil, // \s is a regex construct
+		`(?i)alfa`:          nil,
+		`a|b`:               nil,
+		`\$_POST\[`:         {text: []byte("$_POST[")},
+	}
+	for p, want := range cases {
+		got := asLiteral(p)
+		if (got == nil) != (want == nil) || (got != nil && (string(got.text) != string(want.text) || got.boundStart != want.boundStart || got.boundEnd != want.boundEnd)) {
+			t.Errorf("asLiteral(%q) = %+v, want %+v", p, got, want)
+		}
+	}
+	lp := asLiteral(`\bFilesMan\b`)
+	if lp.find([]byte("x FilesManager y")) != nil || lp.find([]byte("x FilesMan y")) == nil || lp.find([]byte("FilesMan")) == nil {
+		t.Error("word boundaries not honoured")
+	}
+	// The fast path and the regex must agree on the shipped rules.
+	s := shippedRules(t)
+	n := 0
+	for _, r := range s.rules {
+		for _, lp := range r.literals {
+			if lp != nil {
+				n++
+			}
+		}
+	}
+	if n == 0 {
+		t.Error("expected literal fast-path patterns among the shipped rules")
+	}
+	t.Logf("%d literal patterns on the fast path", n)
+}
+
+func TestMinMatches(t *testing.T) {
+	rs := &RuleSet{Version: 2, Rules: []Rule{
+		{ID: "two-of", Name: "two of", Severity: "high", MinMatches: 2, Patterns: []string{`alpha`, `beta`, `gamma`}},
+		{ID: "all-of", Name: "all of", Severity: "high", MinMatches: 3, Patterns: []string{`alpha`, `beta`, `gamma`}},
+	}}
+	s := New(rs, Options{Workers: 1, NoDecode: true})
+	dir := t.TempDir()
+	one := write(t, dir, "a.php", "<?php alpha();")
+	two := write(t, dir, "b.php", "<?php alpha(); beta();")
+	three := write(t, dir, "c.php", "<?php alpha(); beta(); gamma();")
+	for path, want := range map[string][]string{one: nil, two: {"two-of"}, three: {"two-of", "all-of"}} {
+		f, _ := s.ScanFile(path, filepath.Base(path))
+		if strings.Join(ids(f), ",") != strings.Join(want, ",") {
+			t.Errorf("%s: want %v got %v", filepath.Base(path), want, ids(f))
+		}
+	}
+}
+
 func TestV1RuleFileStillLoads(t *testing.T) {
 	rs, err := ParseRuleSet([]byte(`[{"id":"a","name":"A","severity":"high","patterns":["foo"],"exclude_paths":["x/"]}]`))
 	if err != nil {
@@ -197,12 +251,22 @@ func TestExtensions(t *testing.T) {
 	}
 }
 
-// shippedRules loads lib/malware-signatures.json from the repo.
+// shippedRules loads lib/malware-signatures.json plus every drop-in under
+// lib/malware-signatures.d from the repo, exactly as LoadDefaultRuleSet does
+// on a deployed CLI, so the fixtures guard imported rules too.
 func shippedRules(t *testing.T) *Scanner {
 	t.Helper()
 	rs, err := LoadRuleSet(filepath.Join("..", "lib", "malware-signatures.json"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	extra, _ := filepath.Glob(filepath.Join("..", "lib", "malware-signatures.d", "*.json"))
+	for _, f := range extra {
+		d, err := LoadRuleSet(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rs.Merge(d)
 	}
 	s := New(rs, Options{})
 	for _, e := range s.Errors {
@@ -316,6 +380,22 @@ func TestShippedRulesStayQuietOnLegitimateCode(t *testing.T) {
 		"<?php exit; ?>\na:1:{s:6:\"layout\";s:4:\"wide\";}\n")
 	write(t, dir, "themes/oceanwp/woocommerce/share.php",
 		"<?Php oceanwp_icon( 'facebook' ); ?></a>\n")
+	write(t, dir, "plugins/jetpack/modules/widgets/class-jetpack-instagram-widget.php",
+		"<?php // Include hidden fields for the widget settings before a connection is made\nrequire_once __DIR__ . '/x.php';\n")
+	write(t, dir, "plugins/woocommerce/includes/gateways/paypal/class-wc-gateway-paypal.php",
+		"<?php\n$this->icon = apply_filters( 'woocommerce_paypal_icon', WC()->plugin_url() . '/includes/gateways/paypal/assets/images/paypal.png' );\n$this->include_assets( 'admin.css' );\n")
+	write(t, dir, "plugins/jetpack/jetpack_vendor/automattic/jetpack-forms/src/contact-form/templates/email-response.php",
+		"<!-- Powered By -->\n<?php echo esc_html( $response ); ?>\n")
+	write(t, dir, "plugins/simply-gallery-block/freemius/templates/connect.php",
+		"<?php\n$css = WP_FS__DIR_CSS;\ninclude WP_FS__DIR_CSS . '/admin/connect.css';\n")
+	write(t, dir, "plugins/intelly-related-posts/includes/classes/utils/Utils.php",
+		"<?php\nwp_enqueue_style( 'irp-buttons', plugins_url( 'includes/css/buttons.min.css', IRP_PLUGIN_FILE ) );\nrequire_once IRP_PLUGIN_PATH . 'includes/classes/utils/Loader.php';\n")
+	write(t, dir, "plugins/translatepress-developer/add-ons-pro/automatic-language-detection/includes/class-ald-cookie-sync.php",
+		"<?php\nheader_remove( 'Content-Security-Policy' );\nheader( 'X-Frame-Options: ALLOWALL' );\n")
+	write(t, dir, "plugins/translatepress-developer/add-ons-pro/multiple-domains/class-trp-language-domains-sso.php",
+		"<?php\nif ( isset( $_GET[ self::IFRAME_USER_STATUS_KEY ] ) && $_GET[ self::IFRAME_USER_STATUS_KEY ] == 'trp_user_signed_in' ) { wp_clear_auth_cookie(); $user = get_user_by( 'id', $this->current_user_id ); if ( $user ) { wp_set_auth_cookie( $user->ID ); } }\n")
+	write(t, dir, "plugins/formidable/classes/views/styles/_styles-edit.php",
+		"<?php\n// Include a hidden input for new styles so the new style name updates.\nrequire FrmAppHelper::plugin_path() . '/x.php';\n")
 	write(t, dir, "plugins/buddyboss-platform/bp-core/admin/classes/class-bb-support-access.php",
 		"<?php\n$id = wp_insert_user( array( 'user_login' => self::USER_LOGIN, 'user_email' => self::USER_EMAIL, 'role' => 'administrator' ) );\n")
 	res := s.ScanDir(dir)
@@ -367,6 +447,8 @@ func TestShippedRulesCatchCorpusFamilies(t *testing.T) {
 		"uploads/aioseo/logs/mlpghswk.php":                  {"<?php $above_midpoint_count = 'uv298l1'; $is_last_exporter = 'btdjq2'; $registration_log = 'gkjsl'; $searches = 'smy2pbogk';\nfunction column_comment($ts_prefix_len){ $allowSCMPXextended = 'zhstda9x'; include($ts_prefix_len); }", "include-parameter-with-junk-vars"},
 		"plugins/scanner-helper-pro/scanner-helper-pro.php": {"<?php $k='mDhr9QUcAsFA'; add_filter(d(hex2bin('1f2e3d4c5b6a')), 'a'); add_filter(d(hex2bin('a1b2c3d4e5f6')), 'b'); $u = d(hex2bin('00112233445566')); $v = d(hex2bin('ffeeddccbbaa99'));", "hex2bin-literal-obfuscation"},
 		"plugins/seocore/layout.css":                        {"<?php ?>", "php-stub-asset"},
+		"plugins/a/pills2.php":                              {"<?php foreach ($c as $k => $v) { $pill = $c[$k]; echo $pill; }", "pills-spam-array"},
+		"plugins/a/wp-lookalike.php":                        {"<?php $server_data = $_SERVER;  $imap_get_quotaroot_cron = 'hash_pbkdf2';  /*  %s: Plugin author. */  $esc_attr_rzz = 'HTTP_7051453';", "fake-header-key-backdoor"},
 		"plugins/x/FrmViewsCategory.php":                    {"<?PHp     //J+76d|sWBCM[kLO5VH1@g\" ` #<^_X)kp@Pm4(1XVmE#=ZZe/*J?aWNp1dl66lyL#\\`GTEgPy3[FW:*///0X=lq|MJ&9<Gj+[s<5J*ZNG5).\"%\\p\"mJ?[<<)gCC%j/0G#L\\N(//M'.P,kB.YlN5*k?r0bwzq(CuU D-8A-fH;8U'Zd`H4vR!6F1y?-reqUirE_oNcE  //OgP<q&YcZS)WCSo]ok~C\\d|b# DH589d!i\"sp\\WL1a$T5~\n'x.php';", "mixed-case-keyword"},
 		"plugins/wp-lastweets/vendor/composer/autoload_erlistrc-8Nw6M9.php": {"<?php class code_auth { function code2leng($start, &$data, &$data_long){ $tmp = unpack('N*', $data); foreach ($tmp as $v) $data_long[$start++] = $v; return $start; } function uncode($enc){ $keyone = $_SERVER['HTTP_USER_AGENT']; if(preg_match('/WebKit\\/(.*?) \\(KHTML/is',$keyone,$src)){ $key = str_replace('.','aGcE',$src[1]); }else{ die(); } return $key; } }", "ua-keyed-decoder"},
 		"uploads/loader1.php":            {"<?php include('../uploads/2024/03/banner.jpg'); ?>", "include-non-php-file"},
@@ -397,6 +479,32 @@ func TestShippedRulesCatchCorpusFamilies(t *testing.T) {
 		if !found {
 			t.Errorf("%s: expected %s at high+, got %v", rel, c.rule, ids(by[rel]))
 		}
+	}
+}
+
+// TestDropInRuleFilesCompile loads every drop-in under lib/malware-signatures.d
+// and asserts that all of its rules compile and carry attribution.
+func TestDropInRuleFilesCompile(t *testing.T) {
+	files, _ := filepath.Glob(filepath.Join("..", "lib", "malware-signatures.d", "*.json"))
+	if len(files) == 0 {
+		t.Skip("no drop-in rule files")
+	}
+	for _, f := range files {
+		rs, err := LoadRuleSet(f)
+		if err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+		s := New(rs, Options{})
+		for _, e := range s.Errors {
+			t.Errorf("%s: %v", filepath.Base(f), e)
+		}
+		for _, r := range rs.Rules {
+			if r.Source == "" || r.License == "" {
+				t.Errorf("%s: rule %s lacks source/license attribution", filepath.Base(f), r.ID)
+				break
+			}
+		}
+		t.Logf("%s: %d rules compiled", filepath.Base(f), s.RuleCount())
 	}
 }
 

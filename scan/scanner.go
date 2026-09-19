@@ -314,9 +314,31 @@ func (r *compiledRule) match(data []byte) ([]int, bool) {
 	if len(r.patterns) == 0 {
 		return loc, true
 	}
-	for _, re := range r.patterns {
-		if l := re.FindIndex(data); l != nil {
-			return l, true
+	need := r.Rule.MinMatches
+	if need < 1 {
+		need = 1
+	}
+	matched := 0
+	var first []int
+	for i, re := range r.patterns {
+		var l []int
+		if lp := r.literals[i]; lp != nil {
+			l = lp.find(data)
+		} else {
+			l = re.FindIndex(data)
+		}
+		if l != nil {
+			matched++
+			if first == nil {
+				first = l
+			}
+			if matched >= need {
+				return first, true
+			}
+		}
+		// Not enough patterns left to reach need: stop early.
+		if matched+(len(r.patterns)-i-1) < need {
+			return nil, false
 		}
 	}
 	return nil, false

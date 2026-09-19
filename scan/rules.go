@@ -5,6 +5,7 @@
 package scan
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -16,8 +17,9 @@ import (
 )
 
 // Rule is one detection. A file matches when every prefilter literal is
-// present, every Require pattern matches, and at least one Patterns entry
-// matches (when Patterns is non-empty). Paths are compared as substrings of
+// present, every Require pattern matches, and at least MinMatches Patterns
+// entries match (when Patterns is non-empty; MinMatches defaults to 1, so a
+// YARA-style "3 of them" condition is MinMatches: 3). Paths are compared as substrings of
 // the slash-separated relative path.
 type Rule struct {
 	ID           string   `json:"id"`
@@ -26,7 +28,8 @@ type Rule struct {
 	Severity     string   `json:"severity"`         // critical, high, medium, low
 	Description  string   `json:"description,omitempty"`
 	Prefilter    []string `json:"prefilter,omitempty"`     // literal substrings, all required
-	Patterns     []string `json:"patterns,omitempty"`      // RE2, any one must match
+	Patterns     []string `json:"patterns,omitempty"`      // RE2, MinMatches of them must match (default 1)
+	MinMatches   int      `json:"min_matches,omitempty"`   // how many Patterns must match; 0 or 1 means any one
 	Require      []string `json:"require,omitempty"`       // RE2, all must match
 	IncludePaths []string `json:"include_paths,omitempty"` // when set, path must contain one
 	ExcludePaths []string `json:"exclude_paths,omitempty"` // path must contain none
@@ -191,8 +194,71 @@ type compiledRule struct {
 	magic      [][]byte
 	prefilter  [][]byte
 	patterns   []*regexp.Regexp
+	literals   []*literalPattern // parallel to patterns; non-nil when the pattern is a plain literal
 	require    []*regexp.Regexp
 	extensions map[string]bool
+}
+
+// literalPattern is a pattern that is nothing but an escaped literal,
+// optionally wrapped in \b word boundaries. Imported YARA sets are almost
+// entirely such patterns, and a byte search is an order of magnitude cheaper
+// than running each one as a regular expression.
+type literalPattern struct {
+	text       []byte
+	boundStart bool
+	boundEnd   bool
+}
+
+var literalOnly = regexp.MustCompile(`^(?:\\[^a-zA-Z0-9]|[^\\.*+?()\[\]{}|^$])+$`)
+
+// asLiteral returns the literal a pattern denotes, or nil when it uses any
+// regex construct beyond escaped punctuation and \b anchors.
+func asLiteral(p string) *literalPattern {
+	lp := &literalPattern{}
+	if strings.HasPrefix(p, `\b`) {
+		lp.boundStart = true
+		p = p[2:]
+	}
+	if strings.HasSuffix(p, `\b`) && !strings.HasSuffix(p, `\\b`) {
+		lp.boundEnd = true
+		p = p[:len(p)-2]
+	}
+	if p == "" || !literalOnly.MatchString(p) {
+		return nil
+	}
+	var b strings.Builder
+	for i := 0; i < len(p); i++ {
+		if p[i] == '\\' && i+1 < len(p) {
+			i++
+		}
+		b.WriteByte(p[i])
+	}
+	lp.text = []byte(b.String())
+	return lp
+}
+
+func isWordByte(c byte) bool {
+	return c == '_' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+// find returns the location of the first occurrence honouring word boundaries.
+func (lp *literalPattern) find(data []byte) []int {
+	start := 0
+	for start <= len(data) {
+		i := bytes.Index(data[start:], lp.text)
+		if i < 0 {
+			return nil
+		}
+		at := start + i
+		end := at + len(lp.text)
+		okStart := !lp.boundStart || at == 0 || !isWordByte(data[at-1]) || !isWordByte(lp.text[0])
+		okEnd := !lp.boundEnd || end == len(data) || !isWordByte(data[end]) || !isWordByte(lp.text[len(lp.text)-1])
+		if okStart && okEnd {
+			return []int{at, end}
+		}
+		start = at + 1
+	}
+	return nil
 }
 
 // Compile validates and compiles every rule. Invalid rules are returned as
@@ -230,6 +296,7 @@ func compileRules(rules []Rule) ([]compiledRule, []error) {
 				break
 			}
 			c.patterns = append(c.patterns, re)
+			c.literals = append(c.literals, asLiteral(p))
 		}
 		if bad {
 			continue

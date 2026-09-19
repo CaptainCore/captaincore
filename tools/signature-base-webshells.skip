@@ -1,0 +1,5 @@
+# thor-webshells.yar rules left out of the drop-in: each fired on clean WordPress
+# trees (a plugin, theme or vendored library), so they cost more than they catch.
+# Name  # what it matched
+HYTop2006_rar_Folder_2006X2   # "Powered By -->" in Jetpack form email templates
+bdcli100                               # "unable to connect to the socket": Monolog CubeHandler, vendored in many plugins
