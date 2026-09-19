@@ -445,7 +445,15 @@ func quicksaveAddNative(cmd *cobra.Command, args []string) {
 	gitHash := strings.TrimSpace(string(hashOutput))
 
 	// Run malware scan on changed files
-	quicksaveMalwareScan(sitePath, site, env, system, captain)
+	firstCommit := quicksaveMalwareScan(sitePath, site, env, system, captain)
+
+	// Full-tree native scan on the first quicksave, weekly, and after rule changes
+	if due, reason := fullScanDue(sitePath, firstCommit, time.Now(), site.SiteID); due {
+		quicksaveFullScan(sitePath, reason, site, env, system, captain)
+	}
+
+	// Plugin directories WordPress did not report (self-hiding plugins, decoys)
+	quicksaveHiddenPluginsCheck(sitePath, site, env, system, captain)
 
 	// Scan core checksum extra/modified files via SSH + local Wordfence
 	quicksaveCoreChecksumScan(site, env, system, captain)
@@ -491,18 +499,26 @@ func quicksaveAddNative(cmd *cobra.Command, args []string) {
 }
 
 // quicksaveMalwareScan runs Wordfence CLI on files changed in the latest commit.
-func quicksaveMalwareScan(sitePath string, site *models.Site, env *models.Environment, system *config.SystemConfig, captain *config.CaptainConfig) {
+// quicksaveMalwareScan scans the files added or modified by the latest commit.
+// It reports true when the commit has no parent (the first quicksave), in
+// which case there is no diff and the caller runs a full-tree scan instead.
+func quicksaveMalwareScan(sitePath string, site *models.Site, env *models.Environment, system *config.SystemConfig, captain *config.CaptainConfig) (firstCommit bool) {
+	parent := exec.Command("git", "rev-parse", "--verify", "--quiet", "HEAD~1")
+	parent.Dir = sitePath
+	if err := parent.Run(); err != nil {
+		return true
+	}
 	// Get list of added/modified files from the latest commit
 	gitDiff := exec.Command("git", "diff", "--name-only", "--diff-filter=AM", "HEAD~1", "HEAD")
 	gitDiff.Dir = sitePath
 	diffOutput, err := gitDiff.Output()
 	if err != nil {
-		return
+		return false
 	}
 
 	changedFiles := strings.Split(strings.TrimSpace(string(diffOutput)), "\n")
 	if len(changedFiles) == 0 || (len(changedFiles) == 1 && changedFiles[0] == "") {
-		return
+		return false
 	}
 
 	// Filter to scannable extensions
@@ -520,10 +536,11 @@ func quicksaveMalwareScan(sitePath string, site *models.Site, env *models.Enviro
 	}
 
 	if len(filesToScan) == 0 {
-		return
+		return false
 	}
 
 	malwareScanAndAlert("Quicksave scan", filesToScan, sitePath, site, env, system, captain)
+	return false
 }
 
 // extractCoreVersion extracts just the version string from core.json content.
