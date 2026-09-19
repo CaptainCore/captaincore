@@ -683,3 +683,61 @@ func TestCleanTree(t *testing.T) {
 	}
 	t.Logf("clean tree: %d files scanned, %d findings", res.Scanned, len(res.Findings))
 }
+
+// TestIncidentDropperRules covers three rules for a salt-exfil + session-forgery
+// dropper family that uses no obfuscation and slips past signature scans: a file
+// that prints the site's auth salts, one that forges far-future admin sessions,
+// and a self-deleting stager. Snippets are synthetic, not a live sample.
+func TestIncidentDropperRules(t *testing.T) {
+	s := shippedRules(t)
+	dir := t.TempDir()
+
+	// Malicious: prints the site's auth salts into the HTTP response.
+	write(t, dir, "js.php",
+		"<?php\nheader('Content-Type: text/plain');\necho \"AUTH_KEY=\" . AUTH_KEY . \"\\n\";\necho \"AUTH_SALT=\" . AUTH_SALT . \"\\n\";\necho \"LOGGED_IN_SALT=\" . LOGGED_IN_SALT . \"\\n\";\n")
+	// Malicious: forges 100 far-future admin sessions.
+	write(t, dir, "forge.php",
+		"<?php\nforeach (get_users(['role'=>'administrator']) as $u) {\n  $m = WP_Session_Tokens::get_instance($u->ID);\n  for ($i=0;$i<100;$i++) {\n    $exp = time() + 5 * YEAR_IN_SECONDS;\n    $tok = $m->create($exp);\n  }\n}\n")
+	// Malicious: self-deleting stager that exfiltrates admin hashes then removes itself.
+	write(t, dir, "stager.php",
+		"<?php\n$admins = get_users(['role'=>'administrator']);\nforeach ($admins as $u) { echo $u->user_login . '|' . $u->user_pass; }\nunlink(__FILE__);\n")
+
+	res := s.ScanDir(dir)
+	by := map[string][]Finding{}
+	for _, f := range res.Findings {
+		by[f.File] = append(by[f.File], f)
+	}
+	if !has(by["js.php"], "auth-salt-exfiltration") {
+		t.Errorf("salt exfil not caught: %v", ids(by["js.php"]))
+	}
+	if !has(by["forge.php"], "session-token-forgery") {
+		t.Errorf("session forgery not caught: %v", ids(by["forge.php"]))
+	}
+	if !has(by["stager.php"], "self-deleting-php-stager") {
+		t.Errorf("self-deleting stager not caught: %v", ids(by["stager.php"]))
+	}
+}
+
+// TestIncidentDropperRulesStayQuiet guards those three rules against legitimate
+// code shapes that touch the same primitives.
+func TestIncidentDropperRulesStayQuiet(t *testing.T) {
+	s := shippedRules(t)
+	dir := t.TempDir()
+
+	// Legit: compares a salt to the default placeholder, never outputs it.
+	write(t, dir, "plugins/site-health/salt-check.php",
+		"<?php\nif ( AUTH_SALT === 'put your unique phrase here' ) { add_action('admin_notices', 'warn_default_salts'); }\n")
+	// Legit: destroys (not creates) a user's sessions on logout.
+	write(t, dir, "plugins/security/logout.php",
+		"<?php\n$manager = WP_Session_Tokens::get_instance($user_id);\n$manager->destroy_all();\n")
+	// Legit: a real uninstall routine that self-deletes without exfil/enumeration.
+	write(t, dir, "plugins/foo/uninstall.php",
+		"<?php\nif ( ! defined('WP_UNINSTALL_PLUGIN') ) { exit; }\ndelete_option('foo_settings');\nunlink(__FILE__);\n")
+
+	for _, f := range s.ScanDir(dir).Findings {
+		switch f.RuleID {
+		case "auth-salt-exfiltration", "session-token-forgery", "self-deleting-php-stager":
+			t.Errorf("false positive %s on %s", f.RuleID, f.File)
+		}
+	}
+}
