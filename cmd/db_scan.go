@@ -142,6 +142,7 @@ func dbScanFindings(raw string, knownUsers map[string]bool, minSeverity string) 
 				res := s.ScanDir(dir)
 				seen := map[string]bool{}
 				for _, f := range res.Findings {
+					f.Severity = dbRowSeverity(f)
 					if scan.SeverityRank(f.Severity) < min {
 						continue
 					}
@@ -164,7 +165,10 @@ func dbScanFindings(raw string, knownUsers map[string]bool, minSeverity string) 
 
 	// Fixed checks.
 	for _, t := range ex.Triggers {
-		add("critical", "db:trigger/"+t, "db-trigger", "Database trigger", "WordPress never creates triggers; injected ones rewrite rows or recreate users on every write", t)
+		if knownTrigger(t) {
+			continue
+		}
+		add("critical", "db:trigger/"+t, "db-trigger", "Database trigger", "WordPress never creates triggers and only a handful of plugins do (those are skipped); injected ones rewrite rows or recreate users on every write", t)
 	}
 	for _, e := range ex.Events {
 		add("critical", "db:event/"+e, "db-event", "Database scheduled event", "WordPress never creates MySQL events; one here runs on a timer inside the database", e)
@@ -218,6 +222,39 @@ func dbScanFindings(raw string, knownUsers map[string]bool, minSeverity string) 
 	}
 	sort.Strings(sum.Admins)
 	return out, sum, nil
+}
+
+// dbRowSeverity adjusts a rule finding for a database row. A row is data,
+// not code: PHP-execution shapes in an option or a comment are attack residue
+// (fuzzing payloads a form saved, a probe in a comment) unless something
+// evaluates them, so those families are capped at medium and recorded rather
+// than emailed. Injected markup, spam links, skimmers, C2 indicators and
+// known-malware hashes mean the same in a row as in a file and keep their
+// severity.
+func dbRowSeverity(f scan.Finding) string {
+	switch f.Family {
+	case "spam", "skimmer", "injection", "ioc":
+		return f.Severity
+	}
+	if strings.HasPrefix(f.RuleID, "hash:") || f.RuleID == "smilodon-toolkit-iocs" || f.RuleID == "amw-known-malware-domain" {
+		return f.Severity
+	}
+	if scan.SeverityRank(f.Severity) > scan.SeverityRank("medium") {
+		return "medium"
+	}
+	return f.Severity
+}
+
+// knownTrigger reports database triggers that plugins create on purpose:
+// WC Blacklist Manager keeps counters with triggers on its blacklist table.
+func knownTrigger(name string) bool {
+	n := strings.ToLower(name)
+	for _, k := range []string{"blacklist_row", "wc_blacklist"} {
+		if strings.Contains(n, k) {
+			return true
+		}
+	}
+	return false
 }
 
 // knownRoutine reports stored routines that plugins create on purpose:

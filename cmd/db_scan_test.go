@@ -12,6 +12,7 @@ func TestDBScanFindings(t *testing.T) {
 		"since_days": 2,
 		"options": []map[string]any{
 			{"name": "widget_text", "size": 400, "content": "a:1:{i:2;a:1:{s:4:\"text\";s:80:\"<script>eval(atob('ZG9jdW1lbnQud3JpdGUoJzxpZnJhbWUgc3JjPWh0dHA6Ly9leGFtcGxlLmludmFsaWQvPicp'))</script>\";}}"},
+			{"name": "et_core_api_email_options", "size": 200, "content": "{\"accounts\":{\"mailchimp\":{\";assert(base64_decode('cHJpbnQ='));\":[],\"<?php eval($_POST['x']); ?>\":[]}}}"},
 			{"name": "cron", "size": 3000, "content": "a:2:{i:1789000000;a:1:{s:17:\"wp_version_check\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:2:{s:8:\"schedule\";s:10:\"twicedaily\";}}}}"},
 		},
 		"posts": []map[string]any{
@@ -25,7 +26,7 @@ func TestDBScanFindings(t *testing.T) {
 			{"id": 7, "login": "oldtimer", "email": "o@example.invalid", "registered": "2018-10-09 18:10:38"},
 		},
 		"plugins_missing":    []string{"wp-cache-helper/loader.php", "../../uploads/2024/loader.php"},
-		"triggers":           []string{"after_user_insert"},
+		"triggers":           []string{"after_user_insert", "after_insert_blacklist_row"},
 		"events":             []string{},
 		"routines":           []string{},
 		"unknown_tables":     []string{"wp_html_injections"},
@@ -65,6 +66,12 @@ func TestDBScanFindings(t *testing.T) {
 	}
 	if _, ok := got["db:post/43"]; ok {
 		t.Error("a clean post must not be reported")
+	}
+	if _, ok := got["db:option/et_core_api_email_options"]; ok {
+		t.Error("PHP-execution shapes inside stored form data are residue, capped at medium")
+	}
+	if _, ok := got["db:trigger/after_insert_blacklist_row"]; ok {
+		t.Error("a known plugin trigger must not be reported")
 	}
 	// The rule engine must have run over the rows: the off-screen link block
 	// in post 42 and the eval(atob(...)) widget are corpus shapes.
