@@ -84,6 +84,7 @@ A source checkout owns its own `app/` and `lib/` scripts. `captaincore upgrade` 
 
 - **System config** -- server paths, master SSH connection, fleet mode
 - **Per-tenant config** -- API keys, cloud storage remotes (rclone), branding, site list
+- **Optional integrations** -- `fathom_api_key` (analytics) and `typesafe_api_key` (the TypeSafe decision API behind `captaincore typesafe` and `scan --triage`; `TYPESAFE_API_KEY` in the environment works too)
 
 ## Usage
 
@@ -115,6 +116,14 @@ captaincore update @production
 
 # Fleet mode (multi-tenant)
 captaincore backup generate @all --fleet
+
+# Malware scanning (native rule set; --triage ranks findings with the TypeSafe API)
+captaincore scan /path/to/files
+captaincore scan --triage --format=json /path/to/files
+
+# TypeSafe (Jev) decision API: typed yes/no, choice and score answers, no prose
+captaincore typesafe status
+captaincore typesafe ask --state="text or JSON" --noul urgent="Is this urgent?"
 
 # Start HTTP server
 captaincore server

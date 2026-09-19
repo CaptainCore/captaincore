@@ -21,6 +21,7 @@ var (
 	scanWorkers     int
 	scanQuiet       bool
 	scanNoDecode    bool
+	scanTriage      bool
 )
 
 var scanCmd = &cobra.Command{
@@ -34,7 +35,12 @@ is found, 2 when the rule set fails to load, 0 otherwise.
 Examples:
   captaincore scan /path/to/quicksave
   captaincore scan --format=json wp-content/themes/x/functions.php
-  find . -name '*.php' -newer marker | captaincore scan --files-from=- --format=csv`,
+  find . -name '*.php' -newer marker | captaincore scan --files-from=- --format=csv
+  captaincore scan --triage /path/to/quicksave    # rank findings with the TypeSafe API
+
+With --triage every finding is also sent to TypeSafe's Jev model (see
+'captaincore typesafe') and the output is ordered by how likely each is real
+malware; JSON gains a "triage" object per finding. Needs typesafe_api_key.`,
 	Args: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 && scanFilesFrom == "" {
 			return fmt.Errorf("requires at least one <path> or --files-from")
@@ -126,6 +132,40 @@ func runScan(args []string) int {
 		findings = kept
 	}
 
+	if scanTriage && len(findings) > 0 {
+		client, _, err := typesafeClient()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 2
+		}
+		if scanFormat == "csv" {
+			fmt.Fprintln(os.Stderr, "Warning: --triage has no CSV column; the rows are ordered by triage only")
+		}
+		triaged := runTriage(client, findings)
+		for i := range triaged {
+			findings[i] = triaged[i].Finding
+		}
+		switch scanFormat {
+		case "json":
+			out, _ := json.MarshalIndent(triaged, "", "    ")
+			fmt.Println(string(out))
+		case "csv":
+		default:
+			for _, t := range triaged {
+				fmt.Println(triageLine(t))
+			}
+			if !scanQuiet {
+				fmt.Fprintf(os.Stderr, "%d file(s) scanned, %d finding(s), %d rule(s), %d hash indicator(s)\n", scanned, len(findings), s.RuleCount(), s.HashCount())
+			}
+		}
+		if scanFormat != "csv" {
+			for _, e := range errs {
+				fmt.Fprintln(os.Stderr, "Warning:", e)
+			}
+			return 1
+		}
+	}
+
 	switch scanFormat {
 	case "json":
 		out, _ := json.MarshalIndent(findings, "", "    ")
@@ -178,4 +218,5 @@ func init() {
 	scanCmd.Flags().IntVar(&scanWorkers, "workers", 0, "Scanner goroutines (default: CPU count)")
 	scanCmd.Flags().BoolVar(&scanQuiet, "quiet", false, "Findings only, no matched text or summary")
 	scanCmd.Flags().BoolVar(&scanNoDecode, "no-decode", false, "Do not decode base64, deflate, rot13 or escaped payloads before matching")
+	scanCmd.Flags().BoolVar(&scanTriage, "triage", false, "Rank findings with the TypeSafe (Jev) API; see 'captaincore typesafe triage'")
 }
