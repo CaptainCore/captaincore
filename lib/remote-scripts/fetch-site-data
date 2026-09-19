@@ -226,6 +226,7 @@ if [ -n "$media_dirs" ] && command -v perl >/dev/null 2>&1; then
             my $detail = $trail < 0 ? "no $label within the last 16 KB" : "$trail bytes after $label";
             my $after = $trail < 0 ? $tail : substr($tail, $pos + length($marker));
             if ($after =~ /(<\?php|eval\(|base64_decode|\$_(?:POST|GET|REQUEST|COOKIE))/ || $after =~ m{[A-Za-z0-9+/]{64,}={0,2}}) { $report->("CRITICAL", "APPENDED_PAYLOAD", $detail); }
+            elsif ($trail >= 0 && $trail <= 4096) { $report->("MEDIUM", "TRAILING_DATA", "$detail (small trailer without code: phone cameras append metadata after the image)"); }
             else { $report->("HIGH", "TRAILING_DATA", $detail); }
             next;
         }

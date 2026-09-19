@@ -196,14 +196,16 @@ func (s *Scanner) ScanFile(path, rel string) ([]Finding, error) {
 
 	if wantHash {
 		h := hashOf()
-		if s.allow[h] || (s.opts.KnownGood != nil && s.opts.KnownGood(h)) {
-			return nil, nil
-		}
+		// A hash indicator outranks a known-good answer: a release file that
+		// turned out to be malicious stays reportable.
 		if ioc, ok := s.hashes[h]; ok {
 			return []Finding{{
 				File: rel, Path: path, RuleID: "hash:" + h[:12], Name: ioc.Name, Family: ioc.Family,
 				Severity: ioc.Severity, Description: ioc.Description, SHA256: h, Source: ioc.Source,
 			}}, nil
+		}
+		if s.allow[h] || (s.opts.KnownGood != nil && s.opts.KnownGood(h)) {
+			return nil, nil
 		}
 	}
 	if !wantRules {

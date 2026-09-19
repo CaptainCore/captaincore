@@ -43,6 +43,12 @@ type fullScanStamp struct {
 	Findings  int    `json:"findings"`
 }
 
+// knownGoodDir is where wordpress.org release manifests are cached.
+func knownGoodDir() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".captaincore", "data", "known-good")
+}
+
 func fullScanStampPath(sitePath string) string {
 	return filepath.Join(filepath.Dir(sitePath), ".malware-full-scan")
 }
@@ -108,8 +114,17 @@ func quicksaveFullScan(sitePath, reason string, site *models.Site, env *models.E
 		fmt.Fprintf(os.Stderr, "  Full scan: %v\n", err)
 		return
 	}
-	s := scan.New(rs, scan.Options{Workers: fullScanWorkers})
+	// Release manifests first: files identical to their wordpress.org
+	// release skip the rules, files that differ or were added are findings.
+	store := scan.NewManifestStore(knownGoodDir())
+	integ := store.CheckTree(sitePath, scan.FindComponents(sitePath))
+	for _, e := range integ.Errors {
+		fmt.Fprintf(os.Stderr, "  Integrity: %s\n", e)
+	}
+	s := scan.New(rs, scan.Options{Workers: fullScanWorkers, KnownGood: scan.KnownGoodFunc(integ.KnownGood)})
 	res := s.ScanDir(sitePath)
+	res.Findings = scan.Escalate(append(res.Findings, integ.Findings...))
+	fmt.Printf("  Integrity: %s\n", integ.Summary())
 	min := scan.SeverityRank(nativeAlertSeverity)
 	var alert []scan.LegacyFinding
 	for _, f := range res.Findings {
