@@ -43,7 +43,7 @@ run_command() {
     captaincore site key-generate $site --captain-id=$CAPTAIN_ID
   fi
 
-  captaincore ssh $site-$environment --script=activate -- --wp_content=$wp_content --provider=$provider
+  captaincore ssh $site-$environment --script=activate -- --provider=$provider
 
 }
 

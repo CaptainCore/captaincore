@@ -18,6 +18,16 @@ if [[ "$helper_check" == "" ]]; then
     curl https://run.captaincore.io/deploy-helper | bash -s
 fi
 
+# Content directory relative to the WordPress root: "wp-content" on a stock
+# install, "app" on Bedrock, "content/<id>" on a WP Freighter tenant. Every
+# filesystem probe below must use this, never the literal wp-content, or a
+# Bedrock site gets fingerprinted from the dead tree its migration left behind.
+wp_content=$( wp eval 'echo str_replace( rtrim( ABSPATH, "/" ) . "/", "", WP_CONTENT_DIR );' --skip-themes --skip-plugins --skip-packages 2>/dev/null | tail -1 )
+wp_content="${wp_content%/}"
+if [[ -z "$wp_content" || "$wp_content" == /* || ! -d "$wp_content" ]]; then
+    wp_content="wp-content"
+fi
+
 plugins=$( wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version )
 themes=$(wp theme list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version )
 mu_plugins=$( wp plugin list --status=must-use --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version 2>/dev/null )
@@ -165,6 +175,7 @@ token=$( wp eval "echo md5( AUTH_KEY );" --skip-plugins --skip-themes )
 trim() { printf '%s' "$1" | tr -d '\n\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
 
 echo "plugins:$(trim "$plugins")"
+echo "wp_content:$(trim "$wp_content")"
 # Plugins that vanish from the list once plugin code runs are hiding themselves
 # (all_plugins / pre_current_active_plugins filters). The inventory above is
 # taken with --skip-plugins, so it still sees them; the diff is the detector.
@@ -185,7 +196,7 @@ echo "hidden_plugins:$(trim "$hidden_plugins_json")"
 # keep the two in step. Emits JSON rows: severity, type, path, detail, size.
 media_payloads_json="[]"
 media_dirs=""
-for _d in wp-content/uploads app/uploads; do [ -d "$_d" ] && media_dirs="$media_dirs $_d"; done
+for _d in "$wp_content/uploads" wp-content/uploads app/uploads; do [ -d "$_d" ] && [[ " $media_dirs " != *" $_d "* ]] && media_dirs="$media_dirs $_d"; done
 if [ -n "$media_dirs" ] && command -v perl >/dev/null 2>&1; then
   media_payloads_json=$( find $media_dirs \( -name node_modules -o -name .git -o -name cache \) -prune -o -type f -size +0 -mtime -2 -print0 2>/dev/null | LC_ALL=C perl -0ne '
     use strict; use warnings;
@@ -468,8 +479,8 @@ hash_directory() {
     } | LC_ALL=C sort -k2 | sha256sum | awk '{print $1}'
 }
 
-# Compute hashes from within wp-content so paths are relative (plugins/slug/file.php)
-pushd wp-content > /dev/null 2>&1
+# Compute hashes from within the content dir so paths are relative (plugins/slug/file.php)
+pushd "$wp_content" > /dev/null 2>&1
 
 component_hashes="{"
 first=true
@@ -541,7 +552,7 @@ popd > /dev/null 2>&1
 echo "component_hashes:${component_hashes}"
 
 # MU-plugin file listing (root-level files and directories only)
-pushd wp-content > /dev/null 2>&1
+pushd "$wp_content" > /dev/null 2>&1
 mu_plugin_files="{"
 mu_first=true
 if [[ -d "mu-plugins" ]]; then
@@ -574,8 +585,8 @@ done
 core_file_hashes+="}"
 echo "core_file_hashes:${core_file_hashes}"
 
-# Loose PHP file hashes (everything in wp-content/ outside plugins/themes/mu-plugins)
-pushd wp-content > /dev/null 2>&1
+# Loose PHP file hashes (everything in the content dir outside plugins/themes/mu-plugins)
+pushd "$wp_content" > /dev/null 2>&1
 loose_hashes="{"
 loose_first=true
 while IFS= read -r file; do

@@ -46,6 +46,12 @@ for arg in "$@"; do
 done
 
 if [[ "$wp_content" == "" ]]; then
+	# Resolve the content directory from WordPress itself ("app" on Bedrock,
+	# "content/<id>" on a WP Freighter tenant) instead of assuming wp-content.
+	wp_content=$( wp eval 'echo str_replace( rtrim( ABSPATH, "/" ) . "/", "", WP_CONTENT_DIR );' --skip-themes --skip-plugins --skip-packages 2>/dev/null | tail -1 )
+	wp_content="${wp_content%/}"
+fi
+if [[ "$wp_content" == "" || "$wp_content" == /* || ! -d "$wp_content" ]]; then
 	wp_content="wp-content"
 fi
 

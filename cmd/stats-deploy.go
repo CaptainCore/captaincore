@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -65,22 +64,9 @@ func statsDeployNative(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	// Determine wp_content path
-	siteDetails := site.ParseDetails()
-	wpContent := "wp-content"
-	if siteDetails.EnvironmentVars != nil && string(siteDetails.EnvironmentVars) != "" && string(siteDetails.EnvironmentVars) != "null" {
-		var envVars []struct {
-			Key   string `json:"key"`
-			Value string `json:"value"`
-		}
-		if json.Unmarshal(siteDetails.EnvironmentVars, &envVars) == nil {
-			for _, item := range envVars {
-				if item.Key == "STACKED_ID" || item.Key == "STACKED_SITE_ID" {
-					wpContent = "content/" + item.Value
-				}
-			}
-		}
-	}
+	// Content directory as the site reported it on sync (Bedrock "app",
+	// Freighter "content/<id>"), falling back to wp-content.
+	wpContent := env.WPContentDir(site)
 
 	// Build fathom arguments
 	envDetails := env.ParseDetails()
