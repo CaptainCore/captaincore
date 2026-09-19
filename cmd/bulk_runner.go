@@ -562,7 +562,7 @@ func parseUpdateCoreOutput(site string, exitCode int, output string) bulkSiteRes
 			res.Reason = fmt.Sprintf("exit %d", exitCode)
 		}
 	}
-	if res.Result == "fail" {
+	if res.Result == "fail" || res.Action == "info" {
 		res.Excerpt = failureExcerpt(output)
 		if res.Reason == "" {
 			res.Reason = res.Excerpt
@@ -588,6 +588,8 @@ func formatCoreUpdateLine(res bulkSiteResult) string {
 	tag := "ok"
 	if res.Result == "fail" {
 		tag = "FAIL"
+	} else if res.Action == "info" {
+		tag = "info"
 	} else if res.Action == "skip" {
 		tag = "skip"
 	}
@@ -606,6 +608,8 @@ func formatCoreUpdateLine(res bulkSiteResult) string {
 		if res.Reason != "" {
 			detail = strings.TrimSpace(detail + "  " + res.Reason)
 		}
+	} else if res.Action == "info" && res.Reason != "" {
+		detail = res.Reason
 	} else if res.Action == "skip" && res.Reason != "" {
 		detail = res.Reason
 		if res.To != "" {
@@ -615,6 +619,9 @@ func formatCoreUpdateLine(res bulkSiteResult) string {
 	line := fmt.Sprintf("%-4s %-42s %s\n", tag, res.Site, strings.TrimSpace(detail))
 	if res.Result == "fail" {
 		return "\033[31m" + line + "\033[0m"
+	}
+	if res.Action == "info" {
+		return "\033[36m" + line + "\033[0m"
 	}
 	return line
 }
@@ -626,6 +633,10 @@ func countCoreUpdateResults(results []bulkSiteResult) (updated, skipped, failed,
 			failed++
 		case res.Action == "apply":
 			updated++
+		case res.Action == "info":
+			// CLI-only notices: counted as probed when probe-only, never as failed.
+			skipped++
+			probed++
 		case res.Action == "skip":
 			skipped++
 			if res.Reason == "probe-only" {
@@ -638,10 +649,30 @@ func countCoreUpdateResults(results []bulkSiteResult) (updated, skipped, failed,
 
 func printCoreUpdateSummary(results []bulkSiteResult, elapsed time.Duration, total, parallel int) {
 	updated, skipped, failed, _ := countCoreUpdateResults(results)
+	infoN := 0
+	for _, res := range results {
+		if res.Action == "info" {
+			infoN++
+		}
+	}
 	fmt.Printf("\nCore update finished in %s (%d sites, parallel %d)\n", elapsed.Round(time.Second), total, parallel)
 	fmt.Printf("  updated: %d\n", updated)
 	fmt.Printf("  skipped: %d\n", skipped)
+	fmt.Printf("  info:    %d\n", infoN)
 	fmt.Printf("  failed:  %d\n", failed)
+	if infoN > 0 {
+		fmt.Printf("\nCLI info (HTTP ok):\n")
+		for _, res := range results {
+			if res.Action != "info" {
+				continue
+			}
+			why := res.Reason
+			if why == "" {
+				why = res.Excerpt
+			}
+			fmt.Printf("  %-42s %s\n", res.Site, why)
+		}
+	}
 	if failed == 0 {
 		return
 	}

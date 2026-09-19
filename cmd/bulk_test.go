@@ -390,3 +390,23 @@ func TestSSHParsesParallel(t *testing.T) {
 		t.Errorf("--parallel leaked into SSH command as passthrough flag:\n%s", output)
 	}
 }
+
+func TestParseUpdateCoreOutputCLIInfo(t *testing.T) {
+	out := `THROW: Call to a member function verify_signature() on null in /www/x/public/wp-content/plugins/oxygen/component-framework/includes/tree-shortcodes.php:537
+cli-note stage=render kind=known: THROW: verify_signature
+preview_http=200
+probe=ok
+result=ok action=info stage=cli-render from=7.1 to=7.1.1 url=https://example.com reason=CLI-only (known): Oxygen verify_signature() on null under WP-CLI (known CLI-only; soflyy#1808)
+`
+	res := parseUpdateCoreOutput("oxy-production", 0, out)
+	if res.Result != "ok" || res.Action != "info" || res.Stage != "cli-render" {
+		t.Fatalf("got result=%q action=%q stage=%q", res.Result, res.Action, res.Stage)
+	}
+	if res.Excerpt == "" {
+		t.Fatalf("expected excerpt for info action")
+	}
+	updated, skipped, failed, probed := countCoreUpdateResults([]bulkSiteResult{res})
+	if failed != 0 || skipped != 1 || probed != 1 || updated != 0 {
+		t.Fatalf("counts updated=%d skipped=%d failed=%d probed=%d", updated, skipped, failed, probed)
+	}
+}

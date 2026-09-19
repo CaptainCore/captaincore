@@ -5,6 +5,11 @@
 #   wp-config, database, and wp-content), probe for PHP fatals, then optionally
 #   apply the update. Failed probes abort before any live core files change.
 #
+#   CLI boot/render fatals are NOT treated as frontend breaks. The probe soft-
+#   continues to the HTTP loopback stage; if HTTP is clean the site is
+#   result=ok action=info (known CLI-only signatures are minor notices). Only
+#   HTTP/db/apply failures (and CLI OOM) stay result=fail.
+#
 #   HTTP probes use the host's on-server loopback (Kinsta and Rocket.net):
 #     curl -ksS -H "Host: <site>" https://localhost/
 #   Rocket.net jails often have no localhost DNS; fall back to 127.0.0.1.
@@ -121,6 +126,60 @@ skip_run() {
   RESULT_REASON="$*"
   echo "skip: $*"
   exit 0
+}
+
+# Soft CLI notes: do not fail_run. HTTP stage decides frontend breaks.
+CLI_ISSUE_STAGE=""
+CLI_ISSUE_KIND=""   # known | new
+CLI_ISSUE_SUMMARY=""
+
+cli_excerpt() {
+  local out="$1"
+  printf '%s\n' "$out" | grep -E 'THROW:|FATAL:|Error:' | head -3 | tr '\n' ' ' | sed 's/[[:space:]]\{1,\}/ /g'
+}
+
+is_known_cli_only() {
+  local out="$1"
+  # Oxygen Classic: $oxygen_signature null under WP-CLI (soflyy/oxygen-bugs-and-features#1808).
+  # Visitor HTTP is fine; Core probe previously marked these as render/php-fatal fails.
+  if printf '%s\n' "$out" | grep -qi 'verify_signature() on null' \
+    && printf '%s\n' "$out" | grep -qi 'plugins/oxygen/'; then
+    return 0
+  fi
+  return 1
+}
+
+note_cli_issue() {
+  local stage="$1"
+  local out="$2"
+  local summary
+  summary="$(cli_excerpt "$out")"
+  [[ -n "$summary" ]] || summary="$(printf '%s\n' "$out" | tr '\n' ' ' | sed 's/[[:space:]]\{1,\}/ /g' | head -c 300)"
+  if [[ -z "$CLI_ISSUE_STAGE" ]]; then
+    CLI_ISSUE_STAGE="$stage"
+  fi
+  if is_known_cli_only "$out"; then
+    CLI_ISSUE_KIND="known"
+    CLI_ISSUE_SUMMARY="Oxygen verify_signature() on null under WP-CLI (known CLI-only; soflyy#1808)"
+  elif [[ "$CLI_ISSUE_KIND" != "known" ]]; then
+    CLI_ISSUE_KIND="new"
+    CLI_ISSUE_SUMMARY="$summary"
+  fi
+  echo "cli-note stage=${stage} kind=${CLI_ISSUE_KIND}: ${summary}"
+}
+
+finish_with_cli_info_if_needed() {
+  # Called after a clean HTTP/db probe when CLI had issues.
+  [[ -n "$CLI_ISSUE_STAGE" ]] || return 0
+  RESULT_STATUS="ok"
+  RESULT_ACTION="info"
+  RESULT_STAGE="cli-render"
+  if [[ "$CLI_ISSUE_KIND" == "known" ]]; then
+    RESULT_REASON="CLI-only (known): ${CLI_ISSUE_SUMMARY}"
+  else
+    RESULT_REASON="CLI render issue; HTTP preview ok — not a frontend break. ${CLI_ISSUE_SUMMARY}"
+  fi
+  echo "info: $RESULT_REASON"
 }
 
 html_has_php_fatal() {
@@ -641,6 +700,7 @@ run_command() {
   fi
   write_probe_php
 
+  CLI_BOOT_OK=1
   echo "CLI boot (plugins + themes)..."
   boot_out="$(wp --path="$PREVIEW" eval 'echo "booted=" . $GLOBALS["wp_version"] . " theme=" . get_template() . " plugins=" . count((array) get_option("active_plugins")) . "\n";' 2>&1)"
   boot_rc=$?
@@ -649,36 +709,42 @@ run_command() {
     if echo "$boot_out" | grep -qi 'Allowed memory size'; then
       fail_run memory "CLI boot exhausted memory."
     fi
-    fail_run boot "Preview core failed to boot with live plugins/themes."
+    # Soft-continue: CLI boot failure is not proof the frontend breaks.
+    note_cli_issue boot "$boot_out"
+    CLI_BOOT_OK=0
   fi
 
-  echo "CLI render / ..."
-  render_out="$(wp --path="$PREVIEW" eval-file "${PREVIEW}/probe-render.php" / 2>&1)"
-  render_rc=$?
-  echo "$render_out"
-  if [[ $render_rc -ne 0 ]]; then
-    if echo "$render_out" | grep -qi 'Allowed memory size'; then
-      fail_run memory "CLI render exhausted memory."
-    fi
-    fail_run render "Preview core fatals rendering /"
-  fi
-
-  ABOUT_PATH="$(wp_stdout post list --post_type=page --post_status=publish --field=url --posts_per_page=1)"
-  if [[ -n "$ABOUT_PATH" ]]; then
-    ABOUT_PATH="${ABOUT_PATH#http://}"
-    ABOUT_PATH="${ABOUT_PATH#https://}"
-    ABOUT_PATH="/${ABOUT_PATH#*/}"
-    [[ "$ABOUT_PATH" == "//"* ]] && ABOUT_PATH="/"
-    echo "CLI render ${ABOUT_PATH} ..."
-    render_out="$(wp --path="$PREVIEW" eval-file "${PREVIEW}/probe-render.php" "$ABOUT_PATH" 2>&1)"
+  if [[ "$CLI_BOOT_OK" == "1" ]]; then
+    echo "CLI render / ..."
+    render_out="$(wp --path="$PREVIEW" eval-file "${PREVIEW}/probe-render.php" / 2>&1)"
     render_rc=$?
     echo "$render_out"
     if [[ $render_rc -ne 0 ]]; then
       if echo "$render_out" | grep -qi 'Allowed memory size'; then
         fail_run memory "CLI render exhausted memory."
       fi
-      fail_run render "Preview core fatals rendering ${ABOUT_PATH}"
+      note_cli_issue render "$render_out"
     fi
+
+    ABOUT_PATH="$(wp_stdout post list --post_type=page --post_status=publish --field=url --posts_per_page=1)"
+    if [[ -n "$ABOUT_PATH" ]]; then
+      ABOUT_PATH="${ABOUT_PATH#http://}"
+      ABOUT_PATH="${ABOUT_PATH#https://}"
+      ABOUT_PATH="/${ABOUT_PATH#*/}"
+      [[ "$ABOUT_PATH" == "//"* ]] && ABOUT_PATH="/"
+      echo "CLI render ${ABOUT_PATH} ..."
+      render_out="$(wp --path="$PREVIEW" eval-file "${PREVIEW}/probe-render.php" "$ABOUT_PATH" 2>&1)"
+      render_rc=$?
+      echo "$render_out"
+      if [[ $render_rc -ne 0 ]]; then
+        if echo "$render_out" | grep -qi 'Allowed memory size'; then
+          fail_run memory "CLI render exhausted memory."
+        fi
+        note_cli_issue render "$render_out"
+      fi
+    fi
+  else
+    echo "CLI render skipped (boot failed; HTTP probe will decide frontend)"
   fi
 
   if [[ -z "$SITE_HOST" ]]; then
@@ -727,6 +793,11 @@ run_command() {
   fi
 
   if [[ "$SHOULD_APPLY" != "true" ]]; then
+    if [[ -n "$CLI_ISSUE_STAGE" ]]; then
+      finish_with_cli_info_if_needed
+      echo "apply=skipped (pass --apply to update live core to ${TARGET_VER})"
+      return 0
+    fi
     RESULT_STATUS="ok"
     RESULT_ACTION="skip"
     if [[ "$probe_only" == "true" ]]; then
