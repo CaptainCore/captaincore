@@ -353,6 +353,16 @@ func TestShippedRulesStayQuietOnLegitimateCode(t *testing.T) {
 		"<?php\nupdate_user_meta( $user_id, 'bricks_user_activation_status', 'active' );\nif ( Database::get_setting( 'userActivationAutoLogin', false ) ) { wp_set_current_user( $user_id ); wp_set_auth_cookie( $user_id, false, is_ssl() ); }\n")
 	write(t, dir, "themes/jupiter/framework/admin/control-panel/logic/template-management.php",
 		"<?php\nupdate_user_meta( $user->ID, 'session_tokens', $session_tokens );\nwp_set_auth_cookie( $user_id, true );\ndo_action( 'wp_login', $user->user_login, $user );\n")
+	write(t, dir, "themes/brandywine-hub/includes/event-handlers.php",
+		"<?php\n$password = sanitize_text_field($_POST[\"password\"]);\n$user_id = wp_create_user($email, $password, $email);\nwp_set_current_user($user_id);\nwp_set_auth_cookie($user_id);\n")
+	write(t, dir, "plugins/hubspot-content-embed/vendor/phar-io/manifest/tests/_fixture/test.phar",
+		"<?php\nset_include_path('phar://' . __FILE__ . PATH_SEPARATOR . get_include_path());\n__HALT_COMPILER();\n")
+	write(t, dir, "themes/betheme/functions/builder/class-mfn-builder-ajax.php",
+		"<?php\n$builder = unserialize(call_user_func('base'.'64_decode', $builder), ['allowed_classes' => false]);\n")
+	write(t, dir, "plugins/wp-job-manager-field-editor/classes/auto-output.php",
+		"<?php\n$response = wp_remote_get( hex2bin('687474703a2f2f706c7567696e732e736d796c2e65732f3f77632d6170693d736d796c65732d7468656d652d636865636b') . \"&\" . $check_string );\n")
+	write(t, dir, "plugins/astra-pro-sites/inc/classes/class-astra-sites.php",
+		"<?php\ncheck_ajax_referer( 'astra-sites', '_ajax_nonce' );\n$response = wp_remote_get( $_POST['url'] );\n")
 	write(t, dir, "plugins/fusion-builder/inc/class-fusion-form-auth-actions.php",
 		"<?php\n$user = wp_signon( array( 'user_login' => $_POST['user'], 'user_password' => $_POST['pass'] ) );\nif ( ! is_wp_error( $user ) ) { wp_set_auth_cookie( $user_id, false, is_ssl() ); }\n")
 	write(t, dir, "plugins/jetpack/extensions/blocks/premium-content/_inc/subscription-service/class-jwt.php",
