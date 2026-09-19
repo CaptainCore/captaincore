@@ -65,7 +65,8 @@ $room = function ($len) use (&$total, $max_total, &$out) {
 // Markers that make a row worth reading. Each is a case-insensitive LIKE.
 $markers = ['<script', '<iframe', 'eval(', 'base64_decode', 'atob(', 'fromCharCode', 'document.write', '<?php', 'unescape(',
             'javascript:', 'String.fromCharCode', 'window.location', 'display:none', 'visibility:hidden', '\\x2', '\\x3', '\\x6', '\\x7',
-            'gzinflate', 'str_rot13', 'create_function', 'assert(', 'passthru', 'shell_exec'];
+            'gzinflate', 'str_rot13', 'create_function', 'assert(', 'passthru', 'shell_exec',
+            'left:-', 'top:-', 'text-indent:-', 'font-size:0', 'opacity:0', 'position:absolute'];
 $like = function ($col) use ($markers, $wpdb) {
     $parts = [];
     foreach ($markers as $m) $parts[] = $wpdb->prepare("$col LIKE %s", '%' . $wpdb->esc_like($m) . '%');
@@ -105,7 +106,8 @@ if ($full) {
         usleep(200000);
     }
 } else {
-    $since_sql = $wpdb->prepare("post_modified_gmt >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d DAY)", $since);
+    // post_modified, not post_modified_gmt: drafts keep the GMT column at 0000-00-00.
+    $since_sql = $wpdb->prepare("post_modified >= DATE_SUB(NOW(), INTERVAL %d DAY)", $since);
     $posts_checked = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->posts} WHERE $since_sql");
     $rows = $wpdb->get_results("SELECT ID, post_type, post_status, post_modified_gmt, post_title, post_content FROM {$wpdb->posts} WHERE $since_sql AND post_type NOT IN ('revision') AND " . $like('post_content') . " LIMIT 300");
     foreach ($rows as $r) {
@@ -116,7 +118,7 @@ if ($full) {
 }
 $out['stats']['posts_checked'] = $posts_checked;
 $out['stats']['posts_exported'] = count($out['posts']);
-$csince = $full ? '1=1' : $wpdb->prepare("comment_date_gmt >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d DAY)", $since);
+$csince = $full ? '1=1' : $wpdb->prepare("comment_date >= DATE_SUB(NOW(), INTERVAL %d DAY)", $since);
 $rows = $wpdb->get_results("SELECT comment_ID, comment_post_ID, comment_approved, comment_date_gmt, comment_author_url, comment_content FROM {$wpdb->comments} WHERE $csince AND " . $like('comment_content') . " LIMIT 200");
 foreach ($rows as $r) {
     $c = $cut($r->comment_content);
