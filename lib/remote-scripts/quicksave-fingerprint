@@ -40,8 +40,13 @@ for arg in "$@"; do
 
 done
 
-# Default wp_content path
+# Default wp_content path: ask WordPress ("app" on Bedrock, "content/<id>" on
+# a WP Freighter tenant) rather than assuming wp-content.
 if [[ -z "$wp_content" ]]; then
+  wp_content=$( wp eval 'echo str_replace( rtrim( ABSPATH, "/" ) . "/", "", WP_CONTENT_DIR );' --skip-themes --skip-plugins --skip-packages 2>/dev/null | tail -1 )
+  wp_content="${wp_content%/}"
+fi
+if [[ -z "$wp_content" || "$wp_content" == /* || ! -d "$wp_content" ]]; then
   wp_content="wp-content"
 fi
 

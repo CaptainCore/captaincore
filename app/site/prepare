@@ -51,8 +51,10 @@ EOF
   # Set permalink to 'Post name' format if not set
   captaincore ssh ${site}-${environment} --script=rewrite-prep --captain-id=$CAPTAIN_ID
 
-  # Deploy helper plugin
-  captaincore ssh ${site}-${environment} --script=deploy-helper --captain-id=$CAPTAIN_ID -- --wp_content=$wp_content
+  # Deploy helper plugin. No --wp_content: this runs before the first sync, so
+  # the local value is only a default; deploy-helper resolves WP_CONTENT_DIR
+  # on the site itself (Bedrock app/, Freighter content/<id>).
+  captaincore ssh ${site}-${environment} --script=deploy-helper --captain-id=$CAPTAIN_ID
 
   captaincore sync-data ${site}-${environment} --captain-id=$CAPTAIN_ID
 

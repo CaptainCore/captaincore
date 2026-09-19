@@ -1,46 +1,49 @@
 package models
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // Environment mirrors captaincore_environments from the PHP schema.
 type Environment struct {
-	EnvironmentID        uint   `gorm:"primaryKey;column:environment_id;autoIncrement" json:"environment_id,string"`
-	SiteID               uint   `gorm:"column:site_id" json:"site_id,string"`
-	CreatedAt            string `gorm:"column:created_at" json:"created_at"`
-	UpdatedAt            string `gorm:"column:updated_at" json:"updated_at"`
-	Environment          string `gorm:"column:environment" json:"environment"`
-	Address              string `gorm:"column:address" json:"address"`
-	Username             string `gorm:"column:username" json:"username"`
-	Password             string `gorm:"column:password" json:"password"`
-	Protocol             string `gorm:"column:protocol" json:"protocol"`
-	Port                 string `gorm:"column:port" json:"port"`
-	Fathom               string `gorm:"column:fathom;type:text" json:"fathom"`
-	HomeDirectory        string `gorm:"column:home_directory" json:"home_directory"`
-	DatabaseName         string `gorm:"column:database_name" json:"database_name"`
-	DatabaseUsername     string `gorm:"column:database_username" json:"database_username"`
-	DatabasePassword     string `gorm:"column:database_password" json:"database_password"`
-	OffloadEnabled       string `gorm:"column:offload_enabled" json:"offload_enabled"`
-	OffloadProvider      string `gorm:"column:offload_provider" json:"offload_provider"`
-	OffloadAccessKey     string `gorm:"column:offload_access_key" json:"offload_access_key"`
-	OffloadSecretKey     string `gorm:"column:offload_secret_key" json:"offload_secret_key"`
-	OffloadBucket        string `gorm:"column:offload_bucket" json:"offload_bucket"`
-	OffloadPath          string `gorm:"column:offload_path" json:"offload_path"`
-	Token                string `gorm:"column:token" json:"token"`
-	PHPMemory            string `gorm:"column:php_memory" json:"php_memory"`
-	Storage              string `gorm:"column:storage" json:"storage"`
-	Visits               string `gorm:"column:visits" json:"visits"`
-	Core                 string `gorm:"column:core" json:"core"`
-	CoreVerifyChecksums  string `gorm:"column:core_verify_checksums;default:'1'" json:"core_verify_checksums"`
-	SubsiteCount         string `gorm:"column:subsite_count" json:"subsite_count"`
-	HomeURL              string `gorm:"column:home_url" json:"home_url"`
-	CapturePages         string `gorm:"column:capture_pages;type:text" json:"capture_pages"`
-	Themes               string `gorm:"column:themes;type:text" json:"themes"`
-	Plugins              string `gorm:"column:plugins;type:text" json:"plugins"`
-	Users                string `gorm:"column:users;type:text" json:"users"`
-	Details              string `gorm:"column:details;type:text" json:"details"`
-	Screenshot           string `gorm:"column:screenshot" json:"screenshot"`
-	MonitorEnabled       string `gorm:"column:monitor_enabled" json:"monitor_enabled"`
-	UpdatesEnabled       string `gorm:"column:updates_enabled" json:"updates_enabled"`
+	EnvironmentID         uint   `gorm:"primaryKey;column:environment_id;autoIncrement" json:"environment_id,string"`
+	SiteID                uint   `gorm:"column:site_id" json:"site_id,string"`
+	CreatedAt             string `gorm:"column:created_at" json:"created_at"`
+	UpdatedAt             string `gorm:"column:updated_at" json:"updated_at"`
+	Environment           string `gorm:"column:environment" json:"environment"`
+	Address               string `gorm:"column:address" json:"address"`
+	Username              string `gorm:"column:username" json:"username"`
+	Password              string `gorm:"column:password" json:"password"`
+	Protocol              string `gorm:"column:protocol" json:"protocol"`
+	Port                  string `gorm:"column:port" json:"port"`
+	Fathom                string `gorm:"column:fathom;type:text" json:"fathom"`
+	HomeDirectory         string `gorm:"column:home_directory" json:"home_directory"`
+	DatabaseName          string `gorm:"column:database_name" json:"database_name"`
+	DatabaseUsername      string `gorm:"column:database_username" json:"database_username"`
+	DatabasePassword      string `gorm:"column:database_password" json:"database_password"`
+	OffloadEnabled        string `gorm:"column:offload_enabled" json:"offload_enabled"`
+	OffloadProvider       string `gorm:"column:offload_provider" json:"offload_provider"`
+	OffloadAccessKey      string `gorm:"column:offload_access_key" json:"offload_access_key"`
+	OffloadSecretKey      string `gorm:"column:offload_secret_key" json:"offload_secret_key"`
+	OffloadBucket         string `gorm:"column:offload_bucket" json:"offload_bucket"`
+	OffloadPath           string `gorm:"column:offload_path" json:"offload_path"`
+	Token                 string `gorm:"column:token" json:"token"`
+	PHPMemory             string `gorm:"column:php_memory" json:"php_memory"`
+	Storage               string `gorm:"column:storage" json:"storage"`
+	Visits                string `gorm:"column:visits" json:"visits"`
+	Core                  string `gorm:"column:core" json:"core"`
+	CoreVerifyChecksums   string `gorm:"column:core_verify_checksums;default:'1'" json:"core_verify_checksums"`
+	SubsiteCount          string `gorm:"column:subsite_count" json:"subsite_count"`
+	HomeURL               string `gorm:"column:home_url" json:"home_url"`
+	CapturePages          string `gorm:"column:capture_pages;type:text" json:"capture_pages"`
+	Themes                string `gorm:"column:themes;type:text" json:"themes"`
+	Plugins               string `gorm:"column:plugins;type:text" json:"plugins"`
+	Users                 string `gorm:"column:users;type:text" json:"users"`
+	Details               string `gorm:"column:details;type:text" json:"details"`
+	Screenshot            string `gorm:"column:screenshot" json:"screenshot"`
+	MonitorEnabled        string `gorm:"column:monitor_enabled" json:"monitor_enabled"`
+	UpdatesEnabled        string `gorm:"column:updates_enabled" json:"updates_enabled"`
 	UpdatesExcludeThemes  string `gorm:"column:updates_exclude_themes;type:text" json:"updates_exclude_themes"`
 	UpdatesExcludePlugins string `gorm:"column:updates_exclude_plugins;type:text" json:"updates_exclude_plugins"`
 }
@@ -56,6 +59,10 @@ type EnvironmentDetails struct {
 	ScreenshotBase     string          `json:"screenshot_base"`
 	ConsoleErrors      json.RawMessage `json:"console_errors"`
 	CapturePluginPages []string        `json:"capture_plugin_pages"`
+	// WPContent is the content directory relative to the WordPress root as
+	// reported by the site itself on sync ("wp-content", "app" on Bedrock,
+	// "content/<id>" on a WP Freighter tenant).
+	WPContent string `json:"wp_content"`
 }
 
 type AuthDetails struct {
@@ -64,6 +71,37 @@ type AuthDetails struct {
 }
 
 // ParseDetails parses the JSON details column.
+// WPContentDir returns the site's content directory relative to the WordPress
+// root. The value the site reported on its last sync wins; a WP Freighter
+// tenant falls back to content/<STACKED_SITE_ID>; everything else is wp-content.
+func (e *Environment) WPContentDir(site *Site) string {
+	if e != nil {
+		if v := strings.Trim(e.ParseDetails().WPContent, "/ "); v != "" && !strings.Contains(v, "..") {
+			return v
+		}
+	}
+	if site != nil {
+		d := site.ParseDetails()
+		if d.EnvironmentVars != nil {
+			raw := string(d.EnvironmentVars)
+			if raw != "" && raw != `""` && raw != "null" {
+				var vars []struct {
+					Key   string `json:"key"`
+					Value string `json:"value"`
+				}
+				if json.Unmarshal(d.EnvironmentVars, &vars) == nil {
+					for _, v := range vars {
+						if (v.Key == "STACKED_ID" || v.Key == "STACKED_SITE_ID") && v.Value != "" {
+							return "content/" + v.Value
+						}
+					}
+				}
+			}
+		}
+	}
+	return "wp-content"
+}
+
 func (e *Environment) ParseDetails() EnvironmentDetails {
 	var d EnvironmentDetails
 	if e.Details != "" {

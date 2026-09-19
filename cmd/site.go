@@ -340,8 +340,11 @@ func siteGetNative(cmd *cobra.Command, args []string) {
 	siteDetails := site.ParseDetails()
 	envDetails := env.ParseDetails()
 
+	// Content directory: what the site reported on sync, else the Freighter
+	// tenant path, else wp-content (see Environment.WPContentDir).
+	wpContent := env.WPContentDir(site)
+
 	// Build environment_vars string
-	wpContent := "wp-content"
 	environmentVars := ""
 	if siteDetails.EnvironmentVars != nil && string(siteDetails.EnvironmentVars) != "" && string(siteDetails.EnvironmentVars) != `""` && string(siteDetails.EnvironmentVars) != "null" {
 		var envVarsList []struct {
@@ -352,9 +355,6 @@ func siteGetNative(cmd *cobra.Command, args []string) {
 			var parts []string
 			for _, item := range envVarsList {
 				parts = append(parts, fmt.Sprintf("%s='%s'", item.Key, item.Value))
-				if item.Key == "STACKED_ID" || item.Key == "STACKED_SITE_ID" {
-					wpContent = "content/" + item.Value
-				}
 			}
 			environmentVars = "export " + strings.Join(parts, " ")
 		}
