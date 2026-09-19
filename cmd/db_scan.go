@@ -105,7 +105,7 @@ func dbScanFindings(raw string, knownUsers map[string]bool, minSeverity string) 
 		if scan.SeverityRank(sev) < min {
 			return
 		}
-		out = append(out, scan.LegacyFinding{Filename: where, SignatureID: id, SignatureName: name, SignatureDescription: desc, MatchedText: match})
+		out = append(out, scan.LegacyFinding{Filename: where, SignatureID: id, SignatureName: name, SignatureDescription: desc, MatchedText: match, Severity: sev, Family: "database"})
 	}
 
 	// Rule findings over the exported rows. Each row is written twice, as

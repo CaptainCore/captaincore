@@ -55,6 +55,11 @@ type LegacyFinding struct {
 	SignatureName        string `json:"signature_name"`
 	SignatureDescription string `json:"signature_description"`
 	MatchedText          string `json:"matched_text"`
+	// Severity and Family travel with the finding so the Manager can store
+	// them and decide what emails now and what waits for the daily review.
+	// Wordfence rows leave them empty.
+	Severity string `json:"severity,omitempty"`
+	Family   string `json:"family,omitempty"`
 }
 
 // Legacy converts a Finding to the malware-alert payload shape.
@@ -69,6 +74,8 @@ func (f Finding) Legacy() LegacyFinding {
 		SignatureName:        f.Name,
 		SignatureDescription: desc,
 		MatchedText:          f.Match,
+		Severity:             f.Severity,
+		Family:               f.Family,
 	}
 }
 

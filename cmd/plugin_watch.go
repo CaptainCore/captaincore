@@ -73,6 +73,8 @@ func securityPluginChanges(prevJSON, curJSON string) []scan.LegacyFinding {
 			SignatureName:        title + " " + what,
 			SignatureDescription: fmt.Sprintf("%s was active at the previous sync and is %s now. A backdoor that writes active_plugins directly leaves no deactivation event; confirm a person did this.", title, strings.TrimSuffix(what, "d")+"d"),
 			MatchedText:          p.Name,
+			Severity:             "high",
+			Family:               "control",
 		})
 	}
 	return out

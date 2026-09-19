@@ -245,6 +245,8 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 							SignatureID:          "hidden-plugin",
 							SignatureName:        "Plugin hidden from WordPress",
 							SignatureDescription: fmt.Sprintf("%s is installed but disappears from the plugin list once plugin code runs, and its code filters the plugin list; self-hiding backdoors work this way", h),
+							Severity:             "critical",
+							Family:               "backdoor",
 						})
 					}
 					postMalwareAlert(site, &matchedEnv, system, captain, findings, "hidden-plugin")
@@ -296,14 +298,13 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 		if json.Unmarshal([]byte(v), &rows) == nil {
 			var findings []scan.LegacyFinding
 			for _, r := range rows {
-				if r.Severity != "CRITICAL" && r.Severity != "HIGH" {
-					continue
-				}
 				findings = append(findings, scan.LegacyFinding{
 					Filename:             r.Path,
 					SignatureID:          "media-" + strings.ToLower(r.Type),
 					SignatureName:        "Media file: " + strings.ReplaceAll(strings.ToLower(r.Type), "_", " "),
 					SignatureDescription: r.Detail,
+					Severity:             strings.ToLower(r.Severity),
+					Family:               "media",
 				})
 			}
 			if len(findings) > 0 {

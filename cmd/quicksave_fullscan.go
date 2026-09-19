@@ -438,6 +438,8 @@ func quicksaveHiddenPluginsCheck(sitePath string, site *models.Site, env *models
 				SignatureID:          "hidden-plugin",
 				SignatureName:        "Plugin hidden from WordPress",
 				SignatureDescription: fmt.Sprintf("plugins/%s (%s, %d PHP file(s)) has been present for %d day(s) but is missing from the plugin list WordPress reported; self-hiding backdoors filter themselves out of that list", h.Dir, h.Title, h.PHPFiles, h.AgeDays),
+				Severity:             "critical",
+				Family:               "backdoor",
 			})
 		case "decoy":
 			fmt.Printf("  Decoy plugin directory: plugins/%s is empty\n", h.Dir)
