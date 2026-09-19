@@ -157,17 +157,28 @@ foreach ($active as $p) {
 
 // Triggers, events and routines: WordPress never creates them.
 $db = DB_NAME;
-$out['triggers'] = $wpdb->get_col($wpdb->prepare("SELECT TRIGGER_NAME FROM INFORMATION_SCHEMA.TRIGGERS WHERE TRIGGER_SCHEMA = %s", $db)) ?: [];
+// Table names WordPress core creates, and prefixes the common plugins use (shared by the
+// trigger and unknown-table checks).
+$core = ['commentmeta', 'comments', 'links', 'options', 'postmeta', 'posts', 'termmeta', 'term_relationships', 'term_taxonomy', 'terms', 'usermeta', 'users',
+         'blogmeta', 'blogs', 'blog_versions', 'registration_log', 'signups', 'site', 'sitemeta'];
+$GLOBALS['dbscan_known_prefixes'] = $known = ['actionscheduler_', 'woocommerce_', 'wc_', 'gf_', 'rg_', 'yoast_', 'wpforms_', 'e_', 'elementor', 'aioseo_', 'rank_math', 'seopress', 'redirection_', 'cleantalk',
+          'smush', 'ewwwio', 'mailchimp', 'mc4wp', 'wpcode', 'searchwp', 'simple_history', 'snippets', 'litespeed', 'wpml', 'icl_', 'pmxi_', 'pmxe_', 'frm_', 'nf3_', 'cf7', 'wpmailsmtp',
+          'wsal_', 'defender', 'ac_', 'admin_columns', 'tec_', 'wp_rocket', 'wprocket', 'edd_', 'affiliate_wp', 'affiliatewp', 'learndash', 'ld_', 'mepr_', 'pms_', 'um_', 'bp_', 'wpsc_',
+          'captaincore_', 'gravitysmtp_', 'iwp_', 'mlw_', 'fluentform', 'fluent_', 'wpr_', 'wpr_rocket', 'wpfm_', 'wpstg', 'aiowps_', 'aioseo_', 'wpforo_', 'pods', 'ninja_', 'nf3_', 'give_', 'tribe_', 'trp_', 'wc_order', 'wcpdf', 'bv_', 'blc_', 'wpvivid_', 'ai1wm_', 'duplicator_', 'et_', 'wpmm_', 'dsb_', 'yop_', 'wpp_', 'ppress_', 'wpjb_', 'wpsp_', 'wpstream_', 'wpcf7_', 'cf_', 'wpdm_', 'wpml_', 'polylang', 'cmplz_', 'termmeta', 'hustle_', 'wpgmza_', 'wpgmp_', 'ms_', 'srs_', 'wpil_', 'wp_lw', 'litespeed_', 'wpforms_', 'gv_', 'gp_', 'wpai_', 'sbi_', 'cff_', 'ctf_', 'wp_defender', 'wd_', 'wpca_', 'ahc_', 'wsm_', 'cn_', 'wp_shortpixel', 'shortpixel', 'wpo_', 'w3tc_', 'rsvp', 'evf_', 'ur_', 'wpr_', 'wp_smush', 'smush_', 'cc_', 'ahm_', 'fsb_', 'berocket', 'yith_', 'wt_', 'ws_ft', 'w3tc', 'hustle', 'forminator', 'pp_', 'branda', 'wpmudev', 'sib_', 'mailpoet', 'burst_', 'rsssl', 'aiowps', 'wfls_', 'wf', 'itsec_', 'cerber_', 'gla_', 'jetpack_', 'wc_admin', 'woo'];
+// Triggers on a plugin's own tables (Bookly, WC Blacklist Manager and the like) are that
+// plugin's; only triggers on core tables or unknown tables are reported. The known plugin
+// prefixes are the same list the unknown-table check uses below.
+$out['triggers'] = [];
+foreach ($wpdb->get_results($wpdb->prepare("SELECT TRIGGER_NAME, EVENT_OBJECT_TABLE FROM INFORMATION_SCHEMA.TRIGGERS WHERE TRIGGER_SCHEMA = %s", $db)) as $tr) {
+    $tbl = preg_replace('/^' . preg_quote($wpdb->prefix, '/') . '(\d+_)?/', '', $tr->EVENT_OBJECT_TABLE);
+    $plugin_table = false;
+    foreach ($GLOBALS['dbscan_known_prefixes'] ?? [] as $k) if (strpos($tbl, $k) === 0) { $plugin_table = true; break; }
+    if (!$plugin_table) $out['triggers'][] = $tr->TRIGGER_NAME . ' on ' . $tr->EVENT_OBJECT_TABLE;
+}
 $out['events']   = $wpdb->get_col($wpdb->prepare("SELECT EVENT_NAME FROM INFORMATION_SCHEMA.EVENTS WHERE EVENT_SCHEMA = %s", $db)) ?: [];
 $out['routines'] = $wpdb->get_col($wpdb->prepare("SELECT ROUTINE_NAME FROM INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_SCHEMA = %s", $db)) ?: [];
 
 // Tables outside the core set and the common plugin prefixes.
-$core = ['commentmeta', 'comments', 'links', 'options', 'postmeta', 'posts', 'termmeta', 'term_relationships', 'term_taxonomy', 'terms', 'usermeta', 'users',
-         'blogmeta', 'blogs', 'blog_versions', 'registration_log', 'signups', 'site', 'sitemeta'];
-$known = ['actionscheduler_', 'woocommerce_', 'wc_', 'gf_', 'rg_', 'yoast_', 'wpforms_', 'e_', 'elementor', 'aioseo_', 'rank_math', 'seopress', 'redirection_', 'cleantalk',
-          'smush', 'ewwwio', 'mailchimp', 'mc4wp', 'wpcode', 'searchwp', 'simple_history', 'snippets', 'litespeed', 'wpml', 'icl_', 'pmxi_', 'pmxe_', 'frm_', 'nf3_', 'cf7', 'wpmailsmtp',
-          'wsal_', 'defender', 'ac_', 'admin_columns', 'tec_', 'wp_rocket', 'wprocket', 'edd_', 'affiliate_wp', 'affiliatewp', 'learndash', 'ld_', 'mepr_', 'pms_', 'um_', 'bp_', 'wpsc_',
-          'captaincore_', 'gravitysmtp_', 'iwp_', 'mlw_', 'fluentform', 'fluent_', 'wpr_', 'wpr_rocket', 'wpfm_', 'wpstg', 'aiowps_', 'aioseo_', 'wpforo_', 'pods', 'ninja_', 'nf3_', 'give_', 'tribe_', 'trp_', 'wc_order', 'wcpdf', 'bv_', 'blc_', 'wpvivid_', 'ai1wm_', 'duplicator_', 'et_', 'wpmm_', 'dsb_', 'yop_', 'wpp_', 'ppress_', 'wpjb_', 'wpsp_', 'wpstream_', 'wpcf7_', 'cf_', 'wpdm_', 'wpml_', 'polylang', 'cmplz_', 'termmeta', 'hustle_', 'wpgmza_', 'wpgmp_', 'ms_', 'srs_', 'wpil_', 'wp_lw', 'litespeed_', 'wpforms_', 'gv_', 'gp_', 'wpai_', 'sbi_', 'cff_', 'ctf_', 'wp_defender', 'wd_', 'wpca_', 'ahc_', 'wsm_', 'cn_', 'wp_shortpixel', 'shortpixel', 'wpo_', 'w3tc_', 'rsvp', 'evf_', 'ur_', 'wpr_', 'wp_smush', 'smush_', 'ahm_', 'fsb_', 'berocket', 'yith_', 'wt_', 'ws_ft', 'w3tc', 'hustle', 'forminator', 'pp_', 'branda', 'wpmudev', 'sib_', 'mailpoet', 'burst_', 'rsssl', 'aiowps', 'wfls_', 'wf', 'itsec_', 'cerber_', 'gla_', 'jetpack_', 'wc_admin', 'woo'];
 $prefix = $wpdb->prefix;
 foreach ($wpdb->get_col("SHOW TABLES") as $t) {
     if (strpos($t, $prefix) !== 0) { $out['unknown_tables'][] = $t; continue; }
