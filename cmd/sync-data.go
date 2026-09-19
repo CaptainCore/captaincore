@@ -253,6 +253,18 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 		}
 	}
 
+	// A security plugin that was active last night and is not now.
+	if changes := securityPluginChanges(envRecord.Plugins, data["plugins"]); len(changes) > 0 {
+		if site, err := sa.LookupSite(); err == nil && site != nil {
+			if !flagSyncDataJSON {
+				for _, c := range changes {
+					fmt.Printf("  Security plugin: %s\n", c.SignatureName)
+				}
+			}
+			postMalwareAlert(site, &matchedEnv, system, captain, changes, "plugin-watch")
+		}
+	}
+
 	// Database scan (see fetch-site-data and lib/remote-scripts/db-scan): the
 	// exported rows are judged here with the malware rules, the fixed checks
 	// use the previous sync's user list, and the summary (no row contents)

@@ -56,6 +56,7 @@ type dbScanExport struct {
 	Routines          []string       `json:"routines"`
 	UnknownTables     []string       `json:"unknown_tables"`
 	SuspiciousOptions []string       `json:"suspicious_options"`
+	ToolkitMarkers    []string       `json:"toolkit_markers"`
 	Stats             map[string]int `json:"stats"`
 	Truncated         bool           `json:"truncated"`
 	Error             string         `json:"error"`
@@ -74,6 +75,7 @@ type dbScanSummary struct {
 	Routines          []string       `json:"routines,omitempty"`
 	UnknownTables     []string       `json:"unknown_tables,omitempty"`
 	SuspiciousOptions []string       `json:"suspicious_options,omitempty"`
+	ToolkitMarkers    []string       `json:"toolkit_markers,omitempty"`
 	Truncated         bool           `json:"truncated,omitempty"`
 }
 
@@ -178,6 +180,15 @@ func dbScanFindings(raw string, knownUsers map[string]bool, minSeverity string) 
 	for _, o := range ex.SuspiciousOptions {
 		add("high", "db:option/"+o, "db-known-injection-option", "Option name from a known injection", "The option name matches names left by past SEO-spam and content injections", o)
 	}
+	if n := len(ex.ToolkitMarkers); n > 0 {
+		sample := ex.ToolkitMarkers
+		if len(sample) > 5 {
+			sample = sample[:5]
+		}
+		add("high", "db:option/toolkit-markers", "db-toolkit-session-markers", "Backdoor session markers in wp_options",
+			fmt.Sprintf("%d option(s) named wp_<md5 of an IP> holding a Unix timestamp, or prefixed __: the SMILODON toolkit records every admin session it sees this way, and the markers outlive file-only cleanups; a re-drop after cleanup starts by writing a new one", n),
+			strings.Join(sample, ", "))
+	}
 	for _, a := range ex.Admins {
 		if knownUsers != nil && !knownUsers[strings.ToLower(a.Login)] {
 			add("high", "db:user/"+a.Login, "db-new-administrator", "Administrator the Manager had not seen",
@@ -185,7 +196,7 @@ func dbScanFindings(raw string, knownUsers map[string]bool, minSeverity string) 
 		}
 	}
 	sum := dbScanSummary{Stats: ex.Stats, Findings: len(out), PluginsMissing: ex.PluginsMissing, Triggers: ex.Triggers, Events: ex.Events,
-		Routines: ex.Routines, UnknownTables: ex.UnknownTables, SuspiciousOptions: ex.SuspiciousOptions, Truncated: ex.Truncated}
+		Routines: ex.Routines, UnknownTables: ex.UnknownTables, SuspiciousOptions: ex.SuspiciousOptions, ToolkitMarkers: ex.ToolkitMarkers, Truncated: ex.Truncated}
 	for _, a := range ex.Admins {
 		sum.Admins = append(sum.Admins, a.Login)
 	}

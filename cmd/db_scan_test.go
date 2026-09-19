@@ -28,6 +28,7 @@ func TestDBScanFindings(t *testing.T) {
 		"routines":           []string{},
 		"unknown_tables":     []string{"wp_html_injections"},
 		"suspicious_options": []string{"wp_html_inject_code"},
+		"toolkit_markers":    []string{"wp_612c5c61ba6218085de887a0a01f2daf", "__config_x"},
 		"stats":              map[string]int{"options_total": 900, "options_exported": 2, "posts_checked": 12, "posts_exported": 1},
 	}
 	raw, _ := json.Marshal(export)
@@ -41,10 +42,10 @@ func TestDBScanFindings(t *testing.T) {
 		got[f.Filename] = f.SignatureID
 	}
 	want := map[string]string{
-		"db:trigger/after_user_insert":                 "db-trigger",
+		"db:trigger/after_user_insert":                    "db-trigger",
 		"db:active_plugins/../../uploads/2024/loader.php": "db-active-plugin-path-escape",
-		"db:option/wp_html_inject_code":                "db-known-injection-option",
-		"db:user/wpsupp-user":                          "db-new-administrator",
+		"db:option/wp_html_inject_code":                   "db-known-injection-option",
+		"db:user/wpsupp-user":                             "db-new-administrator",
 	}
 	for k, v := range want {
 		if got[k] != v {

