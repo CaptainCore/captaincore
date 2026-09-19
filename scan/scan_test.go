@@ -390,7 +390,7 @@ func TestShippedRulesStayQuietOnLegitimateCode(t *testing.T) {
 	write(t, dir, "plugins/bdthemes-prime-slider-lite/admin/admin.php",
 		"<?php\nforeach ( $wp_list_table->items as $key => $val ) { if ( $key === 'bdthemes-prime-slider/bdthemes-prime-slider.php' && $this->white_label() ) { unset( $wp_list_table->items[ $key ] ); } }\n")
 	write(t, dir, "plugins/wp-phpmyadmin-extension/library.php",
-		"<?php\nfunction rand_str($length) { $x = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'; $y = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'; return substr(str_shuffle(str_repeat($x, ceil($length/strlen($x)))), 1, $length); }\n$t = strtr($s, $m); $d = base64_decode($t);\n")
+		"<?php\nfunction rand_str($length) { $x = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'; $y = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'; return substr(str_shuffle(str_repeat($x, ceil($length/strlen($x)))), 1, $length); }\nfunction geo_to_eng($input) { return strtr($input, array('ა' => 'a', 'ბ' => 'b')); }\n$d = base64_decode($t);\n")
 	write(t, dir, "plugins/fusion-builder/inc/class-fusion-form-auth-actions.php",
 		"<?php\n$user = wp_signon( array( 'user_login' => $_POST['user'], 'user_password' => $_POST['pass'] ) );\nif ( ! is_wp_error( $user ) ) { wp_set_auth_cookie( $user_id, false, is_ssl() ); }\n")
 	write(t, dir, "plugins/jetpack/extensions/blocks/premium-content/_inc/subscription-service/class-jwt.php",
