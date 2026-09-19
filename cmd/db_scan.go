@@ -165,8 +165,15 @@ func dbScanFindings(raw string, knownUsers map[string]bool, minSeverity string) 
 	for _, r := range ex.Routines {
 		add("high", "db:routine/"+r, "db-routine", "Stored routine in the database", "WordPress and its plugins do not use stored procedures or functions", r)
 	}
+	// A stale active_plugins entry is ordinary: plugins deleted over SFTP stay
+	// listed until the plugins screen is opened, and WordPress skips them.
+	// Only a path that escapes the plugin directory is worth an alert.
 	for _, p := range ex.PluginsMissing {
-		add("high", "db:active_plugins/"+p, "db-active-plugin-missing", "Active plugin whose file is missing", "active_plugins names a file that does not exist under the plugin directory, or points outside it; a deleted loader left registered, or a path trick", p)
+		if strings.Contains(p, "..") || strings.HasPrefix(p, "/") {
+			add("critical", "db:active_plugins/"+p, "db-active-plugin-path-escape", "Active plugin path outside the plugin directory", "active_plugins carries a path with .. or an absolute path, so WordPress loads a file from outside wp-content/plugins on every request", p)
+		} else {
+			add("low", "db:active_plugins/"+p, "db-active-plugin-missing", "Active plugin whose file is missing", "active_plugins names a file that no longer exists under the plugin directory; usually a plugin removed over SFTP, cleared the next time the plugins screen loads", p)
+		}
 	}
 	for _, o := range ex.SuspiciousOptions {
 		add("high", "db:option/"+o, "db-known-injection-option", "Option name from a known injection", "The option name matches names left by past SEO-spam and content injections", o)
