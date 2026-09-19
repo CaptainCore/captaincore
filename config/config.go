@@ -26,6 +26,7 @@ type SystemConfig struct {
 	RcloneUpload          string `json:"rclone_upload"`
 	RcloneUploadURI       string `json:"rclone_upload_uri"`
 	FathomAPIKey          string `json:"fathom_api_key"`
+	TypeSafeAPIKey        string `json:"typesafe_api_key"`
 	LocalWPDBPW           string `json:"local_wp_db_pw"`
 	CaptainCoreStandby    string `json:"captaincore_standby"`
 }

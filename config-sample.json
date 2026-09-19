@@ -10,6 +10,8 @@
             "path_tmp": "\/Users\/username\/Tmp",
             "path_scripts": "\/Users\/username\/Scripts",
             "rclone_cli_backup": "B2:Backup\/Services\/core",
+            "fathom_api_key": "###########",
+            "typesafe_api_key": "###########",
             "path_email_health": "\/Users\/username\/EmailHealth",
             "local_wp_db_pw": "###########"
         }
