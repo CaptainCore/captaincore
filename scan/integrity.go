@@ -529,6 +529,27 @@ func clusterNote(c Component, dir string, man *Manifest, kind string, n int) Fin
 	}
 }
 
+// vendorExtraDirs are directories a vendor adds to its own build of a
+// wordpress.org plugin without publishing them to wordpress.org: WP Engine's
+// Delicious Brains plugins carry an ext/ updater that pulls releases from
+// wpengine.com since late 2024. Files under them are not unknown files.
+var vendorExtraDirs = []string{
+	"better-search-replace/ext/",
+	"wp-migrate-db/ext/",
+	"advanced-custom-fields/ext/",
+	"wp-offload-media-lite/ext/",
+}
+
+func vendorExtra(componentDir, rel string) bool {
+	full := componentDir + "/" + rel
+	for _, d := range vendorExtraDirs {
+		if strings.Contains(full, d) {
+			return true
+		}
+	}
+	return false
+}
+
 // clusterAbsolute: this many files of one kind in one component is a cluster
 // whatever the release size. wp-phpmyadmin-extension ships thousands of files
 // and still writes 58 more into its own template cache.
@@ -574,7 +595,7 @@ func (m *ManifestStore) CheckTree(root string, comps []Component) IntegrityResul
 			want, inRelease := man.Files[rel]
 			unknownSev, modifiedSev := integritySeverity(rel)
 			if !inRelease {
-				if unknownSev == "" {
+				if unknownSev == "" || vendorExtra(c.Dir, rel) {
 					return nil
 				}
 				h, err := fileSHA256(p)
@@ -702,7 +723,7 @@ func (m *ManifestStore) CheckPaths(root string, paths []string) IntegrityResult 
 			continue
 		}
 		if !inRelease {
-			if unknownSev == "" || res.KnownGood[h] {
+			if unknownSev == "" || res.KnownGood[h] || vendorExtra(dir, inner) {
 				continue
 			}
 			res.Unknown++

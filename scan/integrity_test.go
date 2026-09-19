@@ -84,7 +84,7 @@ func TestIntegrityCheckTree(t *testing.T) {
 		"index.php":     "<?php get_header();\n",
 	}
 	srv, hits := fakeWordPressOrg(t,
-		map[string]map[string]string{"akismet/5.3": akismet},
+		map[string]map[string]string{"akismet/5.3": akismet, "better-search-replace/1.4.10": {"better-search-replace.php": "<?php\n/*\nPlugin Name: Better Search Replace\nVersion: 1.4.10\n*/\n"}},
 		map[string]map[string]string{"twentytwentyfour/1.2": twenty})
 
 	root := t.TempDir()
@@ -95,6 +95,8 @@ func TestIntegrityCheckTree(t *testing.T) {
 	write(t, root, "plugins/akismet/wp-cache.php", "<?php system($_GET['c']);\n") // unknown
 	write(t, root, "plugins/akismet/_inc/copy.php", akismet["class.akismet.php"]) // a release file under another name
 	write(t, root, "plugins/akismet/notes.md", "hi\n")                            // unknown, not reportable
+	write(t, root, "plugins/better-search-replace/better-search-replace.php", "<?php\n/*\nPlugin Name: Better Search Replace\nVersion: 1.4.10\n*/\n")
+	write(t, root, "plugins/better-search-replace/ext/class-bsr-plugin-updater.php", "<?php // WP Engine build updater\n")
 	write(t, root, "plugins/akismet/views/two.php", "<?php // tagged build\n")    // the second accepted hash
 	write(t, root, "plugins/premium-thing/premium-thing.php", "<?php\n/*\nPlugin Name: Premium\nVersion: 2.0\n*/\n")
 	write(t, root, "plugins/no-header/lib.php", "<?php\n")
@@ -103,7 +105,7 @@ func TestIntegrityCheckTree(t *testing.T) {
 	write(t, root, "themes/twentytwentyfour/index.php", twenty["index.php"])
 
 	comps := FindComponents(root)
-	if len(comps) != 3 {
+	if len(comps) != 4 {
 		t.Fatalf("components: %+v", comps)
 	}
 	store := NewManifestStore(filepath.Join(root, "cache"))
@@ -112,7 +114,7 @@ func TestIntegrityCheckTree(t *testing.T) {
 	if len(res.Errors) != 0 {
 		t.Fatalf("errors: %v", res.Errors)
 	}
-	if res.Components != 3 || res.Covered != 2 {
+	if res.Components != 4 || res.Covered != 3 {
 		t.Fatalf("covered %d of %d", res.Covered, res.Components)
 	}
 	got := map[string]string{}
