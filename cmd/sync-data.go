@@ -1,10 +1,14 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -217,25 +221,34 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 	}
 
 	// Plugins the site lists with plugin code disabled but not with it
-	// enabled are hiding themselves (see fetch-site-data). Alert like a
-	// malware finding; the plugin directory is the evidence.
+	// enabled are hiding themselves (see fetch-site-data). The list alone
+	// is not enough to email about: hiddenPluginsToAlert keeps the ones that
+	// look like a backdoor and drops the known self-hiders and the cases
+	// where the whole list vanished.
 	if v := strings.TrimSpace(data["hidden_plugins"]); v != "" && v != "[]" {
 		var hidden []string
 		if json.Unmarshal([]byte(v), &hidden) == nil && len(hidden) > 0 {
 			if site, err := sa.LookupSite(); err == nil && site != nil {
-				var findings []scan.LegacyFinding
-				for _, h := range hidden {
-					findings = append(findings, scan.LegacyFinding{
-						Filename:             "wp-content/plugins/" + h,
-						SignatureID:          "hidden-plugin",
-						SignatureName:        "Plugin hidden from WordPress",
-						SignatureDescription: fmt.Sprintf("%s is installed but disappears from the plugin list once plugin code runs; self-hiding backdoors filter themselves out this way", h),
-					})
-				}
+				quicksave := filepath.Join(system.Path, fmt.Sprintf("%s_%d", site.Site, site.SiteID), strings.ToLower(matchedEnv.Environment), "quicksave")
+				alertable, skipped := hiddenPluginsToAlert(hidden, quicksave)
 				if !flagSyncDataJSON {
 					fmt.Printf("Hidden plugin(s) reported by the site: %s\n", strings.Join(hidden, ", "))
+					for _, r := range skipped {
+						fmt.Printf("  not alerting: %s\n", r)
+					}
 				}
-				postMalwareAlert(site, &matchedEnv, system, captain, findings, "hidden-plugin")
+				if len(alertable) > 0 {
+					var findings []scan.LegacyFinding
+					for _, h := range alertable {
+						findings = append(findings, scan.LegacyFinding{
+							Filename:             "wp-content/plugins/" + h,
+							SignatureID:          "hidden-plugin",
+							SignatureName:        "Plugin hidden from WordPress",
+							SignatureDescription: fmt.Sprintf("%s is installed but disappears from the plugin list once plugin code runs, and its code filters the plugin list; self-hiding backdoors work this way", h),
+						})
+					}
+					postMalwareAlert(site, &matchedEnv, system, captain, findings, "hidden-plugin")
+				}
 			}
 		}
 	}
@@ -340,6 +353,78 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 
 // parseSiteData parses key:value lines from fetch-site-data into a map.
 // Splits on the first colon only, so JSON values with colons are preserved.
+// knownSelfHidingPlugins remove themselves from the plugin list by design:
+// host-managed updaters and remote-management workers. Not backdoors.
+var knownSelfHidingPlugins = map[string]string{
+	"autoupdater":           "Flywheel Managed Plugin Updates hides itself by design",
+	"worker":                "ManageWP Worker can be set to hide itself",
+	"wpmudev-updates":       "WPMU DEV Dashboard white-label hides itself",
+	"kinsta-mu-plugins":     "Kinsta must-use plugin",
+	"captaincore-helper":    "CaptainCore helper",
+	"captaincore-analytics": "CaptainCore analytics",
+}
+
+// hiddenPluginListCap: more than this many plugins missing from the list
+// means the listing itself broke (a fatal in one plugin, a custom plugin
+// directory, a multisite quirk), not that they are all hiding.
+const hiddenPluginListCap = 5
+
+// hiddenPluginsToAlert decides which reported hidden plugins deserve a
+// malware alert. A plugin is alertable when it is not a known self-hider and
+// its quicksave copy contains code that filters the plugin list (the only
+// way a plugin can make itself disappear); everything else is printed and
+// kept in environment details for review.
+func hiddenPluginsToAlert(hidden []string, quicksave string) (alert []string, skipped []string) {
+	if len(hidden) > hiddenPluginListCap {
+		return nil, []string{fmt.Sprintf("%d plugins vanished from the list at once: the listing broke, not a hidden plugin", len(hidden))}
+	}
+	for _, h := range hidden {
+		name := strings.TrimSuffix(h, ".php")
+		if why, ok := knownSelfHidingPlugins[name]; ok {
+			skipped = append(skipped, h+": "+why)
+			continue
+		}
+		dir := filepath.Join(quicksave, "plugins", name)
+		if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+			// Not in the quicksave tree (a drop-in file, a plugin outside
+			// plugins/): nothing to corroborate with, alert as reported.
+			alert = append(alert, h)
+			continue
+		}
+		if dirContains(dir, "all_plugins") {
+			alert = append(alert, h)
+		} else {
+			skipped = append(skipped, h+": its code never touches the plugin list, so the listing itself is inconsistent")
+		}
+	}
+	return alert, skipped
+}
+
+// dirContains reports whether any PHP file under dir contains needle.
+func dirContains(dir, needle string) bool {
+	found := false
+	filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || found {
+			return nil
+		}
+		if d.IsDir() {
+			if d.Name() == "node_modules" || d.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if scan.ExtOf(d.Name()) != ".php" {
+			return nil
+		}
+		b, err := os.ReadFile(p)
+		if err == nil && bytes.Contains(b, []byte(needle)) {
+			found = true
+		}
+		return nil
+	})
+	return found
+}
+
 func parseSiteData(output string) map[string]string {
 	data := map[string]string{}
 	for _, line := range strings.Split(output, "\n") {

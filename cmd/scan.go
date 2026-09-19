@@ -21,6 +21,7 @@ var (
 	scanWorkers     int
 	scanQuiet       bool
 	scanNoDecode    bool
+	scanIntegrity   bool
 	scanTriage      bool
 )
 
@@ -69,7 +70,37 @@ func runScan(args []string) int {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
-	s := scan.New(rs, scan.Options{Workers: scanWorkers, NoDecode: scanNoDecode})
+	opts := scan.Options{Workers: scanWorkers, NoDecode: scanNoDecode}
+	var integrity []scan.Finding
+	if scanIntegrity {
+		// Every directory named is treated as a content directory; release
+		// hashes of its plugins and themes become the known-good set.
+		store := scan.NewManifestStore(knownGoodDir())
+		store.MaxFetches = 2000
+		known := map[string]bool{}
+		for _, a := range args {
+			if info, err := os.Stat(a); err != nil || !info.IsDir() {
+				continue
+			}
+			comps := scan.FindComponents(a)
+			r := store.CheckTree(a, comps)
+			for h := range r.KnownGood {
+				known[h] = true
+			}
+			for i := range r.Findings {
+				r.Findings[i].File = filepath.ToSlash(filepath.Join(filepath.Base(filepath.Clean(a)), r.Findings[i].File))
+			}
+			integrity = append(integrity, r.Findings...)
+			for _, e := range r.Errors {
+				fmt.Fprintln(os.Stderr, "Warning:", e)
+			}
+			if !scanQuiet {
+				fmt.Fprintf(os.Stderr, "Integrity %s: %s (%d fetched)\n", a, r.Summary(), store.Fetches())
+			}
+		}
+		opts.KnownGood = scan.KnownGoodFunc(known)
+	}
+	s := scan.New(rs, opts)
 	for _, e := range s.Errors {
 		fmt.Fprintln(os.Stderr, "Warning:", e)
 	}
@@ -108,6 +139,7 @@ func runScan(args []string) int {
 	var findings []scan.Finding
 	scanned := 0
 	var errs []string
+	findings = append(findings, integrity...)
 	if len(files) > 0 {
 		r := s.ScanPaths(files, "")
 		findings, scanned, errs = append(findings, r.Findings...), scanned+r.Scanned, append(errs, r.Errors...)
@@ -121,6 +153,7 @@ func runScan(args []string) int {
 		}
 		findings, scanned, errs = append(findings, r.Findings...), scanned+r.Scanned, append(errs, r.Errors...)
 	}
+	findings = scan.Escalate(findings)
 	if scanMinSeverity != "" {
 		min := scan.SeverityRank(scanMinSeverity)
 		kept := findings[:0]
@@ -218,5 +251,6 @@ func init() {
 	scanCmd.Flags().IntVar(&scanWorkers, "workers", 0, "Scanner goroutines (default: CPU count)")
 	scanCmd.Flags().BoolVar(&scanQuiet, "quiet", false, "Findings only, no matched text or summary")
 	scanCmd.Flags().BoolVar(&scanNoDecode, "no-decode", false, "Do not decode base64, deflate, rot13 or escaped payloads before matching")
+	scanCmd.Flags().BoolVar(&scanIntegrity, "integrity", false, "Compare plugins and themes with their wordpress.org release: skip files that match, report files that differ or were added")
 	scanCmd.Flags().BoolVar(&scanTriage, "triage", false, "Rank findings with the TypeSafe (Jev) API; see 'captaincore typesafe triage'")
 }
