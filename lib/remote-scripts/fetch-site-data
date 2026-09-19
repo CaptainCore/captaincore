@@ -310,11 +310,11 @@ if ($full) {
     for ($lo = 0; $lo <= $max_id; $lo += 5000) {
         $hi = $lo + 5000;
         $posts_checked += (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->posts} WHERE ID >= $lo AND ID < $hi");
-        $rows = $wpdb->get_results("SELECT ID, post_type, post_status, post_modified_gmt, post_title, post_content FROM {$wpdb->posts} WHERE ID >= $lo AND ID < $hi AND post_type NOT IN ('revision') AND " . $like('post_content') . " LIMIT 200");
+        $rows = $wpdb->get_results("SELECT ID, post_type, post_status, post_modified, post_title, post_content FROM {$wpdb->posts} WHERE ID >= $lo AND ID < $hi AND post_type NOT IN ('revision') AND " . $like('post_content') . " LIMIT 200");
         foreach ($rows as $r) {
             $c = $cut($r->post_content);
             if (!$room(strlen($c))) break 2;
-            $out['posts'][] = ['id' => (int) $r->ID, 'type' => $r->post_type, 'status' => $r->post_status, 'modified' => $r->post_modified_gmt, 'title' => substr($r->post_title, 0, 200), 'content' => $c];
+            $out['posts'][] = ['id' => (int) $r->ID, 'type' => $r->post_type, 'status' => $r->post_status, 'modified' => $r->post_modified, 'title' => substr($r->post_title, 0, 200), 'content' => $c];
         }
         usleep(200000);
     }
@@ -322,11 +322,11 @@ if ($full) {
     // post_modified, not post_modified_gmt: drafts keep the GMT column at 0000-00-00.
     $since_sql = $wpdb->prepare("post_modified >= DATE_SUB(NOW(), INTERVAL %d DAY)", $since);
     $posts_checked = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->posts} WHERE $since_sql");
-    $rows = $wpdb->get_results("SELECT ID, post_type, post_status, post_modified_gmt, post_title, post_content FROM {$wpdb->posts} WHERE $since_sql AND post_type NOT IN ('revision') AND " . $like('post_content') . " LIMIT 300");
+    $rows = $wpdb->get_results("SELECT ID, post_type, post_status, post_modified, post_title, post_content FROM {$wpdb->posts} WHERE $since_sql AND post_type NOT IN ('revision') AND " . $like('post_content') . " LIMIT 300");
     foreach ($rows as $r) {
         $c = $cut($r->post_content);
         if (!$room(strlen($c))) break;
-        $out['posts'][] = ['id' => (int) $r->ID, 'type' => $r->post_type, 'status' => $r->post_status, 'modified' => $r->post_modified_gmt, 'title' => substr($r->post_title, 0, 200), 'content' => $c];
+        $out['posts'][] = ['id' => (int) $r->ID, 'type' => $r->post_type, 'status' => $r->post_status, 'modified' => $r->post_modified, 'title' => substr($r->post_title, 0, 200), 'content' => $c];
     }
 }
 $out['stats']['posts_checked'] = $posts_checked;
