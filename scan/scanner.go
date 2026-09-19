@@ -92,6 +92,7 @@ type Scanner struct {
 	hashes     map[string]HashIOC
 	allow      map[string]bool
 	extensions map[string]bool // union of every rule's extensions
+	lits       *literalIndex   // every prefilter and literal pattern, matched in one pass per file
 	opts       Options
 	Errors     []error // rules that failed to compile
 }
@@ -113,9 +114,31 @@ func New(rs *RuleSet, opts Options) *Scanner {
 		opts:       opts,
 	}
 	s.rules, s.Errors = compileRules(rs.Rules)
+	var lits [][]byte
 	for _, r := range s.rules {
 		for e := range r.extensions {
 			s.extensions[e] = true
+		}
+		lits = append(lits, r.prefilter...)
+		for _, lp := range r.literals {
+			if lp != nil {
+				lits = append(lits, lp.text)
+			}
+		}
+	}
+	var ids map[string]int32
+	s.lits, ids = newLiteralIndex(lits)
+	for i := range s.rules {
+		r := &s.rules[i]
+		for _, p := range r.prefilter {
+			r.prefilterIDs = append(r.prefilterIDs, ids[string(p)])
+		}
+		for _, lp := range r.literals {
+			if lp == nil {
+				r.literalIDs = append(r.literalIDs, -1)
+			} else {
+				r.literalIDs = append(r.literalIDs, ids[string(lp.text)])
+			}
 		}
 	}
 	for _, h := range rs.Hashes {
@@ -261,15 +284,30 @@ func (s *Scanner) ScanFile(path, rel string) ([]Finding, error) {
 // file or the decoding chain that produced data.
 func (s *Scanner) matchRules(data []byte, ext, rel, path string, hashOf func() string, layer string) []Finding {
 	var findings []Finding
+	// One pass over the data answers every prefilter and literal pattern.
+	var hit []bool
+	if s.lits != nil && s.lits.n > 0 {
+		hit = make([]bool, s.lits.n)
+		s.lits.present(data, hit)
+	}
 	for i := range s.rules {
 		r := &s.rules[i]
-		if !r.extensions[ext] || !r.pathAllowed(rel) {
+		if !r.extensions[ext] {
+			continue
+		}
+		// The literal answer is already known, so ask it before the path
+		// check: with thousands of rules the substring scan over each
+		// rule's exclude list was costing more than the matching itself.
+		if hit != nil && !r.prefiltersPresent(hit) {
+			continue
+		}
+		if !r.pathAllowed(rel) {
 			continue
 		}
 		if len(r.magic) > 0 && layer != "" {
 			continue // magic-byte rules describe the file on disk, not a payload
 		}
-		if loc, ok := r.match(data); ok {
+		if loc, ok := r.match(data, hit); ok {
 			f := Finding{
 				File: rel, Path: path, RuleID: r.Rule.ID, Name: r.Rule.Name, Family: r.Rule.Family,
 				Severity: r.Rule.Severity, Description: r.Rule.Description, Match: excerpt(data, loc),
@@ -284,8 +322,21 @@ func (s *Scanner) matchRules(data []byte, ext, rel, path string, hashOf func() s
 	return findings
 }
 
-// match returns the location of the pattern that satisfied the rule.
-func (r *compiledRule) match(data []byte) ([]int, bool) {
+// prefiltersPresent reports whether every prefilter literal of the rule was
+// found by the literal index for the current data.
+func (r *compiledRule) prefiltersPresent(hit []bool) bool {
+	for _, id := range r.prefilterIDs {
+		if !hit[id] {
+			return false
+		}
+	}
+	return true
+}
+
+// match returns the location of the pattern that satisfied the rule. hit,
+// when not nil, is the literal index's answer for data and replaces the
+// per-rule byte searches.
+func (r *compiledRule) match(data []byte, hit []bool) ([]int, bool) {
 	if len(r.magic) > 0 {
 		ok := false
 		for _, m := range r.magic {
@@ -298,11 +349,43 @@ func (r *compiledRule) match(data []byte) ([]int, bool) {
 			return nil, false
 		}
 	}
-	for _, lit := range r.prefilter {
-		if !bytes.Contains(data, lit) {
-			return nil, false
+	if hit != nil {
+		for _, id := range r.prefilterIDs {
+			if !hit[id] {
+				return nil, false
+			}
+		}
+	} else {
+		for _, lit := range r.prefilter {
+			if !bytes.Contains(data, lit) {
+				return nil, false
+			}
 		}
 	}
+	// Windowed rules: match around each occurrence of the first prefilter.
+	if r.Rule.Window > 0 && len(r.prefilter) > 0 {
+		lit := r.prefilter[0]
+		start := 0
+		for n := 0; n < 4; n++ {
+			i := bytes.Index(data[start:], lit)
+			if i < 0 {
+				break
+			}
+			at := start + i
+			lo := max(0, at-r.Rule.Window)
+			hi := min(len(data), at+len(lit)+r.Rule.Window)
+			if loc, ok := r.matchPatterns(data[lo:hi], hit); ok {
+				return []int{loc[0] + lo, loc[1] + lo}, true
+			}
+			start = at + 1
+		}
+		return nil, false
+	}
+	return r.matchPatterns(data, hit)
+}
+
+// matchPatterns runs the require and patterns lists over data.
+func (r *compiledRule) matchPatterns(data []byte, hit []bool) ([]int, bool) {
 	var loc []int
 	for _, re := range r.require {
 		l := re.FindIndex(data)
@@ -325,7 +408,9 @@ func (r *compiledRule) match(data []byte) ([]int, bool) {
 	for i, re := range r.patterns {
 		var l []int
 		if lp := r.literals[i]; lp != nil {
-			l = lp.find(data)
+			if hit == nil || hit[r.literalIDs[i]] {
+				l = lp.find(data) // present: confirm word boundaries and locate it
+			}
 		} else {
 			l = re.FindIndex(data)
 		}
