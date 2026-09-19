@@ -363,6 +363,18 @@ func TestShippedRulesStayQuietOnLegitimateCode(t *testing.T) {
 		"<?php\n$response = wp_remote_get( hex2bin('687474703a2f2f706c7567696e732e736d796c2e65732f3f77632d6170693d736d796c65732d7468656d652d636865636b') . \"&\" . $check_string );\n")
 	write(t, dir, "plugins/astra-pro-sites/inc/classes/class-astra-sites.php",
 		"<?php\ncheck_ajax_referer( 'astra-sites', '_ajax_nonce' );\n$response = wp_remote_get( $_POST['url'] );\n")
+	write(t, dir, "plugins/blog2social/views/b2s/html/header.php",
+		"<!--Header-->\n<?php\nif (!defined('ABSPATH')) { exit; }\n")
+	write(t, dir, "plugins/subscribe2/classes/class-s2-admin.php",
+		"<?php\n$icon = plugins_url( 'include/email-edit.png' );\n$mysubscribe2->include_dir = 'include/img/check-button.png'; ?>\n")
+	write(t, dir, "plugins/iq-block-country/vendor/guzzle/guzzle/build/autoload.php",
+		"<?php\nrequire 'phar://' . __FILE__ . DIRECTORY_SEPARATOR . str_replace('\\\\', DIRECTORY_SEPARATOR, $class) . '.php';\n")
+	write(t, dir, "plugins/op-dashboard/src/Services/SupportAccessManager.php",
+		"<?php\n$userId = wp_create_user($username, $password, $email);\n$user = new WP_User($userId);\n$user->set_role('administrator');\n")
+	write(t, dir, "plugins/oxygen/component-framework/includes/ajax.php",
+		"<?php\n$response = wp_remote_get( $_REQUEST['soundcloud_url'] );\n")
+	write(t, dir, "plugins/all-in-one-wp-migration-pro/lib/model/reset/class-ai1wmke-reset-database.php",
+		"<?php\n$user_id = wp_insert_user( array( 'user_login' => $login, 'user_pass' => $pass, 'role' => 'administrator' ) );\n$user = new WP_User( $user_id );\nwp_set_auth_cookie( $user_id );\n")
 	write(t, dir, "plugins/fusion-builder/inc/class-fusion-form-auth-actions.php",
 		"<?php\n$user = wp_signon( array( 'user_login' => $_POST['user'], 'user_password' => $_POST['pass'] ) );\nif ( ! is_wp_error( $user ) ) { wp_set_auth_cookie( $user_id, false, is_ssl() ); }\n")
 	write(t, dir, "plugins/jetpack/extensions/blocks/premium-content/_inc/subscription-service/class-jwt.php",
