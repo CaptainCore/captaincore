@@ -5,6 +5,7 @@
 package scan
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -29,9 +30,12 @@ type Rule struct {
 	Require      []string `json:"require,omitempty"`       // RE2, all must match
 	IncludePaths []string `json:"include_paths,omitempty"` // when set, path must contain one
 	ExcludePaths []string `json:"exclude_paths,omitempty"` // path must contain none
-	FileTypes    []string `json:"file_types,omitempty"`    // groups (php, js, html, svg) or ".ext"; default php
-	Source       string   `json:"source,omitempty"`        // attribution for imported rules
-	License      string   `json:"license,omitempty"`
+	FileTypes    []string `json:"file_types,omitempty"`    // groups (php, js, html, svg, image) or ".ext"; default php
+	// StartsWithHex, when set, requires the file to begin with one of these
+	// byte sequences (hex encoded), e.g. an image magic number.
+	StartsWithHex []string `json:"starts_with_hex,omitempty"`
+	Source        string   `json:"source,omitempty"` // attribution for imported rules
+	License       string   `json:"license,omitempty"`
 }
 
 // HashIOC flags a file by exact sha256.
@@ -55,12 +59,30 @@ type RuleSet struct {
 }
 
 var fileTypeGroups = map[string][]string{
-	"php":  {".php", ".phtml", ".phar", ".php5", ".php7", ".php8", ".inc"},
-	"js":   {".js", ".mjs"},
-	"html": {".html", ".htm"},
-	"svg":  {".svg"},
-	"ico":  {".ico"},
-	"txt":  {".txt"},
+	"php":   {".php", ".phtml", ".phar", ".php5", ".php7", ".php8", ".inc"},
+	"js":    {".js", ".mjs"},
+	"html":  {".html", ".htm"},
+	"svg":   {".svg"},
+	"ico":   {".ico"},
+	"txt":   {".txt"},
+	"json":  {".json"},
+	"image": {".jpg", ".jpeg", ".png", ".gif", ".ico", ".bmp", ".webp"},
+}
+
+// ExtOf returns the extension a file is treated as. A PHP extension anywhere
+// after the first dot wins (shell.php.bak, x.php.suspected), matching what
+// PHP-capable servers and Wordfence's own filter consider scannable.
+func ExtOf(name string) string {
+	base := strings.ToLower(filepath.Base(name))
+	parts := strings.Split(base, ".")
+	for _, seg := range parts[1:] {
+		for _, e := range fileTypeGroups["php"] {
+			if "."+seg == e {
+				return e
+			}
+		}
+	}
+	return strings.ToLower(filepath.Ext(base))
 }
 
 // Extensions expands file type groups and literal extensions to lower-case extensions.
@@ -166,6 +188,7 @@ func LoadDefaultRuleSet() (*RuleSet, error) {
 // compiledRule is a Rule with its regexes compiled and path/extension sets prepared.
 type compiledRule struct {
 	Rule       Rule
+	magic      [][]byte
 	prefilter  [][]byte
 	patterns   []*regexp.Regexp
 	require    []*regexp.Regexp
@@ -187,6 +210,14 @@ func compileRules(rules []Rule) ([]compiledRule, []error) {
 			continue
 		}
 		c := compiledRule{Rule: r, extensions: map[string]bool{}}
+		for _, h := range r.StartsWithHex {
+			b, err := hex.DecodeString(strings.TrimSpace(h))
+			if err != nil || len(b) == 0 {
+				errs = append(errs, fmt.Errorf("rule %s: starts_with_hex %q is not hex", r.ID, h))
+				continue
+			}
+			c.magic = append(c.magic, b)
+		}
 		for _, p := range r.Prefilter {
 			c.prefilter = append(c.prefilter, []byte(p))
 		}

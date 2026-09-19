@@ -15,6 +15,15 @@ import (
 	"sync"
 )
 
+// phpExtensions are the file types the decoding layer applies to.
+var phpExtensions = func() map[string]bool {
+	m := map[string]bool{}
+	for _, e := range Extensions([]string{"php"}) {
+		m[e] = true
+	}
+	return m
+}()
+
 // DefaultMaxBytes is how much of a file is read and matched. Larger files are
 // matched on their first DefaultMaxBytes only.
 const DefaultMaxBytes = 8 * 1024 * 1024
@@ -35,6 +44,7 @@ type Finding struct {
 	Match       string `json:"match,omitempty"`
 	SHA256      string `json:"sha256,omitempty"`
 	Source      string `json:"source,omitempty"`
+	Layer       string `json:"layer,omitempty"` // set when the match was made on a decoded payload, e.g. "base64+gzinflate"
 }
 
 // LegacyFinding is the shape the Wordfence CSV path produced and the Manager's
@@ -49,11 +59,15 @@ type LegacyFinding struct {
 
 // Legacy converts a Finding to the malware-alert payload shape.
 func (f Finding) Legacy() LegacyFinding {
+	desc := f.Description
+	if f.Layer != "" {
+		desc += " (matched inside a " + f.Layer + " encoded payload)"
+	}
 	return LegacyFinding{
 		Filename:             f.File,
 		SignatureID:          f.RuleID,
 		SignatureName:        f.Name,
-		SignatureDescription: f.Description,
+		SignatureDescription: desc,
 		MatchedText:          f.Match,
 	}
 }
@@ -68,6 +82,8 @@ type Options struct {
 	// ExcludePaths are substrings of the relative path that are never scanned.
 	// Always includes "/.git/".
 	ExcludePaths []string
+	// NoDecode disables the decoding layer (base64, deflate, rot13, escapes).
+	NoDecode bool
 }
 
 // Scanner holds compiled rules. Safe for concurrent use.
@@ -120,7 +136,7 @@ func (s *Scanner) HashCount() int { return len(s.hashes) }
 // Scannable reports whether a path's extension is covered by any rule. Hash
 // indicators apply to every extension, so a scan still hashes such files.
 func (s *Scanner) Scannable(path string) bool {
-	return s.extensions[strings.ToLower(filepath.Ext(path))]
+	return s.extensions[ExtOf(path)]
 }
 
 func (s *Scanner) excluded(rel string) bool {
@@ -143,7 +159,7 @@ func (s *Scanner) ScanFile(path, rel string) ([]Finding, error) {
 	}
 	// The logical name decides the file type, so a corpus sample stored by
 	// hash can be scanned as "x.php" by passing that as rel.
-	ext := strings.ToLower(filepath.Ext(rel))
+	ext := ExtOf(rel)
 	wantRules := s.extensions[ext]
 	wantHash := len(s.hashes) > 0 || len(s.allow) > 0 || s.opts.KnownGood != nil
 	if !wantRules && !wantHash {
@@ -159,16 +175,20 @@ func (s *Scanner) ScanFile(path, rel string) ([]Finding, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Anything past MaxBytes is matched in overlapping windows below, so a
+	// payload appended to a large file is still seen.
+	var tail []byte
+	if int64(len(data)) == s.opts.MaxBytes {
+		tail, _ = io.ReadAll(io.LimitReader(f, 64*s.opts.MaxBytes))
+	}
 
 	var sum string
 	hashOf := func() string {
 		if sum == "" {
 			h := sha256.New()
 			h.Write(data)
-			// A file longer than MaxBytes needs the rest for an exact hash.
-			if int64(len(data)) == s.opts.MaxBytes {
-				io.Copy(h, f)
-			}
+			h.Write(tail)
+			io.Copy(h, f) // beyond the windowed region, for an exact hash
 			sum = hex.EncodeToString(h.Sum(nil))
 		}
 		return sum
@@ -190,25 +210,92 @@ func (s *Scanner) ScanFile(path, rel string) ([]Finding, error) {
 		return nil, nil
 	}
 
+	findings := s.matchRules(data, ext, rel, path, hashOf, "")
+	if len(tail) > 0 {
+		hit := map[string]bool{}
+		for _, f := range findings {
+			hit[f.RuleID] = true
+		}
+		window := int(s.opts.MaxBytes)
+		overlap := min(64*1024, window/4)
+		// Each window starts overlap bytes before the previous one ended so
+		// a match straddling a boundary is not missed.
+		whole := append(data[len(data)-min(len(data), overlap):], tail...)
+		for start := 0; start < len(whole); start += window - overlap {
+			end := min(start+window, len(whole))
+			for _, f := range s.matchRules(whole[start:end], ext, rel, path, hashOf, "") {
+				if !hit[f.RuleID] {
+					hit[f.RuleID] = true
+					f.Line = 0 // line numbers past the first window are not tracked
+					findings = append(findings, f)
+				}
+			}
+			if end == len(whole) {
+				break
+			}
+		}
+	}
+	// Only PHP is decoded: minified JavaScript carries long base64 data URIs
+	// and decoder-like names, and pays for the search without ever hiding PHP.
+	if !s.opts.NoDecode && phpExtensions[ext] {
+		hit := map[string]bool{}
+		for _, f := range findings {
+			hit[f.RuleID] = true
+		}
+		for _, layer := range decodeLayers(data) {
+			for _, f := range s.matchRules(layer.Data, ext, rel, path, hashOf, layer.Layer) {
+				if hit[f.RuleID] {
+					continue // the same rule already fired on the raw file
+				}
+				hit[f.RuleID] = true
+				findings = append(findings, f)
+			}
+		}
+	}
+	return findings, nil
+}
+
+// matchRules runs every applicable rule over data. layer is "" for the raw
+// file or the decoding chain that produced data.
+func (s *Scanner) matchRules(data []byte, ext, rel, path string, hashOf func() string, layer string) []Finding {
 	var findings []Finding
 	for i := range s.rules {
 		r := &s.rules[i]
 		if !r.extensions[ext] || !r.pathAllowed(rel) {
 			continue
 		}
+		if len(r.magic) > 0 && layer != "" {
+			continue // magic-byte rules describe the file on disk, not a payload
+		}
 		if loc, ok := r.match(data); ok {
-			findings = append(findings, Finding{
-				File: rel, Path: path, Line: lineOf(data, loc[0]),
-				RuleID: r.Rule.ID, Name: r.Rule.Name, Family: r.Rule.Family, Severity: r.Rule.Severity,
-				Description: r.Rule.Description, Match: excerpt(data, loc), SHA256: hashOf(), Source: r.Rule.Source,
-			})
+			f := Finding{
+				File: rel, Path: path, RuleID: r.Rule.ID, Name: r.Rule.Name, Family: r.Rule.Family,
+				Severity: r.Rule.Severity, Description: r.Rule.Description, Match: excerpt(data, loc),
+				SHA256: hashOf(), Source: r.Rule.Source, Layer: layer,
+			}
+			if layer == "" {
+				f.Line = lineOf(data, loc[0])
+			}
+			findings = append(findings, f)
 		}
 	}
-	return findings, nil
+	return findings
 }
 
 // match returns the location of the pattern that satisfied the rule.
 func (r *compiledRule) match(data []byte) ([]int, bool) {
+	if len(r.magic) > 0 {
+		ok := false
+		for _, m := range r.magic {
+			if bytes.HasPrefix(data, m) {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return nil, false
+		}
+	}
 	for _, lit := range r.prefilter {
 		if !bytes.Contains(data, lit) {
 			return nil, false
