@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+
+#
+#   Detect payloads hidden in media files (images, PDFs, SVGs, video, audio).
+#
+#   A stashed payload in an upload is inert until PHP loads it, but it is
+#   also the part of an infection that survives every PHP-only cleanup. This
+#   script never reads whole media files by default: it checks the parts
+#   that carry the signal, cheaply, in ONE process over the whole tree (a
+#   bash loop spawning od/head/tail per file took 7 minutes on 19k files;
+#   this takes seconds), so it can run nightly over a large uploads tree.
+#
+#   Checks per file:
+#     A. Magic vs extension — the first bytes must match the extension
+#        (JPEG FFD8FF, PNG 89504E47, GIF 474946, WebP RIFF..WEBP, PDF %PDF,
+#        MP4 ....ftyp, MP3 ID3/FFFB, ZIP PK). A "jpg" that starts with <?php
+#        or <script is CRITICAL; any other mismatch is LOW (misnamed file).
+#     B. Trailer — JPEG must end at FFD9, PNG at the IEND chunk, GIF at 3B.
+#        Bytes after the end marker are a polyglot stash: HIGH, and CRITICAL
+#        when the trailing bytes contain <?php, eval(, a request superglobal
+#        or a long base64 run.
+#     C. Head/tail content — the first and last 16 KB of every image, PDF and
+#        media file are checked for <?php, <script and eval( (EXIF comments
+#        and appended payloads live there). --full reads whole files instead.
+#        Archives (zip, docx) get the magic check only: they hold PHP text.
+#     D. PDF — /JavaScript, /JS or /Launch is HIGH; /EmbeddedFile is MEDIUM.
+#     E. SVG — <script, on*= handlers, javascript: URIs, <foreignObject,
+#        <iframe or <embed are HIGH (stored XSS via upload); SVGs are read
+#        whole (they are small).
+#
+#   Output format (one row per finding):
+#     SEVERITY|TYPE|PATH|DETAIL|SIZE|MTIME
+#
+#   Usage:
+#     captaincore ssh <site> --script=detect-media-payloads
+#     captaincore ssh <site> --script=detect-media-payloads -- --since=2
+#     captaincore ssh @all   --script=detect-media-payloads --quiet --label --parallel=40
+#
+#   Flags:
+#     --since=DAYS   Only files modified in the last DAYS days (nightly incremental)
+#     --full         Check whole files for PHP/script markers, not just head+tail
+#     --max-mb=N     Skip files larger than N MB for the --full check (default 64)
+#     --quiet        Only output when findings are present (bulk scanning)
+#     --dir=PATH     Scan PATH instead of wp-content/uploads (repeatable)
+#
+
+set -uo pipefail
+export LC_ALL=C
+
+WP_ROOT="."
+SINCE=""
+FULL=0
+MAX_MB=64
+QUIET=0
+DIRS=()
+for _arg in "$@"; do
+    case "$_arg" in
+        --since=*) SINCE="${_arg#--since=}" ;;
+        --full) FULL=1 ;;
+        --max-mb=*) MAX_MB="${_arg#--max-mb=}" ;;
+        --quiet) QUIET=1 ;;
+        --dir=*) DIRS+=("${_arg#--dir=}") ;;
+        --*) ;;
+        *) WP_ROOT="$_arg" ;;
+    esac
+done
+cd "$WP_ROOT" 2>/dev/null || { echo "ERROR: Cannot access $WP_ROOT"; exit 1; }
+if [ ! -f "wp-config.php" ] && [ -f "public/wp-config.php" ]; then
+    cd public
+elif [ ! -f "wp-config.php" ] && [ -f "public_html/wp-config.php" ]; then
+    cd public_html
+fi
+if [ ${#DIRS[@]} -eq 0 ]; then
+    # Standard layout, then Bedrock-style app/uploads, then a WP_CONTENT_DIR override in wp-config.php.
+    for _d in wp-content/uploads app/uploads; do
+        [ -d "$_d" ] && DIRS+=("$_d")
+    done
+    if [ ${#DIRS[@]} -eq 0 ] && [ -f wp-config.php ]; then
+        _cd=$(grep -E "define\(\s*['\"]WP_CONTENT_DIR['\"]" wp-config.php | sed -E "s/.*['\"]WP_CONTENT_DIR['\"]\s*,\s*[^'\"]*['\"]([^'\"]+)['\"].*/\1/" | head -1)
+        [ -n "$_cd" ] && [ -d "$_cd/uploads" ] && DIRS+=("$_cd/uploads")
+    fi
+    [ ${#DIRS[@]} -eq 0 ] && DIRS=(wp-content/uploads)
+fi
+command -v perl >/dev/null 2>&1 || { echo "ERROR: perl is required"; exit 1; }
+
+FIND_ARGS=(-type f -size +0)
+if [ -n "$SINCE" ]; then
+    FIND_ARGS+=(-mtime "-$SINCE")
+fi
+
+for base in "${DIRS[@]}"; do
+    [ -d "$base" ] || continue
+    find "$base" \( -name node_modules -o -name .git -o -name cache \) -prune -o "${FIND_ARGS[@]}" -print0 2>/dev/null
+done | FULL=$FULL MAX_MB=$MAX_MB QUIET=$QUIET perl -0ne '
+    use strict; use warnings; use POSIX qw(strftime);
+    BEGIN { our ($found, $scanned, @out) = (0, 0); }
+    our ($found, $scanned, @out);
+    chomp(my $f = $_); $f =~ s/\0$//;
+    my $size = -s $f or next;
+    $scanned++;
+    my ($name) = $f =~ m{([^/]+)$}; my $ext = lc($name =~ /\.([^.]+)$/ ? $1 : "");
+    open(my $fh, "<:raw", $f) or next;
+    my ($head, $tail) = ("", "");
+    read($fh, $head, 16384);
+    if ($size > 16384) { seek($fh, -16384, 2); read($fh, $tail, 16384); } else { $tail = $head; }
+    my $whole;
+    my $full_ok = $ENV{FULL} && $size <= $ENV{MAX_MB} * 1024 * 1024;
+    my $code_re = qr/<\?php|<script[ >]|eval\(|base64_decode\(|shell_exec\(|\$_(?:POST|GET|REQUEST|COOKIE)\[/;
+    my $report = sub {
+        my ($sev, $type, $detail) = @_;
+        $found++;
+        my $mtime = strftime("%Y-%m-%d %H:%M", localtime((stat $f)[9]));
+        $detail =~ s/[^\x20-\x7e]/./g;
+        push @out, join("|", $sev, $type, $f, $detail, $size, $mtime);
+    };
+
+    # A. Magic vs extension
+    my %magic = (
+        jpg => qr/^\xff\xd8\xff/, jpeg => qr/^\xff\xd8\xff/, jpe => qr/^\xff\xd8\xff/,
+        png => qr/^\x89PNG\r\n\x1a\n/, gif => qr/^GIF8[79]a/, webp => qr/^RIFF....WEBP/s,
+        pdf => qr/^%PDF/, mp4 => qr/^....ftyp/s, m4v => qr/^....ftyp/s, mov => qr/^....(ftyp|moov|mdat|wide|free)/s, m4a => qr/^....ftyp/s,
+        mp3 => qr/^(ID3|\xff[\xfb\xf3\xf2])/, zip => qr/^PK/, docx => qr/^PK/, xlsx => qr/^PK/, pptx => qr/^PK/,
+        ico => qr/^\x00\x00\x01\x00/, bmp => qr/^BM/, tif => qr/^(II\*\x00|MM\x00\*)/, tiff => qr/^(II\*\x00|MM\x00\*)/,
+    );
+    if (my $re = $magic{$ext}) {
+        if ($head !~ $re) {
+            (my $asc = substr($head, 0, 48)) =~ s/[^\x20-\x7e]/./g;
+            if ($head =~ /^\s*(<\?php|<\?=|<script)/) {
+                $report->("CRITICAL", "FAKE_MEDIA", "starts with code, not a .$ext: $asc");
+            } else {
+                $report->("LOW", "MISNAMED_MEDIA", "header does not match .$ext: $asc");
+            }
+            next;
+        }
+    }
+
+    # B. Trailer
+    my %trailer = (jpg => ["\xff\xd9", "JPEG EOI"], jpeg => ["\xff\xd9", "JPEG EOI"], jpe => ["\xff\xd9", "JPEG EOI"],
+                   png => ["IEND\xaeB`\x82", "PNG IEND"], gif => ["\x3b", "GIF trailer"]);
+    if (my $t = $trailer{$ext}) {
+        my ($marker, $label) = @$t;
+        my $pos = rindex($tail, $marker);
+        my $trail = $pos < 0 ? -1 : length($tail) - $pos - length($marker);
+        if ($trail < 0 || $trail > 64) {
+            my $detail = $trail < 0 ? "no $label within the last 16 KB" : "$trail bytes after $label";
+            my $after = $trail < 0 ? $tail : substr($tail, $pos + length($marker));
+            if ($after =~ /(<\?php|eval\(|base64_decode|\$_(?:POST|GET|REQUEST|COOKIE))/) {
+                $report->("CRITICAL", "APPENDED_PAYLOAD", "$detail, contains $1");
+            } elsif ($after =~ m{[A-Za-z0-9+/]{64,}={0,2}}) {
+                $report->("CRITICAL", "APPENDED_PAYLOAD", "$detail, base64 run in the trailer");
+            } else {
+                $report->("HIGH", "TRAILING_DATA", $detail);
+            }
+            next;
+        }
+    }
+
+    # C. Head/tail (or whole file) content markers; archives are skipped here
+    if ($ext =~ /^(jpe?g|jpe|png|gif|webp|ico|bmp|tiff?|pdf|mp4|m4v|mov|m4a|mp3|wav|ogg|webm|avi)$/) {
+        my $hit;
+        if ($full_ok) {
+            seek($fh, 0, 0); local $/; $whole = <$fh>;
+            ($hit) = $whole =~ /($code_re)/;
+        } else {
+            ($hit) = ($head . "\n" . $tail) =~ /($code_re)/;
+        }
+        if (defined $hit) { $report->("CRITICAL", "CODE_IN_MEDIA", "contains $hit"); next; }
+    }
+
+    # D. PDF structure
+    if ($ext eq "pdf") {
+        my $chunk = $full_ok && defined $whole ? $whole : $head . "\n" . $tail;
+        if ($chunk =~ m{(/JavaScript|/JS[ /<(]|/Launch)}) { $report->("HIGH", "PDF_ACTIVE", "PDF carries $1"); }
+        elsif ($chunk =~ m{/EmbeddedFile}) { $report->("MEDIUM", "PDF_EMBEDDED", "PDF carries an embedded file"); }
+        next;
+    }
+
+    # E. SVG
+    if ($ext eq "svg" && $size <= 2097152) {
+        seek($fh, 0, 0); local $/; my $svg = <$fh>;
+        if ($svg =~ /(<script|\son[a-z]+\s*=|javascript:|<foreignObject|<iframe|<embed|xlink:href\s*=\s*"data:text)/i) {
+            $report->("HIGH", "SVG_ACTIVE", "SVG contains $1");
+        }
+    }
+    close $fh;
+    END {
+        if ($found) { print "$_\n" for @out; print "SUMMARY: $found finding(s) in $scanned media file(s)\n"; }
+        elsif (!$ENV{QUIET}) { print "SUMMARY: clean, $scanned media file(s) checked\n"; }
+    }
+'

