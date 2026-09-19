@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/CaptainCore/captaincore/models"
+	"github.com/CaptainCore/captaincore/scan"
 	"github.com/spf13/cobra"
 )
 
@@ -90,9 +91,11 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 		return
 	}
 	var environmentID uint
+	var matchedEnv models.Environment
 	for _, env := range environments {
 		if strings.EqualFold(env.Environment, sa.Environment) {
 			environmentID = env.EnvironmentID
+			matchedEnv = env
 			break
 		}
 	}
@@ -203,12 +206,36 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 		}
 	}
 	// JSON detail fields (parse before storing)
-	jsonDetailKeys := []string{"core_checksum_details", "plugin_checksum_details", "security_log", "error_logs", "mu_plugin_files", "core_file_hashes", "loose_file_hashes", "capture_plugin_pages"}
+	jsonDetailKeys := []string{"core_checksum_details", "plugin_checksum_details", "security_log", "error_logs", "mu_plugin_files", "core_file_hashes", "loose_file_hashes", "capture_plugin_pages", "hidden_plugins"}
 	for _, key := range jsonDetailKeys {
 		if v, ok := data[key]; ok && v != "" {
 			var parsed interface{}
 			if json.Unmarshal([]byte(v), &parsed) == nil {
 				details[key] = parsed
+			}
+		}
+	}
+
+	// Plugins the site lists with plugin code disabled but not with it
+	// enabled are hiding themselves (see fetch-site-data). Alert like a
+	// malware finding; the plugin directory is the evidence.
+	if v := strings.TrimSpace(data["hidden_plugins"]); v != "" && v != "[]" {
+		var hidden []string
+		if json.Unmarshal([]byte(v), &hidden) == nil && len(hidden) > 0 {
+			if site, err := sa.LookupSite(); err == nil && site != nil {
+				var findings []scan.LegacyFinding
+				for _, h := range hidden {
+					findings = append(findings, scan.LegacyFinding{
+						Filename:             "wp-content/plugins/" + h,
+						SignatureID:          "hidden-plugin",
+						SignatureName:        "Plugin hidden from WordPress",
+						SignatureDescription: fmt.Sprintf("%s is installed but disappears from the plugin list once plugin code runs; self-hiding backdoors filter themselves out this way", h),
+					})
+				}
+				if !flagSyncDataJSON {
+					fmt.Printf("Hidden plugin(s) reported by the site: %s\n", strings.Join(hidden, ", "))
+				}
+				postMalwareAlert(site, &matchedEnv, system, captain, findings, "hidden-plugin")
 			}
 		}
 	}

@@ -165,6 +165,19 @@ token=$( wp eval "echo md5( AUTH_KEY );" --skip-plugins --skip-themes )
 trim() { printf '%s' "$1" | tr -d '\n\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
 
 echo "plugins:$(trim "$plugins")"
+# Plugins that vanish from the list once plugin code runs are hiding themselves
+# (all_plugins / pre_current_active_plugins filters). The inventory above is
+# taken with --skip-plugins, so it still sees them; the diff is the detector.
+hidden_plugins_json="[]"
+filtered_plugin_names=$( wp plugin list --field=name --skip-themes --skip-packages 2>/dev/null )
+if [ -n "$filtered_plugin_names" ]; then
+  unfiltered_plugin_names=$( wp plugin list --field=name --skip-themes --skip-plugins --skip-packages 2>/dev/null )
+  hidden_names=$( comm -23 <(echo "$unfiltered_plugin_names" | sort -u) <(echo "$filtered_plugin_names" | sort -u) )
+  if [ -n "$hidden_names" ]; then
+    hidden_plugins_json=$( echo "$hidden_names" | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))' 2>/dev/null || echo "$hidden_names" | awk 'BEGIN{printf "["} {printf "%s\"%s\"", (NR>1?",":""), $0} END{print "]"}' )
+  fi
+fi
+echo "hidden_plugins:$(trim "$hidden_plugins_json")"
 echo "themes:$(trim "$themes")"
 echo "mu_plugins:$(trim "$mu_plugins")"
 echo "core:$(trim "$core")"
