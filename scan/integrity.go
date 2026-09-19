@@ -802,9 +802,13 @@ func (m *ManifestStore) CheckPaths(root string, paths []string) IntegrityResult 
 // something a signature recognises, at whatever severity, is no longer a
 // routine patch. The rule's name is appended to the description.
 func Escalate(findings []Finding) []Finding {
+	// Only a medium or stronger rule escalates: the low-severity rules flag
+	// deprecated constructs (create_function, an old file manager), and a
+	// vendor file edited to remove one of those is a PHP 8 patch, not an
+	// injection.
 	ruleOn := map[string]string{}
 	for _, f := range findings {
-		if f.Family != "integrity" && ruleOn[f.File] == "" {
+		if f.Family != "integrity" && ruleOn[f.File] == "" && SeverityRank(f.Severity) >= SeverityRank("medium") {
 			ruleOn[f.File] = f.Name
 		}
 	}

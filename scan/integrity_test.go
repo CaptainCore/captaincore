@@ -137,6 +137,13 @@ func TestIntegrityCheckTree(t *testing.T) {
 	if res.Modified != 2 || res.Unknown != 1 {
 		t.Errorf("counts modified=%d unknown=%d", res.Modified, res.Unknown)
 	}
+	// A low-severity co-finding must not escalate a modified file.
+	if got := Escalate([]Finding{
+		{File: "plugins/x/a.php", RuleID: "integrity-modified-file", Family: "integrity", Severity: "medium"},
+		{File: "plugins/x/a.php", RuleID: "create-function", Family: "deprecated", Severity: "low", Name: "create_function() code execution"},
+	}); got[0].Severity != "medium" {
+		t.Errorf("low co-finding escalated: %+v", got[0])
+	}
 	// The edited class file carries eval($_POST): with the rule finding on
 	// the same file the medium modified finding becomes high.
 	s := shippedRules(t)

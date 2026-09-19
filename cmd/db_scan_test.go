@@ -22,7 +22,7 @@ func TestDBScanFindings(t *testing.T) {
 			{"id": 1, "login": "austin", "email": "a@example.invalid", "registered": "2020-01-01 00:00:00"},
 			{"id": 99, "login": "wpsupp-user", "email": "x@example.invalid", "registered": "2026-09-18 03:12:00"},
 		},
-		"plugins_missing":    []string{"wp-cache-helper/loader.php"},
+		"plugins_missing":    []string{"wp-cache-helper/loader.php", "../../uploads/2024/loader.php"},
 		"triggers":           []string{"after_user_insert"},
 		"events":             []string{},
 		"routines":           []string{},
@@ -42,7 +42,7 @@ func TestDBScanFindings(t *testing.T) {
 	}
 	want := map[string]string{
 		"db:trigger/after_user_insert":                 "db-trigger",
-		"db:active_plugins/wp-cache-helper/loader.php": "db-active-plugin-missing",
+		"db:active_plugins/../../uploads/2024/loader.php": "db-active-plugin-path-escape",
 		"db:option/wp_html_inject_code":                "db-known-injection-option",
 		"db:user/wpsupp-user":                          "db-new-administrator",
 	}
@@ -50,6 +50,9 @@ func TestDBScanFindings(t *testing.T) {
 		if got[k] != v {
 			t.Errorf("%s: got %q want %q (all: %v)", k, got[k], v, got)
 		}
+	}
+	if _, ok := got["db:active_plugins/wp-cache-helper/loader.php"]; ok {
+		t.Error("a merely stale active_plugins entry must not reach the high floor")
 	}
 	if _, ok := got["db:user/austin"]; ok {
 		t.Error("a previously synced administrator must not be reported")
