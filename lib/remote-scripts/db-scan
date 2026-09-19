@@ -1,0 +1,184 @@
+#!/usr/bin/env bash
+#
+#   Database scan: export the rows of a WordPress database that could carry an
+#   injection, plus the fixed facts a scanner needs, as one JSON document.
+#   The judging happens on the core server: sync-data writes the exported
+#   rows out as files and runs the malware rules over them, and applies the
+#   fixed checks (triggers, missing plugin files, new administrators).
+#
+#   Usage (on the site, WordPress root):
+#     bash db-scan [--since=DAYS] [--full] [--max-row=BYTES] [--max-total=BYTES]
+#
+#   --since=DAYS   posts and comments modified in the last DAYS days (default 2).
+#                  Options, cron, users, triggers and tables are always read in full.
+#   --full         every post and comment, in id-ranged chunks with a pause between
+#                  them (the weekly sweep).
+#
+#   What is exported:
+#     options     rows whose value contains a script or code marker (LIKE prefilters
+#                 in SQL, so most of the table never leaves MySQL); the cron array;
+#                 option names known from past injections
+#     posts       same markers, post_content and post_title, modified since --since
+#     comments    same markers on comment_content
+#     admins      every administrator (and super admin on multisite)
+#     plugins     active plugins whose file is missing on disk
+#     triggers    triggers, events and stored routines in the database
+#     tables      tables outside the core set and the known plugin prefixes
+#
+#   Row contents are cut to --max-row bytes (head and tail kept), the whole export
+#   to --max-total. The nightly copy inside fetch-site-data is this same PHP;
+#   keep the two in step.
+#
+#   Requires WP-CLI. Output: one JSON object on stdout.
+
+SINCE=2; FULL=0; MAX_ROW=16384; MAX_TOTAL=2097152
+for arg in "$@"; do
+  case "$arg" in
+    --since=*) SINCE="${arg#*=}" ;;
+    --full) FULL=1 ;;
+    --max-row=*) MAX_ROW="${arg#*=}" ;;
+    --max-total=*) MAX_TOTAL="${arg#*=}" ;;
+  esac
+done
+
+read -r -d '' DB_SCAN_PHP << 'DBSCANEOF'
+<?php
+// db-scan: export candidate rows and fixed facts. Arguments via constants set by the wrapper.
+$since     = defined('DBSCAN_SINCE') ? (int) DBSCAN_SINCE : 2;
+$full      = defined('DBSCAN_FULL') && DBSCAN_FULL;
+$max_row   = defined('DBSCAN_MAX_ROW') ? (int) DBSCAN_MAX_ROW : 16384;
+$max_total = defined('DBSCAN_MAX_TOTAL') ? (int) DBSCAN_MAX_TOTAL : 2097152;
+global $wpdb;
+$out = ['since_days' => $since, 'full' => $full, 'options' => [], 'posts' => [], 'comments' => [], 'admins' => [],
+        'plugins_missing' => [], 'triggers' => [], 'events' => [], 'routines' => [], 'unknown_tables' => [],
+        'suspicious_options' => [], 'stats' => [], 'truncated' => false];
+$total = 0;
+$cut = function ($s) use ($max_row) {
+    $s = (string) $s;
+    if (strlen($s) <= $max_row) return $s;
+    return substr($s, 0, $max_row - 4096) . "\n/* ...cut... */\n" . substr($s, -4096);
+};
+$room = function ($len) use (&$total, $max_total, &$out) {
+    if ($total + $len > $max_total) { $out['truncated'] = true; return false; }
+    $total += $len; return true;
+};
+// Markers that make a row worth reading. Each is a case-insensitive LIKE.
+$markers = ['<script', '<iframe', 'eval(', 'base64_decode', 'atob(', 'fromCharCode', 'document.write', '<?php', 'unescape(',
+            'javascript:', 'String.fromCharCode', 'window.location', 'display:none', 'visibility:hidden', '\\x2', '\\x3', '\\x6', '\\x7',
+            'gzinflate', 'str_rot13', 'create_function', 'assert(', 'passthru', 'shell_exec'];
+$like = function ($col) use ($markers, $wpdb) {
+    $parts = [];
+    foreach ($markers as $m) $parts[] = $wpdb->prepare("$col LIKE %s", '%' . $wpdb->esc_like($m) . '%');
+    return '(' . implode(' OR ', $parts) . ')';
+};
+
+// Options: every row with a marker, cut to size. The cron array is always included.
+$rows = $wpdb->get_results("SELECT option_name, autoload, LENGTH(option_value) AS len FROM {$wpdb->options} WHERE " . $like('option_value') . " OR option_name = 'cron' ORDER BY len DESC LIMIT 400");
+foreach ($rows as $r) {
+    $v = $wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", $r->option_name));
+    $v = $cut($v);
+    if (!$room(strlen($v))) break;
+    $out['options'][] = ['name' => $r->option_name, 'autoload' => $r->autoload, 'size' => (int) $r->len, 'content' => $v];
+}
+$out['stats']['options_total'] = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->options}");
+$out['stats']['options_exported'] = count($out['options']);
+// Option names seen in past injections.
+$bad_names = ['%seoinj%', '%html_inject%', '%wp_class_editor%', '%backupdb%', '%wp_check_hash%', '%wpupdates_hash%', '%_transient_wp_cache_key%', '%wp_head_inject%', '%footer_inject%'];
+foreach ($bad_names as $bn) {
+    foreach ($wpdb->get_col($wpdb->prepare("SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s LIMIT 20", $bn)) as $n) $out['suspicious_options'][] = $n;
+}
+$out['suspicious_options'] = array_values(array_unique($out['suspicious_options']));
+
+// Posts and comments: rows with a marker, changed recently (or all, chunked, for --full).
+$posts_checked = 0;
+if ($full) {
+    $max_id = (int) $wpdb->get_var("SELECT MAX(ID) FROM {$wpdb->posts}");
+    for ($lo = 0; $lo <= $max_id; $lo += 5000) {
+        $hi = $lo + 5000;
+        $posts_checked += (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->posts} WHERE ID >= $lo AND ID < $hi");
+        $rows = $wpdb->get_results("SELECT ID, post_type, post_status, post_modified_gmt, post_title, post_content FROM {$wpdb->posts} WHERE ID >= $lo AND ID < $hi AND post_type NOT IN ('revision') AND " . $like('post_content') . " LIMIT 200");
+        foreach ($rows as $r) {
+            $c = $cut($r->post_content);
+            if (!$room(strlen($c))) break 2;
+            $out['posts'][] = ['id' => (int) $r->ID, 'type' => $r->post_type, 'status' => $r->post_status, 'modified' => $r->post_modified_gmt, 'title' => substr($r->post_title, 0, 200), 'content' => $c];
+        }
+        usleep(200000);
+    }
+} else {
+    $since_sql = $wpdb->prepare("post_modified_gmt >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d DAY)", $since);
+    $posts_checked = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->posts} WHERE $since_sql");
+    $rows = $wpdb->get_results("SELECT ID, post_type, post_status, post_modified_gmt, post_title, post_content FROM {$wpdb->posts} WHERE $since_sql AND post_type NOT IN ('revision') AND " . $like('post_content') . " LIMIT 300");
+    foreach ($rows as $r) {
+        $c = $cut($r->post_content);
+        if (!$room(strlen($c))) break;
+        $out['posts'][] = ['id' => (int) $r->ID, 'type' => $r->post_type, 'status' => $r->post_status, 'modified' => $r->post_modified_gmt, 'title' => substr($r->post_title, 0, 200), 'content' => $c];
+    }
+}
+$out['stats']['posts_checked'] = $posts_checked;
+$out['stats']['posts_exported'] = count($out['posts']);
+$csince = $full ? '1=1' : $wpdb->prepare("comment_date_gmt >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d DAY)", $since);
+$rows = $wpdb->get_results("SELECT comment_ID, comment_post_ID, comment_approved, comment_date_gmt, comment_author_url, comment_content FROM {$wpdb->comments} WHERE $csince AND " . $like('comment_content') . " LIMIT 200");
+foreach ($rows as $r) {
+    $c = $cut($r->comment_content);
+    if (!$room(strlen($c))) break;
+    $out['comments'][] = ['id' => (int) $r->comment_ID, 'post' => (int) $r->comment_post_ID, 'approved' => $r->comment_approved, 'date' => $r->comment_date_gmt, 'url' => $r->comment_author_url, 'content' => $c];
+}
+$out['stats']['comments_exported'] = count($out['comments']);
+
+// Administrators, including super admins on multisite.
+$admins = [];
+foreach (get_users(['role' => 'administrator', 'fields' => ['ID', 'user_login', 'user_email', 'user_registered']]) as $u) {
+    $admins[$u->ID] = ['id' => (int) $u->ID, 'login' => $u->user_login, 'email' => $u->user_email, 'registered' => $u->user_registered, 'super' => false];
+}
+if (is_multisite()) {
+    foreach (get_super_admins() as $login) {
+        $u = get_user_by('login', $login);
+        if ($u) $admins[$u->ID] = ['id' => (int) $u->ID, 'login' => $u->user_login, 'email' => $u->user_email, 'registered' => $u->user_registered, 'super' => true];
+    }
+}
+$out['admins'] = array_values($admins);
+
+// Active plugins whose main file is gone: a loader that was deleted but left
+// registered, or an entry pointing outside plugins/.
+$active = (array) get_option('active_plugins', []);
+if (is_multisite()) $active = array_merge($active, array_keys((array) get_site_option('active_sitewide_plugins', [])));
+foreach ($active as $p) {
+    if (!is_string($p)) continue;
+    if (!file_exists(WP_PLUGIN_DIR . '/' . $p) || strpos($p, '..') !== false) $out['plugins_missing'][] = $p;
+}
+
+// Triggers, events and routines: WordPress never creates them.
+$db = DB_NAME;
+$out['triggers'] = $wpdb->get_col($wpdb->prepare("SELECT TRIGGER_NAME FROM INFORMATION_SCHEMA.TRIGGERS WHERE TRIGGER_SCHEMA = %s", $db)) ?: [];
+$out['events']   = $wpdb->get_col($wpdb->prepare("SELECT EVENT_NAME FROM INFORMATION_SCHEMA.EVENTS WHERE EVENT_SCHEMA = %s", $db)) ?: [];
+$out['routines'] = $wpdb->get_col($wpdb->prepare("SELECT ROUTINE_NAME FROM INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_SCHEMA = %s", $db)) ?: [];
+
+// Tables outside the core set and the common plugin prefixes.
+$core = ['commentmeta', 'comments', 'links', 'options', 'postmeta', 'posts', 'termmeta', 'term_relationships', 'term_taxonomy', 'terms', 'usermeta', 'users',
+         'blogmeta', 'blogs', 'blog_versions', 'registration_log', 'signups', 'site', 'sitemeta'];
+$known = ['actionscheduler_', 'woocommerce_', 'wc_', 'gf_', 'rg_', 'yoast_', 'wpforms_', 'e_', 'elementor', 'aioseo_', 'rank_math', 'seopress', 'redirection_', 'cleantalk',
+          'smush', 'ewwwio', 'mailchimp', 'mc4wp', 'wpcode', 'searchwp', 'simple_history', 'snippets', 'litespeed', 'wpml', 'icl_', 'pmxi_', 'pmxe_', 'frm_', 'nf3_', 'cf7', 'wpmailsmtp',
+          'wsal_', 'defender', 'ac_', 'admin_columns', 'tec_', 'wp_rocket', 'wprocket', 'edd_', 'affiliate_wp', 'affiliatewp', 'learndash', 'ld_', 'mepr_', 'pms_', 'um_', 'bp_', 'wpsc_',
+          'ahm_', 'fsb_', 'berocket', 'yith_', 'wt_', 'ws_ft', 'w3tc', 'hustle', 'forminator', 'pp_', 'branda', 'wpmudev', 'sib_', 'mailpoet', 'burst_', 'rsssl', 'aiowps', 'wfls_', 'wf', 'itsec_', 'cerber_', 'gla_', 'jetpack_', 'wc_admin', 'woo'];
+$prefix = $wpdb->prefix;
+foreach ($wpdb->get_col("SHOW TABLES") as $t) {
+    if (strpos($t, $prefix) !== 0) { $out['unknown_tables'][] = $t; continue; }
+    $rest = substr($t, strlen($prefix));
+    $rest_ms = preg_replace('/^\d+_/', '', $rest); // multisite blog prefix
+    if (in_array($rest_ms, $core, true)) continue;
+    $ok = false;
+    foreach ($known as $k) if (strpos($rest_ms, $k) === 0) { $ok = true; break; }
+    if (!$ok) $out['unknown_tables'][] = $t;
+}
+$out['unknown_tables'] = array_slice($out['unknown_tables'], 0, 100);
+$out['stats']['bytes'] = $total;
+echo json_encode($out, JSON_UNESCAPED_SLASHES | JSON_PARTIAL_OUTPUT_ON_ERROR);
+DBSCANEOF
+
+php_defs="define('DBSCAN_SINCE', $SINCE); define('DBSCAN_FULL', $( [ "$FULL" = 1 ] && echo true || echo false )); define('DBSCAN_MAX_ROW', $MAX_ROW); define('DBSCAN_MAX_TOTAL', $MAX_TOTAL);"
+result=$( { echo "<?php $php_defs ?>"; echo "$DB_SCAN_PHP"; } | wp eval-file - --skip-themes --skip-plugins 2>/dev/null )
+if [ -z "$result" ]; then
+  echo '{"error":"db-scan produced no output (wp eval-file failed)"}'
+  exit 1
+fi
+echo "$result"
