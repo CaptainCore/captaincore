@@ -178,6 +178,60 @@ if [ -n "$filtered_plugin_names" ]; then
   fi
 fi
 echo "hidden_plugins:$(trim "$hidden_plugins_json")"
+# Media files changed in the last two days, checked for stashed payloads: magic
+# bytes vs extension, bytes after the JPEG/PNG/GIF end marker, PHP or script
+# markers in the first/last 16 KB, active SVG content. A compact copy of
+# lib/remote-scripts/detect-media-payloads (the canonical, fuller version);
+# keep the two in step. Emits JSON rows: severity, type, path, detail, size.
+media_payloads_json="[]"
+media_dirs=""
+for _d in wp-content/uploads app/uploads; do [ -d "$_d" ] && media_dirs="$media_dirs $_d"; done
+if [ -n "$media_dirs" ] && command -v perl >/dev/null 2>&1; then
+  media_payloads_json=$( find $media_dirs \( -name node_modules -o -name .git -o -name cache \) -prune -o -type f -size +0 -mtime -2 -print0 2>/dev/null | LC_ALL=C perl -0ne '
+    use strict; use warnings;
+    BEGIN { our @out; }
+    our @out;
+    chomp(my $f = $_); $f =~ s/\0$//;
+    my $size = -s $f or next;
+    my ($name) = $f =~ m{([^/]+)$}; my $ext = lc($name =~ /\.([^.]+)$/ ? $1 : "");
+    open(my $fh, "<:raw", $f) or next;
+    my ($head, $tail) = ("", "");
+    read($fh, $head, 16384);
+    if ($size > 16384) { seek($fh, -16384, 2); read($fh, $tail, 16384); } else { $tail = $head; }
+    my $report = sub { my ($sev, $type, $detail) = @_; $detail =~ s/[^\x20-\x7e]/./g; $detail =~ s/"/\x27/g; push @out, sprintf("{\"severity\":\"%s\",\"type\":\"%s\",\"path\":\"%s\",\"detail\":\"%s\",\"size\":%d}", $sev, $type, $f =~ s/"/\x27/gr, $detail, $size); };
+    my %magic = (jpg => qr/^\xff\xd8\xff/, jpeg => qr/^\xff\xd8\xff/, png => qr/^\x89PNG\r\n\x1a\n/, gif => qr/^GIF8[79]a/, webp => qr/^RIFF....WEBP/s, pdf => qr/^%PDF/, mp4 => qr/^....ftyp/s, mov => qr/^....(ftyp|moov|mdat|wide|free)/s, mp3 => qr/^(ID3|\xff[\xfb\xf3\xf2])/, zip => qr/^PK/, ico => qr/^\x00\x00\x01\x00/);
+    if (my $re = $magic{$ext}) {
+        if ($head !~ $re) {
+            (my $asc = substr($head, 0, 48)) =~ s/[^\x20-\x7e]/./g;
+            if ($head =~ /^\s*(<\?php|<\?=|<script)/) { $report->("CRITICAL", "FAKE_MEDIA", "starts with code, not a .$ext: $asc"); }
+            next;
+        }
+    }
+    my %trailer = (jpg => ["\xff\xd9", "JPEG EOI"], jpeg => ["\xff\xd9", "JPEG EOI"], png => ["IEND\xaeB`\x82", "PNG IEND"], gif => ["\x3b", "GIF trailer"]);
+    if (my $t = $trailer{$ext}) {
+        my ($marker, $label) = @$t; my $pos = rindex($tail, $marker);
+        my $trail = $pos < 0 ? -1 : length($tail) - $pos - length($marker);
+        if ($trail < 0 || $trail > 64) {
+            my $detail = $trail < 0 ? "no $label within the last 16 KB" : "$trail bytes after $label";
+            my $after = $trail < 0 ? $tail : substr($tail, $pos + length($marker));
+            if ($after =~ /(<\?php|eval\(|base64_decode|\$_(?:POST|GET|REQUEST|COOKIE))/ || $after =~ m{[A-Za-z0-9+/]{64,}={0,2}}) { $report->("CRITICAL", "APPENDED_PAYLOAD", $detail); }
+            else { $report->("HIGH", "TRAILING_DATA", $detail); }
+            next;
+        }
+    }
+    if ($ext =~ /^(jpe?g|png|gif|webp|ico|bmp|tiff?|pdf|mp4|m4v|mov|m4a|mp3|wav|ogg|webm|avi)$/) {
+        if (($head . "\n" . $tail) =~ /(<\?php|<script[ >]|eval\(|base64_decode\(|shell_exec\(|\$_(?:POST|GET|REQUEST|COOKIE)\[)/) { $report->("CRITICAL", "CODE_IN_MEDIA", "contains $1"); next; }
+    }
+    if ($ext eq "svg" && $size <= 2097152) {
+        seek($fh, 0, 0); local $/; my $svg = <$fh>;
+        if ($svg =~ /(<script|\son[a-z]+\s*=|javascript:|<foreignObject|<iframe|<embed)/i) { $report->("HIGH", "SVG_ACTIVE", "SVG contains $1"); }
+    }
+    close $fh;
+    END { print "[" . join(",", @out) . "]\n"; }
+  ' 2>/dev/null )
+  [ -z "$media_payloads_json" ] && media_payloads_json="[]"
+fi
+echo "media_payloads:$(trim "$media_payloads_json")"
 echo "themes:$(trim "$themes")"
 echo "mu_plugins:$(trim "$mu_plugins")"
 echo "core:$(trim "$core")"

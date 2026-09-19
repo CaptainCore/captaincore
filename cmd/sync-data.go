@@ -206,7 +206,7 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 		}
 	}
 	// JSON detail fields (parse before storing)
-	jsonDetailKeys := []string{"core_checksum_details", "plugin_checksum_details", "security_log", "error_logs", "mu_plugin_files", "core_file_hashes", "loose_file_hashes", "capture_plugin_pages", "hidden_plugins"}
+	jsonDetailKeys := []string{"core_checksum_details", "plugin_checksum_details", "security_log", "error_logs", "mu_plugin_files", "core_file_hashes", "loose_file_hashes", "capture_plugin_pages", "hidden_plugins", "media_payloads"}
 	for _, key := range jsonDetailKeys {
 		if v, ok := data[key]; ok && v != "" {
 			var parsed interface{}
@@ -236,6 +236,36 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 					fmt.Printf("Hidden plugin(s) reported by the site: %s\n", strings.Join(hidden, ", "))
 				}
 				postMalwareAlert(site, &matchedEnv, system, captain, findings, "hidden-plugin")
+			}
+		}
+	}
+
+	// Payloads stashed in recently changed media (see fetch-site-data): alert
+	// on the critical and high rows the same way file findings alert.
+	if v := strings.TrimSpace(data["media_payloads"]); v != "" && v != "[]" {
+		var rows []struct {
+			Severity, Type, Path, Detail string
+		}
+		if json.Unmarshal([]byte(v), &rows) == nil {
+			var findings []scan.LegacyFinding
+			for _, r := range rows {
+				if r.Severity != "CRITICAL" && r.Severity != "HIGH" {
+					continue
+				}
+				findings = append(findings, scan.LegacyFinding{
+					Filename:             r.Path,
+					SignatureID:          "media-" + strings.ToLower(r.Type),
+					SignatureName:        "Media file: " + strings.ReplaceAll(strings.ToLower(r.Type), "_", " "),
+					SignatureDescription: r.Detail,
+				})
+			}
+			if len(findings) > 0 {
+				if site, err := sa.LookupSite(); err == nil && site != nil {
+					if !flagSyncDataJSON {
+						fmt.Printf("Media payload finding(s): %d\n", len(findings))
+					}
+					postMalwareAlert(site, &matchedEnv, system, captain, findings, "media")
+				}
 			}
 		}
 	}
