@@ -261,7 +261,7 @@ func knownTrigger(name string) bool {
 // Real Media Library's folder tree functions, for one.
 func knownRoutine(name string) bool {
 	n := strings.ToLower(name)
-	for _, k := range []string{"realmedialibrary", "wp_rml_", "wpstg", "sqlbuddy"} {
+	for _, k := range []string{"realmedialibrary", "wp_rml_", "wpstg", "sqlbuddy", "lscf_"} {
 		if strings.Contains(n, k) {
 			return true
 		}
