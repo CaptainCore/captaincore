@@ -100,6 +100,14 @@ func runScan(args []string) int {
 				r.Findings[i].File = filepath.ToSlash(filepath.Join(filepath.Base(filepath.Clean(a)), r.Findings[i].File))
 			}
 			integrity = append(integrity, r.Findings...)
+			// Provenance of the web root and wp-content root: PHP files core
+			// never shipped there, caught by name rather than content, so
+			// obfuscated or AI-rewritten backdoors do not evade it.
+			prov := scan.CheckWordPressRoot(a)
+			for i := range prov {
+				prov[i].File = filepath.ToSlash(filepath.Join(filepath.Base(filepath.Clean(a)), prov[i].File))
+			}
+			integrity = append(integrity, prov...)
 			for _, e := range r.Errors {
 				fmt.Fprintln(os.Stderr, "Warning:", e)
 			}
