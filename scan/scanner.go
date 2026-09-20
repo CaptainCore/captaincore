@@ -369,6 +369,13 @@ func (r *compiledRule) match(data []byte, hit []bool) ([]int, bool) {
 			}
 		}
 	}
+	// A veto pattern is checked over the whole file, not the window: the
+	// vendor tell can sit anywhere in it.
+	for _, re := range r.exclude {
+		if re.Match(data) {
+			return nil, false
+		}
+	}
 	// Windowed rules: match around each occurrence of the first prefilter.
 	if r.Rule.Window > 0 && len(r.prefilter) > 0 {
 		lit := r.prefilter[0]

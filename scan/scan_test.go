@@ -769,3 +769,94 @@ func TestIncidentDropperRulesStayQuiet(t *testing.T) {
 		}
 	}
 }
+
+// Shapes from the 2026-09-20 alert review: vendor code that tripped a
+// critical or high rule and reached the tier-1 alert email. Each stays
+// below high; the malicious twin of each shape still fires.
+func TestAlertReviewFalsePositivesStayQuiet(t *testing.T) {
+	s := shippedRules(t)
+	dir := t.TempDir()
+	// A split base64_encode is a license helper, not a sink.
+	write(t, dir, "plugins/knowledge-base/includes/skelet/functions/helpers.php",
+		"<?php\n$enc = 'base'.'64'.'_encode';\n$token = $enc( wp_json_encode( $data ) );\n")
+	// phpDocumentor tests include a data: URI by design.
+	write(t, dir, "themes/custom/vendor/phpdocumentor/reflection-docblock/tests/phpDocumentor/Reflection/DocBlock/TagTest.php",
+		"<?php\nclass TagTest {\n  public function testLoad() {\n    include 'data:text/plain;base64,'. base64_encode(\n      '<?php class MyTag {}'\n    );\n  }\n}\n")
+	// A security marketing page names malware families in prose.
+	write(t, dir, "themes/custom/page-security.php",
+		"<?php get_header(); ?>\n<tr><td><strong>Backdoors &amp; shells</strong></td><td>NightJar, Weevely, eval chains (base64, gzinflate, openssl)</td></tr>\n")
+	// A theme's front-end registration form hands out the default role.
+	write(t, dir, "themes/builder/theme-functions-override.php",
+		"<?php\n$user_data = array(\n\t'ID' => '',\n\t'user_pass' => $password,\n\t'user_login' => $username,\n\t'user_email' => $email,\n\t'role' => get_option( 'default_role' ),\n);\n$user_id = wp_insert_user( $user_data );\n")
+	// SourceCop encoded vendor plugin: loader stub in every file plus the ciphered scopbin/ directory.
+	stub := "<?php if(!function_exists('f50783938')){function f50783938($fld){$fld1=dirname($fld);$fld=$fld1.'/scopbin';clearstatcache();if(!is_dir($fld))return f50783938($fld1);else return $fld;}}require_once(f50783938(__FILE__).'/13656526.php');$REXISTHECAT4FBI='FE50E574D754E76AC679F242F450F768FB5DCB77F34DE341';f50783938g0666f0acdeed38d4cd9084ade17($REXISTHECAT4FBI);\n"
+	write(t, dir, "plugins/member-shortcodes/core/admin_menus.class.php", stub)
+	write(t, dir, "plugins/member-shortcodes/core/includes/plugin_config.class.php", stub)
+	write(t, dir, "plugins/member-shortcodes/scopbin/13656526.php",
+		"<?php ini_set('include_path',dirname(__FILE__));function f50783938A4540acdeed38d4cd9084ade1739498($x897356954c2cd3d41b221e3f24f99bba,$x276e79316561733d64abdf00f8e8ae48){return $Xew6e79316561733d64abdf00f8e8ae48;}\nfunction f50783938g0666f0acdeed38d4cd9084ade17($s){for($i=0;$i<strlen($s);$i++){$o[]=ord($s[$i])^ord($k[$i%8]);}return $o;}\n")
+	res := s.ScanDir(dir)
+	by := map[string][]Finding{}
+	for _, f := range res.Findings {
+		by[f.File] = append(by[f.File], f)
+		if SeverityRank(f.Severity) >= SeverityRank("high") {
+			t.Errorf("false positive at %s: %s on %s:%d %q", f.Severity, f.RuleID, f.File, f.Line, f.Match)
+		}
+	}
+	if !has(by["plugins/member-shortcodes/core/admin_menus.class.php"], "sourcecop-encoded-file") {
+		t.Errorf("SourceCop stub not listed at low: %v", ids(by["plugins/member-shortcodes/core/admin_menus.class.php"]))
+	}
+	if has(by["themes/builder/theme-functions-override.php"], "admin-creator-in-uploads-or-theme") {
+		t.Errorf("default_role registration form still flagged")
+	}
+
+	// The malicious twins.
+	dir = t.TempDir()
+	write(t, dir, "plugins/x/a.php", "<?php\n$f = 'base'.'64'.'_decode'; eval($f($_POST['x']));\n")
+	write(t, dir, "plugins/x/b.php", "<?php\n$f = 'bas'.'e64_dec'.'ode'; $f($_POST['x']);\n")
+	write(t, dir, "plugins/x/c.php", "<?php\ninclude 'data:text/plain;base64,' . $_GET['p'];\n")
+	write(t, dir, "plugins/x/d.php", "<?php\nclass NightJarKeyManager { public static function frame($p) { return NightJarPacketFrame::decode($p); } }\n")
+	write(t, dir, "themes/custom/e.php", "<?php\nwp_insert_user( array( 'user_login' => 'sys', 'user_pass' => 'x', 'role' => 'administrator' ) );\n")
+	res = s.ScanDir(dir)
+	by = map[string][]Finding{}
+	for _, f := range res.Findings {
+		by[f.File] = append(by[f.File], f)
+	}
+	for file, id := range map[string]string{
+		"plugins/x/a.php":     "split-string-function-name",
+		"plugins/x/b.php":     "split-string-function-name",
+		"plugins/x/c.php":     "data-uri-php-include",
+		"plugins/x/d.php":     "nightjar-backdoor",
+		"themes/custom/e.php": "admin-creator-in-uploads-or-theme",
+	} {
+		if !has(by[file], id) {
+			t.Errorf("%s: %s no longer fires: %v", file, id, ids(by[file]))
+		}
+	}
+}
+
+func TestExcludePatternsVetoARule(t *testing.T) {
+	rs := &RuleSet{Version: 2, Rules: []Rule{{
+		ID: "x", Name: "x", Severity: "high",
+		Patterns:        []string{`wp_insert_user\s*\(`},
+		ExcludePatterns: []string{`default_role`},
+	}}}
+	s := New(rs, Options{})
+	if len(s.Errors) != 0 {
+		t.Fatal(s.Errors)
+	}
+	dir := t.TempDir()
+	write(t, dir, "a.php", "<?php wp_insert_user($u);\n")
+	write(t, dir, "b.php", "<?php $u['role'] = get_option('default_role'); wp_insert_user($u);\n")
+	res := s.ScanDir(dir)
+	got := map[string]bool{}
+	for _, f := range res.Findings {
+		got[f.File] = true
+	}
+	if !got["a.php"] || got["b.php"] {
+		t.Errorf("veto wrong: %v", ids(res.Findings))
+	}
+	bad := New(&RuleSet{Version: 2, Rules: []Rule{{ID: "y", Severity: "low", Patterns: []string{"a"}, ExcludePatterns: []string{"("}}}}, Options{})
+	if len(bad.Errors) != 1 || bad.RuleCount() != 0 {
+		t.Errorf("invalid exclude_pattern should drop the rule with one error: %v", bad.Errors)
+	}
+}

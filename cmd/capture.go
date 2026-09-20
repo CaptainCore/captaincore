@@ -152,12 +152,39 @@ func extractDomain(rawURL string) string {
 	return strings.ToLower(u.Hostname())
 }
 
-func isSameOrigin(srcDomain, homeURL string) bool {
-	homeDomain := extractDomain(homeURL)
-	if homeDomain == "" || srcDomain == "" {
+// isSameOrigin reports whether srcDomain belongs to the site. homeURLs is
+// one or more home URLs separated by whitespace: the environment's own plus
+// its siblings' (see siteOrigins), so a staging copy that still loads its
+// theme from the production domain is the site talking to itself, not an
+// unknown external host.
+func isSameOrigin(srcDomain, homeURLs string) bool {
+	if srcDomain == "" {
 		return false
 	}
-	return srcDomain == homeDomain || strings.HasSuffix(srcDomain, "."+homeDomain)
+	for _, homeURL := range strings.Fields(homeURLs) {
+		homeDomain := extractDomain(homeURL)
+		if homeDomain == "" {
+			continue
+		}
+		if srcDomain == homeDomain || strings.HasSuffix(srcDomain, "."+homeDomain) {
+			return true
+		}
+	}
+	return false
+}
+
+// siteOrigins joins the environment's home URL with those of the site's
+// other environments, in the whitespace-separated form isSameOrigin reads.
+func siteOrigins(siteID uint, env *models.Environment) string {
+	urls := []string{env.HomeURL}
+	if envs, err := models.FindEnvironmentsBySiteID(siteID); err == nil {
+		for _, e := range envs {
+			if e.HomeURL != "" && e.HomeURL != env.HomeURL {
+				urls = append(urls, e.HomeURL)
+			}
+		}
+	}
+	return strings.Join(urls, " ")
 }
 
 func isKnownSafe(domain string, safeDomains []string) bool {
@@ -443,7 +470,8 @@ func captureScanNative(cmd *cobra.Command, args []string) {
 			if err != nil {
 				continue
 			}
-			for _, env := range envs {
+			for i := range envs {
+				env := &envs[i]
 				if environment != "" && environment != "all" && !strings.EqualFold(env.Environment, environment) {
 					continue
 				}
@@ -456,7 +484,7 @@ func captureScanNative(cmd *cobra.Command, args []string) {
 				targets = append(targets, scanTarget{
 					Label:    fmt.Sprintf("%s-%s", site.Site, envName),
 					ScanPath: scanPath,
-					HomeURL:  env.HomeURL,
+					HomeURL:  siteOrigins(site.SiteID, env),
 				})
 			}
 		}
@@ -485,7 +513,7 @@ func captureScanNative(cmd *cobra.Command, args []string) {
 		targets = append(targets, scanTarget{
 			Label:    fmt.Sprintf("%s-%s", site.Site, envName),
 			ScanPath: scanPath,
-			HomeURL:  env.HomeURL,
+			HomeURL:  siteOrigins(site.SiteID, env),
 		})
 	}
 
@@ -767,16 +795,16 @@ func captureCheckNative(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	homeURL := env.HomeURL
+	homeURL := siteOrigins(site.SiteID, env)
 	siteLabel := fmt.Sprintf("%s-%s", site.Site, envName)
 
 	type checkFinding struct {
-		Page    string `json:"page"`
-		Tag     string `json:"tag"`
+		Page     string `json:"page"`
+		Tag      string `json:"tag"`
 		Severity string `json:"severity"`
-		Src     string `json:"src,omitempty"`
-		Label   string `json:"label"`
-		SigName string `json:"sig_name,omitempty"`
+		Src      string `json:"src,omitempty"`
+		Label    string `json:"label"`
+		SigName  string `json:"sig_name,omitempty"`
 	}
 
 	var findings []checkFinding

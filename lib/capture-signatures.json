@@ -24,6 +24,7 @@
   ],
   "known_safe_domains": [
     "cdn.usefathom.com",
+    "cdn.weglot.com",
     "fd.cleantalk.org",
     "cdn.jsdelivr.net",
     "cdnjs.cloudflare.com",

@@ -35,11 +35,15 @@ type Rule struct {
 	// literal instead of the whole file. Imported signature regexes with
 	// long bounded repeats are slow over a 100 KB file and only ever match
 	// next to their literal.
-	Window       int      `json:"window,omitempty"`
-	Require      []string `json:"require,omitempty"`       // RE2, all must match
-	IncludePaths []string `json:"include_paths,omitempty"` // when set, path must contain one
-	ExcludePaths []string `json:"exclude_paths,omitempty"` // path must contain none
-	FileTypes    []string `json:"file_types,omitempty"`    // groups (php, js, html, svg, image) or ".ext"; default php
+	Window  int      `json:"window,omitempty"`
+	Require []string `json:"require,omitempty"` // RE2, all must match
+	// ExcludePatterns are RE2 patterns any one of which vetoes the rule for
+	// the file: the vendor shape a pattern rule keeps tripping on, stated
+	// once instead of as a growing exclude_paths list.
+	ExcludePatterns []string `json:"exclude_patterns,omitempty"`
+	IncludePaths    []string `json:"include_paths,omitempty"` // when set, path must contain one
+	ExcludePaths    []string `json:"exclude_paths,omitempty"` // path must contain none
+	FileTypes       []string `json:"file_types,omitempty"`    // groups (php, js, html, svg, image) or ".ext"; default php
 	// StartsWithHex, when set, requires the file to begin with one of these
 	// byte sequences (hex encoded), e.g. an image magic number.
 	StartsWithHex []string `json:"starts_with_hex,omitempty"`
@@ -202,6 +206,7 @@ type compiledRule struct {
 	patterns   []*regexp.Regexp
 	literals   []*literalPattern // parallel to patterns; non-nil when the pattern is a plain literal
 	require    []*regexp.Regexp
+	exclude    []*regexp.Regexp
 	extensions map[string]bool
 	// Indices into the scanner's literal index, filled by New: one per
 	// prefilter, and one per pattern (-1 when the pattern is not a literal).
@@ -319,6 +324,18 @@ func compileRules(rules []Rule) ([]compiledRule, []error) {
 				break
 			}
 			c.require = append(c.require, re)
+		}
+		if bad {
+			continue
+		}
+		for _, p := range r.ExcludePatterns {
+			re, err := regexp.Compile(p)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("rule %s: exclude_pattern %q: %w", r.ID, p, err))
+				bad = true
+				break
+			}
+			c.exclude = append(c.exclude, re)
 		}
 		if bad {
 			continue

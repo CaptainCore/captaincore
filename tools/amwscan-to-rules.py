@@ -156,6 +156,7 @@ if domains:
 SKIP = {
     "amw-re-03124",  # rot13 of base64_decode: CleanTalk and WP Migrate rot13 their own strings
     "amw-re-02984",  # curl_setopt + http_build_query: every HTTP client
+    "amw-re-02461",  # the SourceCop encoder's loader stub (dirname walk to scopbin/): commercial vendor encoding, covered by sourcecop-encoded-file at low
 }
 for i, lit in enumerate(sig.get("raw", []) if os.environ.get("RAW") else []):
     if len(lit) < 6 or (freq and freq.get(lit, 0) > MAX_DF * 287834):
