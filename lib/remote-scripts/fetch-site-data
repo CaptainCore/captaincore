@@ -424,6 +424,47 @@ echo "default_role:$(trim "$default_role")"
 echo "registration:$(trim "$registration")"
 echo "token:$(trim "$token")"
 echo "core_checksum_details:$(trim "$core_verify_checksums_json")"
+
+# Provenance: PHP at the web root and at the content root that WordPress core
+# never ships and that is not a recognized drop-in. This is a name check, not a
+# content check, so an obfuscated or AI-rewritten backdoor cannot evade it (the
+# kr224 root shells were invisible to every signature rule but obvious here).
+# Emits the RAW list; the CLI filters host and security-plugin placements before
+# raising findings, and the raw list stays in details for forensics. A classic
+# install has wp-settings.php at the root; core-in-subdirectory layouts (Bedrock
+# web/wp/) keep only the bootstrap files at the root. $wp_content already
+# resolves the content directory (wp-content, app, content/<id>).
+if [[ -f "wp-settings.php" && -f "wp-load.php" ]]; then
+    prov_root_allow=" index.php wp-activate.php wp-blog-header.php wp-comments-post.php wp-config.php wp-config-sample.php wp-cron.php wp-links-opml.php wp-load.php wp-login.php wp-mail.php wp-settings.php wp-signup.php wp-trackback.php xmlrpc.php "
+else
+    prov_root_allow=" index.php wp-config.php wp-config-sample.php "
+fi
+prov_content_allow=" index.php advanced-cache.php db.php db-error.php install.php maintenance.php object-cache.php php-error.php fatal-error-handler.php sunrise.php blog-deleted.php blog-inactive.php blog-suspended.php "
+prov_rows=""
+for f in *.php *.phtml *.phar *.pht *.php3 *.php4 *.php5 *.php7 *.php8 *.phtm; do
+    [[ -f "$f" ]] || continue
+    prov_lf=$( printf '%s' "$f" | tr '[:upper:]' '[:lower:]' )
+    [[ "$prov_root_allow" == *" $prov_lf "* ]] && continue
+    prov_rows+="root|$f"$'\n'
+done
+for f in "$wp_content"/*.php "$wp_content"/*.phtml "$wp_content"/*.phar "$wp_content"/*.pht "$wp_content"/*.php3 "$wp_content"/*.php4 "$wp_content"/*.php5 "$wp_content"/*.php7 "$wp_content"/*.php8 "$wp_content"/*.phtm; do
+    [[ -f "$f" ]] || continue
+    prov_lb=$( basename "$f" | tr '[:upper:]' '[:lower:]' )
+    [[ "$prov_content_allow" == *" $prov_lb "* ]] && continue
+    prov_rows+="content|$f"$'\n'
+done
+unexpected_root_php_json=$( printf '%s' "$prov_rows" | python3 -c '
+import json, sys
+rows = []
+for line in sys.stdin:
+    line = line.rstrip("\n")
+    if not line:
+        continue
+    loc, path = line.split("|", 1)
+    rows.append({"location": loc, "path": path})
+print(json.dumps(rows))' 2>/dev/null )
+[[ -z "$unexpected_root_php_json" ]] && unexpected_root_php_json="[]"
+echo "unexpected_root_php:$(trim "$unexpected_root_php_json")"
 echo "plugin_checksum_details:$(trim "$plugin_checksum_details_json")"
 echo "php_version:$(trim "$php_version")"
 echo "db_size:$(wp db size --size_format=b --skip-themes --skip-plugins --skip-packages 2>/dev/null | tail -1 | cut -f2)"

@@ -210,7 +210,7 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 		}
 	}
 	// JSON detail fields (parse before storing)
-	jsonDetailKeys := []string{"core_checksum_details", "plugin_checksum_details", "security_log", "error_logs", "mu_plugin_files", "core_file_hashes", "loose_file_hashes", "capture_plugin_pages", "hidden_plugins", "media_payloads"}
+	jsonDetailKeys := []string{"core_checksum_details", "plugin_checksum_details", "security_log", "error_logs", "mu_plugin_files", "core_file_hashes", "loose_file_hashes", "capture_plugin_pages", "hidden_plugins", "media_payloads", "unexpected_root_php"}
 	for _, key := range jsonDetailKeys {
 		if v, ok := data[key]; ok && v != "" {
 			var parsed interface{}
@@ -314,6 +314,23 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 					}
 					postMalwareAlert(site, &matchedEnv, system, captain, findings, "media")
 				}
+			}
+		}
+	}
+
+	// Unexpected PHP at the web root or content root (see fetch-site-data).
+	// A provenance signal, not a content one, so obfuscated or AI-rewritten
+	// backdoors cannot hide from it. Host and security-plugin placements are
+	// filtered in provenanceFindings; the raw list is already in details.
+	// The Manager treats source "provenance" as tier 2 (recorded and reviewed
+	// daily, not emailed) until the fleet noise is characterized.
+	if v := strings.TrimSpace(data["unexpected_root_php"]); v != "" && v != "[]" {
+		if findings := provenanceFindings(v); len(findings) > 0 {
+			if site, err := sa.LookupSite(); err == nil && site != nil {
+				if !flagSyncDataJSON {
+					fmt.Printf("Provenance finding(s): %d\n", len(findings))
+				}
+				postMalwareAlert(site, &matchedEnv, system, captain, findings, "provenance")
 			}
 		}
 	}
