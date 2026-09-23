@@ -675,6 +675,18 @@ $cap = 500;
 
 // Multisite: one row per subsite, read straight from the blogs table plus
 // each blog's blogname, so no switch_to_blog and no plugin code.
+// Administrators of one prefix (a subsite's or a tenant's), capped: the
+// Manager picks from these when it signs someone into that site, since a
+// main-site admin may not be a member there.
+$admins_of = function ( $users_table, $usermeta_table, $cap_key ) use ( $wpdb ) {
+    $rows = $wpdb->get_results( $wpdb->prepare(
+        "SELECT u.user_login, u.user_email FROM `{$users_table}` u JOIN `{$usermeta_table}` m ON m.user_id = u.ID
+         WHERE m.meta_key = %s AND m.meta_value LIKE %s ORDER BY u.ID LIMIT 10",
+        $cap_key, '%"administrator"%'
+    ) );
+    return array_map( function ( $r ) { return [ 'login' => $r->user_login, 'email' => $r->user_email ]; }, (array) $rows );
+};
+
 $network_sites = null;
 if ( is_multisite() ) {
     // Scheme from the main site's stored home: network_home_url() follows
@@ -698,12 +710,22 @@ if ( is_multisite() ) {
             'archived'     => (int) $b->archived,
             'spam'         => (int) $b->spam,
             'deleted'      => (int) $b->deleted,
+            'admins'       => $admins_of( $wpdb->users, $wpdb->usermeta, $wpdb->get_blog_prefix( $id ) . 'capabilities' ),
         ];
     }
+    // Super admins reach every subsite whatever its member list says.
+    $supers = [];
+    foreach ( array_slice( (array) get_super_admins(), 0, 10 ) as $login ) {
+        $u = get_user_by( 'login', $login );
+        if ( $u ) {
+            $supers[] = [ 'login' => $u->user_login, 'email' => $u->user_email ];
+        }
+    }
     $network_sites = [
-        'mode'  => is_subdomain_install() ? 'subdomain' : 'subdirectory',
-        'count' => $total,
-        'sites' => $sites,
+        'mode'         => is_subdomain_install() ? 'subdomain' : 'subdirectory',
+        'count'        => $total,
+        'super_admins' => $supers,
+        'sites'        => $sites,
     ];
 }
 
@@ -735,16 +757,33 @@ if ( is_array( $registry ) && ( $registry || $tenant_id ) ) {
     $main_url = untrailingslashit( (string) $main_opt( 'home' ) );
     $mapping  = ( $conf['domain_mapping'] ?? '' ) === 'on';
     $tenants  = [];
+    $dedicated = ( $conf['files'] ?? '' ) === 'dedicated';
     foreach ( array_slice( $registry, 0, $cap ) as $t ) {
         $t      = (array) $t;
+        $tid    = (int) ( $t['stacked_site_id'] ?? 0 );
         $domain = trim( (string) ( $t['domain'] ?? '' ) );
-        $tenants[] = [
-            'id'         => (int) ( $t['stacked_site_id'] ?? 0 ),
+        $row    = [
+            'id'         => $tid,
             'name'       => (string) ( $t['name'] ?? '' ),
             'domain'     => $domain,
             'url'        => ( $mapping && $domain !== '' ) ? 'https://' . $domain : '',
             'created_at' => (int) ( $t['created_at'] ?? 0 ),
         ];
+        // Host only: each tenant's own users (its own tables) and whether
+        // the CaptainCore helper that mints login links is installed there
+        // (dedicated files = its own mu-plugins; otherwise the host's). A
+        // stub helper that only redeems links has no quick-login handler,
+        // so check for the handler, not just the file.
+        if ( ! $tenant_id && $tid ) {
+            $p = "stacked_{$tid}_";
+            $row['admins'] = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $p . 'usermeta' ) )
+                ? $admins_of( $p . 'users', $p . 'usermeta', $p . 'capabilities' ) : [];
+            $helper_file   = $dedicated
+                ? ABSPATH . "content/{$tid}/mu-plugins/captaincore-helper.php"
+                : WPMU_PLUGIN_DIR . '/captaincore-helper.php';
+            $row['helper'] = is_file( $helper_file ) && strpos( (string) file_get_contents( $helper_file ), 'captaincore_quick_login' ) !== false;
+        }
+        $tenants[] = $row;
     }
     $freighter = [
         'role'           => $tenant_id ? 'tenant' : 'host',
