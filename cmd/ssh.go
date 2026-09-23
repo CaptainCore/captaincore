@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -13,6 +14,12 @@ import (
 )
 
 var flagScriptPassthrough []string
+
+// flagSSHTenant runs the command inside one WP Freighter tenant of the target
+// site (its host), by exporting STACKED_SITE_ID the way a tenant site's own
+// environment vars would. Lets the Manager reach tenants that are not
+// CaptainCore sites, e.g. to install the helper there.
+var flagSSHTenant string
 
 var sshCmd = &cobra.Command{
 	Use:   "ssh <site>... [--command=<commands>] [--script=<name|file>] [flags...]",
@@ -27,6 +34,7 @@ Flags:
   -r, --recipe string    Run a built-in or custom defined recipe
   -s, --script string    Run a built-in script file
   -d, --debug            Preview ssh command
+      --tenant int       Run inside this WP Freighter tenant of the site (sets STACKED_SITE_ID)
       --captain-id string Captain ID (default "1")
       --fleet             Fleet mode
       --config string     Config file (default "~/.captaincore/config.json")
@@ -35,6 +43,7 @@ Flags:
 	Run: func(cmd *cobra.Command, args []string) {
 		// Reset passthrough flags for this invocation
 		flagScriptPassthrough = nil
+		flagSSHTenant = ""
 
 		// Manual arg parsing since DisableFlagParsing is true
 		var targets []string
@@ -92,6 +101,13 @@ Flags:
 				if i < len(args) {
 					cfgFile = args[i]
 				}
+			case strings.HasPrefix(arg, "--tenant="):
+				flagSSHTenant = strings.SplitN(arg, "=", 2)[1]
+			case arg == "--tenant":
+				i++
+				if i < len(args) {
+					flagSSHTenant = args[i]
+				}
 			case strings.HasPrefix(arg, "--parallel="):
 				p, _ := strconv.Atoi(strings.SplitN(arg, "=", 2)[1])
 				flagParallel = p
@@ -114,6 +130,11 @@ Flags:
 		if len(targets) < 1 {
 			fmt.Fprintf(os.Stderr, "Error: requires a <site|target> argument\n")
 			cmd.Help()
+			return
+		}
+
+		if flagSSHTenant != "" && (len(targets) > 1 || strings.HasPrefix(targets[0], "@")) {
+			fmt.Fprintf(os.Stderr, "Error: --tenant works on a single site\n")
 			return
 		}
 
@@ -206,6 +227,16 @@ func sshNative(cmd *cobra.Command, args []string) {
 				environmentVars = fmt.Sprintf("export %s=%s && %s", item.Key, escapeLocalExpansion(shellSingleQuote(item.Value)), environmentVars)
 			}
 		}
+	}
+
+	if flagSSHTenant != "" {
+		// Digits only: it lands unquoted in the remote export, and a
+		// Freighter tenant id is always a positive integer.
+		if !reTenantID.MatchString(flagSSHTenant) {
+			fmt.Fprintf(os.Stderr, "%sError:%s --tenant must be a numeric WP Freighter tenant id.\n", colorRed, colorNormal)
+			return
+		}
+		environmentVars = fmt.Sprintf("export STACKED_SITE_ID=%s && %s", flagSSHTenant, environmentVars)
 	}
 
 	// Determine SSH key
@@ -343,6 +374,8 @@ func sshNative(cmd *cobra.Command, args []string) {
 	shellCmd.Stderr = os.Stderr
 	shellCmd.Run()
 }
+
+var reTenantID = regexp.MustCompile(`^[1-9][0-9]{0,5}$`)
 
 func init() {
 	rootCmd.AddCommand(sshCmd)
