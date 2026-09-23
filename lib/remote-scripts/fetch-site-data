@@ -664,6 +664,115 @@ if [[ -z "$session_signal_json" ]]; then
 fi
 echo "session_signal:$(trim "$session_signal_json")"
 
+# Network shape: multisite subsites and WP Freighter tenants. Both keys are
+# JSON, or the literal null when the site is not that kind of network, so a
+# site that stops being one clears the stale value on the Manager (it merges
+# details key by key). Lists are capped at 500; the counts stay exact.
+read -r -d '' network_php <<'NETWORKEOF'
+<?php
+global $wpdb;
+$cap = 500;
+
+// Multisite: one row per subsite, read straight from the blogs table plus
+// each blog's blogname, so no switch_to_blog and no plugin code.
+$network_sites = null;
+if ( is_multisite() ) {
+    // Scheme from the main site's stored home: network_home_url() follows
+    // is_ssl(), which is always false under WP-CLI and would say http.
+    $scheme = parse_url( (string) get_option( 'home' ), PHP_URL_SCHEME ) ?: 'https';
+    $main   = (int) get_main_site_id();
+    $total  = (int) get_sites( [ 'count' => true, 'number' => 0 ] );
+    $rows   = get_sites( [ 'number' => $cap, 'orderby' => 'id', 'order' => 'ASC' ] );
+    $sites  = [];
+    foreach ( $rows as $b ) {
+        $id   = (int) $b->blog_id;
+        $name = $wpdb->get_var( "SELECT option_value FROM `{$wpdb->get_blog_prefix( $id )}options` WHERE option_name = 'blogname' LIMIT 1" );
+        $sites[] = [
+            'id'           => $id,
+            'name'         => html_entity_decode( (string) $name, ENT_QUOTES, 'UTF-8' ),
+            'url'          => $scheme . '://' . $b->domain . $b->path,
+            'main'         => $id === $main,
+            'registered'   => $b->registered,
+            'last_updated' => $b->last_updated,
+            'public'       => (int) $b->public,
+            'archived'     => (int) $b->archived,
+            'spam'         => (int) $b->spam,
+            'deleted'      => (int) $b->deleted,
+        ];
+    }
+    $network_sites = [
+        'mode'  => is_subdomain_install() ? 'subdomain' : 'subdirectory',
+        'count' => $total,
+        'sites' => $sites,
+    ];
+}
+
+// WP Freighter: the registry lives in the MAIN prefix's options. Inside a
+// tenant the bootstrap has swapped $table_prefix and saved the original in
+// TABLE_PREFIX, so read the host's options from there either way. Only the
+// files mode and domain-mapping flag leave the site; stacked_configurations
+// also carries the license key.
+$freighter = null;
+$tenant_id = '';
+if ( defined( 'TABLE_PREFIX' ) && preg_match( '/^stacked_(\d+)_$/', $wpdb->prefix, $m ) ) {
+    $tenant_id = (int) $m[1];
+}
+$main_prefix = defined( 'TABLE_PREFIX' ) ? TABLE_PREFIX : $wpdb->prefix;
+$main_opt = function ( $name ) use ( $wpdb, $main_prefix ) {
+    $v = $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM `{$main_prefix}options` WHERE option_name = %s LIMIT 1", $name ) );
+    return $v === null ? null : maybe_unserialize( $v );
+};
+$registry = $main_opt( 'stacked_sites' );
+if ( is_string( $registry ) ) {
+    $registry = json_decode( $registry, true );
+}
+if ( is_array( $registry ) && ( $registry || $tenant_id ) ) {
+    $conf = $main_opt( 'stacked_configurations' );
+    if ( is_string( $conf ) ) {
+        $conf = json_decode( $conf, true );
+    }
+    $conf     = is_array( $conf ) ? $conf : [];
+    $main_url = untrailingslashit( (string) $main_opt( 'home' ) );
+    $mapping  = ( $conf['domain_mapping'] ?? '' ) === 'on';
+    $tenants  = [];
+    foreach ( array_slice( $registry, 0, $cap ) as $t ) {
+        $t      = (array) $t;
+        $domain = trim( (string) ( $t['domain'] ?? '' ) );
+        $tenants[] = [
+            'id'         => (int) ( $t['stacked_site_id'] ?? 0 ),
+            'name'       => (string) ( $t['name'] ?? '' ),
+            'domain'     => $domain,
+            'url'        => ( $mapping && $domain !== '' ) ? 'https://' . $domain : '',
+            'created_at' => (int) ( $t['created_at'] ?? 0 ),
+        ];
+    }
+    $freighter = [
+        'role'           => $tenant_id ? 'tenant' : 'host',
+        'tenant_id'      => $tenant_id ?: null,
+        'main_url'       => $main_url,
+        'files'          => (string) ( $conf['files'] ?? '' ),
+        'domain_mapping' => $mapping,
+        'count'          => count( $registry ),
+        // The host's record carries the list; a tenant links back through
+        // main_url + tenant_id and does not repeat its siblings.
+        'tenants'        => $tenant_id ? [] : $tenants,
+    ];
+}
+
+echo 'network_sites:' . wp_json_encode( $network_sites, JSON_UNESCAPED_SLASHES ) . "\n";
+echo 'freighter:' . wp_json_encode( $freighter, JSON_UNESCAPED_SLASHES ) . "\n";
+NETWORKEOF
+
+# Both lines or neither: a probe that died part way sends nothing, so the
+# last good values stay on the Manager instead of being cleared to null.
+network_out=$(echo "$network_php" | wp eval-file - --skip-themes --skip-plugins 2>/dev/null)
+network_sites_line=$(printf '%s\n' "$network_out" | grep -m1 '^network_sites:')
+freighter_line=$(printf '%s\n' "$network_out" | grep -m1 '^freighter:')
+if [[ -n "$network_sites_line" && -n "$freighter_line" ]]; then
+    echo "$network_sites_line"
+    echo "$freighter_line"
+fi
+
 # Per-component SHA256 content hashes for plugins, themes, and mu-plugins
 # Uses -type f to hash regular files, and -type l to include symlink targets/paths.
 # Symlinks are hashed as "SYMLINK:<target>" so a symlink change alters the directory hash.

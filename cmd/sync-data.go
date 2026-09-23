@@ -209,8 +209,11 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 			details[key] = v
 		}
 	}
-	// JSON detail fields (parse before storing)
-	jsonDetailKeys := []string{"core_checksum_details", "plugin_checksum_details", "security_log", "error_logs", "mu_plugin_files", "core_file_hashes", "loose_file_hashes", "capture_plugin_pages", "hidden_plugins", "media_payloads", "unexpected_root_php"}
+	// JSON detail fields (parse before storing). network_sites and freighter
+	// arrive as the literal null on a site that is not that kind of network;
+	// that parses to nil and is stored as null, which clears a stale value on
+	// the Manager (it merges details key by key and never deletes one).
+	jsonDetailKeys := []string{"core_checksum_details", "plugin_checksum_details", "security_log", "error_logs", "mu_plugin_files", "core_file_hashes", "loose_file_hashes", "capture_plugin_pages", "hidden_plugins", "media_payloads", "unexpected_root_php", "network_sites", "freighter"}
 	for _, key := range jsonDetailKeys {
 		if v, ok := data[key]; ok && v != "" {
 			var parsed interface{}
