@@ -54,11 +54,12 @@ func (Environment) TableName() string {
 
 // EnvironmentDetails represents the JSON stored in the environment details column.
 type EnvironmentDetails struct {
-	Fathom             json.RawMessage `json:"fathom"`
-	Auth               *AuthDetails    `json:"auth"`
-	ScreenshotBase     string          `json:"screenshot_base"`
-	ConsoleErrors      json.RawMessage `json:"console_errors"`
-	CapturePluginPages []string        `json:"capture_plugin_pages"`
+	Fathom             json.RawMessage   `json:"fathom"`
+	Freighter          *FreighterDetails `json:"freighter"`
+	Auth               *AuthDetails      `json:"auth"`
+	ScreenshotBase     string            `json:"screenshot_base"`
+	ConsoleErrors      json.RawMessage   `json:"console_errors"`
+	CapturePluginPages []string          `json:"capture_plugin_pages"`
 	// WPContent is the content directory relative to the WordPress root as
 	// reported by the site itself on sync ("wp-content", "app" on Bedrock,
 	// "content/<id>" on a WP Freighter tenant).
@@ -100,6 +101,25 @@ func (e *Environment) WPContentDir(site *Site) string {
 		}
 	}
 	return "wp-content"
+}
+
+// FreighterDetails is the WP Freighter shape fetch-site-data reports
+// (see the network probe there). Only the fields the CLI acts on.
+type FreighterDetails struct {
+	Role     string `json:"role"`
+	TenantID int    `json:"tenant_id"`
+	MainURL  string `json:"main_url"`
+}
+
+// IsUnmappedTenant reports a WP Freighter tenant with no domain of its own:
+// it answers on its host's URL (switched by cookie), so anything keyed on its
+// home URL (Fathom trackers, captures, uptime) would describe the host.
+func (e *Environment) IsUnmappedTenant() bool {
+	f := e.ParseDetails().Freighter
+	if f == nil || f.Role != "tenant" || f.MainURL == "" {
+		return false
+	}
+	return strings.TrimRight(f.MainURL, "/") == strings.TrimRight(e.HomeURL, "/")
 }
 
 func (e *Environment) ParseDetails() EnvironmentDetails {

@@ -1097,6 +1097,11 @@ func siteStatsGenerateNative(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	if env.IsUnmappedTenant() {
+		fmt.Printf("Skipping %s-%s: WP Freighter tenant without its own domain\n", site.Site, sa.Environment)
+		return
+	}
+
 	// Get site name for Fathom
 	siteName := site.Name
 	if strings.EqualFold(sa.Environment, "staging") {
