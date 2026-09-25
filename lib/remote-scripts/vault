@@ -736,6 +736,73 @@ echo "💾 Download this directory ({$current_path})|download_dir|.\n";
 # ----------------------------------------------------
 #  Creates a new snapshot of the current site.
 # ----------------------------------------------------
+# ----------------------------------------------------
+#  WP Freighter scope for vault create. Prints role=host|tenant|, tenant=<id>,
+#  files=<mode>, tenants=<ids on a host>, tables=<comma list>: a tenant's own
+#  tables, or on a host the tenants' tables to leave out. The registry lives
+#  in the main prefix's options (TABLE_PREFIX inside a tenant).
+# ----------------------------------------------------
+function _freighter_scope_php() {
+    cat <<'PHPEOF'
+global $wpdb;
+$main = defined( 'TABLE_PREFIX' ) ? TABLE_PREFIX : $wpdb->prefix;
+$opt  = function ( $name ) use ( $wpdb, $main ) {
+    $v = maybe_unserialize( $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM `{$main}options` WHERE option_name = %s LIMIT 1", $name ) ) );
+    return is_string( $v ) ? json_decode( $v, true ) : (array) $v;
+};
+$tables_of = function ( $id ) use ( $wpdb ) {
+    return $wpdb->get_col( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( "stacked_{$id}_" ) . '%' ) );
+};
+$conf = $opt( 'stacked_configurations' );
+$ids  = [];
+foreach ( (array) $opt( 'stacked_sites' ) as $t ) {
+    $t = (array) $t;
+    $i = (int) ( $t['stacked_site_id'] ?? 0 );
+    if ( $i && "stacked_{$i}_" !== $main ) {
+        $ids[] = $i;
+    }
+}
+$role = ''; $tenant = ''; $tables = [];
+if ( defined( 'TABLE_PREFIX' ) && preg_match( '/^stacked_(\d+)_$/', $wpdb->prefix, $m ) ) {
+    $role   = 'tenant';
+    $tenant = (int) $m[1];
+    $tables = $tables_of( $tenant );
+} elseif ( $ids ) {
+    $role = 'host';
+    foreach ( $ids as $i ) {
+        $tables = array_merge( $tables, $tables_of( $i ) );
+    }
+}
+echo "role={$role}\ntenant={$tenant}\nfiles=" . ( $conf['files'] ?? '' ) . "\ntenants=" . ( $role === 'host' ? implode( ',', $ids ) : '' ) . "\ntables=" . implode( ',', $tables ) . "\n";
+PHPEOF
+}
+
+# Serialize the database-dump-in-web-root window across every site of one
+# install (a WP Freighter host and its tenants share the web root). mkdir is
+# atomic; a lock older than two hours is treated as stale.
+function _vault_root_lock() {
+    local lock_dir="$1/.vault-root.lock" waited=0
+    while ! mkdir "$lock_dir" 2>/dev/null; do
+        if [[ -n "$(find "$lock_dir" -maxdepth 0 -mmin +120 2>/dev/null)" ]]; then
+            rmdir "$lock_dir" 2>/dev/null
+            continue
+        fi
+        if (( waited >= 3600 )); then
+            echo "❌ Error: Another backup of this install has held the lock for an hour." >&2
+            return 1
+        fi
+        (( waited == 0 )) && echo "   - Waiting for another backup of this install to finish..."
+        sleep 10
+        waited=$(( waited + 10 ))
+    done
+    return 0
+}
+
+function _vault_root_unlock() {
+    rmdir "$1/.vault-root.lock" 2>/dev/null
+    return 0
+}
+
 function vault_create() {
     echo "🚀 Starting secure snapshot to Restic B2 repository..."
 
@@ -806,12 +873,48 @@ function vault_create() {
     wp_root_dir=$(realpath ".")
     local temporary_sql_path_in_root="${wp_root_dir}/database-backup.sql"
 
+    # --- WP Freighter scope ---
+    # One install can hold a host and many tenants (each its own CaptainCore
+    # site). A tenant's snapshot holds only its own tables and content/<id>
+    # (nothing but the database in shared files mode); the host's leaves
+    # those out. Everything else about the snapshot is unchanged, so paths
+    # stay relative to the web root and restores work the same way.
+    local fr_role="" fr_tenant="" fr_files="" fr_tenants="" fr_tables=""
+    if [[ "$is_wordpress" == "true" ]]; then
+        local fr_scope
+        fr_scope=$("$WP_CLI_CMD" eval "$(_freighter_scope_php)" --skip-plugins --skip-themes 2>/dev/null)
+        fr_role=$(sed -n 's/^role=//p' <<< "$fr_scope")
+        fr_tenant=$(sed -n 's/^tenant=//p' <<< "$fr_scope")
+        fr_files=$(sed -n 's/^files=//p' <<< "$fr_scope")
+        fr_tenants=$(sed -n 's/^tenants=//p' <<< "$fr_scope")
+        fr_tables=$(sed -n 's/^tables=//p' <<< "$fr_scope")
+        if [[ "$fr_role" == "tenant" && -z "$fr_tables" ]]; then
+            echo "❌ Error: WP Freighter tenant ${fr_tenant} has no tables of its own." >&2
+            return 1
+        fi
+        [[ "$fr_role" == "tenant" ]] && echo "   - WP Freighter tenant ${fr_tenant} (${fr_files:-unknown} files): its own tables and content only."
+        [[ "$fr_role" == "host" ]] && echo "   - WP Freighter host: leaving out tenants ${fr_tenants}."
+    fi
+
+    # Tenants of one install share the web root the dump is staged in, so
+    # the dump-to-snapshot window is serialized per install.
+    if ! _vault_root_lock "$private_dir"; then
+        return 1
+    fi
+
     if [[ "$is_wordpress" == "true" ]]; then
         echo "   - Generating database dump at: ${sql_file_path}"
+        local table_args=()
+        if [[ "$fr_role" == "tenant" ]]; then
+            table_args=(--tables="$fr_tables")
+        elif [[ "$fr_role" == "host" && -n "$fr_tables" ]]; then
+            table_args=(--exclude_tables="$fr_tables")
+        fi
         # Try with --single-transaction first for InnoDB consistency, fall back without it if FLUSH TABLES privilege is missing
-        if ! "$WP_CLI_CMD" db export "$sql_file_path" --add-drop-table --single-transaction --quick --max_allowed_packet=512M > /dev/null 2>&1; then
-            if ! "$WP_CLI_CMD" db export "$sql_file_path" --add-drop-table --quick --max_allowed_packet=512M > /dev/null; then
+        if ! "$WP_CLI_CMD" db export "$sql_file_path" "${table_args[@]}" --add-drop-table --single-transaction --quick --max_allowed_packet=512M > /dev/null 2>&1; then
+            if ! "$WP_CLI_CMD" db export "$sql_file_path" "${table_args[@]}" --add-drop-table --quick --max_allowed_packet=512M > /dev/null; then
                 echo "❌ Error: Database export failed." >&2
+                _vault_root_unlock "$private_dir"
                 return 1
             fi
         fi
@@ -820,6 +923,7 @@ function vault_create() {
         echo "   - Temporarily moving database dump to web root for snapshotting."
         if ! mv "$sql_file_path" "$temporary_sql_path_in_root"; then
             echo "❌ Error: Could not move database dump to web root." >&2
+            _vault_root_unlock "$private_dir"
             return 1
         fi
     fi
@@ -834,19 +938,38 @@ function vault_create() {
              echo "   - Attempting to move database dump back to private directory..."
              mv "$temporary_sql_path_in_root" "$sql_file_path"
         fi
+        _vault_root_unlock "$private_dir"
         return 1
     }
 
+    local backup_paths=(".")
+    local scope_args=()
+    if [[ "$fr_role" == "tenant" ]]; then
+        backup_paths=()
+        [[ "$is_wordpress" == "true" ]] && backup_paths+=("database-backup.sql")
+        if [[ "$fr_files" != "shared" && -d "content/${fr_tenant}" ]]; then
+            backup_paths+=("content/${fr_tenant}")
+        fi
+        scope_args+=(--tag "freighter-tenant:${fr_tenant}")
+    elif [[ "$fr_role" == "host" ]]; then
+        local t
+        for t in ${fr_tenants//,/ }; do
+            scope_args+=(--exclude "${wp_root_dir}/content/${t}")
+        done
+        scope_args+=(--tag "freighter-host")
+    fi
+
     local human_readable_size
-    human_readable_size=$(du -sh . | awk '{print $1}')
+    human_readable_size=$(du -shc "${backup_paths[@]}" 2>/dev/null | tail -1 | awk '{print $1}')
     local tag_args=()
     if [[ -n "$human_readable_size" ]]; then
         tag_args+=(--tag "size:${human_readable_size}")
     fi
 
-    echo "   - Backing up current directory (.)..."
-    if ! "$RESTIC_CMD" backup "." \
+    echo "   - Backing up ${backup_paths[*]}..."
+    if ! "$RESTIC_CMD" backup "${backup_paths[@]}" \
         "${tag_args[@]}" \
+        "${scope_args[@]}" \
         --exclude '**.DS_Store' \
         --exclude '*timthumb.txt' \
         --exclude 'debug.log' \
@@ -867,6 +990,7 @@ function vault_create() {
             echo "   - Moving database dump back to private directory..."
             mv "$temporary_sql_path_in_root" "$sql_file_path"
         fi
+        _vault_root_unlock "$private_dir"
         return 1
     fi
 
@@ -877,6 +1001,7 @@ function vault_create() {
         echo "   - Moving database dump back to private directory..."
         mv "$temporary_sql_path_in_root" "$sql_file_path"
     fi
+    _vault_root_unlock "$private_dir"
 
     # Piggyback snapshot listing for the control server.
     # This lets list-generate and verify consume remote JSON instead of running
