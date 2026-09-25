@@ -1995,21 +1995,30 @@ func quicksaveDatabaseNative(cmd *cobra.Command, args []string) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	restoreCmd := exec.Command("restic", "restore", bestID,
-		"--include=/database-backup.sql",
-		"--repo", resticRepo,
-		"--password-file="+resticKey,
-		"--target", tmpDir,
-	)
+	// A WP Freighter tenant's dump is database-backup-<id>.sql; its
+	// snapshots from before that change hold database-backup.sql.
+	dumpNames := site.DatabaseDumpNames()
+	restoreArgs := []string{"restore", bestID}
+	for _, name := range dumpNames {
+		restoreArgs = append(restoreArgs, "--include=/"+name)
+	}
+	restoreArgs = append(restoreArgs, "--repo", resticRepo, "--password-file="+resticKey, "--target", tmpDir)
+	restoreCmd := exec.Command("restic", restoreArgs...)
 	restoreCmd.Stderr = os.Stderr
 	if err := restoreCmd.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: Failed to restore from restic: %v\n", err)
 		return
 	}
 
-	sqlPath := filepath.Join(tmpDir, "database-backup.sql")
-	if _, err := os.Stat(sqlPath); os.IsNotExist(err) {
-		fmt.Fprintln(os.Stderr, "Error: database-backup.sql not found in snapshot.")
+	sqlPath := ""
+	for _, name := range dumpNames {
+		if _, err := os.Stat(filepath.Join(tmpDir, name)); err == nil {
+			sqlPath = filepath.Join(tmpDir, name)
+			break
+		}
+	}
+	if sqlPath == "" {
+		fmt.Fprintln(os.Stderr, "Error: no database dump found in snapshot.")
 		return
 	}
 

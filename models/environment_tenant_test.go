@@ -22,3 +22,17 @@ func TestIsUnmappedTenant(t *testing.T) {
 		}
 	}
 }
+
+func TestDatabaseDumpNames(t *testing.T) {
+	tenant := &Site{Details: `{"environment_vars":[{"key":"STACKED_SITE_ID","value":"7"}]}`}
+	if got := tenant.DatabaseDumpNames(); len(got) != 2 || got[0] != "database-backup-7.sql" || got[1] != "database-backup.sql" {
+		t.Errorf("tenant: got %v", got)
+	}
+	plain := &Site{Details: `{"environment_vars":""}`}
+	if got := plain.DatabaseDumpNames(); len(got) != 1 || got[0] != "database-backup.sql" {
+		t.Errorf("plain: got %v", got)
+	}
+	if got := (*Site)(nil).TenantID(); got != "" {
+		t.Errorf("nil site: got %q", got)
+	}
+}

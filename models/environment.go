@@ -81,26 +81,47 @@ func (e *Environment) WPContentDir(site *Site) string {
 			return v
 		}
 	}
-	if site != nil {
-		d := site.ParseDetails()
-		if d.EnvironmentVars != nil {
-			raw := string(d.EnvironmentVars)
-			if raw != "" && raw != `""` && raw != "null" {
-				var vars []struct {
-					Key   string `json:"key"`
-					Value string `json:"value"`
-				}
-				if json.Unmarshal(d.EnvironmentVars, &vars) == nil {
-					for _, v := range vars {
-						if (v.Key == "STACKED_ID" || v.Key == "STACKED_SITE_ID") && v.Value != "" {
-							return "content/" + v.Value
-						}
-					}
-				}
-			}
-		}
+	if id := site.TenantID(); id != "" {
+		return "content/" + id
 	}
 	return "wp-content"
+}
+
+// TenantID returns the WP Freighter tenant id a site runs as (its
+// STACKED_SITE_ID environment var), or "" for anything else.
+func (s *Site) TenantID() string {
+	if s == nil {
+		return ""
+	}
+	d := s.ParseDetails()
+	raw := string(d.EnvironmentVars)
+	if raw == "" || raw == `""` || raw == "null" {
+		return ""
+	}
+	var vars []struct {
+		Key   string `json:"key"`
+		Value string `json:"value"`
+	}
+	if json.Unmarshal(d.EnvironmentVars, &vars) != nil {
+		return ""
+	}
+	for _, v := range vars {
+		if (v.Key == "STACKED_ID" || v.Key == "STACKED_SITE_ID") && v.Value != "" {
+			return v.Value
+		}
+	}
+	return ""
+}
+
+// DatabaseDumpNames lists the database dump file names a site's backup
+// snapshots may hold, preferred first. A WP Freighter tenant's vault backup
+// writes database-backup-<tenant id>.sql so tenants of one install can back
+// up at once; its snapshots from before that hold database-backup.sql.
+func (s *Site) DatabaseDumpNames() []string {
+	if id := s.TenantID(); id != "" {
+		return []string{"database-backup-" + id + ".sql", "database-backup.sql"}
+	}
+	return []string{"database-backup.sql"}
 }
 
 // FreighterDetails is the WP Freighter shape fetch-site-data reports

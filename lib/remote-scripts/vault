@@ -777,32 +777,6 @@ echo "role={$role}\ntenant={$tenant}\nfiles=" . ( $conf['files'] ?? '' ) . "\nte
 PHPEOF
 }
 
-# Serialize the database-dump-in-web-root window across every site of one
-# install (a WP Freighter host and its tenants share the web root). mkdir is
-# atomic; a lock older than two hours is treated as stale.
-function _vault_root_lock() {
-    local lock_dir="$1/.vault-root.lock" waited=0
-    while ! mkdir "$lock_dir" 2>/dev/null; do
-        if [[ -n "$(find "$lock_dir" -maxdepth 0 -mmin +120 2>/dev/null)" ]]; then
-            rmdir "$lock_dir" 2>/dev/null
-            continue
-        fi
-        if (( waited >= 3600 )); then
-            echo "❌ Error: Another backup of this install has held the lock for an hour." >&2
-            return 1
-        fi
-        (( waited == 0 )) && echo "   - Waiting for another backup of this install to finish..."
-        sleep 10
-        waited=$(( waited + 10 ))
-    done
-    return 0
-}
-
-function _vault_root_unlock() {
-    rmdir "$1/.vault-root.lock" 2>/dev/null
-    return 0
-}
-
 function vault_create() {
     echo "🚀 Starting secure snapshot to Restic B2 repository..."
 
@@ -878,7 +852,8 @@ function vault_create() {
     # site). A tenant's snapshot holds only its own tables and content/<id>
     # (nothing but the database in shared files mode); the host's leaves
     # those out. Everything else about the snapshot is unchanged, so paths
-    # stay relative to the web root and restores work the same way.
+    # stay relative to the web root. A tenant's dump is named
+    # database-backup-<tenant id>.sql, in private/ and in the snapshot.
     local fr_role="" fr_tenant="" fr_files="" fr_tenants="" fr_tables=""
     if [[ "$is_wordpress" == "true" ]]; then
         local fr_scope
@@ -896,10 +871,11 @@ function vault_create() {
         [[ "$fr_role" == "host" ]] && echo "   - WP Freighter host: leaving out tenants ${fr_tenants}."
     fi
 
-    # Tenants of one install share the web root the dump is staged in, so
-    # the dump-to-snapshot window is serialized per install.
-    if ! _vault_root_lock "$private_dir"; then
-        return 1
+    # Tenants of one install back up at the same time and share the web
+    # root the dump is staged in, so each tenant stages its own file.
+    if [[ "$fr_role" == "tenant" ]]; then
+        sql_file_path="${private_dir}/database-backup-${fr_tenant}.sql"
+        temporary_sql_path_in_root="${wp_root_dir}/database-backup-${fr_tenant}.sql"
     fi
 
     if [[ "$is_wordpress" == "true" ]]; then
@@ -914,7 +890,6 @@ function vault_create() {
         if ! "$WP_CLI_CMD" db export "$sql_file_path" "${table_args[@]}" --add-drop-table --single-transaction --quick --max_allowed_packet=512M > /dev/null 2>&1; then
             if ! "$WP_CLI_CMD" db export "$sql_file_path" "${table_args[@]}" --add-drop-table --quick --max_allowed_packet=512M > /dev/null; then
                 echo "❌ Error: Database export failed." >&2
-                _vault_root_unlock "$private_dir"
                 return 1
             fi
         fi
@@ -923,7 +898,6 @@ function vault_create() {
         echo "   - Temporarily moving database dump to web root for snapshotting."
         if ! mv "$sql_file_path" "$temporary_sql_path_in_root"; then
             echo "❌ Error: Could not move database dump to web root." >&2
-            _vault_root_unlock "$private_dir"
             return 1
         fi
     fi
@@ -938,7 +912,6 @@ function vault_create() {
              echo "   - Attempting to move database dump back to private directory..."
              mv "$temporary_sql_path_in_root" "$sql_file_path"
         fi
-        _vault_root_unlock "$private_dir"
         return 1
     }
 
@@ -946,7 +919,7 @@ function vault_create() {
     local scope_args=()
     if [[ "$fr_role" == "tenant" ]]; then
         backup_paths=()
-        [[ "$is_wordpress" == "true" ]] && backup_paths+=("database-backup.sql")
+        [[ "$is_wordpress" == "true" ]] && backup_paths+=("database-backup-${fr_tenant}.sql")
         if [[ "$fr_files" != "shared" && -d "content/${fr_tenant}" ]]; then
             backup_paths+=("content/${fr_tenant}")
         fi
@@ -956,6 +929,8 @@ function vault_create() {
         for t in ${fr_tenants//,/ }; do
             scope_args+=(--exclude "${wp_root_dir}/content/${t}")
         done
+        # A tenant backing up right now has its dump staged here too.
+        scope_args+=(--exclude "${wp_root_dir}/database-backup-*.sql")
         scope_args+=(--tag "freighter-host")
     fi
 
@@ -990,7 +965,6 @@ function vault_create() {
             echo "   - Moving database dump back to private directory..."
             mv "$temporary_sql_path_in_root" "$sql_file_path"
         fi
-        _vault_root_unlock "$private_dir"
         return 1
     fi
 
@@ -1001,7 +975,6 @@ function vault_create() {
         echo "   - Moving database dump back to private directory..."
         mv "$temporary_sql_path_in_root" "$sql_file_path"
     fi
-    _vault_root_unlock "$private_dir"
 
     # Piggyback snapshot listing for the control server.
     # This lets list-generate and verify consume remote JSON instead of running

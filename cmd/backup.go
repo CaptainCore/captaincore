@@ -727,7 +727,7 @@ type resticSnapshot struct {
 }
 
 // backupVerifyChecks runs the restic verification checks and returns any issues found.
-func backupVerifyChecks(resticRepo, resticKey, envCore string, fromFile string) []string {
+func backupVerifyChecks(resticRepo, resticKey, envCore string, fromFile string, dumpNames []string) []string {
 	var issues []string
 
 	// When --from-file is provided, the snapshot data comes from a vault create that
@@ -804,10 +804,13 @@ func backupVerifyChecks(resticRepo, resticKey, envCore string, fromFile string) 
 
 	// Check 2: Database presence — only for WordPress sites
 	if envCore != "" {
-		lsCmd := exec.Command("restic", "ls", latestSnapshot.ID, "/database-backup.sql", "--repo", resticRepo, "--password-file="+resticKey)
+		// The latest snapshot must hold the site's current dump name
+		// (database-backup-<id>.sql for a WP Freighter tenant).
+		want := dumpNames[0]
+		lsCmd := exec.Command("restic", "ls", latestSnapshot.ID, "/"+want, "--repo", resticRepo, "--password-file="+resticKey)
 		lsOutput, lsErr := lsCmd.Output()
-		if lsErr != nil || !strings.Contains(string(lsOutput), "database-backup.sql") {
-			issues = append(issues, "Database backup (database-backup.sql) missing from latest snapshot")
+		if lsErr != nil || !strings.Contains(string(lsOutput), want) {
+			issues = append(issues, "Database backup ("+want+") missing from latest snapshot")
 		}
 	}
 
@@ -851,7 +854,7 @@ func backupVerifyNative(cmd *cobra.Command, args []string) {
 	}
 	var issues []string
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		issues = backupVerifyChecks(resticRepo, resticKey, env.Core, fromFile)
+		issues = backupVerifyChecks(resticRepo, resticKey, env.Core, fromFile, site.DatabaseDumpNames())
 		if len(issues) == 0 {
 			break
 		}
