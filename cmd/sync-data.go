@@ -337,6 +337,21 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 			}
 		}
 	}
+	// The same files' contents through the malware rules (rootPHPContentFindings).
+	// Source "provenance-scan" is tier 2 on the Manager (reviewed daily, not
+	// emailed) except known-malware hashes; a new root file already emails
+	// through its provenance row, and this adds the content evidence the review
+	// needs. The contents are never stored in details.
+	if v := strings.TrimSpace(data["unexpected_root_php_content"]); v != "" && v != "[]" {
+		if findings := rootPHPContentFindings(v, nativeAlertSeverity); len(findings) > 0 {
+			if site, err := sa.LookupSite(); err == nil && site != nil {
+				if !flagSyncDataJSON {
+					fmt.Printf("Root PHP rule finding(s): %d\n", len(findings))
+				}
+				postMalwareAlert(site, &matchedEnv, system, captain, findings, "provenance-scan")
+			}
+		}
+	}
 
 	// Store mu_plugins array (with per-component hashes) in details
 	if muJSON, ok := data["mu_plugins"]; ok && muJSON != "" && muJSON != "[]" {

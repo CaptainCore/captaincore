@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/CaptainCore/captaincore/scan"
@@ -160,4 +163,74 @@ func provenanceFindings(raw string) []scan.LegacyFinding {
 		})
 	}
 	return findings
+}
+
+// rootPHPContentFindings runs the malware rule set over the root and
+// content-root PHP that fetch-site-data sends next to the provenance list
+// (unexpected_root_php_content). Quicksaves hold only wp-content, so before
+// this a root file was judged by its name and first 600 bytes, and a webshell
+// behind a decoy comment header passed review as benign. Every file is
+// scanned, including the host and plugin placements provenanceFindings drops
+// by name, so a trusted name cannot hide altered content. Rule severities are
+// kept as they are, and each finding carries the whole file's sha256, so a
+// benign verdict sticks until the file changes.
+func rootPHPContentFindings(raw string, minSeverity string) []scan.LegacyFinding {
+	var files []struct {
+		Path, Sha256, B64 string
+		Truncated         bool
+	}
+	if json.Unmarshal([]byte(raw), &files) != nil || len(files) == 0 {
+		return nil
+	}
+	rs, err := scan.LoadDefaultRuleSet()
+	if err != nil {
+		return nil
+	}
+	dir, err := os.MkdirTemp("", "cc-rootphp-")
+	if err != nil {
+		return nil
+	}
+	defer os.RemoveAll(dir)
+	label := map[string]int{}
+	for i, f := range files {
+		body, err := base64.StdEncoding.DecodeString(f.B64)
+		if err != nil || len(body) == 0 {
+			continue
+		}
+		// The scanner picks PHP rules by extension; .phtml and friends are PHP too.
+		name := fmt.Sprintf("%03d-%s", i, unsafeName.ReplaceAllString(filepath.Base(f.Path), "_"))
+		if !strings.HasSuffix(strings.ToLower(name), ".php") {
+			name += ".php"
+		}
+		if os.WriteFile(filepath.Join(dir, name), body, 0o600) == nil {
+			label[name] = i
+		}
+	}
+	min := scan.SeverityRank(minSeverity)
+	seen := map[string]bool{}
+	var out []scan.LegacyFinding
+	for _, f := range scan.New(rs, scan.Options{Workers: 2}).ScanDir(dir).Findings {
+		i, ok := label[filepath.Base(f.File)]
+		if !ok || scan.SeverityRank(f.Severity) < min {
+			continue
+		}
+		l := f.Legacy()
+		l.Filename = files[i].Path
+		if files[i].Sha256 != "" {
+			l.ContentHash = files[i].Sha256
+		}
+		where := "PHP file at the web root"
+		if strings.Contains(files[i].Path, "/") {
+			where = "PHP file at the content root"
+		}
+		if files[i].Truncated {
+			where += " (first 1 MB scanned)"
+		}
+		l.SignatureDescription = where + ": " + l.SignatureDescription
+		if key := l.Filename + "|" + l.SignatureID; !seen[key] {
+			seen[key] = true
+			out = append(out, l)
+		}
+	}
+	return out
 }

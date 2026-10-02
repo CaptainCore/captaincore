@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -132,5 +134,43 @@ func TestProvenanceEvidenceRidesAlong(t *testing.T) {
 	}
 	if !got["kwmailer.php"] || !got["legacy.php"] {
 		t.Errorf("findings missing: %v", got)
+	}
+}
+
+// A root webshell behind a decoy header must reach the review with its rule
+// hits, under its own path and whole-file hash; a stock-looking file must not.
+func TestRootPHPContentFindings(t *testing.T) {
+	shell := "<?php\n/**\n * @package Joomla.Site\n * @subpackage com_contact\n */\n" +
+		"if(isset($_POST['shnew'])){ $n = trim($_POST['shnew']).'.php'; copy(__FILE__, $n); unlink(__FILE__); exit; }\n" +
+		"function pre_term_name($d) { $f = strrev('46esab').'_'.strrev('edoced'); $g = strrev('etalfnizg'); return @$g($f($d)); }\n"
+	waf := "<?php\n// Before removing this file, please verify the PHP ini setting `auto_prepend_file` does not point to this.\n" +
+		"if (file_exists(__DIR__.'/wp-content/plugins/wordfence/waf/bootstrap.php')) {\n\tdefine(\"WFWAF_LOG_PATH\", __DIR__.'/wp-content/wflogs/');\n\tinclude_once __DIR__.'/wp-content/plugins/wordfence/waf/bootstrap.php';\n}\n"
+	b64 := func(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
+	raw, _ := json.Marshal([]map[string]any{
+		{"path": "image.php", "sha256": strings.Repeat("ab", 32), "b64": b64(shell)},
+		{"path": "wordfence-waf.php", "sha256": strings.Repeat("cd", 32), "b64": b64(waf)},
+		{"path": "wp-content/big.phtml", "sha256": strings.Repeat("ef", 32), "b64": b64(shell), "truncated": true},
+	})
+	got := map[string][]string{}
+	for _, f := range rootPHPContentFindings(string(raw), "low") {
+		got[f.Filename] = append(got[f.Filename], f.SignatureID)
+		if f.Filename == "image.php" && f.ContentHash != strings.Repeat("ab", 32) {
+			t.Errorf("finding must carry the whole file's sha256, got %q", f.ContentHash)
+		}
+		if f.Filename == "wp-content/big.phtml" && !strings.Contains(f.SignatureDescription, "content root (first 1 MB scanned)") {
+			t.Errorf("description %q", f.SignatureDescription)
+		}
+	}
+	if len(got["image.php"]) == 0 {
+		t.Errorf("the decoy-header webshell raised no rule finding (all: %v)", got)
+	}
+	if len(got["wp-content/big.phtml"]) == 0 {
+		t.Errorf("a .phtml file must be scanned as PHP (all: %v)", got)
+	}
+	if len(got["wordfence-waf.php"]) != 0 {
+		t.Errorf("the Wordfence prepend must stay quiet, got %v", got["wordfence-waf.php"])
+	}
+	if rootPHPContentFindings(`[]`, "low") != nil || rootPHPContentFindings(`not json`, "low") != nil {
+		t.Error("empty or bad input must yield nothing")
 	}
 }

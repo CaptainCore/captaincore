@@ -468,8 +468,13 @@ done
 # Each row carries the evidence a reviewer needs without logging in: sha256,
 # size, mtime and the first 600 bytes (printable). The sha256 also lets the
 # Manager keep a reviewed-benign file closed until its content changes.
-unexpected_root_php_json=$( printf '%s' "$prov_rows" | python3 -c '
-import hashlib, json, os, re, sys, time
+# A second line carries the files themselves (base64, 1 MB each, 6 MB in all,
+# smallest first) for the CLI to run through the malware rules on the core
+# server: quicksaves hold only wp-content, so without it a root webshell behind
+# a decoy comment header was judged from its first 600 bytes. It is consumed
+# by the CLI and never stored in environment details.
+prov_out=$( printf '%s' "$prov_rows" | python3 -c '
+import base64, hashlib, json, os, re, sys, time
 rows = []
 for line in sys.stdin:
     line = line.rstrip("\n")
@@ -491,9 +496,26 @@ for line in sys.stdin:
     except OSError:
         pass
     rows.append(row)
-print(json.dumps(rows))' 2>/dev/null )
+content, used = [], 0
+for row in sorted((r for r in rows if r.get("size")), key=lambda r: r["size"]):
+    if used >= 6 << 20:
+        break
+    try:
+        with open(row["path"], "rb") as fh:
+            body = fh.read(min(1 << 20, (6 << 20) - used))
+    except OSError:
+        continue
+    used += len(body)
+    content.append({"path": row["path"], "sha256": row["sha256"], "truncated": len(body) < row["size"],
+                    "b64": base64.b64encode(body).decode()})
+print(json.dumps(rows))
+print(json.dumps(content))' 2>/dev/null )
+unexpected_root_php_json=$( printf '%s\n' "$prov_out" | sed -n 1p )
+unexpected_root_php_content=$( printf '%s\n' "$prov_out" | sed -n 2p )
 [[ -z "$unexpected_root_php_json" ]] && unexpected_root_php_json="[]"
+[[ -z "$unexpected_root_php_content" ]] && unexpected_root_php_content="[]"
 echo "unexpected_root_php:$(trim "$unexpected_root_php_json")"
+echo "unexpected_root_php_content:$unexpected_root_php_content"
 echo "plugin_checksum_details:$(trim "$plugin_checksum_details_json")"
 echo "php_version:$(trim "$php_version")"
 echo "db_size:$(wp db size --size_format=b --skip-themes --skip-plugins --skip-packages 2>/dev/null | tail -1 | cut -f2)"
