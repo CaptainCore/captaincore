@@ -14,16 +14,27 @@
 #     A. Magic vs extension — the first bytes must match the extension
 #        (JPEG FFD8FF, PNG 89504E47, GIF 474946, WebP RIFF..WEBP, PDF %PDF,
 #        MP4 ....ftyp, MP3 ID3/FFFB, ZIP PK). A "jpg" that starts with <?php
-#        or <script is CRITICAL; any other mismatch is LOW (misnamed file).
+#        or <script is CRITICAL. Any other mismatch is a misnamed file (image
+#        optimizers save WebP or PNG bytes under .jpg names): it is counted in
+#        the summary, listed as LOW only with --include-low, and when the bytes
+#        are a known image or PDF it is scanned as what it really is.
 #     B. Trailer — JPEG must end at FFD9, PNG at the IEND chunk, GIF at 3B.
 #        Bytes after the end marker are a polyglot stash: HIGH, and CRITICAL
-#        when the trailing bytes contain <?php, eval(, a request superglobal
-#        or a long base64 run.
+#        when the trailing bytes contain <?php, eval( with a code-like
+#        argument, a request superglobal or a long base64 run. A base64 run
+#        has to mix upper case, lower case and digits and use 20+ distinct
+#        characters: camera trailers carry digit-only strings and repeating
+#        filler. GIFs under 64 bytes with no code (broken thumbnails left by
+#        failed resizes) are counted, not listed.
 #     C. Head/tail content — the first and last 16 KB of every image, PDF and
 #        media file are checked for <?php, <script and eval( (EXIF comments
-#        and appended payloads live there). --full reads whole files instead.
-#        Archives (zip, docx) get the magic check only: they hold PHP text.
-#     D. PDF — /JavaScript, /JS or /Launch is HIGH; /EmbeddedFile is MEDIUM.
+#        and appended payloads live there). eval( only counts when followed by
+#        $, a quote or a function call, since five random bytes inside
+#        compressed image data can spell it. In PDFs only PHP markers count
+#        here. --full reads whole files instead. Archives (zip, docx) get the
+#        magic check only: they hold PHP text.
+#     D. PDF — /JavaScript, /JS, /Launch, <script or eval( is HIGH (form and
+#        XFA JavaScript); /EmbeddedFile is MEDIUM.
 #     E. SVG — <script, on*= handlers, javascript: URIs, <foreignObject,
 #        <iframe or <embed are HIGH (stored XSS via upload); SVGs are read
 #        whole (they are small).
@@ -41,6 +52,7 @@
 #     --full         Check whole files for PHP/script markers, not just head+tail
 #     --max-mb=N     Skip files larger than N MB for the --full check (default 64)
 #     --quiet        Only output when findings are present (bulk scanning)
+#     --include-low  Also list LOW misnamed-media rows (counted in the summary otherwise)
 #     --dir=PATH     Scan PATH instead of wp-content/uploads (repeatable)
 #
 
@@ -52,6 +64,7 @@ SINCE=""
 FULL=0
 MAX_MB=64
 QUIET=0
+INCLUDE_LOW=0
 DIRS=()
 for _arg in "$@"; do
     case "$_arg" in
@@ -59,6 +72,7 @@ for _arg in "$@"; do
         --full) FULL=1 ;;
         --max-mb=*) MAX_MB="${_arg#--max-mb=}" ;;
         --quiet) QUIET=1 ;;
+        --include-low) INCLUDE_LOW=1 ;;
         --dir=*) DIRS+=("${_arg#--dir=}") ;;
         --*) ;;
         *) WP_ROOT="$_arg" ;;
@@ -91,10 +105,10 @@ fi
 for base in "${DIRS[@]}"; do
     [ -d "$base" ] || continue
     find "$base" \( -name node_modules -o -name .git -o -name cache \) -prune -o "${FIND_ARGS[@]}" -print0 2>/dev/null
-done | FULL=$FULL MAX_MB=$MAX_MB QUIET=$QUIET perl -0ne '
+done | FULL=$FULL MAX_MB=$MAX_MB QUIET=$QUIET INCLUDE_LOW=$INCLUDE_LOW perl -0ne '
     use strict; use warnings; use POSIX qw(strftime);
-    BEGIN { our ($found, $scanned, @out) = (0, 0); }
-    our ($found, $scanned, @out);
+    BEGIN { our ($found, $scanned, $misnamed, $tiny, @out) = (0, 0, 0, 0); }
+    our ($found, $scanned, $misnamed, $tiny, @out);
     chomp(my $f = $_); $f =~ s/\0$//;
     my $size = -s $f or next;
     $scanned++;
@@ -105,12 +119,30 @@ done | FULL=$FULL MAX_MB=$MAX_MB QUIET=$QUIET perl -0ne '
     if ($size > 16384) { seek($fh, -16384, 2); read($fh, $tail, 16384); } else { $tail = $head; }
     my $whole;
     my $full_ok = $ENV{FULL} && $size <= $ENV{MAX_MB} * 1024 * 1024;
-    my $code_re = qr/<\?php|<script[ >]|eval\(|base64_decode\(|shell_exec\(|\$_(?:POST|GET|REQUEST|COOKIE)\[/;
+    # eval( alone shows up by chance inside compressed image data; PHP passes it a
+    # variable, a string or another call.
+    my $eval_re = qr/eval\(\s*(?:\$|["\x27]|[A-Za-z_]\w*\s*\()/;
+    my $code_re = qr/<\?php|<script[ >]|$eval_re|base64_decode\(|shell_exec\(|\$_(?:POST|GET|REQUEST|COOKIE)\[/;
+    # In PDFs <script and eval( are form (XFA/AcroForm) JavaScript, reported by D.
+    my $pdf_code_re = qr/<\?php|base64_decode\(|shell_exec\(|\$_(?:POST|GET|REQUEST|COOKIE)\[/;
+    # A real base64 stash mixes the whole alphabet; camera trailers carry digit-only
+    # strings and repeating filler (zzzzyyyy..., iJiJiJ...).
+    my $has_b64 = sub {
+        my ($s) = @_;
+        while ($s =~ m{([A-Za-z0-9+/]{200,}={0,2})}g) {
+            my $run = $1;
+            next unless $run =~ /[A-Z]/ && $run =~ /[a-z]/ && $run =~ /[0-9]/;
+            my %seen; $seen{$_} = 1 for split //, substr($run, 0, 4096);
+            return 1 if keys(%seen) >= 20;
+        }
+        return 0;
+    };
     my $report = sub {
         my ($sev, $type, $detail) = @_;
         $found++;
         my $mtime = strftime("%Y-%m-%d %H:%M", localtime((stat $f)[9]));
         $detail =~ s/[^\x20-\x7e]/./g;
+        $detail =~ tr/|/!/;    # header bytes can hold a pipe; keep the row six columns
         push @out, join("|", $sev, $type, $f, $detail, $size, $mtime);
     };
 
@@ -127,14 +159,22 @@ done | FULL=$FULL MAX_MB=$MAX_MB QUIET=$QUIET perl -0ne '
             (my $asc = substr($head, 0, 48)) =~ s/[^\x20-\x7e]/./g;
             if ($head =~ /^\s*(<\?php|<\?=|<script)/) {
                 $report->("CRITICAL", "FAKE_MEDIA", "starts with code, not a .$ext: $asc");
-            } else {
-                $report->("LOW", "MISNAMED_MEDIA", "header does not match .$ext: $asc");
+                next;
             }
-            next;
+            # Misnamed: counted, listed only with --include-low, and scanned as what it
+            # really is when the bytes are a known image or PDF (a payload behind a
+            # WebP saved as .jpg must not slip past the remaining checks).
+            my ($real) = grep { $head =~ $magic{$_} } qw(jpg png gif webp pdf);
+            $misnamed++;
+            $report->("LOW", "MISNAMED_MEDIA", "header does not match .$ext" . ($real ? " (it is $real)" : "") . ": $asc") if $ENV{INCLUDE_LOW};
+            next unless $real;
+            $ext = $real;
         }
     }
 
     # B. Trailer
+    # GIFs under 64 bytes with no code are thumbnails a failed resize left broken.
+    if ($ext eq "gif" && $size < 64 && $head !~ $code_re) { $tiny++; next; }
     my %trailer = (jpg => ["\xff\xd9", "JPEG EOI"], jpeg => ["\xff\xd9", "JPEG EOI"], jpe => ["\xff\xd9", "JPEG EOI"],
                    png => ["IEND\xaeB`\x82", "PNG IEND"], gif => ["\x3b", "GIF trailer"]);
     if (my $t = $trailer{$ext}) {
@@ -147,9 +187,9 @@ done | FULL=$FULL MAX_MB=$MAX_MB QUIET=$QUIET perl -0ne '
             # Samsung phones append an SEF block (SEFH ... SEFT) after the image: capture app
             # info as base64 JSON, editor state, a UTC stamp. Not a payload.
             next if $after =~ /SEFT\z/ || $after =~ /Samsung_Capture_Info|Image_UTC_Data|PhotoEditor_Re_Edit_Data|Original_Path_Hash_Key/;
-            if ($after =~ /(<\?php|eval\(|base64_decode|\$_(?:POST|GET|REQUEST|COOKIE))/) {
+            if ($after =~ /(<\?php|$eval_re|base64_decode|\$_(?:POST|GET|REQUEST|COOKIE))/) {
                 $report->("CRITICAL", "APPENDED_PAYLOAD", "$detail, contains $1");
-            } elsif ($after =~ m{[A-Za-z0-9+/]{200,}={0,2}}) {
+            } elsif ($has_b64->($after)) {
                 $report->("CRITICAL", "APPENDED_PAYLOAD", "$detail, base64 run in the trailer");
             } elsif ($trail < 0 || $trail <= 4096) {
                 $report->("MEDIUM", "TRAILING_DATA", "$detail (no code or base64 in it: phone cameras append metadata after the image, edited photos carry a second image)");
@@ -163,11 +203,12 @@ done | FULL=$FULL MAX_MB=$MAX_MB QUIET=$QUIET perl -0ne '
     # C. Head/tail (or whole file) content markers; archives are skipped here
     if ($ext =~ /^(jpe?g|jpe|png|gif|webp|ico|bmp|tiff?|pdf|mp4|m4v|mov|m4a|mp3|wav|ogg|webm|avi)$/) {
         my $hit;
+        my $re = $ext eq "pdf" ? $pdf_code_re : $code_re;
         if ($full_ok) {
             seek($fh, 0, 0); local $/; $whole = <$fh>;
-            ($hit) = $whole =~ /($code_re)/;
+            ($hit) = $whole =~ /($re)/;
         } else {
-            ($hit) = ($head . "\n" . $tail) =~ /($code_re)/;
+            ($hit) = ($head . "\n" . $tail) =~ /($re)/;
         }
         if (defined $hit) { $report->("CRITICAL", "CODE_IN_MEDIA", "contains $hit"); next; }
     }
@@ -175,7 +216,7 @@ done | FULL=$FULL MAX_MB=$MAX_MB QUIET=$QUIET perl -0ne '
     # D. PDF structure
     if ($ext eq "pdf") {
         my $chunk = $full_ok && defined $whole ? $whole : $head . "\n" . $tail;
-        if ($chunk =~ m{(/JavaScript|/JS[ /<(]|/Launch)}) { $report->("HIGH", "PDF_ACTIVE", "PDF carries $1"); }
+        if ($chunk =~ m{(/JavaScript|/JS[ /<(]|/Launch|<script[ >]|eval\()}) { $report->("HIGH", "PDF_ACTIVE", "PDF carries $1"); }
         elsif ($chunk =~ m{/EmbeddedFile}) { $report->("MEDIUM", "PDF_EMBEDDED", "PDF carries an embedded file"); }
         next;
     }
@@ -189,7 +230,11 @@ done | FULL=$FULL MAX_MB=$MAX_MB QUIET=$QUIET perl -0ne '
     }
     close $fh;
     END {
-        if ($found) { print "$_\n" for @out; print "SUMMARY: $found finding(s) in $scanned media file(s)\n"; }
-        elsif (!$ENV{QUIET}) { print "SUMMARY: clean, $scanned media file(s) checked\n"; }
+        my @quiet;
+        push @quiet, "$misnamed misnamed" . ($ENV{INCLUDE_LOW} ? "" : " (--include-low lists them)") if $misnamed;
+        push @quiet, "$tiny broken GIF thumbnail(s)" if $tiny;
+        my $note = @quiet ? "; counted, not flagged: " . join(", ", @quiet) : "";
+        if ($found) { print "$_\n" for @out; print "SUMMARY: $found finding(s) in $scanned media file(s)$note\n"; }
+        elsif (!$ENV{QUIET}) { print "SUMMARY: clean, $scanned media file(s) checked$note\n"; }
     }
 '

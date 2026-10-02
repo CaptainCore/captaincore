@@ -209,15 +209,25 @@ if [ -n "$media_dirs" ] && command -v perl >/dev/null 2>&1; then
     my ($head, $tail) = ("", "");
     read($fh, $head, 16384);
     if ($size > 16384) { seek($fh, -16384, 2); read($fh, $tail, 16384); } else { $tail = $head; }
-    my $report = sub { my ($sev, $type, $detail) = @_; $detail =~ s/[^\x20-\x7e]/./g; $detail =~ s/"/\x27/g; push @out, sprintf("{\"severity\":\"%s\",\"type\":\"%s\",\"path\":\"%s\",\"detail\":\"%s\",\"size\":%d}", $sev, $type, $f =~ s/"/\x27/gr, $detail, $size); };
+    # Escape backslashes for JSON: obfuscated PHP headers ("\x6f\145...") otherwise make
+    # the whole array invalid and sync-data drops every media finding in it.
+    my $report = sub { my ($sev, $type, $detail) = @_; $detail =~ s/[^\x20-\x7e]/./g; $detail =~ s/\\/\\\\/g; $detail =~ s/"/\x27/g; push @out, sprintf("{\"severity\":\"%s\",\"type\":\"%s\",\"path\":\"%s\",\"detail\":\"%s\",\"size\":%d}", $sev, $type, $f =~ s/\\/\\\\/gr =~ s/"/\x27/gr, $detail, $size); };
+    my $eval_re = qr/eval\(\s*(?:\$|["\x27]|[A-Za-z_]\w*\s*\()/;
+    my $code_re = qr/<\?php|<script[ >]|$eval_re|base64_decode\(|shell_exec\(|\$_(?:POST|GET|REQUEST|COOKIE)\[/;
+    my $has_b64 = sub { my ($s) = @_; while ($s =~ m{([A-Za-z0-9+/]{200,}={0,2})}g) { my $run = $1; next unless $run =~ /[A-Z]/ && $run =~ /[a-z]/ && $run =~ /[0-9]/; my %seen; $seen{$_} = 1 for split //, substr($run, 0, 4096); return 1 if keys(%seen) >= 20; } return 0; };
     my %magic = (jpg => qr/^\xff\xd8\xff/, jpeg => qr/^\xff\xd8\xff/, png => qr/^\x89PNG\r\n\x1a\n/, gif => qr/^GIF8[79]a/, webp => qr/^RIFF....WEBP/s, pdf => qr/^%PDF/, mp4 => qr/^....ftyp/s, mov => qr/^....(ftyp|moov|mdat|wide|free)/s, mp3 => qr/^(ID3|\xff[\xfb\xf3\xf2])/, zip => qr/^PK/, ico => qr/^\x00\x00\x01\x00/);
     if (my $re = $magic{$ext}) {
         if ($head !~ $re) {
             (my $asc = substr($head, 0, 48)) =~ s/[^\x20-\x7e]/./g;
-            if ($head =~ /^\s*(<\?php|<\?=|<script)/) { $report->("CRITICAL", "FAKE_MEDIA", "starts with code, not a .$ext: $asc"); }
-            next;
+            if ($head =~ /^\s*(<\?php|<\?=|<script)/) { $report->("CRITICAL", "FAKE_MEDIA", "starts with code, not a .$ext: $asc"); next; }
+            # Misnamed (WebP or PNG bytes under .jpg): scan it as what it really is.
+            my ($real) = grep { $head =~ $magic{$_} } qw(jpg png gif webp pdf);
+            next unless $real;
+            $ext = $real;
         }
     }
+    # GIFs under 64 bytes with no code are thumbnails a failed resize left broken.
+    next if $ext eq "gif" && $size < 64 && $head !~ $code_re;
     my %trailer = (jpg => ["\xff\xd9", "JPEG EOI"], jpeg => ["\xff\xd9", "JPEG EOI"], png => ["IEND\xaeB`\x82", "PNG IEND"], gif => ["\x3b", "GIF trailer"]);
     if (my $t = $trailer{$ext}) {
         my ($marker, $label) = @$t; my $pos = rindex($tail, $marker);
@@ -228,14 +238,16 @@ if [ -n "$media_dirs" ] && command -v perl >/dev/null 2>&1; then
             # Samsung phones append an SEF block (SEFH ... SEFT) after the image: capture app
             # info as base64 JSON, editor state, a UTC stamp. Not a payload.
             next if $after =~ /SEFT\z/ || $after =~ /Samsung_Capture_Info|Image_UTC_Data|PhotoEditor_Re_Edit_Data|Original_Path_Hash_Key/;
-            if ($after =~ /(<\?php|eval\(|base64_decode|\$_(?:POST|GET|REQUEST|COOKIE))/ || $after =~ m{[A-Za-z0-9+/]{200,}={0,2}}) { $report->("CRITICAL", "APPENDED_PAYLOAD", $detail); }
+            if ($after =~ /(<\?php|$eval_re|base64_decode|\$_(?:POST|GET|REQUEST|COOKIE))/ || $has_b64->($after)) { $report->("CRITICAL", "APPENDED_PAYLOAD", $detail); }
             elsif ($trail < 0 || $trail <= 4096) { $report->("MEDIUM", "TRAILING_DATA", "$detail (no code or base64 in it: phone cameras append metadata after the image, edited photos carry a second image)"); }
             else { $report->("HIGH", "TRAILING_DATA", $detail); }
             next;
         }
     }
     if ($ext =~ /^(jpe?g|png|gif|webp|ico|bmp|tiff?|pdf|mp4|m4v|mov|m4a|mp3|wav|ogg|webm|avi)$/) {
-        if (($head . "\n" . $tail) =~ /(<\?php|<script[ >]|eval\(|base64_decode\(|shell_exec\(|\$_(?:POST|GET|REQUEST|COOKIE)\[)/) { $report->("CRITICAL", "CODE_IN_MEDIA", "contains $1"); next; }
+        # In PDFs <script and eval( are form (XFA/AcroForm) JavaScript, not a stash; only PHP counts.
+        my $re = $ext eq "pdf" ? qr/<\?php|base64_decode\(|shell_exec\(|\$_(?:POST|GET|REQUEST|COOKIE)\[/ : $code_re;
+        if (($head . "\n" . $tail) =~ /($re)/) { $report->("CRITICAL", "CODE_IN_MEDIA", "contains $1"); next; }
     }
     if ($ext eq "svg" && $size <= 2097152) {
         seek($fh, 0, 0); local $/; my $svg = <$fh>;
