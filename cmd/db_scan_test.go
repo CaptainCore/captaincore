@@ -94,6 +94,34 @@ func TestDBScanFindings(t *testing.T) {
 			t.Error("without a previous user list no administrator can be new")
 		}
 	}
+	// Fixed checks whose whole subject is the reported string carry a hash,
+	// so a benign verdict sticks; name-only checks stay unhashed and reopen.
+	findings, _, _ = dbScanFindings(string(raw), known, "low")
+	hashes := map[string]string{}
+	for _, f := range findings {
+		hashes[f.SignatureID+" "+f.Filename] = f.ContentHash
+	}
+	for _, k := range []string{
+		"db-active-plugin-missing db:active_plugins/wp-cache-helper/loader.php",
+		"db-new-administrator db:user/wpsupp-user",
+		"db-toolkit-session-markers db:option/toolkit-markers",
+	} {
+		if len(hashes[k]) != 64 {
+			t.Errorf("%s: want a content hash, got %q", k, hashes[k])
+		}
+	}
+	for _, k := range []string{
+		"db-trigger db:trigger/after_user_insert",
+		"db-active-plugin-path-escape db:active_plugins/../../uploads/2024/loader.php",
+		"db-known-injection-option db:option/wp_html_inject_code",
+	} {
+		if h, ok := hashes[k]; !ok || h != "" {
+			t.Errorf("%s: a name-only check must stay unhashed (present %v, hash %q)", k, ok, h)
+		}
+	}
+	if subjectHash("a", "b") == subjectHash("ab") {
+		t.Error("subjectHash must keep its parts apart")
+	}
 	if _, _, err := dbScanFindings(`{"error":"db-scan produced no output"}`, nil, "high"); err == nil {
 		t.Error("an export error must surface")
 	}

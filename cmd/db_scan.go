@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -101,11 +103,16 @@ func dbScanFindings(raw string, knownUsers map[string]bool, minSeverity string) 
 	}
 	min := scan.SeverityRank(minSeverity)
 	var out []scan.LegacyFinding
-	add := func(sev, where, id, name, desc, match string) {
+	// hash is the fixed check's fingerprint (see subjectHash); "" when the
+	// check cannot see what it reports on and should reopen on every scan.
+	addHashed := func(sev, where, id, name, desc, match, hash string) {
 		if scan.SeverityRank(sev) < min {
 			return
 		}
-		out = append(out, scan.LegacyFinding{Filename: where, SignatureID: id, SignatureName: name, SignatureDescription: desc, MatchedText: match, Severity: sev, Family: "database"})
+		out = append(out, scan.LegacyFinding{Filename: where, SignatureID: id, SignatureName: name, SignatureDescription: desc, MatchedText: match, Severity: sev, Family: "database", ContentHash: hash})
+	}
+	add := func(sev, where, id, name, desc, match string) {
+		addHashed(sev, where, id, name, desc, match, "")
 	}
 
 	// Rule findings over the exported rows. Each row is written twice, as
@@ -186,7 +193,7 @@ func dbScanFindings(raw string, knownUsers map[string]bool, minSeverity string) 
 		if strings.Contains(p, "..") || strings.HasPrefix(p, "/") {
 			add("critical", "db:active_plugins/"+p, "db-active-plugin-path-escape", "Active plugin path outside the plugin directory", "active_plugins carries a path with .. or an absolute path, so WordPress loads a file from outside wp-content/plugins on every request", p)
 		} else {
-			add("low", "db:active_plugins/"+p, "db-active-plugin-missing", "Active plugin whose file is missing", "active_plugins names a file that no longer exists under the plugin directory; usually a plugin removed over SFTP, cleared the next time the plugins screen loads", p)
+			addHashed("low", "db:active_plugins/"+p, "db-active-plugin-missing", "Active plugin whose file is missing", "active_plugins names a file that no longer exists under the plugin directory; usually a plugin removed over SFTP, cleared the next time the plugins screen loads", p, subjectHash(p))
 		}
 	}
 	for _, o := range ex.SuspiciousOptions {
@@ -197,9 +204,11 @@ func dbScanFindings(raw string, knownUsers map[string]bool, minSeverity string) 
 		if len(sample) > 5 {
 			sample = sample[:5]
 		}
-		add("high", "db:option/toolkit-markers", "db-toolkit-session-markers", "Backdoor session markers in wp_options",
+		markers := append([]string(nil), ex.ToolkitMarkers...)
+		sort.Strings(markers)
+		addHashed("high", "db:option/toolkit-markers", "db-toolkit-session-markers", "Backdoor session markers in wp_options",
 			fmt.Sprintf("%d option(s) named wp_<md5 of an IP> holding a Unix timestamp: the SMILODON toolkit records every admin session it sees this way, and the markers outlive file-only cleanups; a re-drop after cleanup starts by writing a new one", n),
-			strings.Join(sample, ", "))
+			strings.Join(sample, ", "), subjectHash(markers...))
 	}
 	// A new administrator is one the previous sync did not list AND whose
 	// account is young. The previous list alone is not enough: the first
@@ -212,8 +221,9 @@ func dbScanFindings(raw string, knownUsers map[string]bool, minSeverity string) 
 		if reg, err := time.Parse("2006-01-02 15:04:05", a.Registered); err != nil || time.Since(reg) > newAdminMaxAge {
 			continue
 		}
-		add("high", "db:user/"+a.Login, "db-new-administrator", "Administrator the Manager had not seen",
-			fmt.Sprintf("%s (%s) holds the administrator role, was not in the previously synced user list, and registered %s", a.Login, a.Email, a.Registered), a.Login)
+		addHashed("high", "db:user/"+a.Login, "db-new-administrator", "Administrator the Manager had not seen",
+			fmt.Sprintf("%s (%s) holds the administrator role, was not in the previously synced user list, and registered %s", a.Login, a.Email, a.Registered), a.Login,
+			subjectHash(strings.ToLower(a.Login), strings.ToLower(a.Email), a.Registered))
 	}
 	sum := dbScanSummary{Stats: ex.Stats, Findings: len(out), PluginsMissing: ex.PluginsMissing, Triggers: ex.Triggers, Events: ex.Events,
 		Routines: ex.Routines, UnknownTables: ex.UnknownTables, SuspiciousOptions: ex.SuspiciousOptions, ToolkitMarkers: ex.ToolkitMarkers, Truncated: ex.Truncated}
@@ -222,6 +232,20 @@ func dbScanFindings(raw string, knownUsers map[string]bool, minSeverity string) 
 	}
 	sort.Strings(sum.Admins)
 	return out, sum, nil
+}
+
+// subjectHash fingerprints what a fixed check reported on. The Manager keeps a
+// benign verdict while content_hash is unchanged, so without one every benign
+// database finding reopened on the next nightly scan. Only checks whose whole
+// subject is the string they report get a hash: a missing active_plugins
+// entry, a new administrator (login, email, registration time), and the full
+// toolkit-marker list (a new marker changes it, which is the re-drop signal).
+// Triggers, events, routines, injection-named options and path escapes are
+// reported by name only, so their contents can change unseen; they stay
+// unhashed and reopen on every scan.
+func subjectHash(parts ...string) string {
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	return hex.EncodeToString(sum[:])
 }
 
 // dbRowSeverity adjusts a rule finding for a database row. A row is data,
