@@ -107,3 +107,30 @@ func TestProvenanceFindingsEmptyAndGarbage(t *testing.T) {
 		t.Errorf("malformed input should yield nil, got %v", f)
 	}
 }
+
+func TestProvenanceEvidenceRidesAlong(t *testing.T) {
+	raw := `[{"location":"root","path":"kwmailer.php","sha256":"7647582e6d1db60d8fd16671e22654623e6157809cef4ab8eca56c66eaa3ff85","size":458,"mtime":"2025-10-01 20:58","head":"<?php\nmail(\"info@example.com\", $_POST['Email']);"},
+		{"location":"root","path":"legacy.php"}]`
+	got := map[string]bool{}
+	for _, f := range provenanceFindings(raw) {
+		got[f.Filename] = true
+		switch f.Filename {
+		case "kwmailer.php":
+			if f.ContentHash != "7647582e6d1db60d8fd16671e22654623e6157809cef4ab8eca56c66eaa3ff85" {
+				t.Errorf("content hash %q", f.ContentHash)
+			}
+			want := "sha256 7647582e6d1db60d8fd16671e22654623e6157809cef4ab8eca56c66eaa3ff85, 458 bytes, modified 2025-10-01 20:58 UTC\n<?php"
+			if len(f.MatchedText) < len(want) || f.MatchedText[:len(want)] != want {
+				t.Errorf("matched text %q", f.MatchedText)
+			}
+		case "legacy.php":
+			// rows from an older fetch-site-data carry no evidence: nothing invented
+			if f.ContentHash != "" || f.MatchedText != "" {
+				t.Errorf("legacy row got hash %q / text %q", f.ContentHash, f.MatchedText)
+			}
+		}
+	}
+	if !got["kwmailer.php"] || !got["legacy.php"] {
+		t.Errorf("findings missing: %v", got)
+	}
+}

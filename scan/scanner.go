@@ -60,6 +60,10 @@ type LegacyFinding struct {
 	// Wordfence rows leave them empty.
 	Severity string `json:"severity,omitempty"`
 	Family   string `json:"family,omitempty"`
+	// ContentHash is the sha256 of the whole file when the scanner knows it.
+	// The Manager keeps a finding reviewed as benign closed while the hash is
+	// unchanged and reopens it the moment the file changes.
+	ContentHash string `json:"content_hash,omitempty"`
 }
 
 // Legacy converts a Finding to the malware-alert payload shape.
@@ -76,6 +80,7 @@ func (f Finding) Legacy() LegacyFinding {
 		MatchedText:          f.Match,
 		Severity:             f.Severity,
 		Family:               f.Family,
+		ContentHash:          f.SHA256,
 	}
 }
 

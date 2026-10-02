@@ -465,15 +465,32 @@ for f in "$wp_content"/*.php "$wp_content"/*.phtml "$wp_content"/*.phar "$wp_con
     [[ "$prov_content_allow" == *" $prov_lb "* ]] && continue
     prov_rows+="content|$f"$'\n'
 done
+# Each row carries the evidence a reviewer needs without logging in: sha256,
+# size, mtime and the first 600 bytes (printable). The sha256 also lets the
+# Manager keep a reviewed-benign file closed until its content changes.
 unexpected_root_php_json=$( printf '%s' "$prov_rows" | python3 -c '
-import json, sys
+import hashlib, json, os, re, sys, time
 rows = []
 for line in sys.stdin:
     line = line.rstrip("\n")
     if not line:
         continue
     loc, path = line.split("|", 1)
-    rows.append({"location": loc, "path": path})
+    row = {"location": loc, "path": path}
+    try:
+        st = os.stat(path)
+        h = hashlib.sha256()
+        with open(path, "rb") as fh:
+            head = fh.read(600)
+            h.update(head)
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+        row.update({"sha256": h.hexdigest(), "size": st.st_size,
+                    "mtime": time.strftime("%Y-%m-%d %H:%M", time.gmtime(st.st_mtime)),
+                    "head": re.sub(r"[^\x09\x0a\x20-\x7e]", ".", head.decode("latin-1"))})
+    except OSError:
+        pass
+    rows.append(row)
 print(json.dumps(rows))' 2>/dev/null )
 [[ -z "$unexpected_root_php_json" ]] && unexpected_root_php_json="[]"
 echo "unexpected_root_php:$(trim "$unexpected_root_php_json")"

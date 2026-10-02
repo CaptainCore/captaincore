@@ -117,3 +117,10 @@ func TestProvenanceIgnoresNonExecutableExtensions(t *testing.T) {
 		t.Errorf(".inc/.phps at root should not be flagged; got %v", ids(f))
 	}
 }
+
+func TestLegacyCarriesContentHash(t *testing.T) {
+	f := Finding{File: "x.php", RuleID: "r", SHA256: "abc123"}
+	if got := f.Legacy().ContentHash; got != "abc123" {
+		t.Errorf("Legacy().ContentHash = %q, want abc123", got)
+	}
+}

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/CaptainCore/captaincore/scan"
@@ -105,6 +106,9 @@ func benignRootFile(name string) bool {
 func provenanceFindings(raw string) []scan.LegacyFinding {
 	var rows []struct {
 		Location, Path string
+		// Evidence from fetch-site-data (absent on older remote scripts).
+		Sha256, Mtime, Head string
+		Size                int64
 	}
 	if json.Unmarshal([]byte(raw), &rows) != nil {
 		return nil
@@ -137,13 +141,22 @@ func provenanceFindings(raw string) []scan.LegacyFinding {
 				continue
 			}
 		}
+		// The file's identity and first bytes ride along as the matched text so
+		// the daily review can judge the file without a login, and the sha256
+		// lets the Manager reopen a reviewed file only when its content changes.
+		matched := ""
+		if r.Sha256 != "" {
+			matched = fmt.Sprintf("sha256 %s, %d bytes, modified %s UTC\n%s", r.Sha256, r.Size, r.Mtime, r.Head)
+		}
 		findings = append(findings, scan.LegacyFinding{
 			Filename:             r.Path,
 			SignatureID:          id,
 			SignatureName:        name,
 			SignatureDescription: desc,
+			MatchedText:          matched,
 			Severity:             severity,
 			Family:               "integrity",
+			ContentHash:          r.Sha256,
 		})
 	}
 	return findings
