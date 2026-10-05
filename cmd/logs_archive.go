@@ -308,9 +308,7 @@ func newLogsConn(site *models.Site, env *models.Environment, system *config.Syst
 			var configObj map[string]json.RawMessage
 			if json.Unmarshal([]byte(configValue), &configObj) == nil {
 				if defaultKeyRaw, ok := configObj["default_key"]; ok {
-					var defaultKey string
-					json.Unmarshal(defaultKeyRaw, &defaultKey)
-					key = defaultKey
+					key = configValueString(defaultKeyRaw)
 				}
 			}
 		}

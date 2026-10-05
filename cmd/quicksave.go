@@ -690,7 +690,7 @@ func quicksaveCoreChecksumScan(site *models.Site, env *models.Environment, syste
 		var configObj map[string]json.RawMessage
 		if json.Unmarshal([]byte(configValue), &configObj) == nil {
 			if defaultKeyRaw, ok := configObj["default_key"]; ok {
-				json.Unmarshal(defaultKeyRaw, &key)
+				key = configValueString(defaultKeyRaw)
 			}
 		}
 	}
@@ -797,7 +797,7 @@ func quicksaveLooseFilesScan(site *models.Site, env *models.Environment, system 
 		var configObj map[string]json.RawMessage
 		if json.Unmarshal([]byte(configValue), &configObj) == nil {
 			if defaultKeyRaw, ok := configObj["default_key"]; ok {
-				json.Unmarshal(defaultKeyRaw, &key)
+				key = configValueString(defaultKeyRaw)
 			}
 		}
 	}

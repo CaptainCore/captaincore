@@ -382,6 +382,22 @@ func getVarString(captain *config.CaptainConfig, key string) string {
 	return strings.TrimSpace(string(v))
 }
 
+// configValueString decodes a field from the Manager's configurations JSON
+// that may arrive as a string or a number. The Keys screen's "Set primary"
+// stored default_key as an integer key id, and decoding that straight into a
+// string silently yields "", which drops the key from every ssh -i path.
+func configValueString(raw json.RawMessage) string {
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	var n json.Number
+	if err := json.Unmarshal(raw, &n); err == nil {
+		return n.String()
+	}
+	return ""
+}
+
 // parseThresholdDuration converts a human-friendly threshold string into a time.Duration.
 // Supports "24h" (hours), "7d" (days), "30m" (minutes).
 func parseThresholdDuration(threshold string) (time.Duration, error) {
