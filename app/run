@@ -15,18 +15,27 @@ while read config; do
 done <<< "$(captaincore config fetch --captain-id=$CAPTAIN_ID)"
 
 if [ ${#@} -gt 0 ] && [[ "$CAPTAINCORE_CODE" != "" ]]; then
-  # Generates receipe
+  # Generates receipe. Every run gets its own file: a name built from the
+  # date and the first bytes of the code made two runs of similar scripts on
+  # the same day share one file, so one job's sites ran the other job's code.
   timestamp=$( date +'%Y-%m-%d' )
-  recipe_file=$path_recipes/${CAPTAIN_ID}-${timestamp}-${CAPTAINCORE_CODE:0:8}.sh
-  recipe_name=${timestamp}-${CAPTAINCORE_CODE:0:8}
+  run_id=$( head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n' )
+  if [[ ! "$run_id" =~ ^[0-9a-f]{16}$ ]]; then
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Could not generate a run id."
+    exit 1
+  fi
+  recipe_name=run-${timestamp}-${run_id}
+  recipe_file=$path_recipes/${CAPTAIN_ID}-${recipe_name}.sh
   # Decode onto disk via PHP. Do not capture the script into a bash
   # double-quoted string — that eats backslash-newlines (breaking `|| \`
   # continuations) and expands $vars before the recipe ever reaches the site.
-  php -r 'echo base64_decode( (string) getenv( "CAPTAINCORE_CODE" ) );' > "${recipe_file}"
+  ( umask 077; php -r 'echo base64_decode( (string) getenv( "CAPTAINCORE_CODE" ) );' > "${recipe_file}" )
 
-  # Runs on specifed sites
+  # Runs on specifed sites, then removes the one-off recipe
   captaincore ssh $1 --recipe=$recipe_name --captain-id=$CAPTAIN_ID
-  exit
+  status=$?
+  rm -f "${recipe_file}"
+  exit $status
 
 fi
 
