@@ -24,7 +24,7 @@ site=$1
 run_command() {
 
   # Extract environment
-  if [[ "$website" == *"-staging"* ]]; then
+  if [[ "$site" == *"-staging" ]]; then
     environment=staging
   else
     environment=production
@@ -35,7 +35,7 @@ run_command() {
 
   if [ -z "$domain" ]; then
     echo "Domain not found"
-    continue
+    return 1
   fi
 
   rclone_config_file="$path/${site}_${site_id}/rclone.conf"

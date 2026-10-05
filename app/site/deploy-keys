@@ -24,7 +24,7 @@ site=$1
 run_command() {
 
   # Extract environment
-  if [[ "$website" == *"-staging"* ]]; then
+  if [[ "$site" == *"-staging" ]]; then
     environment=staging
   else
     environment=production
@@ -65,7 +65,7 @@ heredoc
 
   # No authorized_keys found, generate new one
   if [[ "$found_authorized_keys" != "authorized_keys" ]]; then
-    echo local_public_key | rclone rcat ${environment}:.ssh/authorized_keys --config="$rclone_config_file"
+    echo "$local_public_key" | rclone rcat ${environment}:.ssh/authorized_keys --config="$rclone_config_file"
   fi
 
   # Examine existing authorized_keys file
