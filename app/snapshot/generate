@@ -17,6 +17,9 @@
 #   [--filter=<filter-option>]
 #   Filter options include one or more of the following: database, themes, plugins, uploads, everything-else. Example --filter=database,themes,plugins will generate a zip with only the database, themes and plugins. Without filter a snapshot will include everything.
 #
+#   [--backup-id=<id>]
+#   Builds the snapshot from this restic backup (point-in-time) instead of a fresh backup
+#
 #   [--skip-backup]
 #   Skips generating a fresh backup before snapshot
 #
@@ -67,9 +70,18 @@ run_command() {
     use_staging=true
   fi
 
-  if [[ "$SKIP_BACKUP" != "true" ]]; then
-    # Generate fresh backup via vault
-    captaincore backup generate $site --captain-id=$CAPTAIN_ID
+  if [[ "$SKIP_BACKUP" != "true" && "$FLAG_BACKUP_ID" == "" ]]; then
+    # Generate fresh backup via vault, for the environment being snapshotted
+    captaincore backup generate ${site}-${environment} --captain-id=$CAPTAIN_ID
+  fi
+
+  restore_from="latest"
+  if [[ "$FLAG_BACKUP_ID" != "" ]]; then
+    if [[ ! "$FLAG_BACKUP_ID" =~ ^[0-9a-f]{8,64}$ ]]; then
+      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Invalid backup id"
+      return 1
+    fi
+    restore_from="$FLAG_BACKUP_ID"
   fi
 
   # Generates snapshot archive
@@ -78,12 +90,19 @@ run_command() {
   snapshot_name="$site-$environment-$timedate.zip"
   cd $path/${site}_${site_id}/
 
-  # Restore latest snapshot from restic to a temp directory
+  # Restore the backup from restic to a temp directory
   restic_repo="rclone:$rclone_backup/${site}_${site_id}/${environment}/restic-repo"
   restic_args=(--repo "$restic_repo" --password-file "${CAPTAINCORE_PATH}/data/restic.key")
   restore_dir="$path/${site}_${site_id}/${environment}/snapshot-staging-$$"
 
-  restic restore latest --target "$restore_dir" "${restic_args[@]}"
+  if ! restic restore "$restore_from" --target "$restore_dir" "${restic_args[@]}"; then
+    # A partial restore must not become a snapshot record or a "snapshot ready" email.
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} restic restore of $restore_from failed for ${site}-${environment}; no snapshot created."
+    if [[ -n "$restore_dir" && "$restore_dir" == "$path/${site}_${site_id}/${environment}/snapshot-staging-"* ]]; then
+      rm -rf "$restore_dir"
+    fi
+    return 1
+  fi
 
   ln -s "$restore_dir" "$snapshot_path" # create directory shortcut for naming purposes
 
@@ -172,4 +191,4 @@ EOM
 
 }
 
-run_command
+run_command || exit 1

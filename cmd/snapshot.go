@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -18,21 +20,33 @@ import (
 
 var flagSnapshotSiteID, flagSnapshotArchive, flagSnapshotStorage string
 
+// flagSnapshotBackupID builds the snapshot from an existing restic backup
+// (point-in-time) instead of taking a fresh backup first.
+var flagSnapshotBackupID string
+
+var resticSnapshotIDPattern = regexp.MustCompile(`^[0-9a-f]{8,64}$`)
+
 var snapshotCmd = &cobra.Command{
 	Use:   "snapshot",
 	Short: "Snapshot commands",
 }
 
 var snapshotGenerateCmd = &cobra.Command{
-	Use:   "generate <site> [--email=<email>] [--notes=<notes>] [--filter=<filter-options>] [--skip-remote]",
+	Use:   "generate <site> [--email=<email>] [--notes=<notes>] [--filter=<filter-options>] [--backup-id=<id>] [--skip-remote]",
 	Short: "Generates new snapshot for a site",
 	Args: func(cmd *cobra.Command, args []string) error {
 		if len(args) < 1 {
 			return errors.New("requires <site> argument")
 		}
+		if flagSnapshotBackupID != "" && !resticSnapshotIDPattern.MatchString(flagSnapshotBackupID) {
+			return errors.New("--backup-id must be a restic snapshot id (8-64 lowercase hex characters)")
+		}
 		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
+		if flagSnapshotBackupID != "" {
+			os.Setenv("FLAG_BACKUP_ID", flagSnapshotBackupID)
+		}
 		resolveCommand(cmd, args)
 	},
 }
@@ -349,6 +363,7 @@ func init() {
 	snapshotGenerateCmd.Flags().StringVarP(&flagEmail, "email", "e", "", "Notify email address")
 	snapshotGenerateCmd.Flags().StringVarP(&flagNotes, "notes", "n", "", "Adds a note about the snapshot")
 	snapshotGenerateCmd.Flags().StringVarP(&flagUserId, "user-id", "u", "", "User ID")
+	snapshotGenerateCmd.Flags().StringVar(&flagSnapshotBackupID, "backup-id", "", "Build the snapshot from this restic backup instead of taking a fresh backup")
 	snapshotGenerateCmd.Flags().StringVarP(&flagFilter, "filter", "f", "", "Filter options include one or more of the following: database, themes, plugins, uploads, everything-else. Example --filter=database,themes,plugins will generate a zip with only the database, themes and plugins. Without filter a snapshot will include everything")
 	snapshotListCmd.Flags().StringVarP(&flagSnapshotEnvironment, "environment", "e", "production", "Environment (production or staging)")
 	snapshotListCmd.Flags().StringVarP(&flagLimit, "limit", "l", "", "Limit number of results (default: 10)")
