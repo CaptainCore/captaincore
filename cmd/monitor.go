@@ -33,6 +33,9 @@ type MonitorRecord struct {
 	NotifyCount int    `json:"notify_count"`
 	CreatedAt   int64  `json:"created_at"`
 	UpdatedAt   int64  `json:"updated_at"`
+	// Auto-recovery bookkeeping for this outage (see monitor_recover.go).
+	RecoveryAttempts int   `json:"recovery_attempts,omitempty"`
+	LastRecoveryAt   int64 `json:"last_recovery_at,omitempty"`
 }
 
 // MonitorEmailItem holds data for a single row in the notification email.
@@ -362,6 +365,10 @@ func monitorNative(cmd *cobra.Command, args []string) {
 	}
 
 	notificationSent := emailContent != ""
+
+	// Sites that have now failed two runs in a row get a PHP probe and, when the
+	// pool is saturated, a restart. Runs detached; see monitor_recover.go.
+	monitorQueueRecoveries(monitorFile, finalErrorCount, logsPath, getVarString(captain, "monitor_auto_recovery"))
 
 	if notificationSent {
 		fmt.Println("Sending monitor alert email")
@@ -794,5 +801,6 @@ func init() {
 	monitorRunCmd.Flags().IntVarP(&monitorParallel, "parallel", "p", 10, "Number of monitor checks to run at same time")
 	monitorRunCmd.Flags().IntVarP(&monitorRetry, "retry", "r", 3, "Number of retries for failures")
 	monitorRunCmd.Flags().StringVarP(&flagPage, "page", "", "", "Check a specific page, example: --page=/wp-admin/")
+	monitorRunCmd.Flags().BoolVar(&monitorNoRecovery, "no-recovery", false, "Skip PHP auto-recovery for sites that keep failing")
 	monitorStatsCmd.Flags().IntVarP(&monitorStatsLimit, "limit", "l", 20, "Number of monitor runs to show")
 }

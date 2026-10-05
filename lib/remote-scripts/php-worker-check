@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+
+#
+#   Reports whether this site's PHP-FPM pool is saturated, as key:value lines.
+#
+#   `php-worker-check`
+#
+#   Used by `captaincore monitor recover` when a site fails the uptime monitor.
+#   Pure shell on purpose: when the pool is stuck, anything that boots PHP
+#   (wp-cli included) can hang behind it.
+#
+
+username=$(whoami)
+
+# Detect this site's ACTIVE PHP-FPM pool (same approach as
+# performance-monitor-deploy): a host usually ships a pool config for this user
+# under every installed PHP version, and the listening socket is the ground
+# truth for which one is live.
+fpm_listen=$(ss -lx 2>/dev/null | grep -oE "/[^[:space:]]*fpm[^[:space:]]*${username}\.sock" | head -1)
+
+php_version=$(echo "$fpm_listen" | grep -oE 'php[0-9]+\.[0-9]+' | head -1 | tr -dc '0-9.')
+if [[ -z "$php_version" ]]; then
+  php_version=$(ps -eo args 2>/dev/null | grep -m1 '[p]hp-fpm: master' | grep -oE '/etc/php/[0-9]+\.[0-9]+/' | tr -dc '0-9.')
+fi
+
+pool_conf="/etc/php/${php_version}/fpm/pool.d/${username}.conf"
+if [[ -z "$php_version" ]] || [[ ! -f "$pool_conf" ]]; then
+  pool_conf=$(ls -1 /etc/php/*/fpm/pool.d/${username}.conf 2>/dev/null | sort -V | tail -1)
+fi
+
+max_workers=""
+pm_mode=""
+if [[ -n "$pool_conf" ]] && [[ -f "$pool_conf" ]]; then
+  max_workers=$(grep -E '^[[:space:]]*pm\.max_children' "$pool_conf" 2>/dev/null | head -1 | awk -F= '{print $2}' | tr -dc '0-9')
+  pm_mode=$(grep -E '^[[:space:]]*pm[[:space:]]*=' "$pool_conf" 2>/dev/null | head -1 | awk -F= '{print $2}' | xargs)
+  if [[ -z "$fpm_listen" ]]; then
+    fpm_listen=$(grep -E '^[[:space:]]*listen[[:space:]]*=' "$pool_conf" 2>/dev/null | head -1 | awk -F= '{print $2}' | xargs)
+  fi
+fi
+
+# Requests in flight: one connection on the pool's socket per request, whether
+# a worker is serving it or it is queued behind a full pool, so this can exceed
+# pm.max_children when the pool is saturated.
+busy_workers=""
+if [[ -n "$fpm_listen" ]] && command -v ss >/dev/null 2>&1; then
+  case "$fpm_listen" in
+    /*) busy_workers=$(ss -x 2>/dev/null | grep -cF "$fpm_listen") ;;
+    *)  busy_workers=$(ss -tnH state established 2>/dev/null | grep -cF "$fpm_listen") ;;
+  esac
+fi
+
+# Pool workers run as the site user; the master runs as root.
+fpm_processes=$(pgrep -u "$username" -c php-fpm 2>/dev/null)
+# Age from the absolute start time: inside Kinsta containers `ps -o etimes`
+# reports garbage (billions of seconds) while `lstart` is correct.
+now=$(date +%s)
+fpm_oldest_seconds=0
+while read -r started; do
+  s=$(date -d "$started" +%s 2>/dev/null) || continue
+  age=$(( now - s ))
+  if (( age > fpm_oldest_seconds && age < 31536000 )); then
+    fpm_oldest_seconds=$age
+  fi
+done < <(ps -u "$username" -o lstart=,comm= 2>/dev/null | awk '$6 ~ /php-fpm/ {print $1, $2, $3, $4, $5}')
+fpm_cpu_percent=$(ps -u "$username" -o pcpu=,comm= 2>/dev/null | awk '$2 ~ /php-fpm/ { s += $1 } END { printf "%.0f", s }')
+fpm_master_started=$(ps -eo lstart=,args= 2>/dev/null | grep '[p]hp-fpm: master' | head -1 | awk '{print $1, $2, $3, $4, $5}')
+
+read -r load_1 load_5 load_15 _ < /proc/loadavg
+cpus=$(nproc 2>/dev/null)
+
+echo "php_version:${php_version}"
+echo "pm:${pm_mode}"
+echo "max_workers:${max_workers}"
+echo "busy_workers:${busy_workers}"
+echo "fpm_listen:${fpm_listen}"
+echo "fpm_processes:${fpm_processes:-0}"
+echo "fpm_oldest_seconds:${fpm_oldest_seconds:-0}"
+echo "fpm_cpu_percent:${fpm_cpu_percent:-0}"
+echo "fpm_master_started:${fpm_master_started}"
+echo "load_1:${load_1}"
+echo "load_5:${load_5}"
+echo "load_15:${load_15}"
+echo "cpus:${cpus}"
+echo "probe:ok"
