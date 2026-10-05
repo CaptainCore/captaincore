@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -55,7 +56,7 @@ func TestMonitorQueueRecoveriesEligibility(t *testing.T) {
 		{Name: "redirect", HTTPCode: "301", CheckCount: 5, CreatedAt: now - 600},
 	})
 
-	monitorQueueRecoveries(file, 7, "", "")
+	monitorQueueRecoveries(file, "", "")
 
 	want := map[string]bool{"fresh": true, "due-again": true}
 	if len(*launched) != len(want) {
@@ -87,21 +88,36 @@ func TestMonitorQueueRecoveriesGuards(t *testing.T) {
 
 	t.Run("caps launches per run", func(t *testing.T) {
 		launched := stubLaunch(t)
-		monitorQueueRecoveries(writeRecords(t, many), 8, "", "")
+		monitorQueueRecoveries(writeRecords(t, many), "", "")
 		if len(*launched) != recoveryMaxSitesPerRun {
 			t.Errorf("launched %d, want %d", len(*launched), recoveryMaxSitesPerRun)
 		}
 	})
 	t.Run("skips a mass outage", func(t *testing.T) {
 		launched := stubLaunch(t)
-		monitorQueueRecoveries(writeRecords(t, many), recoveryMassOutage+1, "", "")
+		var burst []MonitorRecord
+		for i := 0; i <= recoveryMassOutage; i++ {
+			burst = append(burst, MonitorRecord{Name: fmt.Sprintf("s%d", i), HTTPCode: "000", CheckCount: 2, CreatedAt: now - 600})
+		}
+		monitorQueueRecoveries(writeRecords(t, burst), "", "")
 		if len(*launched) != 0 {
 			t.Errorf("launched %v during a mass outage", *launched)
 		}
 	})
+	t.Run("long-standing failures do not count as a mass outage", func(t *testing.T) {
+		launched := stubLaunch(t)
+		records := []MonitorRecord{{Name: "new", HTTPCode: "504", CheckCount: 2, CreatedAt: now - 600}}
+		for i := 0; i < 40; i++ {
+			records = append(records, MonitorRecord{Name: fmt.Sprintf("parked%d", i), HTTPCode: "403", CheckCount: 9000, CreatedAt: now - 30*86400})
+		}
+		monitorQueueRecoveries(writeRecords(t, records), "", "")
+		if len(*launched) != 1 || (*launched)[0] != "new" {
+			t.Errorf("launched %v, want [new]", *launched)
+		}
+	})
 	t.Run("config off", func(t *testing.T) {
 		launched := stubLaunch(t)
-		monitorQueueRecoveries(writeRecords(t, many), 8, "", "off")
+		monitorQueueRecoveries(writeRecords(t, many), "", "off")
 		if len(*launched) != 0 {
 			t.Errorf("launched %v with monitor_auto_recovery off", *launched)
 		}
@@ -109,7 +125,7 @@ func TestMonitorQueueRecoveriesGuards(t *testing.T) {
 	t.Run("flag off", func(t *testing.T) {
 		launched := stubLaunch(t)
 		monitorNoRecovery = true
-		monitorQueueRecoveries(writeRecords(t, many), 8, "", "")
+		monitorQueueRecoveries(writeRecords(t, many), "", "")
 		if len(*launched) != 0 {
 			t.Errorf("launched %v with --no-recovery", *launched)
 		}

@@ -34,7 +34,12 @@ const (
 	recoveryInterval       = time.Hour
 	recoveryMaxOutageAge   = 12 * time.Hour // older outages are not PHP lockups worth chasing
 	recoveryMaxSitesPerRun = 5
-	recoveryMassOutage     = 25 // this many failures at once points at the monitor or network, not the sites
+	// This many outages starting within recoveryMassWindow points at the
+	// monitor or the network, not the sites. Counted from new outages only:
+	// the fleet always carries some long-standing failures (parked domains,
+	// 403s), and those must not hold recovery back for everyone else.
+	recoveryMassOutage = 25
+	recoveryMassWindow = 30 * time.Minute
 )
 
 var monitorNoRecovery bool
@@ -49,12 +54,8 @@ var monitorRecoverDryRun bool
 // monitorQueueRecoveries picks failing sites that are due an attempt, records
 // the attempt in monitor.json and launches `monitor recover` for each in the
 // background.
-func monitorQueueRecoveries(monitorFile string, errorCount int, logsPath string, autoRecovery string) {
+func monitorQueueRecoveries(monitorFile string, logsPath string, autoRecovery string) {
 	if monitorNoRecovery || strings.EqualFold(strings.TrimSpace(autoRecovery), "off") {
-		return
-	}
-	if errorCount > recoveryMassOutage {
-		fmt.Printf("Auto-recovery skipped: %d sites failing at once points at the monitor or the network, not the sites.\n", errorCount)
 		return
 	}
 
@@ -68,6 +69,17 @@ func monitorQueueRecoveries(monitorFile string, errorCount int, logsPath string,
 	}
 
 	now := time.Now().Unix()
+	fresh := 0
+	for _, r := range records {
+		if now-r.CreatedAt <= int64(recoveryMassWindow.Seconds()) {
+			fresh++
+		}
+	}
+	if fresh > recoveryMassOutage {
+		fmt.Printf("Auto-recovery skipped: %d sites went down in the last %s, which points at the monitor or the network, not the sites.\n", fresh, recoveryMassWindow)
+		return
+	}
+
 	launched := 0
 	for i := range records {
 		r := &records[i]

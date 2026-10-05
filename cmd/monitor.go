@@ -368,7 +368,7 @@ func monitorNative(cmd *cobra.Command, args []string) {
 
 	// Sites that have now failed two runs in a row get a PHP probe and, when the
 	// pool is saturated, a restart. Runs detached; see monitor_recover.go.
-	monitorQueueRecoveries(monitorFile, finalErrorCount, logsPath, getVarString(captain, "monitor_auto_recovery"))
+	monitorQueueRecoveries(monitorFile, logsPath, getVarString(captain, "monitor_auto_recovery"))
 
 	if notificationSent {
 		fmt.Println("Sending monitor alert email")
