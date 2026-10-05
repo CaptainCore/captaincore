@@ -54,6 +54,12 @@ detect_os() {
 }
 
 detect_arch() {
+    # uname -m reports x86_64 inside a Rosetta process (e.g. piped into an
+    # Intel-only bash), so ask the hardware directly on macOS.
+    if [ "$(uname -s)" = "Darwin" ] && [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = "1" ]; then
+        echo "arm64"
+        return
+    fi
     case "$(uname -m)" in
         x86_64|amd64)   echo "x86_64" ;;
         arm64|aarch64)  echo "arm64" ;;
