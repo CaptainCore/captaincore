@@ -9,6 +9,7 @@
             "path": "\/Users\/username\/Sites",
             "path_tmp": "\/Users\/username\/Tmp",
             "path_scripts": "\/Users\/username\/Scripts",
+            "path_keys": "\/Users\/username\/.captaincore\/data\/keys",
             "rclone_cli_backup": "B2:Backup\/Services\/core",
             "fathom_api_key": "###########",
             "typesafe_api_key": "###########",

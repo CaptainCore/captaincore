@@ -597,7 +597,7 @@ func updateConfigFile(resp connectResponse) (string, error) {
 		action = "created"
 		configs = config.FullConfig{
 			{
-				System: &config.SystemConfig{},
+				System: &config.SystemConfig{PathKeys: config.DefaultPathKeys()},
 			},
 			{
 				CaptainID: "1",

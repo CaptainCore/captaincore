@@ -129,7 +129,36 @@ func LoadConfigFrom(path string) (FullConfig, error) {
 		}
 	}
 
+	applySystemDefaults(configs)
 	return configs, nil
+}
+
+// DefaultPathKeys is where SSH keys live when config.json leaves path_keys
+// empty, as `captaincore connect` does on a fresh install: beside the rest of
+// the runtime data in ~/.captaincore/data.
+func DefaultPathKeys() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".captaincore", "data", "keys")
+}
+
+// applySystemDefaults fills system paths that must never be empty. Without a
+// default, an empty path_keys turned every ssh -i into /<captain_id>/<key>.
+// SystemRaw gets the same value so `config fetch` hands it to bash scripts,
+// and the next SaveConfig writes it into config.json.
+func applySystemDefaults(configs FullConfig) {
+	for i := range configs {
+		system := configs[i].System
+		if system == nil || system.PathKeys != "" {
+			continue
+		}
+		system.PathKeys = DefaultPathKeys()
+		if configs[i].SystemRaw != nil && system.PathKeys != "" {
+			configs[i].SystemRaw["path_keys"] = system.PathKeys
+		}
+	}
 }
 
 // GetSystem returns the system configuration (first entry with system key).
