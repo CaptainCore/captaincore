@@ -222,10 +222,10 @@ func sshNative(cmd *cobra.Command, args []string) {
 				if !isValidEnvKey(item.Key) {
 					continue
 				}
-				// The value is single-quoted for the remote shell, then escaped
-				// again because commandPrep lands inside the double-quoted ssh
-				// payload that bash -c reads locally first.
-				environmentVars = fmt.Sprintf("export %s=%s && %s", item.Key, escapeLocalExpansion(shellSingleQuote(item.Value)), environmentVars)
+				// The value is single-quoted for the remote shell. The whole
+				// remote command is single-quoted again below, so the local
+				// shell never reads it.
+				environmentVars = fmt.Sprintf("export %s=%s && %s", item.Key, shellSingleQuote(item.Value), environmentVars)
 			}
 		}
 	}
@@ -327,54 +327,69 @@ func sshNative(cmd *cobra.Command, args []string) {
 	markerStart := "____CC_OUTPUT_START____"
 	markerEnd := "____CC_OUTPUT_END____"
 
-	var sshCommand string
+	// remote is the command line the site's shell runs. It reaches ssh as ONE
+	// single-quoted word, so the local bash -c never expands $VAR, $(...) or
+	// backticks in it: a --command runs on the site, as written.
+	var remote, inputFile string
 
 	if flagCommand != "" {
-		command := strings.Trim(flagCommand, "\"")
-		if labelMode {
-			sshCommand = fmt.Sprintf("%s %s %s \"%s echo %s && %s && echo %s\"%s", beforeSSH, sshVerb, remoteServer, commandPrep, markerStart, command, markerEnd, sshFailSuffix)
-		} else {
-			sshCommand = fmt.Sprintf("%s %s %s \"%s %s\"%s", beforeSSH, sshVerb, remoteServer, commandPrep, command, sshFailSuffix)
+		// Strip one pair of double quotes wrapped around the whole command, as
+		// before, but keep quotes that belong to it: trimming every leading and
+		// trailing quote broke commands such as printf "%s" "$X".
+		command := flagCommand
+		if len(command) >= 2 && strings.HasPrefix(command, `"`) && strings.HasSuffix(command, `"`) && !strings.Contains(command[1:len(command)-1], `"`) {
+			command = command[1 : len(command)-1]
 		}
-	} else if flagScript != "" {
-		scriptFile := flagScript
-		// Check if it's an absolute/relative path that exists
-		if _, err := os.Stat(scriptFile); os.IsNotExist(err) {
-			// Try built-in remote-scripts location
-			home, _ := os.UserHomeDir()
-			builtinPath := fmt.Sprintf("%s/.captaincore/lib/remote-scripts/%s", home, flagScript)
-			if _, err := os.Stat(builtinPath); os.IsNotExist(err) {
-				fmt.Fprintf(os.Stderr, "Error: Can't locate script %s\n", flagScript)
-				os.Remove(sshLog)
-				os.Exit(1)
+		if labelMode {
+			remote = fmt.Sprintf("%s echo %s && %s && echo %s", commandPrep, markerStart, command, markerEnd)
+		} else {
+			remote = fmt.Sprintf("%s %s", commandPrep, command)
+		}
+	} else if flagScript != "" || flagRecipe != "" {
+		if flagScript != "" {
+			inputFile = flagScript
+			// Check if it's an absolute/relative path that exists
+			if _, err := os.Stat(inputFile); os.IsNotExist(err) {
+				// Try built-in remote-scripts location
+				home, _ := os.UserHomeDir()
+				builtinPath := fmt.Sprintf("%s/.captaincore/lib/remote-scripts/%s", home, flagScript)
+				if _, err := os.Stat(builtinPath); os.IsNotExist(err) {
+					fmt.Fprintf(os.Stderr, "Error: Can't locate script %s\n", flagScript)
+					os.Remove(sshLog)
+					os.Exit(1)
+				}
+				inputFile = builtinPath
 			}
-			scriptFile = builtinPath
-		}
-		if labelMode {
-			sshCommand = fmt.Sprintf("%s %s %s \"%s echo %s && bash -s -- --site=%s %s && echo %s\" < %s%s", beforeSSH, sshVerb, remoteServer, commandPrep, markerStart, site.Site, additionalArgsStr, markerEnd, scriptFile, sshFailSuffix)
 		} else {
-			sshCommand = fmt.Sprintf("%s %s %s \"%s bash -s -- --site=%s %s\" < %s%s", beforeSSH, sshVerb, remoteServer, commandPrep, site.Site, additionalArgsStr, scriptFile, sshFailSuffix)
-		}
-	} else if flagRecipe != "" {
-		recipeFile := flagRecipe
-		if _, err := os.Stat(recipeFile); os.IsNotExist(err) {
-			// Try recipes path
-			builtinPath := fmt.Sprintf("%s/%s-%s.sh", system.PathRecipes, captainID, flagRecipe)
-			if _, err := os.Stat(builtinPath); os.IsNotExist(err) {
-				fmt.Fprintf(os.Stderr, "Error: Can't locate recipe %s\n", flagRecipe)
-				os.Remove(sshLog)
-				os.Exit(1)
+			inputFile = flagRecipe
+			if _, err := os.Stat(inputFile); os.IsNotExist(err) {
+				// Try recipes path
+				builtinPath := fmt.Sprintf("%s/%s-%s.sh", system.PathRecipes, captainID, flagRecipe)
+				if _, err := os.Stat(builtinPath); os.IsNotExist(err) {
+					fmt.Fprintf(os.Stderr, "Error: Can't locate recipe %s\n", flagRecipe)
+					os.Remove(sshLog)
+					os.Exit(1)
+				}
+				inputFile = builtinPath
 			}
-			recipeFile = builtinPath
 		}
 		if labelMode {
-			sshCommand = fmt.Sprintf("%s %s %s \"%s echo %s && bash -s -- --site=%s %s && echo %s\" < %s%s", beforeSSH, sshVerb, remoteServer, commandPrep, markerStart, site.Site, additionalArgsStr, markerEnd, recipeFile, sshFailSuffix)
+			remote = fmt.Sprintf("%s echo %s && bash -s -- --site=%s %s && echo %s", commandPrep, markerStart, site.Site, additionalArgsStr, markerEnd)
 		} else {
-			sshCommand = fmt.Sprintf("%s %s %s \"%s bash -s -- --site=%s %s\" < %s%s", beforeSSH, sshVerb, remoteServer, commandPrep, site.Site, additionalArgsStr, recipeFile, sshFailSuffix)
+			remote = fmt.Sprintf("%s bash -s -- --site=%s %s", commandPrep, site.Site, additionalArgsStr)
 		}
-	} else {
+	}
+
+	var sshCommand string
+	if remote == "" {
 		// Interactive SSH
 		sshCommand = fmt.Sprintf("%s %s %s", beforeSSH, sshVerb, remoteServer)
+	} else {
+		redirect := ""
+		if inputFile != "" {
+			redirect = " < " + shellSingleQuote(inputFile)
+		}
+		sshCommand = fmt.Sprintf("%s %s %s %s%s%s", beforeSSH, sshVerb, remoteServer, shellSingleQuote(strings.TrimSpace(remote)), redirect, sshFailSuffix)
 	}
 
 	// Clean up extra spaces

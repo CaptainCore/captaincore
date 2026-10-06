@@ -61,20 +61,10 @@ func isSafeURL(s string) bool {
 
 // shellSingleQuote wraps s in single quotes, escaping any embedded single quote
 // with the standard backslash-escape sequence. Safe for values that
-// legitimately contain special characters (passwords, env-var values) at the
-// TOP level of a command string. Inside an outer double-quoted layer the local
-// shell still expands $ and backticks, so pair it with escapeLocalExpansion.
+// legitimately contain special characters (passwords, env-var values, a whole
+// remote command line) as one word of a command string.
 func shellSingleQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
-// escapeLocalExpansion escapes the characters the LOCAL shell still expands
-// inside a double-quoted string. The ssh payload in sshNative is assembled as
-// ssh host "<body>" and handed to bash -c, so a value that has been
-// single-quoted for the REMOTE shell is still read once by the local one:
-// $(...) and `...` inside it would run here rather than there.
-func escapeLocalExpansion(s string) string {
-	return strings.NewReplacer(`\`, `\\`, "`", "\\`", `$`, `\$`, `"`, `\"`).Replace(s)
 }
 
 // sanitizeSite reports whether a site record is safe to store. The slug is the
