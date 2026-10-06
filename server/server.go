@@ -499,7 +499,7 @@ func streamTask(w http.ResponseWriter, r *http.Request) {
 
 		db.First(&task, task.ID)
 
-		if task.Status == "Completed" || task.Status == "Cancelled" {
+		if task.Status == "Completed" || task.Status == "Failed" || task.Status == "Cancelled" {
 			sendEvent(streamEvent{Status: strings.ToLower(task.Status)})
 			return
 		}
@@ -1319,7 +1319,12 @@ func runCommand(head string, arguments []string, t Task) string {
 		client.conn.Close()
 	}
 
+	// A command that started but exited non-zero (or was killed) failed.
+	// Only a clean exit is "Completed".
 	t.Status = "Completed"
+	if err != nil {
+		t.Status = "Failed"
+	}
 	t.Response = strings.Join(lines, "\n")
 
 	// If origin set then make request to mark that completed
@@ -1362,6 +1367,12 @@ func runCommand(head string, arguments []string, t Task) string {
 	// Remove the consumed payload blob so secrets don't linger on disk.
 	removePayloadFile(t.Token)
 
+	// cancelTask marks the row Cancelled from another request while this
+	// stale copy is still running; keep that rather than overwrite it.
+	var current Task
+	if db.Select("status").First(&current, t.ID).Error == nil && current.Status == "Cancelled" {
+		t.Status = "Cancelled"
+	}
 	db.Save(&t)
 	output := strings.Join(lines, "\n")
 

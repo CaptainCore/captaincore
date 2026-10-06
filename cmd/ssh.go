@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -130,12 +131,12 @@ Flags:
 		if len(targets) < 1 {
 			fmt.Fprintf(os.Stderr, "Error: requires a <site|target> argument\n")
 			cmd.Help()
-			return
+			os.Exit(1)
 		}
 
 		if flagSSHTenant != "" && (len(targets) > 1 || strings.HasPrefix(targets[0], "@")) {
 			fmt.Fprintf(os.Stderr, "Error: --tenant works on a single site\n")
-			return
+			os.Exit(1)
 		}
 
 		// Check for bulk/target mode — delegate to bash
@@ -166,44 +167,44 @@ func sshNative(cmd *cobra.Command, args []string) {
 
 	if sa.SiteName == "" {
 		fmt.Fprintf(os.Stderr, "%sError:%s Please specify a <site>.\n", colorRed, colorNormal)
-		return
+		os.Exit(1)
 	}
 
 	// Load config
 	_, system, _, err := loadCaptainConfig()
 	if err != nil || system == nil {
-		fmt.Println("Error: Configuration file not found.")
-		return
+		fmt.Fprintln(os.Stderr, "Error: Configuration file not found.")
+		os.Exit(1)
 	}
 
 	// Look up site
 	site, err := sa.LookupSite()
 	if err != nil || site == nil {
 		fmt.Fprintf(os.Stderr, "%sError:%s Site '%s' not found.\n", colorRed, colorNormal, sa.SiteName)
-		return
+		os.Exit(1)
 	}
 
 	env, err := sa.LookupEnvironment(site.SiteID)
 	if err != nil || env == nil {
 		fmt.Fprintf(os.Stderr, "%sError:%s Environment %s not found for '%s'.\n", colorRed, colorNormal, sa.Environment, site.Name)
-		return
+		os.Exit(1)
 	}
 
 	if env.Address == "" {
 		fmt.Fprintf(os.Stderr, "%sError:%s Environment %s not found for '%s'.\n", colorRed, colorNormal, env.Environment, site.Name)
-		return
+		os.Exit(1)
 	}
 
 	// Defence in depth: connect refuses these at ingest, but the slug is
 	// interpolated into the bash -c command string below either way.
 	if !isSafeSiteSlug(site.Site) {
 		fmt.Fprintf(os.Stderr, "%sError:%s Refusing unsafe site slug %q.\n", colorRed, colorNormal, site.Site)
-		return
+		os.Exit(1)
 	}
 
 	if env.Protocol != "sftp" {
-		fmt.Fprintf(os.Stderr, "%sError:%s SSH not supported (Protocol is %s).", colorRed, colorNormal, env.Protocol)
-		return
+		fmt.Fprintf(os.Stderr, "%sError:%s SSH not supported (Protocol is %s).\n", colorRed, colorNormal, env.Protocol)
+		os.Exit(1)
 	}
 
 	// Parse site details
@@ -234,13 +235,13 @@ func sshNative(cmd *cobra.Command, args []string) {
 		// Freighter tenant id is always a positive integer.
 		if !reTenantID.MatchString(flagSSHTenant) {
 			fmt.Fprintf(os.Stderr, "%sError:%s --tenant must be a numeric WP Freighter tenant id.\n", colorRed, colorNormal)
-			return
+			os.Exit(1)
 		}
 		environmentVars = fmt.Sprintf("export STACKED_SITE_ID=%s && %s", flagSSHTenant, environmentVars)
 	}
 
 	// Determine SSH key
-	remoteOptions := "-q -oStrictHostKeyChecking=no -oConnectTimeout=30 -oServerAliveInterval=60 -oServerAliveCountMax=10"
+	remoteOptions := "-oStrictHostKeyChecking=no -oConnectTimeout=30 -oServerAliveInterval=60 -oServerAliveCountMax=10"
 	beforeSSH := ""
 
 	key := siteDetails.Key
@@ -262,7 +263,7 @@ func sshNative(cmd *cobra.Command, args []string) {
 		// The key name is emitted unquoted after `ssh -i` in a bash -c string.
 		if !isSafeShellToken(key) {
 			fmt.Fprintf(os.Stderr, "%sError:%s Refusing unsafe SSH key name %q for '%s'.\n", colorRed, colorNormal, key, site.Site)
-			return
+			os.Exit(1)
 		}
 		remoteOptions = fmt.Sprintf("%s -oPreferredAuthentications=publickey -i %s/%s/%s", remoteOptions, system.PathKeys, captainID, key)
 	} else {
@@ -273,6 +274,7 @@ func sshNative(cmd *cobra.Command, args []string) {
 
 	// Build command prep and remote server based on provider
 	var commandPrep, remoteServer string
+	target := fmt.Sprintf("%s@%s port %s", env.Username, env.Address, env.Port)
 	switch site.Provider {
 	case "kinsta":
 		commandPrep = fmt.Sprintf("%s cd public/ &&", environmentVars)
@@ -280,6 +282,7 @@ func sshNative(cmd *cobra.Command, args []string) {
 	case "wpengine":
 		commandPrep = fmt.Sprintf("%s rm ~/.wp-cli/config.yml; cd sites/* &&", environmentVars)
 		remoteServer = fmt.Sprintf("%s %s@%s.ssh.wpengine.net", remoteOptions, site.Site, site.Site)
+		target = fmt.Sprintf("%s@%s.ssh.wpengine.net", site.Site, site.Site)
 	case "rocketdotnet":
 		commandPrep = fmt.Sprintf("%s cd %s/ &&", environmentVars, env.HomeDirectory)
 		remoteServer = fmt.Sprintf("%s %s@%s -p %s", remoteOptions, env.Username, env.Address, env.Port)
@@ -300,7 +303,22 @@ func sshNative(cmd *cobra.Command, args []string) {
 		additionalArgsStr = strings.Join(quoted, " ")
 	}
 
-	sshFailSuffix := fmt.Sprintf(" || captaincore site ssh-fail %s --captain-id=%s", site.Site, captainID)
+	// -q keeps banners and the 16-line REMOTE HOST IDENTIFICATION HAS CHANGED
+	// notice (common across a fleet whose sites move hosts) out of command
+	// output, but it also hid why a connection failed. A real run sends ssh's
+	// own messages to a temp log (-E) instead and prints them only when the
+	// connection fails. --debug keeps printing the -q form with the ssh-fail
+	// suffix, since backup/generate evals that string.
+	sshVerb := "ssh -q"
+	sshFailSuffix := ""
+	sshLog := ""
+	if flagDebug {
+		sshFailSuffix = fmt.Sprintf(" || captaincore site ssh-fail %s --captain-id=%s", site.Site, captainID)
+	} else if f, err := os.CreateTemp("", "captaincore-ssh-*.log"); err == nil {
+		sshLog = f.Name()
+		f.Close()
+		sshVerb = "ssh -oLogLevel=ERROR -E " + shellSingleQuote(sshLog)
+	}
 
 	// When FLAG_LABEL is set, wrap remote commands with markers so the
 	// labeled_run shell function can strip the SSH MOTD/banner and extract
@@ -314,9 +332,9 @@ func sshNative(cmd *cobra.Command, args []string) {
 	if flagCommand != "" {
 		command := strings.Trim(flagCommand, "\"")
 		if labelMode {
-			sshCommand = fmt.Sprintf("%s ssh %s \"%s echo %s && %s && echo %s\"%s", beforeSSH, remoteServer, commandPrep, markerStart, command, markerEnd, sshFailSuffix)
+			sshCommand = fmt.Sprintf("%s %s %s \"%s echo %s && %s && echo %s\"%s", beforeSSH, sshVerb, remoteServer, commandPrep, markerStart, command, markerEnd, sshFailSuffix)
 		} else {
-			sshCommand = fmt.Sprintf("%s ssh %s \"%s %s\"%s", beforeSSH, remoteServer, commandPrep, command, sshFailSuffix)
+			sshCommand = fmt.Sprintf("%s %s %s \"%s %s\"%s", beforeSSH, sshVerb, remoteServer, commandPrep, command, sshFailSuffix)
 		}
 	} else if flagScript != "" {
 		scriptFile := flagScript
@@ -326,15 +344,16 @@ func sshNative(cmd *cobra.Command, args []string) {
 			home, _ := os.UserHomeDir()
 			builtinPath := fmt.Sprintf("%s/.captaincore/lib/remote-scripts/%s", home, flagScript)
 			if _, err := os.Stat(builtinPath); os.IsNotExist(err) {
-				fmt.Printf("Error: Can't locate script %s", flagScript)
-				return
+				fmt.Fprintf(os.Stderr, "Error: Can't locate script %s\n", flagScript)
+				os.Remove(sshLog)
+				os.Exit(1)
 			}
 			scriptFile = builtinPath
 		}
 		if labelMode {
-			sshCommand = fmt.Sprintf("%s ssh %s \"%s echo %s && bash -s -- --site=%s %s && echo %s\" < %s%s", beforeSSH, remoteServer, commandPrep, markerStart, site.Site, additionalArgsStr, markerEnd, scriptFile, sshFailSuffix)
+			sshCommand = fmt.Sprintf("%s %s %s \"%s echo %s && bash -s -- --site=%s %s && echo %s\" < %s%s", beforeSSH, sshVerb, remoteServer, commandPrep, markerStart, site.Site, additionalArgsStr, markerEnd, scriptFile, sshFailSuffix)
 		} else {
-			sshCommand = fmt.Sprintf("%s ssh %s \"%s bash -s -- --site=%s %s\" < %s%s", beforeSSH, remoteServer, commandPrep, site.Site, additionalArgsStr, scriptFile, sshFailSuffix)
+			sshCommand = fmt.Sprintf("%s %s %s \"%s bash -s -- --site=%s %s\" < %s%s", beforeSSH, sshVerb, remoteServer, commandPrep, site.Site, additionalArgsStr, scriptFile, sshFailSuffix)
 		}
 	} else if flagRecipe != "" {
 		recipeFile := flagRecipe
@@ -342,19 +361,20 @@ func sshNative(cmd *cobra.Command, args []string) {
 			// Try recipes path
 			builtinPath := fmt.Sprintf("%s/%s-%s.sh", system.PathRecipes, captainID, flagRecipe)
 			if _, err := os.Stat(builtinPath); os.IsNotExist(err) {
-				fmt.Printf("Error: Can't locate recipe %s", flagRecipe)
-				return
+				fmt.Fprintf(os.Stderr, "Error: Can't locate recipe %s\n", flagRecipe)
+				os.Remove(sshLog)
+				os.Exit(1)
 			}
 			recipeFile = builtinPath
 		}
 		if labelMode {
-			sshCommand = fmt.Sprintf("%s ssh %s \"%s echo %s && bash -s -- --site=%s %s && echo %s\" < %s%s", beforeSSH, remoteServer, commandPrep, markerStart, site.Site, additionalArgsStr, markerEnd, recipeFile, sshFailSuffix)
+			sshCommand = fmt.Sprintf("%s %s %s \"%s echo %s && bash -s -- --site=%s %s && echo %s\" < %s%s", beforeSSH, sshVerb, remoteServer, commandPrep, markerStart, site.Site, additionalArgsStr, markerEnd, recipeFile, sshFailSuffix)
 		} else {
-			sshCommand = fmt.Sprintf("%s ssh %s \"%s bash -s -- --site=%s %s\" < %s%s", beforeSSH, remoteServer, commandPrep, site.Site, additionalArgsStr, recipeFile, sshFailSuffix)
+			sshCommand = fmt.Sprintf("%s %s %s \"%s bash -s -- --site=%s %s\" < %s%s", beforeSSH, sshVerb, remoteServer, commandPrep, site.Site, additionalArgsStr, recipeFile, sshFailSuffix)
 		}
 	} else {
 		// Interactive SSH
-		sshCommand = fmt.Sprintf("%s ssh %s", beforeSSH, remoteServer)
+		sshCommand = fmt.Sprintf("%s %s %s", beforeSSH, sshVerb, remoteServer)
 	}
 
 	// Clean up extra spaces
@@ -370,7 +390,97 @@ func sshNative(cmd *cobra.Command, args []string) {
 	shellCmd.Stdin = os.Stdin
 	shellCmd.Stdout = os.Stdout
 	shellCmd.Stderr = os.Stderr
-	shellCmd.Run()
+	code := exitStatus(shellCmd.Run())
+
+	// ssh exits 255 when the connection fails, but so does a remote command
+	// that dies of a PHP fatal. ssh's own log tells the two apart: it holds an
+	// error only when ssh itself failed. sshpass reports a rejected password
+	// as 5. Any other status belongs to the remote command, so a failing wp
+	// command no longer marks the site's connection as broken.
+	var sshErrors []string
+	connectionFailed := false
+	if code == 255 {
+		if sshLog == "" {
+			connectionFailed = true
+		} else if data, err := os.ReadFile(sshLog); err == nil {
+			sshErrors = sshLogErrors(string(data))
+			connectionFailed = len(sshErrors) > 0
+		}
+	}
+	if beforeSSH != "" && code == 5 {
+		connectionFailed = true
+		sshErrors = append(sshErrors, "sshpass: the password was rejected.")
+	}
+	if sshLog != "" {
+		os.Remove(sshLog)
+	}
+
+	if connectionFailed {
+		fmt.Fprintf(os.Stderr, "%sError:%s SSH connection to %s failed.\n", colorRed, colorNormal, target)
+		for _, line := range sshErrors {
+			fmt.Fprintln(os.Stderr, line)
+		}
+		if flagCommand != "" || flagScript != "" || flagRecipe != "" {
+			siteSSHFailNative(cmd, []string{site.Site})
+		}
+	}
+
+	if code != 0 {
+		os.Exit(code)
+	}
+}
+
+// exitStatus maps the error from exec.Cmd.Run to a process exit code.
+func exitStatus(err error) int {
+	if err == nil {
+		return 0
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		if code := exitErr.ExitCode(); code > 0 {
+			return code
+		}
+	}
+	return 1
+}
+
+// sshLogErrors returns the lines of an ssh -E log (LogLevel=ERROR) that report
+// a real failure. It drops the REMOTE HOST IDENTIFICATION HAS CHANGED notice,
+// which ssh logs at the same level on connections that then succeed.
+func sshLogErrors(log string) []string {
+	notice := []string{
+		"IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY",
+		"Someone could be eavesdropping on you",
+		"It is also possible that a host key has just been changed",
+		"The fingerprint for the ",
+		"SHA256:",
+		"MD5:",
+		"Please contact your system administrator",
+		"Add correct host key in ",
+		"Offending ",
+		"remove with:",
+		"ssh-keygen -f ",
+		"is disabled to avoid man-in-the-middle attacks",
+		"is disabled because the host key is not trusted",
+	}
+	var lines []string
+	for _, line := range strings.Split(log, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "@") {
+			continue
+		}
+		isNotice := false
+		for _, n := range notice {
+			if strings.Contains(line, n) {
+				isNotice = true
+				break
+			}
+		}
+		if !isNotice {
+			lines = append(lines, line)
+		}
+	}
+	return lines
 }
 
 var reTenantID = regexp.MustCompile(`^[1-9][0-9]{0,5}$`)

@@ -259,9 +259,10 @@ run_command() {
       exit 1
   fi
 
-  # Test SSH connectivity before vault create
-  ssh_test=$( captaincore ssh ${site}-${environment} --command="echo ok" --captain-id=$CAPTAIN_ID 2>&1 )
-  if [[ "$ssh_test" != *"ok"* ]]; then
+  # Test SSH connectivity before vault create. A failed connection now prints
+  # its ssh error (which can contain "ok", e.g. in a hostname), so the exit
+  # status decides first.
+  if ! ssh_test=$( captaincore ssh ${site}-${environment} --command="echo ok" --captain-id=$CAPTAIN_ID 2>&1 ) || [[ "$ssh_test" != *"ok"* ]]; then
     echo "$(date +'%Y-%m-%d %H:%M') SSH test failed for $site. Attempting credential refresh..."
     if captaincore site ssh-refresh ${site}-${environment} --captain-id=$CAPTAIN_ID; then
       # Re-read site configs since credentials changed

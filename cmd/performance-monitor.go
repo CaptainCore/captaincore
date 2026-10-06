@@ -191,8 +191,10 @@ func performanceMonitorFetchNative(cmd *cobra.Command, args []string) {
 	}
 	sshCmd := exec.Command("captaincore", "ssh", siteEnvArg,
 		fmt.Sprintf("--command=%s %s/php-monitor.log", tailCmd, privateDir))
+	// tail exits non-zero when the site has no monitor log yet; that is an
+	// empty report, not an error. Only a lost connection (255) stops here.
 	output, err := sshCmd.Output()
-	if err != nil {
+	if exitStatus(err) == 255 {
 		fmt.Fprintf(os.Stderr, "Error fetching monitor data: %v\n", err)
 		return
 	}

@@ -75,8 +75,10 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 		fmt.Print("Fetching site data via SSH... ")
 	}
 	sshCmd := exec.Command("captaincore", "ssh", args[0], "--script=fetch-site-data", "--captain-id="+captainID)
-	sshOutput, err := sshCmd.Output()
-	if err != nil || len(sshOutput) == 0 {
+	// A lost connection leaves no output. The script's own exit status is not
+	// checked: key:value lines it printed before failing are still good data.
+	sshOutput, _ := sshCmd.Output()
+	if len(sshOutput) == 0 {
 		if !flagSyncDataJSON {
 			fmt.Println("failed")
 		}

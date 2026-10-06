@@ -1107,7 +1107,9 @@ func siteStatsGenerateNative(cmd *cobra.Command, args []string) {
 	if strings.EqualFold(sa.Environment, "staging") {
 		sshCmd := exec.Command("captaincore", "ssh", fmt.Sprintf("%s-%s", site.Site, sa.Environment),
 			"--command=wp option get home --skip-plugins --skip-themes", "--captain-id="+captainID)
+		// No staging home URL means skip, not fall back to production's name.
 		output, err := sshCmd.Output()
+		siteName = ""
 		if err == nil {
 			siteName = strings.TrimSpace(string(output))
 			siteName = strings.TrimPrefix(siteName, "http://")
