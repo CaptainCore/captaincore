@@ -86,6 +86,10 @@ A source checkout owns its own `app/` and `lib/` scripts. `captaincore upgrade` 
 - **Per-tenant config** -- API keys, cloud storage remotes (rclone), branding, site list
 - **Optional integrations** -- `fathom_api_key` (analytics) and `typesafe_api_key` (the TypeSafe decision API behind `captaincore typesafe` and `scan --triage`; `TYPESAFE_API_KEY` in the environment works too)
 
+The folder settings (`path`, `path_tmp`, `path_recipes`, `path_scripts`, `path_keys`, `logs`) default to folders under `~/.captaincore` when left blank.
+
+CaptainCore has no scheduler of its own: backups, quicksaves, updates and uptime checks run from system cron. See [Cron and Scheduling](https://captaincore.io/docs/cli/cron-and-scheduling/) for a reference crontab.
+
 ## Usage
 
 ```bash
