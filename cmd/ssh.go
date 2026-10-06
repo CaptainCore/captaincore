@@ -237,7 +237,9 @@ func sshNative(cmd *cobra.Command, args []string) {
 			fmt.Fprintf(os.Stderr, "%sError:%s --tenant must be a numeric WP Freighter tenant id.\n", colorRed, colorNormal)
 			os.Exit(1)
 		}
-		environmentVars = fmt.Sprintf("export STACKED_SITE_ID=%s && %s", flagSSHTenant, environmentVars)
+		// After the site's own vars, so it wins when the site is itself a
+		// tenant whose environment vars already export STACKED_SITE_ID.
+		environmentVars = fmt.Sprintf("%sexport STACKED_SITE_ID=%s && ", environmentVars, flagSSHTenant)
 	}
 
 	// Determine SSH key
