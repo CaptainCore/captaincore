@@ -622,12 +622,12 @@ func newSteerConn(site *models.Site, env *models.Environment, system *config.Sys
 		conn.host = site.Site + ".ssh.wpengine.net"
 		conn.port = ""
 	case "rocketdotnet":
-		conn.commandPrep = fmt.Sprintf("cd %s/ &&", env.HomeDirectory)
+		conn.commandPrep = cdHomePrefix(env.HomeDirectory)
 		conn.user = env.Username
 		conn.host = env.Address
 		conn.port = env.Port
 	default:
-		conn.commandPrep = fmt.Sprintf("cd %s/ &&", env.HomeDirectory)
+		conn.commandPrep = cdHomePrefix(env.HomeDirectory)
 		conn.user = env.Username
 		conn.host = env.Address
 		conn.port = env.Port

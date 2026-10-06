@@ -291,7 +291,7 @@ type logsConn struct {
 
 // newLogsConn builds an SSH connection descriptor for a site, mirroring sshNative.
 func newLogsConn(site *models.Site, env *models.Environment, system *config.SystemConfig) (*logsConn, error) {
-	if env.Protocol != "sftp" {
+	if !isSSHProtocol(env.Protocol) {
 		return nil, fmt.Errorf("SSH not supported (protocol is %s)", env.Protocol)
 	}
 

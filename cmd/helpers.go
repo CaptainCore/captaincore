@@ -24,6 +24,23 @@ type SiteArg struct {
 }
 
 // parseSiteArgument parses a "site-environment@provider" string into its components.
+// isSSHProtocol reports whether an environment's protocol is one the CLI can
+// connect with. The Manager offers both "sftp" and "ssh" for the same SSH
+// login; only "ftp" (or a blank, unconfigured environment) is out of reach.
+func isSSHProtocol(protocol string) bool {
+	return protocol == "sftp" || protocol == "ssh"
+}
+
+// cdHomePrefix is the "cd <home>/ &&" a remote command starts with. With no
+// home directory it is empty, so the command runs in the login directory: the
+// old "cd /" ran it at the root of the server, where WordPress never is.
+func cdHomePrefix(home string) string {
+	if home == "" {
+		return ""
+	}
+	return fmt.Sprintf("cd %s/ &&", home)
+}
+
 func parseSiteArgument(arg string) SiteArg {
 	sa := SiteArg{SiteName: arg, Environment: "production"}
 

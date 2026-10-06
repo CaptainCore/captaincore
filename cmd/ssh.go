@@ -202,8 +202,8 @@ func sshNative(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	if env.Protocol != "sftp" {
-		fmt.Fprintf(os.Stderr, "%sError:%s SSH not supported (Protocol is %s).\n", colorRed, colorNormal, env.Protocol)
+	if !isSSHProtocol(env.Protocol) {
+		fmt.Fprintf(os.Stderr, "%sError:%s '%s' %s uses protocol %q. The CLI connects over SSH, so set the protocol to sftp or ssh.\n", colorRed, colorNormal, site.Site, env.Environment, env.Protocol)
 		os.Exit(1)
 	}
 
@@ -286,10 +286,10 @@ func sshNative(cmd *cobra.Command, args []string) {
 		remoteServer = fmt.Sprintf("%s %s@%s.ssh.wpengine.net", remoteOptions, site.Site, site.Site)
 		target = fmt.Sprintf("%s@%s.ssh.wpengine.net", site.Site, site.Site)
 	case "rocketdotnet":
-		commandPrep = fmt.Sprintf("%s cd %s/ &&", environmentVars, env.HomeDirectory)
+		commandPrep = fmt.Sprintf("%s %s", environmentVars, cdHomePrefix(env.HomeDirectory))
 		remoteServer = fmt.Sprintf("%s %s@%s -p %s", remoteOptions, env.Username, env.Address, env.Port)
 	default:
-		commandPrep = fmt.Sprintf("%s cd %s/ &&", environmentVars, env.HomeDirectory)
+		commandPrep = fmt.Sprintf("%s %s", environmentVars, cdHomePrefix(env.HomeDirectory))
 		remoteServer = fmt.Sprintf("%s %s@%s -p %s", remoteOptions, env.Username, env.Address, env.Port)
 	}
 

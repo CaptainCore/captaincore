@@ -80,7 +80,7 @@ func dbScanNative(cmd *cobra.Command, args []string) {
 				if environment != "" && environment != "all" && !strings.EqualFold(envs[j].Environment, environment) {
 					continue
 				}
-				if envs[j].Protocol != "sftp" || envs[j].Address == "" {
+				if !isSSHProtocol(envs[j].Protocol) || envs[j].Address == "" {
 					continue
 				}
 				targets = append(targets, dbScanTarget{&sites[i], &envs[j]})

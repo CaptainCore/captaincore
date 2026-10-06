@@ -53,8 +53,8 @@ func statsDeployNative(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	if env.Protocol != "sftp" {
-		fmt.Fprintf(os.Stderr, "%sError:%s SSH not supported (Protocol is %s).", colorRed, colorNormal, env.Protocol)
+	if !isSSHProtocol(env.Protocol) {
+		fmt.Fprintf(os.Stderr, "%sError:%s SSH not supported (Protocol is %s).\n", colorRed, colorNormal, env.Protocol)
 		return
 	}
 
