@@ -73,6 +73,32 @@ func GetSiteByName(name string) (*Site, error) {
 	return &site, nil
 }
 
+// GetSiteByDomain looks up an active site by its name, the domain, ignoring
+// case and a leading "www.". A domain shared by two active sites (mid
+// migration, say) is an error naming both slugs rather than a guess.
+func GetSiteByDomain(domain, provider string) (*Site, error) {
+	domain = strings.TrimPrefix(strings.ToLower(domain), "www.")
+	query := DB.Where("status = ? AND (lower(name) = ? OR lower(name) = ?)", "active", domain, "www."+domain)
+	if provider != "" {
+		query = query.Where("provider = ?", provider)
+	}
+	var sites []Site
+	if err := query.Limit(3).Find(&sites).Error; err != nil {
+		return nil, err
+	}
+	switch len(sites) {
+	case 0:
+		return nil, fmt.Errorf("no active site named %s", domain)
+	case 1:
+		return &sites[0], nil
+	}
+	slugs := make([]string, len(sites))
+	for i, s := range sites {
+		slugs[i] = s.Site
+	}
+	return nil, fmt.Errorf("%s matches more than one site (%s); use the slug", domain, strings.Join(slugs, ", "))
+}
+
 // GetSiteByID looks up a site by its ID.
 func GetSiteByID(id uint) (*Site, error) {
 	var site Site

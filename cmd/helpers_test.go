@@ -22,3 +22,23 @@ func TestConfigValueString(t *testing.T) {
 		}
 	}
 }
+
+func TestParseSiteArgumentDomain(t *testing.T) {
+	cases := map[string]SiteArg{
+		"mysite":                     {SiteName: "mysite", Environment: "production"},
+		"mysite-staging":             {SiteName: "mysite", Environment: "staging"},
+		"mysite@kinsta":              {SiteName: "mysite", Environment: "production", Provider: "kinsta"},
+		"blog.example.com":           {SiteName: "blog.example.com", Environment: "production", Domain: true},
+		"blog.example.com-staging":   {SiteName: "blog.example.com", Environment: "staging", Domain: true},
+		"my-site.com":                {SiteName: "my-site.com", Environment: "production", Domain: true},
+		"my-site.com-staging":        {SiteName: "my-site.com", Environment: "staging", Domain: true},
+		"my-site.com@kinsta":         {SiteName: "my-site.com", Environment: "production", Provider: "kinsta", Domain: true},
+		"my-site.com-staging@kinsta": {SiteName: "my-site.com", Environment: "staging", Provider: "kinsta", Domain: true},
+		"my-site.com@kinsta-staging": {SiteName: "my-site.com", Environment: "staging", Provider: "kinsta", Domain: true},
+	}
+	for arg, want := range cases {
+		if got := parseSiteArgument(arg); got != want {
+			t.Errorf("parseSiteArgument(%q) = %+v, want %+v", arg, got, want)
+		}
+	}
+}

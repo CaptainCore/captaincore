@@ -21,6 +21,7 @@ type SiteArg struct {
 	SiteName    string
 	Environment string // defaults to "production"
 	Provider    string
+	Domain      bool // SiteName is the site's domain (its name), not its slug
 }
 
 // parseSiteArgument parses a "site-environment@provider" string into its components.
@@ -42,6 +43,27 @@ func cdHomePrefix(home string) string {
 }
 
 func parseSiteArgument(arg string) SiteArg {
+	// Slugs never contain a dot, so an argument with one is the site's domain,
+	// which is hard to turn into a slug by hand (blog.example.com is
+	// blogexample). Dashes belong to the domain (my-site.com), so only one
+	// after the last dot names the environment: my-site.com-staging.
+	if base, _, _ := strings.Cut(arg, "@"); strings.Contains(base, ".") {
+		sa := SiteArg{Environment: "production", Domain: true}
+		name, provider, _ := strings.Cut(arg, "@")
+		if p, env, ok := strings.Cut(provider, "-"); ok {
+			provider, sa.Environment = p, env
+		}
+		if dot := strings.LastIndex(name, "."); dot >= 0 {
+			if dash := strings.Index(name[dot:], "-"); dash >= 0 {
+				sa.Environment = name[dot+dash+1:]
+				name = name[:dot+dash]
+			}
+		}
+		sa.SiteName = name
+		sa.Provider = provider
+		return sa
+	}
+
 	sa := SiteArg{SiteName: arg, Environment: "production"}
 
 	// Parse site-environment format
@@ -70,6 +92,9 @@ func parseSiteArgument(arg string) SiteArg {
 
 // LookupSite finds the site in the database matching this SiteArg.
 func (sa SiteArg) LookupSite() (*models.Site, error) {
+	if sa.Domain {
+		return models.GetSiteByDomain(sa.SiteName, sa.Provider)
+	}
 	if sa.Provider != "" {
 		return models.GetSiteByNameAndProvider(sa.SiteName, sa.Provider)
 	}

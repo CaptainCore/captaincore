@@ -180,7 +180,11 @@ func sshNative(cmd *cobra.Command, args []string) {
 	// Look up site
 	site, err := sa.LookupSite()
 	if err != nil || site == nil {
-		fmt.Fprintf(os.Stderr, "%sError:%s Site '%s' not found.\n", colorRed, colorNormal, sa.SiteName)
+		if sa.Domain && err != nil {
+			fmt.Fprintf(os.Stderr, "%sError:%s Site '%s' not found: %s.\n", colorRed, colorNormal, sa.SiteName, err)
+		} else {
+			fmt.Fprintf(os.Stderr, "%sError:%s Site '%s' not found.\n", colorRed, colorNormal, sa.SiteName)
+		}
 		os.Exit(1)
 	}
 

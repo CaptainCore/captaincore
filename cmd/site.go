@@ -274,40 +274,9 @@ var syncBatchSiteCmd = &cobra.Command{
 // siteGetNative implements `captaincore site get <site>` natively in Go.
 // Output must match site-get.php exactly for --bash, --field, and JSON formats.
 func siteGetNative(cmd *cobra.Command, args []string) {
-	siteArg := args[0]
-	environment := ""
-	provider := ""
-
-	// Parse site-environment format (e.g. "mysite-staging")
-	if strings.Contains(siteArg, "-") {
-		parts := strings.SplitN(siteArg, "-", 2)
-		siteArg = parts[0]
-		environment = parts[1]
-	}
-
-	// Parse site@provider format
-	if strings.Contains(siteArg, "@") {
-		parts := strings.SplitN(siteArg, "@", 2)
-		siteArg = parts[0]
-		provider = parts[1]
-	}
-	if strings.Contains(environment, "@") {
-		parts := strings.SplitN(environment, "@", 2)
-		environment = parts[0]
-		provider = parts[1]
-	}
-
-	// Look up the site
-	var site *models.Site
-	var err error
-
-	if id, parseErr := strconv.ParseUint(siteArg, 10, 64); parseErr == nil {
-		site, err = models.GetSiteByID(uint(id))
-	} else if provider != "" {
-		site, err = models.GetSiteByNameAndProvider(siteArg, provider)
-	} else {
-		site, err = models.GetSiteByName(siteArg)
-	}
+	sa := parseSiteArgument(args[0])
+	environment := sa.Environment
+	site, err := sa.LookupSite()
 
 	if err != nil || site == nil {
 		return // Match PHP behavior: return empty on not found
@@ -317,11 +286,6 @@ func siteGetNative(cmd *cobra.Command, args []string) {
 	environments, err := models.FindEnvironmentsBySiteID(site.SiteID)
 	if err != nil || len(environments) == 0 {
 		return
-	}
-
-	// Default to Production
-	if environment == "" {
-		environment = "Production"
 	}
 
 	// Find matching environment (case-insensitive)
