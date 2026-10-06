@@ -129,7 +129,7 @@ func LoadConfigFrom(path string) (FullConfig, error) {
 		}
 	}
 
-	applySystemDefaults(configs)
+	ApplySystemDefaults(configs)
 	return configs, nil
 }
 
@@ -144,19 +144,45 @@ func DefaultPathKeys() string {
 	return filepath.Join(home, ".captaincore", "data", "keys")
 }
 
-// applySystemDefaults fills system paths that must never be empty. Without a
-// default, an empty path_keys turned every ssh -i into /<captain_id>/<key>.
-// SystemRaw gets the same value so `config fetch` hands it to bash scripts,
-// and the next SaveConfig writes it into config.json.
-func applySystemDefaults(configs FullConfig) {
+// ApplySystemDefaults fills the folder settings that must never be empty, as
+// `captaincore connect` leaves them on a fresh install. Bash scripts build
+// paths like $path/<site>_<id>/ and $path_recipes/<name>.sh from them, so an
+// empty value put sites, recipes and logs at the root of the disk, and an
+// empty path_keys turned every ssh -i into /<captain_id>/<key>. Each blank
+// one becomes a folder under ~/.captaincore, created 0700 since it holds
+// backups, keys and scripts. SystemRaw gets the same value so `config fetch`
+// hands it to bash scripts, and the next SaveConfig writes it into config.json.
+func ApplySystemDefaults(configs FullConfig) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	base := filepath.Join(home, ".captaincore")
 	for i := range configs {
 		system := configs[i].System
-		if system == nil || system.PathKeys != "" {
+		if system == nil {
 			continue
 		}
-		system.PathKeys = DefaultPathKeys()
-		if configs[i].SystemRaw != nil && system.PathKeys != "" {
-			configs[i].SystemRaw["path_keys"] = system.PathKeys
+		for _, d := range []struct {
+			value *string
+			key   string
+			dir   string
+		}{
+			{&system.Path, "path", filepath.Join(base, "sites")},
+			{&system.PathTmp, "path_tmp", filepath.Join(base, "tmp")},
+			{&system.PathRecipes, "path_recipes", filepath.Join(base, "recipes")},
+			{&system.PathScripts, "path_scripts", filepath.Join(base, "scripts")},
+			{&system.PathKeys, "path_keys", DefaultPathKeys()},
+			{&system.Logs, "logs", filepath.Join(base, "logs")},
+		} {
+			if *d.value != "" || d.dir == "" {
+				continue
+			}
+			*d.value = d.dir
+			os.MkdirAll(d.dir, 0700)
+			if configs[i].SystemRaw != nil {
+				configs[i].SystemRaw[d.key] = d.dir
+			}
 		}
 	}
 }

@@ -597,7 +597,7 @@ func updateConfigFile(resp connectResponse) (string, error) {
 		action = "created"
 		configs = config.FullConfig{
 			{
-				System: &config.SystemConfig{PathKeys: config.DefaultPathKeys()},
+				System: &config.SystemConfig{},
 			},
 			{
 				CaptainID: "1",
@@ -606,6 +606,7 @@ func updateConfigFile(resp connectResponse) (string, error) {
 				Vars:      make(map[string]json.RawMessage),
 			},
 		}
+		config.ApplySystemDefaults(configs)
 	}
 
 	// Find or create the captain entry
