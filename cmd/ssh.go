@@ -240,7 +240,7 @@ func sshNative(cmd *cobra.Command, args []string) {
 	}
 
 	// Determine SSH key
-	remoteOptions := "-q -oStrictHostKeyChecking=no"
+	remoteOptions := "-q -oStrictHostKeyChecking=no -oConnectTimeout=30 -oServerAliveInterval=60 -oServerAliveCountMax=10"
 	beforeSSH := ""
 
 	key := siteDetails.Key
