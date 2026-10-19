@@ -715,6 +715,153 @@ if [[ -z "$session_signal_json" ]]; then
 fi
 echo "session_signal:$(trim "$session_signal_json")"
 
+# Spam signal — fleet reputation telemetry for Anchor Hosting Protect. Hashes only: the
+# sender IP and email of spam, and a fingerprint of every message, from the last 26 hours of
+# verdicts the site already made (Gravity Forms, comments, Flamingo, the Protect log).
+# Capped at 1,000 rows per source; ~0.5s on a busy site. sync-data posts it as spam-signal.
+read -r -d '' spam_signal_php <<'SPAMSIGNALEOF'
+<?php
+// Spam signal — fleet reputation telemetry for Anchor Hosting Protect. Reads the last 26 hours
+// of verdicts the site already made (Gravity Forms spam/active entries, spam/approved comments,
+// Flamingo spam/inbox, the Protect log) and emits HASHES only: the sender's IP and email for
+// spam, and a fingerprint of the message for every verdict. No raw IP, email or text leaves.
+// The hash functions mirror AnchorHostingProtect\Reputation (tests/reputation-parity.php).
+global $wpdb;
+$window = 26 * HOUR_IN_SECONDS; // Daily sync plus overlap; the Manager merges repeats.
+$since  = gmdate( 'Y-m-d H:i:s', time() - $window );
+$limit  = 1000;
+$salt   = 'anchor-protect-reputation-v1|';
+$home   = (string) get_option( 'home' );
+$host   = strtolower( (string) preg_replace( '/^www\./', '', (string) wp_parse_url( $home, PHP_URL_HOST ) ) );
+$name   = explode( '.', $host )[0] ?? '';
+$table  = function ( $t ) use ( $wpdb ) { return (bool) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->prefix . $t ) ); };
+
+$h_ip = function ( $ip ) use ( $salt ) {
+    $packed = @inet_pton( trim( (string) $ip ) );
+    return false === $packed ? '' : hash( 'sha256', $salt . 'ip|' . inet_ntop( $packed ) );
+};
+$h_email = function ( $email ) use ( $salt ) {
+    $email = strtolower( trim( (string) $email ) );
+    return false !== strpos( $email, '@' ) ? hash( 'sha256', $salt . 'email|' . $email ) : '';
+};
+$h_message = function ( $text ) use ( $salt, $name ) {
+    $text = strtolower( (string) $text );
+    $text = (string) preg_replace( '#https?://\S+|www\.\S+|\d+#', ' ', $text );
+    if ( strlen( $name ) >= 3 ) {
+        $text = str_replace( $name, ' ', $text );
+    }
+    $text = trim( (string) preg_replace( '/[^\p{L}\p{N}]+/u', ' ', $text ) );
+    return mb_strlen( $text ) >= 40 ? hash( 'sha256', $salt . 'message|' . $text ) : '';
+};
+
+$items = [];
+$add   = function ( $kind, $hash, $verdict, $source, $labeller, $at ) use ( &$items ) {
+    if ( '' === $hash ) {
+        return;
+    }
+    $key = $kind . $hash . $verdict;
+    if ( ! isset( $items[ $key ] ) ) {
+        $items[ $key ] = [ 'k' => $kind, 'h' => $hash, 'v' => $verdict, 's' => $source, 'l' => $labeller, 'n' => 0, 'f' => $at, 't' => $at ];
+    }
+    $items[ $key ]['n']++;
+    $items[ $key ]['f'] = min( $items[ $key ]['f'], $at );
+    $items[ $key ]['t'] = max( $items[ $key ]['t'], $at );
+};
+// IP and email reputation comes from spam only; messages from every verdict, since the same
+// pitch reaching many sites is the signal whether or not each site caught it.
+$record = function ( $verdict, $source, $labeller, $at, $ip, $email, $message_hash ) use ( $add, $h_ip, $h_email ) {
+    if ( 'spam' === $verdict ) {
+        $add( 'ip', $h_ip( $ip ), 'spam', $source, $labeller, $at );
+        $add( 'email', $h_email( $email ), 'spam', $source, $labeller, $at );
+    }
+    $add( 'message', $message_hash, $verdict, $source, $labeller, $at );
+};
+$counts = [];
+
+// Gravity Forms: spam and active entries, who flagged spam read from the entry notes.
+if ( $table( 'gf_entry' ) ) {
+    $p     = $wpdb->prefix;
+    $types = [];
+    foreach ( $wpdb->get_results( "SELECT form_id, display_meta FROM {$p}gf_form_meta" ) as $fm ) {
+        foreach ( (array) ( json_decode( (string) $fm->display_meta, true )['fields'] ?? [] ) as $f ) {
+            $types[ (int) $fm->form_id ][ (string) ( $f['id'] ?? '' ) ] = (string) ( $f['type'] ?? '' );
+        }
+    }
+    $skip = [ 'consent', 'hidden', 'html', 'section', 'page', 'captcha', 'password', 'creditcard', 'fileupload', 'signature', 'checkbox', 'radio', 'select', 'multiselect', 'product', 'total' ];
+    $rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, form_id, ip, status, date_created FROM {$p}gf_entry WHERE status IN ('spam','active') AND date_created > %s AND ( created_by IS NULL OR created_by = 0 ) ORDER BY id DESC LIMIT %d", $since, $limit ) );
+    foreach ( $rows as $r ) {
+        $email   = '';
+        $longest = '';
+        foreach ( $wpdb->get_results( $wpdb->prepare( "SELECT meta_key, meta_value FROM {$p}gf_entry_meta WHERE entry_id = %d", $r->id ) ) as $m ) {
+            if ( ! preg_match( '/^(\d+)(\.\d+)?$/', $m->meta_key, $mm ) ) {
+                continue;
+            }
+            $type = $types[ (int) $r->form_id ][ $mm[1] ] ?? '';
+            if ( 'email' === $type ) {
+                $email = '' === $email ? (string) $m->meta_value : $email;
+            } elseif ( ! in_array( $type, $skip, true ) && strlen( (string) $m->meta_value ) > strlen( $longest ) ) {
+                $longest = (string) $m->meta_value;
+            }
+        }
+        $labeller = 'site';
+        if ( 'spam' === $r->status ) {
+            $notes    = strtolower( implode( ' ', $wpdb->get_col( $wpdb->prepare( "SELECT CONCAT(user_name, ' ', value) FROM {$p}gf_entry_notes WHERE entry_id = %d", $r->id ) ) ) );
+            $labeller = false !== strpos( $notes, 'anchor hosting protect' ) ? 'protect' : ( false !== strpos( $notes, 'cleantalk' ) ? 'cleantalk' : ( false !== strpos( $notes, 'honeypot' ) ? 'gf_honeypot' : ( false !== strpos( $notes, 'akismet' ) ? 'akismet' : ( false !== strpos( $notes, 'captcha' ) ? 'captcha' : 'site' ) ) ) );
+        }
+        $verdict = 'spam' === $r->status ? 'spam' : 'ham';
+        $record( $verdict, 'gf', $labeller, (string) $r->date_created, (string) $r->ip, $email, $h_message( $longest ) );
+        $counts[ 'gf_' . $verdict ] = ( $counts[ 'gf_' . $verdict ] ?? 0 ) + 1;
+    }
+}
+
+// Comments from visitors: spam and approved.
+$rows = $wpdb->get_results( $wpdb->prepare( "SELECT comment_ID, comment_author_email, comment_author_IP, comment_content, comment_approved, comment_date_gmt FROM {$wpdb->comments} WHERE comment_approved IN ('spam','1') AND comment_type IN ('','comment') AND user_id = 0 AND comment_date_gmt > %s ORDER BY comment_ID DESC LIMIT %d", $since, $limit ) );
+foreach ( $rows as $r ) {
+    $verdict  = 'spam' === $r->comment_approved ? 'spam' : 'ham';
+    $labeller = 'site';
+    if ( 'spam' === $verdict ) {
+        $labeller = get_comment_meta( $r->comment_ID, 'akismet_result', true ) ? 'akismet' : ( get_comment_meta( $r->comment_ID, 'ct_hash', true ) ? 'cleantalk' : 'site' );
+    }
+    $record( $verdict, 'comment', $labeller, (string) $r->comment_date_gmt, (string) $r->comment_author_IP, (string) $r->comment_author_email, $h_message( $r->comment_content ) );
+    $counts[ 'comment_' . $verdict ] = ( $counts[ 'comment_' . $verdict ] ?? 0 ) + 1;
+}
+
+// Flamingo (Contact Form 7's inbox): spam and inbox messages.
+$rows = $wpdb->get_results( $wpdb->prepare( "SELECT ID, post_status, post_content, post_date_gmt FROM {$wpdb->posts} WHERE post_type = 'flamingo_inbound' AND post_status IN ('flamingo-spam','publish') AND post_date_gmt > %s ORDER BY ID DESC LIMIT %d", $since, $limit ) );
+foreach ( $rows as $r ) {
+    $meta    = get_post_meta( $r->ID, '_meta', true );
+    $verdict = 'flamingo-spam' === $r->post_status ? 'spam' : 'ham';
+    $record( $verdict, 'flamingo', 'spam' === $verdict ? 'cf7' : 'site', (string) $r->post_date_gmt, is_array( $meta ) ? (string) ( $meta['remote_ip'] ?? '' ) : '', (string) get_post_meta( $r->ID, '_from_email', true ), $h_message( $r->post_content ) );
+    $counts[ 'flamingo_' . $verdict ] = ( $counts[ 'flamingo_' . $verdict ] ?? 0 ) + 1;
+}
+
+// Anchor Hosting Protect's own log, which already holds the message fingerprint.
+if ( $table( 'anchor_protect_log' ) ) {
+    $t   = $wpdb->prefix . 'anchor_protect_log';
+    $fp  = in_array( 'fingerprint', $wpdb->get_col( "SHOW COLUMNS FROM {$t}" ), true ) ? 'fingerprint' : "''";
+    $rows = $wpdb->get_results( $wpdb->prepare( "SELECT verdict, ip, email, {$fp} AS fingerprint, created_at FROM {$t} WHERE created_at > %s AND feedback != 'not_spam' ORDER BY id DESC LIMIT %d", $since, $limit ) );
+    foreach ( $rows as $r ) {
+        $verdict = 'spam' === $r->verdict ? 'spam' : 'ham';
+        $record( $verdict, 'protect', 'protect', (string) $r->created_at, (string) $r->ip, (string) $r->email, (string) $r->fingerprint );
+        $counts[ 'protect_' . $verdict ] = ( $counts[ 'protect_' . $verdict ] ?? 0 ) + 1;
+    }
+}
+
+echo wp_json_encode( [
+    'v'            => 1,
+    'collected_at' => gmdate( 'c' ),
+    'window_hours' => 26,
+    'counts'       => (object) $counts,
+    'items'        => array_values( $items ),
+] );
+SPAMSIGNALEOF
+
+spam_signal_json=$(echo "$spam_signal_php" | wp eval-file - --skip-themes --skip-plugins 2>/dev/null)
+if [[ -z "$spam_signal_json" ]]; then
+    spam_signal_json="{}"
+fi
+echo "spam_signal:$(trim "$spam_signal_json")"
+
 # Network shape: multisite subsites and WP Freighter tenants. Both keys are
 # JSON, or the literal null when the site is not that kind of network, so a
 # site that stops being one clears the stale value on the Manager (it merges

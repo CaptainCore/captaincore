@@ -421,6 +421,17 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 			"data":        signal,
 		})
 	}
+
+	// Post the spam signal (hashed IPs, emails and message fingerprints from the site's own
+	// spam verdicts) for Anchor Hosting Protect's fleet reputation. Best-effort, like the
+	// session signal; sites on an older fetch-site-data omit the key.
+	if signal, ok := data["spam_signal"]; ok && signal != "" && signal != "{}" {
+		client.Post("spam-signal", map[string]interface{}{
+			"site_id":     siteDetails.SiteID,
+			"environment": sa.Environment,
+			"data":        signal,
+		})
+	}
 }
 
 // parseSiteData parses key:value lines from fetch-site-data into a map.
