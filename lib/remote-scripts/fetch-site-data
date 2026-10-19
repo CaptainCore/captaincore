@@ -716,15 +716,18 @@ fi
 echo "session_signal:$(trim "$session_signal_json")"
 
 # Spam signal — fleet reputation telemetry for Breakwater. Hashes only: the
-# sender IP and email of spam, and a fingerprint of every message, from the last 26 hours of
-# verdicts the site already made (Gravity Forms, comments, Flamingo, the Breakwater log).
+# sender IP and email of spam, and an exact hash plus MinHash bands of every message, from the
+# last 26 hours of verdicts the site already made (Gravity Forms, comments, Flamingo, the
+# Breakwater log). Also whether Breakwater is active and which fleet list it holds.
 # Capped at 1,000 rows per source; ~0.5s on a busy site. sync-data posts it as spam-signal.
 read -r -d '' spam_signal_php <<'SPAMSIGNALEOF'
 <?php
 // Spam signal — fleet reputation telemetry for Breakwater. Reads the last 26 hours
 // of verdicts the site already made (Gravity Forms spam/active entries, spam/approved comments,
 // Flamingo spam/inbox, the Breakwater log) and emits HASHES only: the sender's IP and email for
-// spam, and a fingerprint of the message for every verdict. No raw IP, email or text leaves.
+// spam, and fingerprints of the message for every verdict: an exact hash and eight MinHash bands
+// that also match reworded copies. No raw IP, email or text leaves. Also reports whether
+// Breakwater is active and which fleet list it holds, so sync-data knows whether to send one.
 // The hash functions mirror Breakwater\Reputation (tests/reputation-parity.php).
 global $wpdb;
 $window = 26 * HOUR_IN_SECONDS; // Daily sync plus overlap; the Manager merges repeats.
@@ -744,14 +747,42 @@ $h_email = function ( $email ) use ( $salt ) {
     $email = strtolower( trim( (string) $email ) );
     return false !== strpos( $email, '@' ) ? hash( 'sha256', $salt . 'email|' . $email ) : '';
 };
-$h_message = function ( $text ) use ( $salt, $name ) {
-    $text = strtolower( (string) $text );
+$normalize = function ( $text ) use ( $name ) {
+    $text = (string) preg_replace( '/<[^>]*>/', ' ', (string) $text );
+    $text = strtolower( $text );
     $text = (string) preg_replace( '#https?://\S+|www\.\S+|\d+#', ' ', $text );
     if ( strlen( $name ) >= 3 ) {
         $text = str_replace( $name, ' ', $text );
     }
-    $text = trim( (string) preg_replace( '/[^\p{L}\p{N}]+/u', ' ', $text ) );
-    return mb_strlen( $text ) >= 40 ? hash( 'sha256', $salt . 'message|' . $text ) : '';
+    return trim( (string) preg_replace( '/[^\p{L}\p{N}]+/u', ' ', $text ) );
+};
+// The message's exact hash ('m') and its MinHash bands ('b': 8 bands x 4 rows, 3-word shingles).
+$h_message = function ( $text ) use ( $salt, $normalize ) {
+    $text  = $normalize( $text );
+    $len   = function_exists( 'mb_strlen' ) ? mb_strlen( $text ) : strlen( $text );
+    $out   = [ 'm' => $len >= 40 ? hash( 'sha256', $salt . 'message|' . $text ) : '', 'b' => [] ];
+    $words = array_slice( preg_split( '/\s+/', $text, -1, PREG_SPLIT_NO_EMPTY ) ?: [], 0, 400 );
+    if ( count( $words ) < 8 ) {
+        return $out;
+    }
+    $shingles = [];
+    for ( $i = 0; $i <= count( $words ) - 3; $i++ ) {
+        $shingles[ implode( ' ', array_slice( $words, $i, 3 ) ) ] = true;
+    }
+    $shingles = array_keys( $shingles );
+    for ( $b = 0; $b < 8; $b++ ) {
+        $mins = [];
+        for ( $r = 0; $r < 4; $r++ ) {
+            $seed = $b * 4 + $r;
+            $min  = PHP_INT_MAX;
+            foreach ( $shingles as $shingle ) {
+                $min = min( $min, crc32( $seed . '|' . $shingle ) );
+            }
+            $mins[] = $min;
+        }
+        $out['b'][] = hash( 'sha256', $salt . 'mband|' . $b . '|' . implode( ',', $mins ) );
+    }
+    return $out;
 };
 
 $items = [];
@@ -770,12 +801,15 @@ $add   = function ( $kind, $hash, $verdict, $source, $labeller, $at ) use ( &$it
 // IP and email reputation comes from spam only; messages from every verdict, since the same
 // pitch reaching many sites is the signal whether or not each site caught it. A site owner's
 // "Not spam" (labeller feedback) reports the sender too, so the fleet list can drop them.
-$record = function ( $verdict, $source, $labeller, $at, $ip, $email, $message_hash ) use ( $add, $h_ip, $h_email ) {
+$record = function ( $verdict, $source, $labeller, $at, $ip, $email, $message ) use ( $add, $h_ip, $h_email ) {
     if ( 'spam' === $verdict || 'feedback' === $labeller ) {
         $add( 'ip', $h_ip( $ip ), $verdict, $source, $labeller, $at );
         $add( 'email', $h_email( $email ), $verdict, $source, $labeller, $at );
     }
-    $add( 'message', $message_hash, $verdict, $source, $labeller, $at );
+    $add( 'message', $message['m'], $verdict, $source, $labeller, $at );
+    foreach ( $message['b'] as $band ) {
+        $add( 'mband', $band, $verdict, $source, $labeller, $at );
+    }
 };
 $counts = [];
 
@@ -793,6 +827,7 @@ if ( $table( 'gf_entry' ) ) {
     foreach ( $rows as $r ) {
         $email   = '';
         $longest = '';
+        $textarea = '';
         foreach ( $wpdb->get_results( $wpdb->prepare( "SELECT meta_key, meta_value FROM {$p}gf_entry_meta WHERE entry_id = %d", $r->id ) ) as $m ) {
             if ( ! preg_match( '/^(\d+)(\.\d+)?$/', $m->meta_key, $mm ) ) {
                 continue;
@@ -800,6 +835,8 @@ if ( $table( 'gf_entry' ) ) {
             $type = $types[ (int) $r->form_id ][ $mm[1] ] ?? '';
             if ( 'email' === $type ) {
                 $email = '' === $email ? (string) $m->meta_value : $email;
+            } elseif ( 'textarea' === $type && strlen( (string) $m->meta_value ) > strlen( $textarea ) ) {
+                $textarea = (string) $m->meta_value;
             } elseif ( ! in_array( $type, $skip, true ) && strlen( (string) $m->meta_value ) > strlen( $longest ) ) {
                 $longest = (string) $m->meta_value;
             }
@@ -810,7 +847,7 @@ if ( $table( 'gf_entry' ) ) {
             $labeller = false !== strpos( $notes, 'breakwater' ) ? 'breakwater' : ( false !== strpos( $notes, 'cleantalk' ) ? 'cleantalk' : ( false !== strpos( $notes, 'honeypot' ) ? 'gf_honeypot' : ( false !== strpos( $notes, 'akismet' ) ? 'akismet' : ( false !== strpos( $notes, 'captcha' ) ? 'captcha' : 'site' ) ) ) );
         }
         $verdict = 'spam' === $r->status ? 'spam' : 'ham';
-        $record( $verdict, 'gf', $labeller, (string) $r->date_created, (string) $r->ip, $email, $h_message( $longest ) );
+        $record( $verdict, 'gf', $labeller, (string) $r->date_created, (string) $r->ip, $email, $h_message( '' !== $textarea ? $textarea : $longest ) );
         $counts[ 'gf_' . $verdict ] = ( $counts[ 'gf_' . $verdict ] ?? 0 ) + 1;
     }
 }
@@ -836,22 +873,30 @@ foreach ( $rows as $r ) {
     $counts[ 'flamingo_' . $verdict ] = ( $counts[ 'flamingo_' . $verdict ] ?? 0 ) + 1;
 }
 
-// Breakwater's own log, which already holds the message fingerprint.
+// Breakwater's own log, which already holds the message's fingerprint and bands.
 if ( $table( 'breakwater_log' ) ) {
     $t   = $wpdb->prefix . 'breakwater_log';
-    $fp  = in_array( 'fingerprint', $wpdb->get_col( "SHOW COLUMNS FROM {$t}" ), true ) ? 'fingerprint' : "''";
-    $rows = $wpdb->get_results( $wpdb->prepare( "SELECT verdict, feedback, ip, email, {$fp} AS fingerprint, created_at FROM {$t} WHERE created_at > %s ORDER BY id DESC LIMIT %d", $since, $limit ) );
+    $cols = $wpdb->get_col( "SHOW COLUMNS FROM {$t}" );
+    $fp   = in_array( 'fingerprint', $cols, true ) ? 'fingerprint' : "''";
+    $bd   = in_array( 'bands', $cols, true ) ? 'bands' : "''";
+    $rows = $wpdb->get_results( $wpdb->prepare( "SELECT verdict, feedback, ip, email, {$fp} AS fingerprint, {$bd} AS bands, created_at FROM {$t} WHERE created_at > %s ORDER BY id DESC LIMIT %d", $since, $limit ) );
     foreach ( $rows as $r ) {
         // The owner's word wins: "Not spam" is a correction, "Was spam" confirms a missed one.
         $verdict  = 'not_spam' === $r->feedback ? 'ham' : ( 'spam' === $r->verdict || 'spam' === $r->feedback ? 'spam' : 'ham' );
         $labeller = '' !== (string) $r->feedback ? 'feedback' : 'breakwater';
-        $record( $verdict, 'breakwater', $labeller, (string) $r->created_at, (string) $r->ip, (string) $r->email, (string) $r->fingerprint );
+        $record( $verdict, 'breakwater', $labeller, (string) $r->created_at, (string) $r->ip, (string) $r->email, [ 'm' => (string) $r->fingerprint, 'b' => array_filter( explode( ',', (string) $r->bands ) ) ] );
         $counts[ 'breakwater_' . $verdict ] = ( $counts[ 'breakwater_' . $verdict ] ?? 0 ) + 1;
     }
 }
 
+// Is Breakwater on this site (as a plugin or an mu-plugin), and which fleet list does it hold?
+$active_plugins = array_merge( (array) get_option( 'active_plugins', [] ), array_keys( (array) get_site_option( 'active_sitewide_plugins', [] ) ) );
+$bw_active      = (bool) preg_grep( '#(^|/)breakwater\.php$#', $active_plugins ) || file_exists( WPMU_PLUGIN_DIR . '/breakwater/breakwater.php' ) || file_exists( WPMU_PLUGIN_DIR . '/breakwater.php' );
+$bw_list        = get_option( 'breakwater_reputation' );
+
 echo wp_json_encode( [
-    'v'            => 1,
+    'v'            => 2,
+    'breakwater'   => [ 'active' => $bw_active, 'list' => is_array( $bw_list ) ? (string) ( $bw_list['generated'] ?? '' ) : '' ],
     'collected_at' => gmdate( 'c' ),
     'window_hours' => 26,
     'counts'       => (object) $counts,
