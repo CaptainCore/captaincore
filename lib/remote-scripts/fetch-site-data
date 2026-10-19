@@ -768,11 +768,12 @@ $add   = function ( $kind, $hash, $verdict, $source, $labeller, $at ) use ( &$it
     $items[ $key ]['t'] = max( $items[ $key ]['t'], $at );
 };
 // IP and email reputation comes from spam only; messages from every verdict, since the same
-// pitch reaching many sites is the signal whether or not each site caught it.
+// pitch reaching many sites is the signal whether or not each site caught it. A site owner's
+// "Not spam" (labeller feedback) reports the sender too, so the fleet list can drop them.
 $record = function ( $verdict, $source, $labeller, $at, $ip, $email, $message_hash ) use ( $add, $h_ip, $h_email ) {
-    if ( 'spam' === $verdict ) {
-        $add( 'ip', $h_ip( $ip ), 'spam', $source, $labeller, $at );
-        $add( 'email', $h_email( $email ), 'spam', $source, $labeller, $at );
+    if ( 'spam' === $verdict || 'feedback' === $labeller ) {
+        $add( 'ip', $h_ip( $ip ), $verdict, $source, $labeller, $at );
+        $add( 'email', $h_email( $email ), $verdict, $source, $labeller, $at );
     }
     $add( 'message', $message_hash, $verdict, $source, $labeller, $at );
 };
@@ -839,10 +840,12 @@ foreach ( $rows as $r ) {
 if ( $table( 'anchor_protect_log' ) ) {
     $t   = $wpdb->prefix . 'anchor_protect_log';
     $fp  = in_array( 'fingerprint', $wpdb->get_col( "SHOW COLUMNS FROM {$t}" ), true ) ? 'fingerprint' : "''";
-    $rows = $wpdb->get_results( $wpdb->prepare( "SELECT verdict, ip, email, {$fp} AS fingerprint, created_at FROM {$t} WHERE created_at > %s AND feedback != 'not_spam' ORDER BY id DESC LIMIT %d", $since, $limit ) );
+    $rows = $wpdb->get_results( $wpdb->prepare( "SELECT verdict, feedback, ip, email, {$fp} AS fingerprint, created_at FROM {$t} WHERE created_at > %s ORDER BY id DESC LIMIT %d", $since, $limit ) );
     foreach ( $rows as $r ) {
-        $verdict = 'spam' === $r->verdict ? 'spam' : 'ham';
-        $record( $verdict, 'protect', 'protect', (string) $r->created_at, (string) $r->ip, (string) $r->email, (string) $r->fingerprint );
+        // The owner's word wins: "Not spam" is a correction, "Was spam" confirms a missed one.
+        $verdict  = 'not_spam' === $r->feedback ? 'ham' : ( 'spam' === $r->verdict || 'spam' === $r->feedback ? 'spam' : 'ham' );
+        $labeller = '' !== (string) $r->feedback ? 'feedback' : 'protect';
+        $record( $verdict, 'protect', $labeller, (string) $r->created_at, (string) $r->ip, (string) $r->email, (string) $r->fingerprint );
         $counts[ 'protect_' . $verdict ] = ( $counts[ 'protect_' . $verdict ] ?? 0 ) + 1;
     }
 }
