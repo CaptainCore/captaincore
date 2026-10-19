@@ -715,22 +715,22 @@ if [[ -z "$session_signal_json" ]]; then
 fi
 echo "session_signal:$(trim "$session_signal_json")"
 
-# Spam signal — fleet reputation telemetry for Anchor Hosting Protect. Hashes only: the
+# Spam signal — fleet reputation telemetry for Breakwater. Hashes only: the
 # sender IP and email of spam, and a fingerprint of every message, from the last 26 hours of
-# verdicts the site already made (Gravity Forms, comments, Flamingo, the Protect log).
+# verdicts the site already made (Gravity Forms, comments, Flamingo, the Breakwater log).
 # Capped at 1,000 rows per source; ~0.5s on a busy site. sync-data posts it as spam-signal.
 read -r -d '' spam_signal_php <<'SPAMSIGNALEOF'
 <?php
-// Spam signal — fleet reputation telemetry for Anchor Hosting Protect. Reads the last 26 hours
+// Spam signal — fleet reputation telemetry for Breakwater. Reads the last 26 hours
 // of verdicts the site already made (Gravity Forms spam/active entries, spam/approved comments,
-// Flamingo spam/inbox, the Protect log) and emits HASHES only: the sender's IP and email for
+// Flamingo spam/inbox, the Breakwater log) and emits HASHES only: the sender's IP and email for
 // spam, and a fingerprint of the message for every verdict. No raw IP, email or text leaves.
-// The hash functions mirror AnchorHostingProtect\Reputation (tests/reputation-parity.php).
+// The hash functions mirror Breakwater\Reputation (tests/reputation-parity.php).
 global $wpdb;
 $window = 26 * HOUR_IN_SECONDS; // Daily sync plus overlap; the Manager merges repeats.
 $since  = gmdate( 'Y-m-d H:i:s', time() - $window );
 $limit  = 1000;
-$salt   = 'anchor-protect-reputation-v1|';
+$salt   = 'breakwater-reputation-v1|';
 $home   = (string) get_option( 'home' );
 $host   = strtolower( (string) preg_replace( '/^www\./', '', (string) wp_parse_url( $home, PHP_URL_HOST ) ) );
 $name   = explode( '.', $host )[0] ?? '';
@@ -807,7 +807,7 @@ if ( $table( 'gf_entry' ) ) {
         $labeller = 'site';
         if ( 'spam' === $r->status ) {
             $notes    = strtolower( implode( ' ', $wpdb->get_col( $wpdb->prepare( "SELECT CONCAT(user_name, ' ', value) FROM {$p}gf_entry_notes WHERE entry_id = %d", $r->id ) ) ) );
-            $labeller = false !== strpos( $notes, 'anchor hosting protect' ) ? 'protect' : ( false !== strpos( $notes, 'cleantalk' ) ? 'cleantalk' : ( false !== strpos( $notes, 'honeypot' ) ? 'gf_honeypot' : ( false !== strpos( $notes, 'akismet' ) ? 'akismet' : ( false !== strpos( $notes, 'captcha' ) ? 'captcha' : 'site' ) ) ) );
+            $labeller = false !== strpos( $notes, 'breakwater' ) ? 'breakwater' : ( false !== strpos( $notes, 'cleantalk' ) ? 'cleantalk' : ( false !== strpos( $notes, 'honeypot' ) ? 'gf_honeypot' : ( false !== strpos( $notes, 'akismet' ) ? 'akismet' : ( false !== strpos( $notes, 'captcha' ) ? 'captcha' : 'site' ) ) ) );
         }
         $verdict = 'spam' === $r->status ? 'spam' : 'ham';
         $record( $verdict, 'gf', $labeller, (string) $r->date_created, (string) $r->ip, $email, $h_message( $longest ) );
@@ -836,17 +836,17 @@ foreach ( $rows as $r ) {
     $counts[ 'flamingo_' . $verdict ] = ( $counts[ 'flamingo_' . $verdict ] ?? 0 ) + 1;
 }
 
-// Anchor Hosting Protect's own log, which already holds the message fingerprint.
-if ( $table( 'anchor_protect_log' ) ) {
-    $t   = $wpdb->prefix . 'anchor_protect_log';
+// Breakwater's own log, which already holds the message fingerprint.
+if ( $table( 'breakwater_log' ) ) {
+    $t   = $wpdb->prefix . 'breakwater_log';
     $fp  = in_array( 'fingerprint', $wpdb->get_col( "SHOW COLUMNS FROM {$t}" ), true ) ? 'fingerprint' : "''";
     $rows = $wpdb->get_results( $wpdb->prepare( "SELECT verdict, feedback, ip, email, {$fp} AS fingerprint, created_at FROM {$t} WHERE created_at > %s ORDER BY id DESC LIMIT %d", $since, $limit ) );
     foreach ( $rows as $r ) {
         // The owner's word wins: "Not spam" is a correction, "Was spam" confirms a missed one.
         $verdict  = 'not_spam' === $r->feedback ? 'ham' : ( 'spam' === $r->verdict || 'spam' === $r->feedback ? 'spam' : 'ham' );
-        $labeller = '' !== (string) $r->feedback ? 'feedback' : 'protect';
-        $record( $verdict, 'protect', $labeller, (string) $r->created_at, (string) $r->ip, (string) $r->email, (string) $r->fingerprint );
-        $counts[ 'protect_' . $verdict ] = ( $counts[ 'protect_' . $verdict ] ?? 0 ) + 1;
+        $labeller = '' !== (string) $r->feedback ? 'feedback' : 'breakwater';
+        $record( $verdict, 'breakwater', $labeller, (string) $r->created_at, (string) $r->ip, (string) $r->email, (string) $r->fingerprint );
+        $counts[ 'breakwater_' . $verdict ] = ( $counts[ 'breakwater_' . $verdict ] ?? 0 ) + 1;
     }
 }
 
