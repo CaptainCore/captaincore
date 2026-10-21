@@ -84,7 +84,7 @@ fi
 # curl where the host has it, PHP's own HTTP otherwise.
 fetch() {
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL --max-time 60 "$1" -o "$2"
+    curl -fsL --max-time 60 "$1" -o "$2"
   else
     php -r '$b = @file_get_contents( $argv[1] ); exit( false === $b || false === file_put_contents( $argv[2], $b ) ? 1 : 0 );' "$1" "$2"
   fi
