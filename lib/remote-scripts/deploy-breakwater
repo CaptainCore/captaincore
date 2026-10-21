@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+
+#
+#   Deploy Breakwater as a must-use plugin
+#
+#   `deploy-breakwater [--mode=<auto|monitor|protect|off>] [--force-mode] [--version=<tag>] [--url=<file url>] [--remove]`
+#
+#   Installs the single-file Breakwater build attached to the latest GitHub release of
+#   anchorhost/breakwater (asset `breakwater-mu.php`, checked against `breakwater-mu.php.sha256`),
+#   or the release named by --version. --mode applies only where the site has no mode yet
+#   (--force-mode sets it anyway); leaving it out means auto: monitor while CleanTalk is active.
+#   --remove takes the file out and keeps the settings and log. --url installs from another
+#   location (testing; `<url>.sha256` must sit beside it).
+#
+#   Skips sites that aren't WordPress, run PHP older than 8.1, or have the regular plugin
+#   active. Confirms Breakwater boots, and puts the previous copy back (or removes the file)
+#   when it doesn't. Purges the page cache so cached pages pick up the script. Each site prints
+#   one line: BREAKWATER|<home>|<result>|<details>.
+#
+
+for arg in "$@"; do
+  case "$arg" in
+    --mode=*) mode="${arg#*=}" ;;
+    --force-mode) force_mode=true ;;
+    --version=*) version="${arg#*=}" ;;
+    --url=*) url="${arg#*=}" ;;
+    --remove) remove=true ;;
+  esac
+done
+
+if [ ! -f wp-config.php ]; then
+  echo "BREAKWATER|$(pwd)|skip|not a WordPress root"
+  exit 0
+fi
+
+WP="wp --skip-themes"
+home=$( $WP --skip-plugins option get home 2>/dev/null )
+mu_dir=$( $WP --skip-plugins eval 'echo WPMU_PLUGIN_DIR;' 2>/dev/null | tail -1 )
+mu_dir=${mu_dir:-wp-content/mu-plugins}
+target="$mu_dir/breakwater.php"
+
+purge_cache() {
+  local purged=""
+  $WP cache flush >/dev/null 2>&1
+  if $WP help kinsta cache >/dev/null 2>&1; then $WP kinsta cache purge --all >/dev/null 2>&1 && purged="$purged kinsta"; fi
+  if $WP help rocket clean >/dev/null 2>&1; then $WP rocket clean --confirm >/dev/null 2>&1 && purged="$purged wp-rocket"; fi
+  if $WP help litespeed-purge >/dev/null 2>&1; then $WP litespeed-purge all >/dev/null 2>&1 && purged="$purged litespeed"; fi
+  echo "${purged:- none}"
+}
+
+if [[ "$remove" == "true" ]]; then
+  if [ ! -f "$target" ]; then
+    echo "BREAKWATER|$home|skip|not installed"
+    exit 0
+  fi
+  rm -f "$target"
+  echo "BREAKWATER|$home|removed|settings and log kept, cache purged:$(purge_cache)"
+  exit 0
+fi
+
+if [[ "$mode" != "" && ! "$mode" =~ ^(auto|monitor|protect|off)$ ]]; then
+  echo "BREAKWATER|$home|failed|unknown mode $mode"
+  exit 0
+fi
+
+php_id=$( $WP --skip-plugins eval 'echo PHP_VERSION_ID;' 2>/dev/null | tail -1 )
+if [ -z "$php_id" ] || [ "$php_id" -lt 80100 ]; then
+  echo "BREAKWATER|$home|skip|PHP ${php_id:-unknown} is older than 8.1"
+  exit 0
+fi
+if $WP --skip-plugins plugin is-active breakwater >/dev/null 2>&1; then
+  echo "BREAKWATER|$home|skip|the regular plugin is active"
+  exit 0
+fi
+
+if [[ "$url" == "" ]]; then
+  if [[ "$version" == "" ]]; then
+    url="https://github.com/anchorhost/breakwater/releases/latest/download/breakwater-mu.php"
+  else
+    url="https://github.com/anchorhost/breakwater/releases/download/${version}/breakwater-mu.php"
+  fi
+fi
+
+# curl where the host has it, PHP's own HTTP otherwise.
+fetch() {
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL --max-time 60 "$1" -o "$2"
+  else
+    php -r '$b = @file_get_contents( $argv[1] ); exit( false === $b || false === file_put_contents( $argv[2], $b ) ? 1 : 0 );' "$1" "$2"
+  fi
+}
+
+mkdir -p "$mu_dir"
+tmp="$mu_dir/.breakwater.php.tmp"
+if ! fetch "$url.sha256" "$tmp" || ! sha=$( awk '{print $1}' "$tmp" ) || [[ ! "$sha" =~ ^[0-9a-f]{64}$ ]]; then
+  rm -f "$tmp"
+  echo "BREAKWATER|$home|failed|no release to install from $url"
+  exit 0
+fi
+if ! fetch "$url" "$tmp"; then
+  rm -f "$tmp"
+  echo "BREAKWATER|$home|failed|download failed: $url"
+  exit 0
+fi
+if [ "$( php -r 'echo hash_file( "sha256", $argv[1] );' "$tmp" )" != "$sha" ]; then
+  rm -f "$tmp"
+  echo "BREAKWATER|$home|failed|checksum mismatch"
+  exit 0
+fi
+new=$( grep -m1 ' \* Version:' "$tmp" | awk '{print $NF}' )
+
+previous=""
+backup="$mu_dir/.breakwater.php.previous"
+rm -f "$backup"
+if [ -f "$target" ]; then
+  previous=$( grep -m1 ' \* Version:' "$target" | awk '{print $NF}' )
+  cp -p "$target" "$backup"
+fi
+mv -f "$tmp" "$target"
+
+if [[ "$mode" != "" ]]; then
+  if [[ "$force_mode" == "true" ]]; then
+    $WP option update breakwater "{\"mode\":\"$mode\"}" --format=json >/dev/null 2>&1
+  else
+    $WP option add breakwater "{\"mode\":\"$mode\"}" --format=json >/dev/null 2>&1
+  fi
+fi
+
+status=$( $WP eval 'echo defined( "BREAKWATER_FILE" ) && class_exists( "Breakwater\\Plugin", false ) ? Breakwater\Plugin::VERSION . " " . Breakwater\Plugin::mode()->value : "not-loaded";' 2>/dev/null | tail -1 )
+case "$status" in
+  "$new "*)
+    rm -f "$backup"
+    echo "BREAKWATER|$home|installed|$new ${status#* }${previous:+ (was $previous)}, cache purged:$(purge_cache)"
+    ;;
+  *)
+    if [ -f "$backup" ]; then
+      mv -f "$backup" "$target"
+      echo "BREAKWATER|$home|failed|$new did not load (${status:-fatal}), $previous put back"
+    else
+      rm -f "$target"
+      echo "BREAKWATER|$home|failed|$new did not load (${status:-fatal}), removed"
+    fi
+    ;;
+esac
