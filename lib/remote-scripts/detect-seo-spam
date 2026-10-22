@@ -3,8 +3,7 @@
 #
 #   Detect SEO spam injection in WordPress content
 #
-#   Scans for the off-screen-cloaking pattern that SEO link-injection
-#   malware uses:
+#   Scans for the hidden-link pattern that SEO link-injection malware uses:
 #
 #     <div style="position:absolute;left:-9999px;width:500px;">
 #       <a href="https://spamcasino.example/">keyword</a>
@@ -15,39 +14,62 @@
 #   endorsement from your domain. The attacker monetizes by selling SEO
 #   link juice to spam clients.
 #
-#   This kind of injection lives in the database (post_content, widget
-#   options) as plain HTML with no PHP execution or obfuscation, so file-
-#   integrity scans, WP core checksums, plugin checksums, and signature-
-#   based malware scanners all walk past it. Only a content-pattern scan
-#   or Googlebot-perspective render check surfaces it.
+#   This kind of injection lives in the database as plain HTML with no PHP
+#   execution or obfuscation, so file-integrity scans, WP core checksums,
+#   plugin checksums, and signature-based malware scanners all walk past
+#   it. Only a content-pattern scan or Googlebot-perspective render check
+#   surfaces it.
 #
-#   Detection strategies (all run by default):
+#   Every location below is run through the same HTML scanner (scan_html),
+#   which flags an outbound <a href> to an external host when it sits in:
 #
-#     1. wp_posts.post_content — finds <div>/<p> with position:absolute and
-#        negative-left in any publish/draft/private post or page.
+#     cloak    an element with a large negative offset in its inline style:
+#              left/top/right/bottom/text-indent of -500px or more, in any
+#              property order, with or without position:absolute. Also the
+#              <div class="loading-frame-wrapper"> toolkit class.
+#     hidden   an element hidden with display:none, visibility:hidden,
+#              font-size:0, opacity:0 or height:0+overflow:hidden, AND the
+#              link carries a pharma/gambling keyword (hidden alone is too
+#              common in builder markup).
+#     gambling a link whose URL or anchor text is unambiguous slot/togel
+#              spam ("Slot Toto Online"). One is enough. Catches the
+#              low-contrast visible variant (font-size:12px;color:#bbb).
+#     pharma   a link whose URL or anchor text names a drug or an online
+#              pharmacy. Needs 2+ per location (one could be a legitimate
+#              medical reference).
 #
-#     2. wp_options.option_value — sidebar/footer widget content
-#        (widget_text, widget_custom_html, etc.) is a common spam location
-#        that lives outside post content.
+#   Locations scanned:
 #
-#     3. Frontend curl as Googlebot via localhost (Host-header routed,
-#        cache-bypass) — confirms what's actually served to crawlers and
-#        catches any server-side cloaking that doesn't appear in the DB.
+#     1. wp_posts.post_content of publish/draft/private posts.
+#     2. wp_postmeta of those posts (not revisions). Page builders and ACF
+#        keep the rendered HTML here: ACF flexible-content fields,
+#        _elementor_data (JSON-escaped), _fl_builder_data (serialized).
+#     3. wp_options.option_value (widgets, theme mods).
+#     4. The homepage fetched as Googlebot via localhost (Host-header
+#        routed, cache-bypassed). Catches server-side injection that is in
+#        none of the tables above.
 #
 #   Output format (pipe-delimited):
 #     SEVERITY|SOURCE|ID|TYPE|STATUS|TITLE|HITS|SAMPLE
 #
-#     SOURCE   = POST / OPTION / FRONTEND
-#     HITS     = number of cloaked elements found
-#     SAMPLE   = the external host found inside the cloak block
+#     SOURCE   = POST / META / OPTION / FRONTEND
+#     ID       = post ID (POST, META), option_id (OPTION), "home" (FRONTEND)
+#     TITLE    = post title; META rows append [meta_key]
+#     HITS     = flagged links, with the reason, e.g. "4 cloak" or "2 pharma"
+#     SAMPLE   = first external host among the flagged links
 #
-#   To eliminate false positives from anti-spam honeypot fields (which use
-#   the same off-screen positioning trick to hide bot-decoy inputs), a row
-#   is only emitted when SAMPLE is a real external hostname — not the site
-#   itself, not a Kinsta staging sibling, and not CSS/text gibberish that
-#   the SAMPLE extraction picked up because no href existed near the cloak.
-#   In short: position:absolute + left:-9999px alone is not enough; there
-#   must also be an <a href> to an external domain inside the block.
+#   Honeypot fields and screen-reader skip links use the same off-screen
+#   trick, so a hit always needs an <a href> to a real external host: not
+#   the site itself, not a Kinsta staging sibling.
+#
+#   Lessons that shaped the patterns:
+#     - A customer site (2026-10): <p style="position: absolute; top: -9999px;">
+#       in an ACF field. The old scan matched only left:-NNN and never
+#       read postmeta, so it reported clean while 4 links were live.
+#     - A customer site (2026-09): one visible low-contrast
+#       "Slot Toto Online" link to a hacked .go.id host. No cloaking CSS.
+#     - margin-top:-175px in Elementor CSS is layout, not cloaking. The
+#       offset property must start the declaration.
 #
 #   Usage:
 #     captaincore ssh <site> --script=detect-seo-spam
@@ -56,6 +78,7 @@
 #   Flags:
 #     --quiet         Only emit output when findings exist
 #     --skip-frontend Skip the live curl step (DB scan only)
+#     --skip-meta     Skip the postmeta scan (very large postmeta tables)
 #
 
 set -uo pipefail
@@ -63,10 +86,12 @@ set -uo pipefail
 # ── Argument parsing ─────────────────────────────────────────────
 quiet=""
 skip_frontend=""
+skip_meta=""
 for _arg in "$@"; do
     case "$_arg" in
         --quiet) quiet=true ;;
         --skip-frontend) skip_frontend=true ;;
+        --skip-meta) skip_meta=true ;;
         --*) ;;
         *)  WP_ROOT="$_arg" ;;
     esac
@@ -166,249 +191,239 @@ is_valid_external_host() {
     return 0
 }
 
+# ── Patterns ─────────────────────────────────────────────────────
+#
+# Keyword lists. PHARMA needs 2+ hits per location, GAMBLING needs one.
+# Both are matched against "<href> <anchor text>", lowercased, so a
+# keyword in either the URL or the visible text counts.
+
+PHARMA_KW='cialis|viagra|kamagra|sildenafil|tadalafil|vardenafil|levitra|dapoxetine|nolvadex|propecia|tetracycline|isotretinoin|accutane|clomid|doxycycline|prednisone|wellbutrin|abilify|maxalt|elocon|tramadol|xanax|alprazolam|valium|ambien|zolpidem|modafinil|oxycodone|rxpills|rxtabs|edtabs|pharmacyrx|onlinepharmacy|online-pharmacy|pharmacy-online|rxonline|rxbest|cheaprx|fastrx|norxbest|noprescription|nopres|farmacia|apotek|apotheke|pharmacie|payday|louisvuitton'
+GAMBLING_KW='slot[[:space:]_-]*(gacor|online|toto|thailand|demo|server|deposit|dana|maxwin|88)|situs[[:space:]_-]*(slot|toto|judi|togel)|togel|judi[[:space:]_-]*(bola|online|slot)|sbobet|maxwin|bandar[[:space:]_-]*(togel|slot|judi|bola)|toto[[:space:]_-]*(slot|macau|togel|online|4d)|scatter[[:space:]_-]*hitam|mahjong[[:space:]_-]*ways|pragmatic[[:space:]_-]*play'
+
+# Inline content allowed between a hiding element's open tag and the
+# links inside it. Block-level tags (</p>, <div>) end the run, so a link
+# AFTER the hidden element never counts as inside it.
+INLINE='([^<]|<(br|strong|em|b|i|u|span|font|small|sup|sub)([[:space:]][^>]*)?/?>|</(strong|em|b|i|u|span|font|small|sup|sub)>)*'
+ANCHOR='<a[[:space:]][^>]*href="https?://[^"]+"[^>]*>[^<]{0,200}</a>'
+BLOCK_STYLE='<(div|p|span|section|ul|li|font|small|td|center)[[:space:]][^>]*style="([^"]*[;[:space:]])?'
+
+# Offset values of -500 and beyond. -50px overlaps and -175px margins
+# are layout; real cloaks sit at -5000 to -84000.
+OFFSET_RE="${BLOCK_STYLE}(left|top|right|bottom|text-indent)[[:space:]]*:[[:space:]]*-([5-9][0-9]{2}|[0-9]{4,})[^\"]*\"[^>]*>(${INLINE}${ANCHOR})+"
+CLASS_RE="<div[[:space:]][^>]*class=\"[^\"]*loading-frame-wrapper[^\"]*\"[^>]*>(${INLINE}${ANCHOR})+"
+HIDDEN_RE="${BLOCK_STYLE}(display[[:space:]]*:[[:space:]]*none|visibility[[:space:]]*:[[:space:]]*hidden|font-size[[:space:]]*:[[:space:]]*0(px|pt|em)?[[:space:]]*(;|\")|opacity[[:space:]]*:[[:space:]]*0(\\.0+)?[[:space:]]*(;|\")|height[[:space:]]*:[[:space:]]*0(px)?[[:space:]]*;[^\"]*overflow[[:space:]]*:[[:space:]]*hidden)[^\"]*\"[^>]*>(${INLINE}${ANCHOR})+"
+
+# Cheap SQL prefilter so only plausible rows are pulled into bash. It is
+# deliberately looser than scan_html. (^|[^a-z]) keeps "specialist" from
+# matching cialis.
+SQL_OFFSET='(left|top|right|bottom|text-indent)[[:space:]]*:[[:space:]]*-([5-9][0-9]{2}|[0-9]{4,})'
+SQL_KEYWORD="(^|[^a-z])(${PHARMA_KW}|${GAMBLING_KW})"
+
+prefilter() {
+    local col="$1"
+    echo "$col LIKE '%href%' AND ($col REGEXP '${SQL_OFFSET}' OR $col LIKE '%loading-frame-wrapper%' OR $col REGEXP '${SQL_KEYWORD}')"
+}
+
+# Lowercased host of the first href in a string.
+href_host() {
+    grep -ioE 'href="https?://[^"/]+' | head -1 | sed -E 's|^href="https?://||' | tr 'A-Z' 'a-z'
+}
+
+# Reads HTML on stdin. Prints one "kind<TAB>host" line per flagged link
+# to an external host. kind = cloak | hidden | gambling | pharma.
+scan_html() {
+    local html
+    # Unescape Elementor JSON (\" and \/), flatten to one line for grep -o.
+    html=$(sed -e 's/\\"/"/g' -e 's#\\/#/#g' | tr '\n\r\t' '   ')
+    [ -z "$html" ] && return 0
+
+    local block anchor host text hidden_links
+    # kind<TAB>host<TAB>anchor for every link inside a hiding element.
+    hidden_links=$({
+        printf '%s' "$html" | grep -ioE "$OFFSET_RE" | sed 's/^/cloak\t/'
+        printf '%s' "$html" | grep -ioE "$CLASS_RE" | sed 's/^/cloak\t/'
+        printf '%s' "$html" | grep -ioE "$HIDDEN_RE" | sed 's/^/hidden\t/'
+    } | while IFS=$'\t' read -r kind block; do
+        printf '%s' "$block" | grep -ioE "$ANCHOR" | while read -r anchor; do
+            host=$(printf '%s' "$anchor" | href_host)
+            is_valid_external_host "$host" "$SITE_HOST" || continue
+            if [ "$kind" = "hidden" ]; then
+                printf '%s' "$anchor" | grep -iqE "$PHARMA_KW|$GAMBLING_KW" || continue
+            fi
+            printf '%s\t%s\t%s\n' "$kind" "$host" "$anchor"
+        done
+    done)
+    [ -n "$hidden_links" ] && printf '%s\n' "$hidden_links" | cut -f1,2
+
+    # Keyword links, skipping any already counted as hidden above.
+    printf '%s' "$html" | grep -ioE "$ANCHOR" | while read -r anchor; do
+        [ -n "$hidden_links" ] && printf '%s' "$hidden_links" | grep -qF -- "$anchor" && continue
+        text=$(printf '%s' "$anchor" | tr 'A-Z' 'a-z')
+        if printf '%s' "$text" | grep -qE "$GAMBLING_KW"; then
+            kind=gambling
+        elif printf '%s' "$text" | grep -qE "$PHARMA_KW"; then
+            kind=pharma
+        else
+            continue
+        fi
+        host=$(printf '%s' "$anchor" | href_host)
+        is_valid_external_host "$host" "$SITE_HOST" || continue
+        printf '%s\t%s\n' "$kind" "$host"
+    done
+}
+
+# Reads scan_html output on stdin. Prints "hits<TAB>sample" when the
+# location qualifies, nothing otherwise.
+summarize() {
+    local cloak=0 hidden=0 gambling=0 pharma=0 sample="" kind host
+    while IFS=$'\t' read -r kind host; do
+        [ -z "$kind" ] && continue
+        case "$kind" in
+            cloak)    cloak=$((cloak + 1)) ;;
+            hidden)   hidden=$((hidden + 1)) ;;
+            gambling) gambling=$((gambling + 1)) ;;
+            pharma)   pharma=$((pharma + 1)) ;;
+        esac
+        [ -z "$sample" ] && sample="$host"
+    done
+
+    local reasons=""
+    [ "$cloak" -gt 0 ]    && reasons="${reasons} ${cloak} cloak"
+    [ "$hidden" -gt 0 ]   && reasons="${reasons} ${hidden} hidden"
+    [ "$gambling" -gt 0 ] && reasons="${reasons} ${gambling} gambling"
+    [ "$pharma" -ge 2 ]   && reasons="${reasons} ${pharma} pharma"
+    [ -z "$reasons" ] && return 0
+
+    printf '%s\t%s\n' "${reasons# }" "$sample"
+}
+
 found_any=""
-seen_post_ids=" "
 
-# Pattern matching shared between scans:
-#
-#   <div|p ... style="...position:absolute...left:-DIGITS...">...</div|p>
-#
-# 3+ digits on the negative-left filters out the rare legitimate -50px-
-# style overlap design while catching every off-screen cloak observed in
-# the wild (typical values are -5000 to -84000).
-#
-# Some cloaking variants use a class instead of inline style:
-#   <div class="loading-frame-wrapper">...</div>
-# combined with a CSS rule defined elsewhere. We match that as a fallback.
+emit() {
+    # emit SEVERITY SOURCE ID TYPE STATUS TITLE HITS SAMPLE
+    found_any=true
+    local title="${6//|//}"
+    printf "%s|%s|%s|%s|%s|%s|%s|%s\n" "$1" "$2" "$3" "$4" "$5" "$title" "$7" "$8"
+}
 
-CLOAK_REGEX='<(div|p)[[:space:]][^>]*style="[^"]*position[[:space:]]*:[[:space:]]*absolute[^"]*left[[:space:]]*:[[:space:]]*-[0-9]{3,}'
-CLOAK_CLASS_REGEX='<div[[:space:]][^>]*class="[^"]*loading-frame-wrapper'
+severity_for() {
+    case "$1" in
+        publish|live) echo CRITICAL ;;
+        *)            echo HIGH ;;
+    esac
+}
 
-# Spam-domain href pattern for the visible-spam scan (section 1b).
+# Content columns travel as base64 so tabs/newlines in HTML can't break
+# the tab-separated rows. TO_BASE64 wraps every 76 chars and the mysql
+# client prints those newlines as a literal \n, which decode_b64 strips.
 #
-# Matches <a href="http(s)://...spam-keyword..."> anywhere in content.
-# Keywords are drug names, payday-loan terms, and counterfeit-luxury
-# patterns observed across multiple injection campaigns. Single hit could
-# be a legitimate medical/news reference, so the visible-spam scan
-# requires 2+ matches per post before flagging.
-#
-# This catches the unobfuscated variant where attackers append garbled
-# <p> blocks containing 5-10 anchor tags to spam domains, with no
-# cloaking style — the variant that sailed past CLOAK_REGEX on
-# snlym.com posts 356 and 359.
+# Never use the SQL REPLACE() function in these queries: WP-CLI 2.12's
+# `wp db query` treats any query containing the word REPLACE as a write
+# and prints no rows.
+b64() {
+    echo "TO_BASE64($1)"
+}
 
-SPAM_HREF_REGEX='<a[[:space:]]+[^>]*href="https?://[^"]*(cialis|viagra|payday|louisvuitton|kamagra|sildenafil|tadalafil|dapoxetine|nolvadex|propecia|tetracycline|isotretinoin|clomid|doxycycline|prednisone|wellbutrin|abilify|levitra|maxalt|elocon|rxpills|rxtabs|edtabs|pharmacyrx|onlinepharmacy|rxonline|rxbest|cheaprx|fastrx|norxbest|noprescription|nopres)[^"]*"'
+decode_b64() {
+    sed 's/\\n//g' | base64 -d 2>/dev/null
+}
 
-# ── 1. wp_posts.post_content scan ───────────────────────────────
+# ── 1. wp_posts.post_content ─────────────────────────────────────
 
 POST_QUERY="
-SELECT ID, post_type, post_status, post_title
+SELECT ID, post_type, post_status, post_title, $(b64 post_content)
 FROM ${PREFIX}posts
 WHERE post_status IN ('publish', 'draft', 'private')
-  AND (post_content REGEXP '${CLOAK_REGEX}'
-       OR post_content REGEXP '${CLOAK_CLASS_REGEX}')
+  AND post_type <> 'revision'
+  AND $(prefilter post_content)
 ORDER BY post_modified_gmt DESC
+LIMIT 2000
 "
 
-results=$(wp db query "$POST_QUERY" --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status)
+while IFS=$'\t' read -r id ptype pstatus ptitle body; do
+    [ -z "${id// }" ] && continue
+    summary=$(printf '%s' "$body" | decode_b64 | scan_html | summarize)
+    [ -z "$summary" ] && continue
+    IFS=$'\t' read -r hits sample <<< "$summary"
+    emit "$(severity_for "$pstatus")" POST "$id" "$ptype" "$pstatus" "$ptitle" "$hits" "$sample"
+done < <(wp db query "$POST_QUERY" --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status)
 
-if [ -n "$results" ]; then
-    while IFS=$'\t' read -r id ptype pstatus ptitle; do
-        [ -z "${id// }" ] && continue
-
-        # Sample external host (best-effort first href= near cloak)
-        sample=$(wp db query "
-            SELECT SUBSTRING_INDEX(
-              SUBSTRING_INDEX(
-                SUBSTRING(post_content, LOCATE('position', post_content)),
-              'href=\"', -1),
-            '\"', 1)
-            FROM ${PREFIX}posts WHERE ID = $id
-        " --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status | head -1 | head -c 80 | sed -E 's|^https?://||;s|/.*$||')
-
-        # Skip false positives: honeypot fields, CSS gibberish, self-links
-        is_valid_external_host "$sample" "$SITE_HOST" || continue
-
-        found_any=true
-
-        # Hit count: number of "position" tokens (each cloak has one)
-        hits=$(wp db query "
-            SELECT (LENGTH(post_content) - LENGTH(REPLACE(post_content, 'position', '')))/8
-            FROM ${PREFIX}posts WHERE ID = $id
-        " --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status | head -1)
-
-        case "$pstatus" in
-            publish) sev=CRITICAL ;;
-            *)       sev=HIGH ;;
-        esac
-
-        seen_post_ids="${seen_post_ids}${id} "
-
-        printf "%s|POST|%s|%s|%s|%s|%s|%s\n" \
-            "$sev" "$id" "$ptype" "$pstatus" "$ptitle" "${hits:-?}" "$sample"
-    done <<< "$results"
-fi
-
-# ── 1b. Visible spam-link paragraph scan ────────────────────────
+# ── 2. wp_postmeta (ACF fields, page-builder data) ───────────────
 #
-# Catches the unobfuscated injection variant: posts with 2+ <a href>
-# anchors pointing at known pharmacy / payday / luxury / drug-name
-# domains, with no off-screen cloaking style. The attacker just
-# appends garbled English seeded with affiliate links to the bottom
-# of a post — visible to humans, indexed by search engines.
-#
-# Threshold: 2+ matching anchors per post. A single hit could be a
-# legitimate medical/news reference; 2+ is unambiguous spam.
-#
-# Posts already flagged by section 1 are skipped to avoid duplicate
-# rows for the cloaked-AND-visible case (e.g. snlym.com post 346,
-# which had both a cloaked div and 3 trailing visible <p> blocks).
+# Only meta of live posts. Revisions carry copies of the same spam and
+# get cleaned along with the parent, so they would only add noise.
 
-VISIBLE_QUERY="
-SELECT ID, post_type, post_status, post_title
-FROM ${PREFIX}posts
-WHERE post_status IN ('publish', 'draft', 'private')
-  AND post_content REGEXP '${SPAM_HREF_REGEX}'
-ORDER BY post_modified_gmt DESC
+if [ -z "$skip_meta" ]; then
+    META_QUERY="
+SELECT p.ID, p.post_type, p.post_status, p.post_title, pm.meta_key, $(b64 pm.meta_value)
+FROM ${PREFIX}postmeta pm
+INNER JOIN ${PREFIX}posts p ON p.ID = pm.post_id
+WHERE p.post_status IN ('publish', 'draft', 'private')
+  AND p.post_type <> 'revision'
+  AND $(prefilter pm.meta_value)
+LIMIT 2000
 "
 
-vis_results=$(wp db query "$VISIBLE_QUERY" --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status)
-
-if [ -n "$vis_results" ]; then
-    while IFS=$'\t' read -r id ptype pstatus ptitle; do
+    while IFS=$'\t' read -r id ptype pstatus ptitle mkey body; do
         [ -z "${id// }" ] && continue
-
-        # Already emitted by section 1? Skip.
-        case "$seen_post_ids" in
-            *" $id "*) continue ;;
-        esac
-
-        # Count matching anchors. Fetch post_content and grep for the
-        # spam-href pattern. Threshold is 2+ to avoid flagging single
-        # legitimate medical/news references.
-        body=$(wp db query "
-            SELECT post_content
-            FROM ${PREFIX}posts WHERE ID = $id
-        " --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status)
-
-        anchor_hits=$(echo "$body" | grep -ioE '<a[[:space:]]+[^>]*href="https?://[^"]*(cialis|viagra|payday|louisvuitton|kamagra|sildenafil|tadalafil|dapoxetine|nolvadex|propecia|tetracycline|isotretinoin|clomid|doxycycline|prednisone|wellbutrin|abilify|levitra|maxalt|elocon|rxpills|rxtabs|edtabs|pharmacyrx|onlinepharmacy|rxonline|rxbest|cheaprx|fastrx|norxbest|noprescription|nopres)[^"]*"' | wc -l | tr -d ' ')
-
-        [ "${anchor_hits:-0}" -lt 2 ] && continue
-
-        # Sample: first spam href hostname found
-        sample=$(echo "$body" \
-            | grep -ioE '<a[[:space:]]+[^>]*href="https?://[^"]*(cialis|viagra|payday|louisvuitton|kamagra|sildenafil|tadalafil|dapoxetine|nolvadex|propecia|tetracycline|isotretinoin|clomid|doxycycline|prednisone|wellbutrin|abilify|levitra|maxalt|elocon|rxpills|rxtabs|edtabs|pharmacyrx|onlinepharmacy|rxonline|rxbest|cheaprx|fastrx|norxbest|noprescription|nopres)[^"]*"' \
-            | head -1 \
-            | grep -ioE 'href="[^"]*"' \
-            | sed -E 's|href="||;s|".*$||;s|^https?://||;s|/.*$||' \
-            | head -c 80)
-
-        # Sanity: extracted hostname looks like a real external domain
-        is_valid_external_host "$sample" "$SITE_HOST" || continue
-
-        found_any=true
-        seen_post_ids="${seen_post_ids}${id} "
-
-        case "$pstatus" in
-            publish) sev=CRITICAL ;;
-            *)       sev=HIGH ;;
-        esac
-
-        printf "%s|POST|%s|%s|%s|%s|%s|%s\n" \
-            "$sev" "$id" "$ptype" "$pstatus" "$ptitle" "$anchor_hits" "$sample"
-    done <<< "$vis_results"
+        summary=$(printf '%s' "$body" | decode_b64 | scan_html | summarize)
+        [ -z "$summary" ] && continue
+        IFS=$'\t' read -r hits sample <<< "$summary"
+        emit "$(severity_for "$pstatus")" META "$id" "$ptype" "$pstatus" "$ptitle [$mkey]" "$hits" "$sample"
+    done < <(wp db query "$META_QUERY" --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status)
 fi
 
-# ── 2. wp_options.option_value scan (widgets, theme mods, etc.) ──
+# ── 3. wp_options.option_value (widgets, theme mods, etc.) ───────
 #
 # Widget content (widget_text, widget_custom_html) is a common spam
-# location independent of post_content. These options store serialized
-# arrays where each widget instance has a "text" or "content" field
-# containing raw HTML — directly editable by anyone with admin access.
-#
-# We scan ALL options whose value matches the cloaking pattern. The
-# autoload column doesn't matter — both autoloaded and on-demand options
-# can hold spam.
+# location independent of post_content. Transients are skipped: they
+# cache remote API responses (feeds, news widgets) that legitimately
+# contain third-party links.
 
 OPTION_QUERY="
-SELECT option_id, option_name
+SELECT option_id, option_name, $(b64 option_value)
 FROM ${PREFIX}options
-WHERE option_value REGEXP '${CLOAK_REGEX}'
-   OR option_value REGEXP '${CLOAK_CLASS_REGEX}'
+WHERE option_name NOT LIKE '\_transient\_%'
+  AND option_name NOT LIKE '\_site\_transient\_%'
+  AND $(prefilter option_value)
+LIMIT 500
 "
 
-opt_results=$(wp db query "$OPTION_QUERY" --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status)
+while IFS=$'\t' read -r opt_id opt_name body; do
+    [ -z "${opt_id// }" ] && continue
+    summary=$(printf '%s' "$body" | decode_b64 | scan_html | summarize)
+    [ -z "$summary" ] && continue
+    IFS=$'\t' read -r hits sample <<< "$summary"
+    emit CRITICAL OPTION "$opt_id" option live "$opt_name" "$hits" "$sample"
+done < <(wp db query "$OPTION_QUERY" --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status)
 
-if [ -n "$opt_results" ]; then
-    while IFS=$'\t' read -r opt_id opt_name; do
-        [ -z "${opt_id// }" ] && continue
-
-        sample=$(wp db query "
-            SELECT SUBSTRING_INDEX(
-              SUBSTRING_INDEX(
-                SUBSTRING(option_value, LOCATE('position', option_value)),
-              'href=\"', -1),
-            '\"', 1)
-            FROM ${PREFIX}options WHERE option_id = $opt_id
-        " --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status | head -1 | head -c 80 | sed -E 's|^https?://||;s|/.*$||')
-
-        # Skip false positives: honeypot fields, CSS gibberish, self-links
-        is_valid_external_host "$sample" "$SITE_HOST" || continue
-
-        found_any=true
-
-        hits=$(wp db query "
-            SELECT (LENGTH(option_value) - LENGTH(REPLACE(option_value, 'position', '')))/8
-            FROM ${PREFIX}options WHERE option_id = $opt_id
-        " --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status | head -1)
-
-        printf "CRITICAL|OPTION|%s|option|live|%s|%s|%s\n" \
-            "$opt_id" "$opt_name" "${hits:-?}" "$sample"
-    done <<< "$opt_results"
-fi
-
-# ── 3. Frontend curl as Googlebot ───────────────────────────────
+# ── 4. Frontend curl as Googlebot ────────────────────────────────
 #
 # Cache-bypass headers + cachebuster query parameter ensure we don't
-# see stale cached HTML. This catches server-side UA cloaking and
+# see stale cached HTML. This catches server-side injection and
 # corroborates DB findings (or surfaces spam in unscanned tables).
-#
 
 if [ -z "$skip_frontend" ] && command -v curl &>/dev/null && [ -n "$SITE_HOST" ]; then
     UA_BOT="Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
     CACHEBUST=$(date +%s)
 
-    body=$(curl -ksL --max-time 20 \
+    page=$(curl -ksL --max-time 20 \
         -A "$UA_BOT" \
         -H "Host: $SITE_HOST" \
         -H "Cache-Control: no-cache" \
         -H "Pragma: no-cache" \
         "https://localhost/?nocache=${CACHEBUST}" 2>/dev/null)
 
-    if [ -n "$body" ]; then
-        cloak_hits=$(echo "$body" | grep -ioE 'position[[:space:]]*:[[:space:]]*absolute[^>]*left[[:space:]]*:[[:space:]]*-[0-9]{3,}' | wc -l | tr -d ' ')
-        class_hits=$(echo "$body" | grep -ioE 'class="[^"]*loading-frame-wrapper' | wc -l | tr -d ' ')
-        total_hits=$((cloak_hits + class_hits))
-
-        if [ "$total_hits" -gt 0 ]; then
-            # Find first href= inside any cloak block
-            sample=$(echo "$body" \
-                | grep -ioE '(<(div|p)[^>]*style="[^"]*position[^"]*absolute[^"]*left[^"]*-[0-9]+[^"]*"[^>]*>|<div[^>]*class="[^"]*loading-frame-wrapper[^"]*"[^>]*>)[^<]*<a[^>]*href="[^"]*"' \
-                | grep -ioE 'href="[^"]*"' \
-                | head -1 \
-                | sed -E 's|href="||;s|".*$||;s|^https?://||;s|/.*$||')
-
-            # Skip false positives: honeypot fields with no <a href> in the cloak
-            if is_valid_external_host "$sample" "$SITE_HOST"; then
-                found_any=true
-                printf "CRITICAL|FRONTEND|home|--|live|%s|%s|%s\n" \
-                    "$SITE_HOST" "$total_hits" "$sample"
-            fi
+    if [ -n "$page" ]; then
+        summary=$(printf '%s' "$page" | scan_html | summarize)
+        if [ -n "$summary" ]; then
+            IFS=$'\t' read -r hits sample <<< "$summary"
+            emit CRITICAL FRONTEND home -- live "$SITE_HOST" "$hits" "$sample"
         fi
     fi
 fi
 
-# ── 4. Result ────────────────────────────────────────────────────
+# ── 5. Result ────────────────────────────────────────────────────
 
 if [ -z "$found_any" ]; then
     [ -z "$quiet" ] && echo "No SEO spam detected."
