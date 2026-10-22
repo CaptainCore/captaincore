@@ -370,6 +370,9 @@ func monitorNative(cmd *cobra.Command, args []string) {
 	// pool is saturated, a restart. Runs detached; see monitor_recover.go.
 	monitorQueueRecoveries(monitorFile, logsPath, getVarString(captain, "monitor_auto_recovery"))
 
+	// Tell the Manager what is down now, so agents read outages there instead of the inbox.
+	monitorPostState(monitorFile, originalURLs, system, captain)
+
 	if notificationSent {
 		fmt.Println("Sending monitor alert email")
 
@@ -405,6 +408,36 @@ func monitorNative(cmd *cobra.Command, args []string) {
 
 	// Finalize
 	models.LogMonitorRunEnd(runID, siteCount, finalErrorCount, retryAttempts, restoredCount, notificationSent)
+}
+
+// monitorPostState sends the Manager the records still in monitor.json (every URL failing
+// now) and the names this run checked (`monitor-state`). The Manager keeps one incident per
+// outage and resolves the ones whose name was checked and is no longer failing.
+func monitorPostState(monitorFile string, originalURLs []string, system *config.SystemConfig, captain *config.CaptainConfig) {
+	// An unreadable monitor.json would read as "nothing is down" and resolve every
+	// open outage, so skip the post instead.
+	down := []MonitorRecord{}
+	if data, err := os.ReadFile(monitorFile); err == nil {
+		if err := json.Unmarshal(data, &down); err != nil {
+			fmt.Printf("Skipping monitor state: %v\n", err)
+			return
+		}
+	} else if !os.IsNotExist(err) {
+		fmt.Printf("Skipping monitor state: %v\n", err)
+		return
+	}
+	checked := make([]string, 0, len(originalURLs))
+	for _, entry := range originalURLs {
+		if parts := strings.SplitN(entry, ",", 2); len(parts) > 1 {
+			checked = append(checked, parts[1])
+		}
+	}
+	client := newAPIClient(system, captain)
+	if _, err := client.Post("monitor-state", map[string]interface{}{
+		"data": map[string]interface{}{"down": down, "checked": checked},
+	}); err != nil {
+		fmt.Printf("Error posting monitor state: %v\n", err)
+	}
 }
 
 // monitorGenerate processes results, updates monitor.json, and returns HTML email content.
