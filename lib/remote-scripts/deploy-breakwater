@@ -18,6 +18,7 @@
 #   one line: BREAKWATER|<home>|<result>|<details>.
 #
 
+mode=""; force_mode=""; version=""; url=""; remove=""
 for arg in "$@"; do
   case "$arg" in
     --mode=*) mode="${arg#*=}" ;;
@@ -54,6 +55,8 @@ if [[ "$remove" == "true" ]]; then
     exit 0
   fi
   rm -f "$target"
+  # A must-use plugin has no deactivation hook: its daily events would stay scheduled with nothing to run.
+  $WP cron event delete breakwater_cleanup breakwater_digest >/dev/null 2>&1
   echo "BREAKWATER|$home|removed|settings and log kept, cache purged:$(purge_cache)"
   exit 0
 fi
@@ -84,14 +87,14 @@ fi
 # curl where the host has it, PHP's own HTTP otherwise.
 fetch() {
   if command -v curl >/dev/null 2>&1; then
-    curl -fsL --max-time 60 "$1" -o "$2"
+    curl -fsL --proto '=https,file' --proto-redir '=https' --max-time 60 "$1" -o "$2"
   else
     php -r '$b = @file_get_contents( $argv[1] ); exit( false === $b || false === file_put_contents( $argv[2], $b ) ? 1 : 0 );' "$1" "$2"
   fi
 }
 
 mkdir -p "$mu_dir"
-tmp="$mu_dir/.breakwater.php.tmp"
+tmp=$(mktemp "$mu_dir/.breakwater.XXXXXX")
 if ! fetch "$url.sha256" "$tmp" || ! sha=$( awk '{print $1}' "$tmp" ) || [[ ! "$sha" =~ ^[0-9a-f]{64}$ ]]; then
   rm -f "$tmp"
   echo "BREAKWATER|$home|failed|no release to install from $url"
@@ -116,6 +119,7 @@ if [ -f "$target" ]; then
   previous=$( grep -m1 ' \* Version:' "$target" | awk '{print $NF}' )
   cp -p "$target" "$backup"
 fi
+chmod 644 "$tmp"
 mv -f "$tmp" "$target"
 
 if [[ "$mode" != "" ]]; then
