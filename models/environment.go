@@ -158,6 +158,24 @@ func FindEnvironmentsBySiteID(siteID uint) ([]Environment, error) {
 	return envs, err
 }
 
+// GetEnvironmentNamesBySite returns the lowercased environment names each site
+// has rows for, keyed by site_id. The orphan scan compares these with the
+// {site}_{id}/{environment} folders on disk.
+func GetEnvironmentNamesBySite() (map[uint]map[string]bool, error) {
+	var envs []Environment
+	if err := DB.Select("site_id", "environment").Find(&envs).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[uint]map[string]bool)
+	for _, e := range envs {
+		if out[e.SiteID] == nil {
+			out[e.SiteID] = make(map[string]bool)
+		}
+		out[e.SiteID][strings.ToLower(e.Environment)] = true
+	}
+	return out, nil
+}
+
 // UpsertEnvironment inserts or updates an environment record by environment_id.
 func UpsertEnvironment(env Environment, skipUsers bool) error {
 	var existing Environment

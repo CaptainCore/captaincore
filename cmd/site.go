@@ -109,15 +109,19 @@ var flagOrphansIncludeStaleNames bool
 
 var siteOrphansCmd = &cobra.Command{
 	Use:   "orphans",
-	Short: "Lists local site folders that do not match an active site",
+	Short: "Lists local site and environment folders that do not match the database",
 	Long: `Scans the CaptainCore data path for site folders ({site}_{id}) that are not
-tied to an active site in the local database. Useful for reclaiming disk space left
-behind after sites are deleted or renamed.
+tied to an active site in the local database, and for environment folders
+({site}_{id}/staging, {site}_{id}/production) inside a current site folder whose
+environment no longer exists. Useful for reclaiming disk space left behind after
+sites are deleted or renamed, or a staging environment is removed.
 
 Safety:
   - Only folders whose trailing site_id is NOT active are candidates (renamed
     active sites with a leftover old folder name are reported separately and
     skipped unless --include-stale-names).
+  - Environment folders are only candidates when the site has at least one
+    environment row; a site with none is skipped, not treated as empty.
   - Dry-run by default. --confirm re-scans and re-checks each folder before delete.
   - Prefer: dry-run with --write-list=FILE, review, then
     --confirm --from-list=FILE so only the reviewed set can be removed.
@@ -1338,12 +1342,20 @@ func siteSearchNative(cmd *cobra.Command, args []string) {
 
 // siteOrphanFolder is a disk folder classified relative to active sites.
 type siteOrphanFolder struct {
+	// Name is the folder path relative to the data path: {site}_{id}, or
+	// {site}_{id}/{environment} for an environment folder.
 	Name   string
 	SiteID uint
 	Size   int64
 	// Expected is set when site_id is still active under a different folder name.
 	Expected string
+	// Environment is set for an environment folder whose environment row is gone.
+	Environment string
 }
+
+// siteEnvironmentDirs are the folder names environments get inside a site folder
+// (strings.ToLower of the environment name).
+var siteEnvironmentDirs = map[string]bool{"production": true, "staging": true}
 
 // loadActiveSiteFolders returns expected folder name by exact name and by site_id.
 // loadActiveSiteFolders returns every folder name a site row still claims.
@@ -1381,6 +1393,20 @@ func parseSiteFolderName(folder string) (siteID uint, ok bool) {
 	return uint(id), true
 }
 
+// parseSiteEnvEntry splits a {site}_{id}/{environment} entry. Exactly one
+// separator, a valid site folder and a known environment folder name.
+func parseSiteEnvEntry(entry string) (folder, env string, siteID uint, ok bool) {
+	parts := strings.Split(entry, "/")
+	if len(parts) != 2 || !siteEnvironmentDirs[parts[1]] {
+		return "", "", 0, false
+	}
+	siteID, ok = parseSiteFolderName(parts[0])
+	if !ok {
+		return "", "", 0, false
+	}
+	return parts[0], parts[1], siteID, true
+}
+
 // pathUnderRoot reports whether path resolves inside root (no escape via .. or symlink tricks).
 func pathUnderRoot(path, root string) bool {
 	absRoot, err := filepath.Abs(root)
@@ -1403,6 +1429,7 @@ func pathUnderRoot(path, root string) bool {
 }
 
 // readOrphanAllowlist loads a newline-separated folder list (one name per line; # comments ok).
+// A line is a site folder ({site}_{id}) or an environment folder ({site}_{id}/{environment}).
 func readOrphanAllowlist(path string) (map[string]bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -1420,9 +1447,62 @@ func readOrphanAllowlist(path string) (map[string]bool, error) {
 		}
 		if _, ok := parseSiteFolderName(line); ok {
 			out[line] = true
+		} else if _, _, _, ok := parseSiteEnvEntry(line); ok {
+			out[line] = true
 		}
 	}
 	return out, nil
+}
+
+// scanEnvironmentOrphans finds environment folders inside current site folders
+// (byName) that have no matching environment row. A site with no environment
+// rows at all is counted in skippedNoRows instead, since an incomplete sync
+// looks the same as a site whose environments were all removed.
+func scanEnvironmentOrphans(dataPath string, byName map[string]bool, envsBySite map[uint]map[string]bool) (orphans []siteOrphanFolder, skippedNoRows int, err error) {
+	entries, err := os.ReadDir(dataPath)
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !byName[entry.Name()] {
+			continue
+		}
+		folder := entry.Name()
+		siteID, ok := parseSiteFolderName(folder)
+		if !ok {
+			continue
+		}
+		subs, err := os.ReadDir(filepath.Join(dataPath, folder))
+		if err != nil {
+			continue
+		}
+		known := envsBySite[siteID]
+		var found []siteOrphanFolder
+		for _, sub := range subs {
+			// ReadDir reports symlinks as non-directories, so a link is never a candidate.
+			if !sub.IsDir() || !siteEnvironmentDirs[sub.Name()] || known[sub.Name()] {
+				continue
+			}
+			name := folder + "/" + sub.Name()
+			envPath := filepath.Join(dataPath, folder, sub.Name())
+			if !pathUnderRoot(envPath, dataPath) {
+				fmt.Printf("Skipping %s (resolves outside data path)\n", name)
+				continue
+			}
+			size, _ := dirSize(envPath)
+			found = append(found, siteOrphanFolder{Name: name, SiteID: siteID, Size: size, Environment: sub.Name()})
+		}
+		if len(found) == 0 {
+			continue
+		}
+		if len(known) == 0 {
+			skippedNoRows++
+			continue
+		}
+		orphans = append(orphans, found...)
+	}
+	sort.Slice(orphans, func(i, j int) bool { return orphans[i].Name < orphans[j].Name })
+	return orphans, skippedNoRows, nil
 }
 
 // scanSiteOrphans classifies disk folders under system.Path.
@@ -1498,10 +1578,21 @@ func siteOrphansNative(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	envsBySite, err := models.GetEnvironmentNamesBySite()
+	if err != nil {
+		fmt.Printf("Error fetching environments: %v\n", err)
+		return
+	}
+
 	fmt.Printf("Scanning %s\n", dataPath)
 	fmt.Printf("Found %d active site folders in database\n", len(byName))
 
 	orphans, stale, err := scanSiteOrphans(dataPath, byName, byID)
+	if err != nil {
+		fmt.Printf("Error reading data path: %v\n", err)
+		return
+	}
+	envOrphans, skippedNoRows, err := scanEnvironmentOrphans(dataPath, byName, envsBySite)
 	if err != nil {
 		fmt.Printf("Error reading data path: %v\n", err)
 		return
@@ -1527,6 +1618,14 @@ func siteOrphansNative(cmd *cobra.Command, args []string) {
 		}
 		orphans = filtered
 
+		filteredEnv := envOrphans[:0]
+		for _, o := range envOrphans {
+			if allowlist[o.Name] {
+				filteredEnv = append(filteredEnv, o)
+			}
+		}
+		envOrphans = filteredEnv
+
 		if flagOrphansIncludeStaleNames {
 			filteredStale := stale[:0]
 			for _, s := range stale {
@@ -1538,10 +1637,16 @@ func siteOrphansNative(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	candidates := orphans
+	candidates := append([]siteOrphanFolder{}, orphans...)
 	if flagOrphansIncludeStaleNames {
-		candidates = append(append([]siteOrphanFolder{}, orphans...), stale...)
-		sort.Slice(candidates, func(i, j int) bool { return candidates[i].Name < candidates[j].Name })
+		candidates = append(candidates, stale...)
+	}
+	candidates = append(candidates, envOrphans...)
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].Name < candidates[j].Name })
+
+	if skippedNoRows > 0 {
+		fmt.Printf("\nSkipping environment folders in %d site folders that have no environment rows in the database.\n", skippedNoRows)
+		fmt.Println("(Run captaincore connect --sync; a site with no rows is never treated as having lost its environments.)")
 	}
 
 	if len(stale) > 0 && !flagOrphansIncludeStaleNames {
@@ -1566,7 +1671,7 @@ func siteOrphansNative(cmd *cobra.Command, args []string) {
 	if flagOrphansIncludeStaleNames {
 		label = "orphaned/stale-name"
 	}
-	fmt.Printf("\nFound %d %s folders:\n\n", len(candidates), label)
+	fmt.Printf("\nFound %d %s folders (%d site, %d environment):\n\n", len(candidates), label, len(candidates)-len(envOrphans), len(envOrphans))
 	fmt.Printf("%-50s %s\n", "Folder", "Size")
 
 	var totalSize int64
@@ -1612,13 +1717,26 @@ func siteOrphansNative(cmd *cobra.Command, args []string) {
 		fmt.Println("Error: Could not re-load active sites before delete. Aborting.")
 		return
 	}
+	envsBySite, err = models.GetEnvironmentNamesBySite()
+	if err != nil {
+		fmt.Println("Error: Could not re-load environments before delete. Aborting.")
+		return
+	}
 	orphansNow, staleNow, err := scanSiteOrphans(dataPath, byName, byID)
+	if err != nil {
+		fmt.Printf("Error re-scanning before delete: %v\n", err)
+		return
+	}
+	envOrphansNow, _, err := scanEnvironmentOrphans(dataPath, byName, envsBySite)
 	if err != nil {
 		fmt.Printf("Error re-scanning before delete: %v\n", err)
 		return
 	}
 	deletable := make(map[string]siteOrphanFolder)
 	for _, o := range orphansNow {
+		deletable[o.Name] = o
+	}
+	for _, o := range envOrphansNow {
 		deletable[o.Name] = o
 	}
 	if flagOrphansIncludeStaleNames {
@@ -1643,21 +1761,40 @@ func siteOrphansNative(cmd *cobra.Command, args []string) {
 			skipped++
 			continue
 		}
-		siteID, ok := parseSiteFolderName(c.Name)
-		if !ok {
-			fmt.Printf("Skipping %s (invalid folder name)\n", c.Name)
-			skipped++
-			continue
-		}
-		if expected, active := byID[siteID]; active && !flagOrphansIncludeStaleNames {
-			fmt.Printf("Skipping %s (site_id %d still active as %s)\n", c.Name, siteID, expected)
-			skipped++
-			continue
-		}
-		if byName[c.Name] {
-			fmt.Printf("Skipping %s (matches active folder)\n", c.Name)
-			skipped++
-			continue
+		if c.Environment != "" {
+			folder, env, siteID, ok := parseSiteEnvEntry(c.Name)
+			if !ok {
+				fmt.Printf("Skipping %s (invalid folder name)\n", c.Name)
+				skipped++
+				continue
+			}
+			if !byName[folder] {
+				fmt.Printf("Skipping %s (%s is no longer a current site folder)\n", c.Name, folder)
+				skipped++
+				continue
+			}
+			if len(envsBySite[siteID]) == 0 || envsBySite[siteID][env] {
+				fmt.Printf("Skipping %s (environment row present or site has no rows)\n", c.Name)
+				skipped++
+				continue
+			}
+		} else {
+			siteID, ok := parseSiteFolderName(c.Name)
+			if !ok {
+				fmt.Printf("Skipping %s (invalid folder name)\n", c.Name)
+				skipped++
+				continue
+			}
+			if expected, active := byID[siteID]; active && !flagOrphansIncludeStaleNames {
+				fmt.Printf("Skipping %s (site_id %d still active as %s)\n", c.Name, siteID, expected)
+				skipped++
+				continue
+			}
+			if byName[c.Name] {
+				fmt.Printf("Skipping %s (matches active folder)\n", c.Name)
+				skipped++
+				continue
+			}
 		}
 
 		folderPath := filepath.Join(dataPath, c.Name)
