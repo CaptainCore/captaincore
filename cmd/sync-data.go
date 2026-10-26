@@ -205,7 +205,7 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 	}
 
 	// Fields stored in the details JSON
-	detailKeys := []string{"default_role", "registration", "restic_cache", "php_version", "db_size", "wp_content"}
+	detailKeys := []string{"default_role", "registration", "restic_cache", "php_version", "db_size", "wp_content", "site_url"}
 	for _, key := range detailKeys {
 		if v, ok := data[key]; ok && v != "" {
 			details[key] = v

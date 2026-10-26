@@ -41,6 +41,7 @@ mu_plugins=$( wp plugin list --status=must-use --format=json --skip-themes --ski
 [[ -z "$mu_plugins" || "$mu_plugins" == "[]" ]] && mu_plugins="[]"
 core=$( wp core version --skip-themes --skip-plugins --skip-packages )
 home_url=$( wp option get home --skip-themes --skip-plugins --skip-packages )
+site_url=$( wp option get siteurl --skip-themes --skip-plugins --skip-packages )
 users=$( wp user list --format=json --skip-themes --skip-plugins --skip-packages )
 core_verify_checksums_response=$( wp core verify-checksums --skip-themes --skip-plugins --skip-packages 2>&1 )
 
@@ -432,6 +433,7 @@ echo "themes:$(trim "$themes")"
 echo "mu_plugins:$(trim "$mu_plugins")"
 echo "core:$(trim "$core")"
 echo "home_url:$(trim "$home_url")"
+echo "site_url:$(trim "$site_url")"
 echo "users:$(trim "$users")"
 echo "database_name:$(trim "$db_name")"
 echo "database_username:$(trim "$db_username")"
