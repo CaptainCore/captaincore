@@ -8,8 +8,15 @@
 #
 
 if [ ! -f "wp-config.php" ]; then
-    echo "WordPress not found"
-    exit
+    # WordPress in a subdirectory (wp-cli.yml "path: wp/") or with wp-config.php one level up.
+    # Ask WP-CLI where core lives and work from there, so every relative probe below sees the
+    # real install. Only follow it to the home directory or below.
+    wp_root=$( wp eval 'echo ABSPATH;' --skip-themes --skip-plugins --skip-packages 2>/dev/null | tail -1 )
+    wp_root="${wp_root%/}"
+    if [[ -z "$wp_root" || ! -f "$wp_root/wp-load.php" ]] || [[ "$wp_root" != "$(pwd -P)" && "$wp_root" != "$(pwd -P)/"* ]] || ! cd "$wp_root"; then
+        echo "WordPress not found"
+        exit
+    fi
 fi
 
 # Install CaptainCore helper if missing
