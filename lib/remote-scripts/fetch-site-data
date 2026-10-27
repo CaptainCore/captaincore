@@ -848,6 +848,20 @@ $tier = [ 'administrator' => [ 'users' => 0, 's' => 0, 'ips' => [] ],
 if ( $cap_user_ids ) {
     $in   = implode( ',', array_map( 'intval', $cap_user_ids ) );
     $info = $wpdb->get_results( "SELECT ID, user_login, user_registered FROM {$wpdb->users} WHERE ID IN ($in)" );
+    // Posts each privileged account touched in the last two days, for the Manager's admin
+    // watch (what a new administrator did). The daily sync overlaps by a day.
+    $recent = [];
+    $posts  = $wpdb->get_results( $wpdb->prepare( "SELECT ID, post_author, post_type, post_status, post_title, post_modified_gmt FROM {$wpdb->posts}
+        WHERE post_author IN ($in) AND post_modified_gmt >= %s AND post_type NOT IN ('revision','nav_menu_item','customize_changeset','oembed_cache')
+        AND post_status <> 'auto-draft' ORDER BY post_modified_gmt DESC LIMIT 500", gmdate( 'Y-m-d H:i:s', time() - 2 * DAY_IN_SECONDS ) ) );
+    foreach ( $posts as $p ) {
+        $a = (int) $p->post_author;
+        $recent[$a]['count'] = ( $recent[$a]['count'] ?? 0 ) + 1;
+        if ( count( $recent[$a]['items'] ?? [] ) < 5 ) {
+            $recent[$a]['items'][] = [ 'id' => (int) $p->ID, 'type' => $p->post_type, 'status' => $p->post_status,
+                'title' => mb_substr( $p->post_title, 0, 80 ), 'modified' => $p->post_modified_gmt ];
+        }
+    }
     foreach ( $info as $u ) {
         $uid      = (int) $u->ID;
         $is_admin = in_array( $uid, $admin_ids, true );
@@ -869,14 +883,31 @@ if ( $cap_user_ids ) {
                 }
             }
         }
+        // Application passwords outlive a password reset; never send the hash.
+        $apps = [];
+        foreach ( (array) get_user_meta( $uid, '_application_passwords', true ) as $ap ) {
+            if ( ! is_array( $ap ) ) { continue; }
+            $apps[] = [
+                'name'      => mb_substr( (string) ( $ap['name'] ?? '' ), 0, 80 ),
+                'created'   => ! empty( $ap['created'] ) ? gmdate( 'Y-m-d H:i:s', (int) $ap['created'] ) : '',
+                'last_used' => ! empty( $ap['last_used'] ) ? gmdate( 'Y-m-d H:i:s', (int) $ap['last_used'] ) : '',
+                'last_ip'   => (string) ( $ap['last_ip'] ?? '' ),
+            ];
+        }
+        // Newest 20 keeps the payload small on an account with many.
+        usort( $apps, function ( $x, $y ) { return strcmp( $y['created'], $x['created'] ); } );
+        $apps = array_slice( $apps, 0, 20 );
         $tier['admin_capable']['users']++;
         if ( $is_admin ) { $tier['administrator']['users']++; }
         $accounts[] = [
-            'login'      => $u->user_login,
-            'roles'      => array_values( $user_role_map[ $uid ] ?? [] ),
-            'registered' => $u->user_registered,
-            'is_admin'   => $is_admin,
-            'sessions'   => $s_out,
+            'user_id'       => $uid,
+            'login'         => $u->user_login,
+            'roles'         => array_values( $user_role_map[ $uid ] ?? [] ),
+            'registered'    => $u->user_registered,
+            'is_admin'      => $is_admin,
+            'sessions'      => $s_out,
+            'app_passwords' => $apps,
+            'recent_posts'  => $recent[ $uid ] ?? [ 'count' => 0 ],
         ];
     }
 }
