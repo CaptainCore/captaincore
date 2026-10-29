@@ -3,7 +3,10 @@
 #
 #   Deploys Mailgun
 #
-#   `deploy-mailgun --key=<key> --domain=<domain> --name=<name>`
+#   `deploy-mailgun --key=<key> --domain=<domain> [--name=<name>]`
+#
+#   Without --name the site keeps its current from name: the Gravity SMTP generic
+#   connector's, then the PHP mail connector's, then the site title.
 #
 
 # Loop through arguments and separate regular arguments from flags
@@ -44,6 +47,26 @@ for arg in "$@"; do
   fi
 
 done
+
+if [[ -z "$name" ]]; then
+  read -r -d '' from_name_php << 'PHPEOF'
+<?php
+foreach ( [ 'gravitysmtp_generic', 'gravitysmtp_phpmail' ] as $option ) {
+	$raw    = get_option( $option );
+	$config = is_string( $raw ) ? json_decode( $raw, true ) : $raw;
+	if ( is_array( $config ) && trim( $config['from_name'] ?? '' ) !== '' ) {
+		echo trim( $config['from_name'] );
+		return;
+	}
+}
+echo html_entity_decode( get_option( 'blogname' ), ENT_QUOTES );
+PHPEOF
+  name=$( echo "$from_name_php" | wp eval-file - --skip-plugins --skip-themes 2>/dev/null )
+  echo "Keeping from name: $name"
+fi
+
+# JSON-escape the name; it is interpolated into the connector JSON below.
+name=$( printf '%s' "$name" | php -r 'echo substr( json_encode( stream_get_contents( STDIN ), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ), 1, -1 );' )
 
 wp plugin install $gravitysmtp_zip --force --activate --skip-plugins --skip-themes
 
