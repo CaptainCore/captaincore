@@ -18,6 +18,12 @@
 #   $HOME/private. CLI PHP has no open_basedir, so a $HOME/tmp preview
 #   boots under WP-CLI and then 500s over HTTP.
 #
+#   The preview mirrors the live root: it sits at /tmp/<name>/<live basename>
+#   (usually .../public) and every non-core entry of the live root (.env,
+#   wp-content, vendor, ...) is symlinked in. Bedrock-style configs build
+#   paths from __DIR__ or dirname(ABSPATH); without the mirror those resolve
+#   to an empty preview and the probe fails while real updates are fine.
+#
 #   Directories that are not a WordPress root (empty staging, static HTML,
 #   non-WP apps) skip with result=ok action=skip — they are not failures.
 #
@@ -73,7 +79,14 @@ SITE_USER="${USER:-$(id -un 2>/dev/null)}"
 SITE_USER="${SITE_USER//[^A-Za-z0-9._-]/}"
 [[ -n "$SITE_USER" ]] || SITE_USER="u$(id -u)"
 PREVIEW_NAME="captaincore-core-preview-${SITE_USER}"
-PREVIEW="/tmp/${PREVIEW_NAME}"
+PREVIEW_ROOT="/tmp/${PREVIEW_NAME}"
+# Same directory name as live, so dirname(ABSPATH) . '/public' style lookups
+# land back on the preview.
+LIVE_BASENAME="$(basename "$LIVE")"
+if [[ ! "$LIVE_BASENAME" =~ ^[A-Za-z0-9._-]+$ || "$LIVE_BASENAME" == "." || "$LIVE_BASENAME" == ".." ]]; then
+  LIVE_BASENAME="public"
+fi
+PREVIEW="${PREVIEW_ROOT}/${LIVE_BASENAME}"
 PREVIOUS="${HOME}/tmp/captaincore-core-previous"
 BODY_FILE="${HOME}/tmp/cc-core-preview-body"
 BOOT_FILE=""
@@ -372,7 +385,7 @@ cleanup() {
   emit_result
   safe_rm_boot_file "$LIVE" "$BOOT_FILE"
   if [[ "$keep" != "true" ]]; then
-    safe_rm_tree "$PREVIEW" "$PREVIEW_NAME"
+    safe_rm_tree "$PREVIEW_ROOT" "$PREVIEW_NAME"
     safe_rm_tree "$PREVIOUS" "captaincore-core-previous"
   fi
   safe_rm_file "$BODY_FILE" "cc-core-preview-body"
@@ -458,19 +471,24 @@ if ( file_put_contents( $preview_config . '.live.php', $src ) === false ) {
 	fwrite( STDERR, "Unable to write preview wp-config.php.live.php\n" );
 	exit( 1 );
 }
+// Only define constants the live config cannot: Bedrock's Config::define()
+// throws on any constant that already exists (WP_CACHE, WP_CONTENT_DIR, ...).
 $body  = "<?php\n";
-$body .= "define( 'WP_CONTENT_DIR', " . var_export( $content_dir, true ) . " );\n";
-$body .= "define( 'WP_CONTENT_URL', " . var_export( $content_url, true ) . " );\n";
-$body .= "define( 'WP_CACHE', false );\n";
 $body .= "define( 'DONOTCACHEPAGE', true );\n";
 $body .= "define( 'CORE_PREVIEW', true );\n";
+// Preview must boot the new core, not serve a cached page. Block the
+// advanced-cache drop-in through a preinitialized hook instead of forcing
+// WP_CACHE. Closure: functions.php is not loaded when wp-settings asks.
+$body .= "\$GLOBALS['wp_filter']['enable_loading_advanced_cache_dropin'][PHP_INT_MAX][] = array( 'function' => static function () { return false; }, 'accepted_args' => 1 );\n";
 if ( $live_root !== '' ) {
 	$body .= "\$_SERVER['DOCUMENT_ROOT'] = " . var_export( $live_root, true ) . ";\n";
 }
 $body .= "@ini_set( 'memory_limit', '512M' );\n";
+$body .= "require __DIR__ . '/wp-config.php.live.php';\n";
+$body .= "if ( ! defined( 'WP_CONTENT_DIR' ) ) { define( 'WP_CONTENT_DIR', " . var_export( $content_dir, true ) . " ); }\n";
+$body .= "if ( ! defined( 'WP_CONTENT_URL' ) ) { define( 'WP_CONTENT_URL', " . var_export( $content_url, true ) . " ); }\n";
 $body .= "if ( ! defined( 'WP_MEMORY_LIMIT' ) ) { define( 'WP_MEMORY_LIMIT', '512M' ); }\n";
 $body .= "if ( ! defined( 'WP_MAX_MEMORY_LIMIT' ) ) { define( 'WP_MAX_MEMORY_LIMIT', '512M' ); }\n";
-$body .= "require __DIR__ . '/wp-config.php.live.php';\n";
 $body .= "require_once ABSPATH . 'wp-settings.php';\n";
 if ( file_put_contents( $preview_config, $body ) === false ) {
 	fwrite( STDERR, "Unable to write preview wp-config.php\n" );
@@ -483,6 +501,40 @@ PHP
   fi
   safe_rm_file "$writer" "write-preview-config.php"
   chmod 644 "$preview_config" "${preview_config}.live.php"
+}
+
+# Make the preview look like the live root. `wp core download --skip-content`
+# leaves a stub wp-content (index.php files only); swap it for the live one,
+# then symlink every other non-core live entry (.env, vendor, mu folders)
+# that the preview does not already have. Core files, wp-config and this
+# script's own files are never linked, so nothing written into the preview
+# lands on live. rm -rf of the preview removes links, not their targets.
+mirror_live_root() {
+  local stub="${PREVIEW}/wp-content"
+  [[ "$PREVIEW" == "${PREVIEW_ROOT}/"* ]] || die "Internal path mismatch for PREVIEW."
+  if [[ -d "$stub" && ! -L "$stub" ]]; then
+    if [[ -n "$(find "$stub" -type f ! -name index.php -print -quit)" ]]; then
+      fail_run config "Preview wp-content holds unexpected files; refusing to replace it."
+    fi
+    rm -rf -- "$stub"
+  fi
+
+  local entry name linked=0
+  shopt -s nullglob dotglob
+  for entry in "${LIVE}"/*; do
+    name="$(basename "$entry")"
+    case "$name" in
+      wp-config.php|wp-config.php.live.php|probe-render.php|write-preview-config.php|core-preview-boot-*) continue ;;
+    esac
+    [[ -e "${PREVIEW}/${name}" || -L "${PREVIEW}/${name}" ]] && continue
+    ln -s -- "$entry" "${PREVIEW}/${name}" && linked=$((linked + 1))
+  done
+  shopt -u nullglob dotglob
+
+  if [[ ! -e "${PREVIEW}/wp-content" && -n "$LIVE_CONTENT_DIR" && -d "$LIVE_CONTENT_DIR" ]]; then
+    ln -s -- "$LIVE_CONTENT_DIR" "${PREVIEW}/wp-content" && linked=$((linked + 1))
+  fi
+  echo "preview_mirror_links=${linked}"
 }
 
 write_probe_php() {
@@ -644,7 +696,8 @@ run_command() {
   if [[ -z "$HOME" || "$HOME" == "/" ]]; then
     die "HOME is unset or unsafe; refusing to continue."
   fi
-  is_our_tmp_dir "$PREVIEW" "$PREVIEW_NAME" || die "Internal path mismatch for PREVIEW."
+  is_our_tmp_dir "$PREVIEW_ROOT" "$PREVIEW_NAME" || die "Internal path mismatch for PREVIEW."
+  [[ "$PREVIEW" == "${PREVIEW_ROOT}/${LIVE_BASENAME}" ]] || die "Internal path mismatch for PREVIEW."
   is_our_tmp_dir "$PREVIOUS" "captaincore-core-previous" || die "Internal path mismatch for PREVIOUS."
   raise_cli_memory
 
@@ -669,12 +722,13 @@ run_command() {
   echo "content_dir=${LIVE_CONTENT_DIR}"
   echo "table_prefix=${LIVE_PREFIX}"
 
-  mkdir -p "$(dirname "$PREVIEW")" "${HOME}/tmp"
+  mkdir -p "${HOME}/tmp"
   if [[ "$version" == "next" ]]; then
     resolve_next_core_version
   fi
   echo "target=${version}"
-  safe_rm_tree "$PREVIEW" "$PREVIEW_NAME"
+  safe_rm_tree "$PREVIEW_ROOT" "$PREVIEW_NAME"
+  mkdir -p "$PREVIEW_ROOT" || fail_run download "Could not create ${PREVIEW_ROOT}"
   echo "Downloading WordPress ${version} into preview..."
   if ! wp core download --path="$PREVIEW" --version="$version" --skip-content --force; then
     fail_run download "Failed to download WordPress ${version}"
@@ -695,10 +749,8 @@ run_command() {
   fi
 
   write_preview_config
-  if [[ -n "$LIVE_CONTENT_DIR" && -d "$LIVE_CONTENT_DIR" && ! -e "${PREVIEW}/wp-content" ]]; then
-    ln -s "$LIVE_CONTENT_DIR" "${PREVIEW}/wp-content"
-  fi
   write_probe_php
+  mirror_live_root
 
   CLI_BOOT_OK=1
   echo "CLI boot (plugins + themes)..."
