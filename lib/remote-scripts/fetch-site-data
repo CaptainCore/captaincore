@@ -1200,10 +1200,14 @@ if ( function_exists( 'mb_strtolower' ) && function_exists( 'mb_substr' ) ) {
 $active_plugins = array_merge( (array) get_option( 'active_plugins', [] ), array_keys( (array) get_site_option( 'active_sitewide_plugins', [] ) ) );
 $bw_active      = (bool) preg_grep( '#(^|/)breakwater\.php$#', $active_plugins ) || file_exists( WPMU_PLUGIN_DIR . '/breakwater/breakwater.php' ) || file_exists( WPMU_PLUGIN_DIR . '/breakwater.php' );
 $bw_list        = get_option( 'breakwater_reputation' );
+// Does this copy of Breakwater score words (0.4 and up)? Only then is the word model worth sending.
+$bw_mu_file     = WPMU_PLUGIN_DIR . '/breakwater.php';
+$bw_words_ok    = (bool) glob( WP_PLUGIN_DIR . '/breakwater*/src/Words.php' ) || file_exists( WPMU_PLUGIN_DIR . '/breakwater/src/Words.php' )
+    || ( file_exists( $bw_mu_file ) && false !== strpos( (string) file_get_contents( $bw_mu_file ), 'final class Words' ) );
 
 echo wp_json_encode( [
     'v'            => 2,
-    'breakwater'   => [ 'active' => $bw_active, 'list' => is_array( $bw_list ) ? (string) ( $bw_list['generated'] ?? '' ) : '', 'words' => (string) ( json_decode( (string) get_option( 'breakwater_words', '' ), true )['generated'] ?? '' ) ],
+    'breakwater'   => [ 'active' => $bw_active, 'list' => is_array( $bw_list ) ? (string) ( $bw_list['generated'] ?? '' ) : '', 'words' => (string) ( json_decode( (string) get_option( 'breakwater_words', '' ), true )['generated'] ?? '' ), 'words_ok' => $bw_active && $bw_words_ok ],
     'collected_at' => gmdate( 'c' ),
     'window_hours' => 26,
     'counts'       => (object) $counts,
