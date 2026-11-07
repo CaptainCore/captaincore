@@ -433,7 +433,6 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 		})
 		// And the other way: sites running Breakwater get the fleet list when theirs is older.
 		pushBreakwaterList(args[0], signal, client, flagSyncDataJSON)
-		pushBreakwaterWords(args[0], signal, client, flagSyncDataJSON)
 	}
 }
 

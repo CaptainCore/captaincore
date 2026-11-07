@@ -1042,16 +1042,16 @@ if ( $table( 'gf_entry' ) ) {
         }
     }
     $skip = [ 'consent', 'hidden', 'html', 'section', 'page', 'captcha', 'password', 'creditcard', 'fileupload', 'signature', 'checkbox', 'radio', 'select', 'multiselect', 'product', 'total' ];
-    // The sender's email and the visitor's message: the longest textarea, else the longest other text field.
-    $gf_fields = function ( $entry_id, $form_id ) use ( $wpdb, $p, $types, $skip ) {
-        $email    = '';
-        $longest  = '';
+    $rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, form_id, ip, status, date_created FROM {$p}gf_entry WHERE status IN ('spam','active') AND date_created > %s AND ( created_by IS NULL OR created_by = 0 ) ORDER BY id DESC LIMIT %d", $since, $limit ) );
+    foreach ( $rows as $r ) {
+        $email   = '';
+        $longest = '';
         $textarea = '';
-        foreach ( $wpdb->get_results( $wpdb->prepare( "SELECT meta_key, meta_value FROM {$p}gf_entry_meta WHERE entry_id = %d", $entry_id ) ) as $m ) {
+        foreach ( $wpdb->get_results( $wpdb->prepare( "SELECT meta_key, meta_value FROM {$p}gf_entry_meta WHERE entry_id = %d", $r->id ) ) as $m ) {
             if ( ! preg_match( '/^(\d+)(\.\d+)?$/', $m->meta_key, $mm ) ) {
                 continue;
             }
-            $type = $types[ (int) $form_id ][ $mm[1] ] ?? '';
+            $type = $types[ (int) $r->form_id ][ $mm[1] ] ?? '';
             if ( 'email' === $type ) {
                 $email = '' === $email ? (string) $m->meta_value : $email;
             } elseif ( 'textarea' === $type && strlen( (string) $m->meta_value ) > strlen( $textarea ) ) {
@@ -1060,18 +1060,13 @@ if ( $table( 'gf_entry' ) ) {
                 $longest = (string) $m->meta_value;
             }
         }
-        return [ $email, '' !== $textarea ? $textarea : $longest ];
-    };
-    $rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, form_id, ip, status, date_created FROM {$p}gf_entry WHERE status IN ('spam','active') AND date_created > %s AND ( created_by IS NULL OR created_by = 0 ) ORDER BY id DESC LIMIT %d", $since, $limit ) );
-    foreach ( $rows as $r ) {
-        list( $email, $text ) = $gf_fields( $r->id, $r->form_id );
         $labeller = 'site';
         if ( 'spam' === $r->status ) {
             $notes    = strtolower( implode( ' ', $wpdb->get_col( $wpdb->prepare( "SELECT CONCAT(user_name, ' ', value) FROM {$p}gf_entry_notes WHERE entry_id = %d", $r->id ) ) ) );
             $labeller = false !== strpos( $notes, 'breakwater' ) ? 'breakwater' : ( false !== strpos( $notes, 'cleantalk' ) ? 'cleantalk' : ( false !== strpos( $notes, 'honeypot' ) ? 'gf_honeypot' : ( false !== strpos( $notes, 'akismet' ) ? 'akismet' : ( false !== strpos( $notes, 'captcha' ) ? 'captcha' : 'site' ) ) ) );
         }
         $verdict = 'spam' === $r->status ? 'spam' : 'ham';
-        $record( $verdict, 'gf', $labeller, (string) $r->date_created, (string) $r->ip, $email, $h_message( $text ) );
+        $record( $verdict, 'gf', $labeller, (string) $r->date_created, (string) $r->ip, $email, $h_message( '' !== $textarea ? $textarea : $longest ) );
         $counts[ 'gf_' . $verdict ] = ( $counts[ 'gf_' . $verdict ] ?? 0 ) + 1;
     }
 }
@@ -1113,106 +1108,18 @@ if ( $table( 'breakwater_log' ) ) {
     }
 }
 
-// Word counts for Breakwater's fleet word filter: for each token (words, word pairs, link domains,
-// the sender's email domain; hashed, as Breakwater\Words::tokens() makes them) how many of the
-// site's spam and kept messages used it. Always the previous full UTC day, so the Manager can take
-// each site's day once however often it syncs. Gravity Forms, comments and Flamingo only: the
-// Breakwater log keeps an excerpt, and its submissions are already counted where they were saved.
-$words = null;
-if ( function_exists( 'mb_strtolower' ) && function_exists( 'mb_substr' ) ) {
-    $own    = explode( '.', explode( '/', (string) preg_replace( '#^https?://(www\.)?#', '', mb_strtolower( $home ) ) )[0] )[0];
-    $w_tokens = function ( $text, $email ) use ( $own ) {
-        $text = mb_substr( (string) $text, 0, 5000 );
-        $out  = [];
-        if ( preg_match_all( '#(?:https?://|www\.)([^/\s<>"\']+)#iu', $text, $links ) ) {
-            foreach ( $links[1] as $link_host ) {
-                $out[ 'link:' . (string) preg_replace( '/^www\./', '', mb_strtolower( $link_host ) ) ] = true;
-            }
-        }
-        $text  = (string) preg_replace( '#(?:https?://|www\.)[^/\s<>"\']+#iu', ' ', mb_strtolower( $text ) );
-        $list  = [];
-        if ( preg_match_all( "/[a-z\x{e0}-\x{ff}][a-z\x{e0}-\x{ff}'\x{2019}-]{1,24}/u", $text, $found ) ) {
-            foreach ( $found[0] as $word ) {
-                $word = (string) preg_replace( "/^['\x{2019}-]+|['\x{2019}-]+$/u", '', $word );
-                if ( mb_strlen( $word ) >= 2 && $word !== $own ) {
-                    $list[] = $word;
-                }
-            }
-        }
-        foreach ( $list as $i => $word ) {
-            $out[ $word ] = true;
-            if ( isset( $list[ $i + 1 ] ) ) {
-                $out[ $word . ' ' . $list[ $i + 1 ] ] = true;
-            }
-        }
-        $email = trim( (string) $email );
-        if ( false !== strpos( $email, '@' ) ) {
-            $out[ 'from:' . mb_strtolower( substr( $email, strrpos( $email, '@' ) + 1 ) ) ] = true;
-        }
-        $hashed = [];
-        foreach ( array_keys( $out ) as $token ) {
-            $token    = (string) $token;
-            $hashed[] = ( false !== strpos( $token, ' ' ) || false !== strpos( $token, ':' ) ? '' : '=' ) . substr( hash( 'sha256', 'breakwater-words-v1|' . $token ), 0, 16 );
-        }
-        return $hashed;
-    };
-    $day      = gmdate( 'Y-m-d', time() - DAY_IN_SECONDS );
-    $from     = $day . ' 00:00:00';
-    $to       = gmdate( 'Y-m-d', time() ) . ' 00:00:00';
-    $w_counts = [];
-    $w_docs   = [ 'spam' => 0, 'ham' => 0 ];
-    $w_add    = function ( $verdict, $text, $email ) use ( &$w_counts, &$w_docs, $w_tokens ) {
-        $tokens = $w_tokens( $text, $email );
-        if ( ! $tokens ) {
-            return;
-        }
-        $w_docs[ $verdict ]++;
-        foreach ( $tokens as $token ) {
-            if ( ! isset( $w_counts[ $token ] ) ) {
-                $w_counts[ $token ] = [ 0, 0 ];
-            }
-            $w_counts[ $token ][ 'spam' === $verdict ? 0 : 1 ]++;
-        }
-    };
-    if ( isset( $gf_fields ) ) {
-        foreach ( $wpdb->get_results( $wpdb->prepare( "SELECT id, form_id, status FROM {$wpdb->prefix}gf_entry WHERE status IN ('spam','active') AND date_created >= %s AND date_created < %s AND ( created_by IS NULL OR created_by = 0 ) ORDER BY id DESC LIMIT %d", $from, $to, $limit ) ) as $r ) {
-            list( $email, $text ) = $gf_fields( $r->id, $r->form_id );
-            $w_add( 'spam' === $r->status ? 'spam' : 'ham', $text, $email );
-        }
-    }
-    foreach ( $wpdb->get_results( $wpdb->prepare( "SELECT comment_author_email, comment_content, comment_approved FROM {$wpdb->comments} WHERE comment_approved IN ('spam','1') AND comment_type IN ('','comment') AND user_id = 0 AND comment_date_gmt >= %s AND comment_date_gmt < %s ORDER BY comment_ID DESC LIMIT %d", $from, $to, $limit ) ) as $r ) {
-        $w_add( 'spam' === $r->comment_approved ? 'spam' : 'ham', $r->comment_content, $r->comment_author_email );
-    }
-    foreach ( $wpdb->get_results( $wpdb->prepare( "SELECT ID, post_status, post_content FROM {$wpdb->posts} WHERE post_type = 'flamingo_inbound' AND post_status IN ('flamingo-spam','publish') AND post_date_gmt >= %s AND post_date_gmt < %s ORDER BY ID DESC LIMIT %d", $from, $to, $limit ) ) as $r ) {
-        $w_add( 'flamingo-spam' === $r->post_status ? 'spam' : 'ham', $r->post_content, (string) get_post_meta( $r->ID, '_from_email', true ) );
-    }
-    // A busy site's day can hold far more tokens than the fleet needs from it: past 20,000, the
-    // ones it used only once go first, then the least used.
-    if ( count( $w_counts ) > 20000 ) {
-        $w_counts = array_filter( $w_counts, function ( $c ) { return $c[0] + $c[1] >= 2; } );
-        uasort( $w_counts, function ( $a, $b ) { return ( $b[0] + $b[1] ) - ( $a[0] + $a[1] ); } );
-        $w_counts = array_slice( $w_counts, 0, 20000, true );
-    }
-    $words = [ 'v' => 1, 'day' => $day, 'docs' => $w_docs, 't' => (object) $w_counts ];
-}
-
 // Is Breakwater on this site (as a plugin or an mu-plugin), and which fleet list does it hold?
 $active_plugins = array_merge( (array) get_option( 'active_plugins', [] ), array_keys( (array) get_site_option( 'active_sitewide_plugins', [] ) ) );
 $bw_active      = (bool) preg_grep( '#(^|/)breakwater\.php$#', $active_plugins ) || file_exists( WPMU_PLUGIN_DIR . '/breakwater/breakwater.php' ) || file_exists( WPMU_PLUGIN_DIR . '/breakwater.php' );
 $bw_list        = get_option( 'breakwater_reputation' );
-// Does this copy of Breakwater score words (0.4 and up)? Only then is the word model worth sending.
-$bw_mu_file     = WPMU_PLUGIN_DIR . '/breakwater.php';
-$bw_words_ok    = (bool) glob( WP_PLUGIN_DIR . '/breakwater*/src/Words.php' ) || file_exists( WPMU_PLUGIN_DIR . '/breakwater/src/Words.php' )
-    || ( file_exists( $bw_mu_file ) && false !== strpos( (string) file_get_contents( $bw_mu_file ), 'final class Words' ) );
 
 echo wp_json_encode( [
     'v'            => 2,
-    'breakwater'   => [ 'active' => $bw_active, 'list' => is_array( $bw_list ) ? (string) ( $bw_list['generated'] ?? '' ) : '', 'words' => (string) ( json_decode( (string) get_option( 'breakwater_words', '' ), true )['generated'] ?? '' ), 'words_ok' => $bw_active && $bw_words_ok ],
+    'breakwater'   => [ 'active' => $bw_active, 'list' => is_array( $bw_list ) ? (string) ( $bw_list['generated'] ?? '' ) : '' ],
     'collected_at' => gmdate( 'c' ),
     'window_hours' => 26,
     'counts'       => (object) $counts,
     'items'        => array_values( $items ),
-    'words'        => $words,
 ] );
 SPAMSIGNALEOF
 
