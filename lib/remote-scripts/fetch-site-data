@@ -1098,7 +1098,9 @@ if ( $table( 'breakwater_log' ) ) {
     $cols = $wpdb->get_col( "SHOW COLUMNS FROM {$t}" );
     $fp   = in_array( 'fingerprint', $cols, true ) ? 'fingerprint' : "''";
     $bd   = in_array( 'bands', $cols, true ) ? 'bands' : "''";
-    $rows = $wpdb->get_results( $wpdb->prepare( "SELECT verdict, feedback, ip, email, {$fp} AS fingerprint, {$bd} AS bands, created_at FROM {$t} WHERE created_at > %s ORDER BY id DESC LIMIT %d", $since, $limit ) );
+    // A message the owner marked days after it arrived (a Report link in a notification email) is reported when marked.
+    $fb   = in_array( 'feedback_at', $cols, true ) ? $wpdb->prepare( ' OR feedback_at > %s', $since ) : '';
+    $rows = $wpdb->get_results( $wpdb->prepare( "SELECT verdict, feedback, ip, email, {$fp} AS fingerprint, {$bd} AS bands, created_at FROM {$t} WHERE created_at > %s{$fb} ORDER BY id DESC LIMIT %d", $since, $limit ) );
     foreach ( $rows as $r ) {
         // The owner's word wins: "Not spam" is a correction, "Was spam" confirms a missed one.
         $verdict  = 'not_spam' === $r->feedback ? 'ham' : ( 'spam' === $r->verdict || 'spam' === $r->feedback ? 'spam' : 'ham' );
