@@ -56,6 +56,11 @@ EOF
   # on the site itself (Bedrock app/, Freighter content/<id>).
   captaincore ssh ${site}-${environment} --script=deploy-helper --captain-id=$CAPTAIN_ID
 
+  # Spam protection: Breakwater's latest release as a must-use plugin. Always on, like the
+  # helper. Mode is left to the site (auto: protect, or monitor while CleanTalk is active); it
+  # skips non-WordPress roots, PHP older than 8.1 and sites running the regular plugin.
+  captaincore ssh ${site}-${environment} --script=deploy-breakwater --captain-id=$CAPTAIN_ID
+
   captaincore sync-data ${site}-${environment} --captain-id=$CAPTAIN_ID
 
   # Generate new Fathom code if needed
