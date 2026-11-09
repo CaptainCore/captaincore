@@ -310,11 +310,31 @@ class Helpers {
 		add_filter( 'auto_theme_update_send_email', '__return_false' );
 		add_filter( 'send_retrieve_password_email', [ __CLASS__, 'can_request_lost_password' ] );
 
+		// WordPress 7.2+ random content redirects (/random/). No-op on older versions.
+		add_filter( 'wp_enable_random_content_redirect', '__return_false' );
+		add_action( 'init', [ __CLASS__, 'maybe_flush_random_rewrite_rules' ], 99 );
+
 		// CleanTalk clutter removal
 		add_action( 'admin_menu', [ __CLASS__, 'modify_cleantalk_admin_menu' ], 20 );
 		add_action( 'after_setup_theme', [ __CLASS__, 'remove_cleantalk_plugin_links_filter' ] );
 		add_filter( 'all_plugins', [ __CLASS__, 'modify_cleantalk_plugin_name' ] );
 		add_filter( 'plugin_row_meta', [ __CLASS__, 'modify_cleantalk_plugin_row_meta' ], 10, 2 );
+	}
+
+	/**
+	 * Clears random content rewrite rules once per WordPress version on 7.2+,
+	 * since core only drops them after a rewrite flush.
+	 */
+	public static function maybe_flush_random_rewrite_rules() {
+		if ( ! function_exists( 'wp_is_random_content_redirect_enabled' ) ) {
+			return;
+		}
+		$version = get_bloginfo( 'version' );
+		if ( get_option( 'captaincore_random_rewrite_flushed' ) === $version ) {
+			return;
+		}
+		flush_rewrite_rules( false );
+		update_option( 'captaincore_random_rewrite_flushed', $version, false );
 	}
 
 	/**
