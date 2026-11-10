@@ -158,6 +158,104 @@ def caddy_reload():
     run("systemctl", "reload", "caddy")
 
 
+# ── Page cache and static files ────────────────────────────────────────────
+# Static files that exist on disk go out with a one-year browser cache.
+# Pages: PHP saves what anonymous visitors request as static files (the
+# prepend file below, no plugin in WordPress) and the container's web server
+# answers later requests from those files without running PHP. The cookie
+# and query rules here are the same ones the prepend file applies.
+pc = cfg.get("page_cache") if isinstance(cfg.get("page_cache"), dict) else {}
+pc_php = hc.get("page_cache_php") or ""
+pc_on = bool(pc.get("enabled")) and pc_php.startswith("<?php")
+try:
+    pc_ttl = max(5, min(int(pc.get("ttl") or 60), 10080))
+except (TypeError, ValueError):
+    pc_ttl = 60
+pc_exclude = [p for p in (pc.get("exclude") or []) if isinstance(p, str) and PATH_RE.match(p)][:50]
+PC_ROOT = "/var/cache/captaincore/page"
+PC_PHP = "/etc/captaincore/page-cache.php"
+PC_JSON = "/etc/captaincore/page-cache.json"
+PC_GC = "/etc/captaincore/page-cache-gc.sh"
+PC_UNITS = ["/etc/systemd/system/cc-page-cache-gc.service", "/etc/systemd/system/cc-page-cache-gc.timer"]
+PC_MAX_MB = 1024
+PC_COOKIES = "wordpress_logged_in_|wp-postpass_|comment_author_|woocommerce_items_in_cart|woocommerce_cart_hash|wp_woocommerce_session_|edd_items_in_cart|wordpress_no_cache"
+PC_QUERY = "utm_[a-z0-9_]+|fbclid|gclid|gclsrc|gad_source|gad_campaignid|gbraid|wbraid|dclid|msclkid|mc_cid|mc_eid|_ga|_gl|srsltid|ttclid|twclid|li_fat_id|igshid|yclid|_hsenc|_hsmi|mkt_tok"
+STATIC_EXT = "css js mjs woff woff2 ttf otf eot svg png jpg jpeg gif webp avif ico bmp mp4 webm ogg mp3 wav"
+
+static_block = """	# Static files: a year in the browser (theme and plugin files carry a
+	# version in their address, so an update is a new address).
+	@cc_static {
+		path %s
+		file
+	}
+	header @cc_static Cache-Control "public, max-age=31536000"
+""" % " ".join("*." + e for e in STATIC_EXT.split())
+
+
+def page_block(name, slash, try_file):
+    return """	@cc_page_%s {
+		method GET HEAD
+		header X-Forwarded-Proto https
+		%spath */
+		not header_regexp Cookie (%s)
+		not header_regexp Authorization .+
+		expression `{query} == "" || {query}.matches("^((%s)(=[^&]*)?(&|$))+$")`
+		file {
+			root %s
+			try_files %s
+		}
+	}
+	handle @cc_page_%s {
+		root * %s
+		rewrite * {file_match.relative}
+		header X-Cache HIT
+		file_server
+	}
+""" % (name, "" if slash else "not ", PC_COOKIES, PC_QUERY, PC_ROOT, try_file, name, PC_ROOT)
+
+
+page_blocks = ("""	# Page cache: a saved copy answers anonymous page views; anything with a
+	# login, cart or comment cookie, a form post or a real query string goes
+	# to PHP. /about/ and /about are saved apart, as WordPress treats them.
+""" + page_block("slash", True, "/{host}{path}index.html") + page_block("bare", False, "/{host}{path}/index-noslash.html")) if pc_on else ""
+
+pc_json = json.dumps({"enabled": pc_on, "hosts": sorted(set(site_hosts)), "exclude": pc_exclude}, sort_keys=True) + "\n"
+pc_gc = """#!/bin/sh
+# Managed by CaptainCore (hosting configuration). Saved pages older than
+# %d minutes go; so does everything if the cache passes %d MB.
+R=%s
+[ -d "$R" ] || exit 0
+find "$R" -type f -name '*.html' -mmin +%d -delete
+find "$R" -type f -name '.tmp-*' -mmin +10 -delete
+find "$R" -mindepth 1 -maxdepth 1 -name '.trash-*' -mmin +10 -exec rm -rf {} +
+if [ "$(du -sm "$R" | cut -f1)" -gt %d ]; then find "$R" -mindepth 1 -maxdepth 1 -exec rm -rf {} +; fi
+find "$R" -mindepth 2 -type d -empty -delete
+exit 0
+""" % (pc_ttl, PC_MAX_MB, PC_ROOT, pc_ttl, PC_MAX_MB)
+pc_unit_files = {
+    PC_UNITS[0]: """[Unit]
+Description=CaptainCore page cache: drop expired pages
+
+[Service]
+Type=oneshot
+User=site
+Group=site
+ExecStart=/bin/sh %s
+Nice=10
+""" % PC_GC,
+    PC_UNITS[1]: """[Unit]
+Description=CaptainCore page cache: drop expired pages
+
+[Timer]
+OnCalendar=*:0/5
+RandomizedDelaySec=45
+AccuracySec=30
+
+[Install]
+WantedBy=timers.target
+""",
+}
+
 # ── 2. PHP inside the container ────────────────────────────────────────────
 ini_new = """; Managed by CaptainCore (hosting configuration). Changes here are overwritten.
 memory_limit = %dM
@@ -172,6 +270,8 @@ opcache.interned_strings_buffer = 16
 opcache.max_accelerated_files = 20000
 opcache.revalidate_freq = 2
 """ % (mem_limit, upload, upload, max_exec)
+if pc_on:
+    ini_new += "auto_prepend_file = %s\n" % PC_PHP
 
 fcaddy_new = """# CaptainCore site container. TLS ends at the node edge; this serves plain
 # HTTP on :80 to the bridge only. Managed by CaptainCore (hosting configuration).
@@ -189,8 +289,11 @@ fcaddy_new = """# CaptainCore site container. TLS ends at the node edge; this se
 
 :80 {
 	root /srv/site/public
-	encode zstd br gzip
-	php_server
+	# No Brotli here: its encoder holds several MB per response in flight, so
+	# 50 visitors at once on cached pages cost 650 MB and got PHP killed in a
+	# load test. zstd and gzip stay under 200 MB and answer three times faster.
+	encode zstd gzip
+%s%s	php_server
 	# ~/logs/access.log is what CaptainCore's Logs view lists. client_ip is
 	# the visitor (trusted_proxies takes it from the edge's X-Forwarded-For).
 	log {
@@ -208,9 +311,15 @@ fcaddy_new = """# CaptainCore site container. TLS ends at the node edge; this se
 		}
 	}
 }
-""" % (workers, max_workers)
+""" % (workers, max_workers, static_block, page_blocks)
 
-PHP_FILES = [("/etc/php-zts/conf.d/99-captaincore.ini", ini_new), ("/etc/frankenphp/Caddyfile", fcaddy_new)]
+# The web server half of FrankenPHP (Go) sizes its garbage collector from the
+# container's whole memory limit by default, as if PHP and the database were
+# not in there with it. Give it a quarter, at least 128 MB.
+GOMEM_PATH = "/etc/systemd/system/frankenphp.service.d/20-captaincore-memory.conf"
+gomem_new = "# Managed by CaptainCore (hosting configuration).\n[Service]\nEnvironment=GOMEMLIMIT=%dMiB\n" % max(128, memory_mb // 4)
+
+PHP_FILES = [("/etc/php-zts/conf.d/99-captaincore.ini", ini_new), ("/etc/frankenphp/Caddyfile", fcaddy_new), (GOMEM_PATH, gomem_new)]
 
 
 def ct_read(path):
@@ -220,7 +329,7 @@ def ct_read(path):
 
 def ct_write(path, content):
     # path is one of the constants in PHP_FILES, never input.
-    run("incus", "exec", ct, "--", "sh", "-c", "cat > '%s.cc-new' && chmod 0644 '%s.cc-new' && mv '%s.cc-new' '%s'" % (path, path, path, path), inp=content)
+    run("incus", "exec", ct, "--", "sh", "-c", "mkdir -p \"$(dirname '%s')\" && cat > '%s.cc-new' && chmod 0644 '%s.cc-new' && mv '%s.cc-new' '%s'" % (path, path, path, path, path), inp=content)
 
 
 # The logs directory the Logs view reads (~/logs), owned by the site user.
@@ -349,8 +458,21 @@ if relay_old is not None and ip:
     relay_new = "# Managed by CaptainCore: one line per site container (host apply).\n" + "\n".join(sorted(keep + [relay_line])) + "\n"
 relay_changed = relay_new is not None and relay_new != relay_old
 
+# Page cache files in the container. The prepend file must exist before the
+# PHP settings name it (a missing auto_prepend_file is a fatal error), so it
+# is written first and never removed.
+pc_want = {PC_PHP: pc_php, PC_JSON: pc_json, PC_GC: pc_gc}
+pc_want.update(pc_unit_files)
+pc_have = {path: ct_read(path) for path in pc_want}
+if pc_on:
+    pc_diff = [path for path, content in pc_want.items() if pc_have[path] != content]
+else:
+    # Off: the config says so (if the prepend file is there to read it) and the expiry timer goes.
+    pc_diff = ([PC_JSON] if pc_have[PC_PHP] is not None and pc_have[PC_JSON] != pc_json else []) + [u for u in PC_UNITS if pc_have[u] is not None]
+pc_changed = bool(pc_diff)
+
 if DRY:
-    res["would_change"] = [n for n, c in (("edge", edge_new != edge_old), ("php", php_changed), ("memory", mem_changed), ("debug", debug_changed), ("blog_public", blog_public_fix), ("hardening", bool(harden_changed)), ("cpu", cpu_changed), ("mail", msmtp_changed or relay_changed)) if c] \
+    res["would_change"] = [n for n, c in (("cache", pc_changed), ("edge", edge_new != edge_old), ("php", php_changed), ("memory", mem_changed), ("debug", debug_changed), ("blog_public", blog_public_fix), ("hardening", bool(harden_changed)), ("cpu", cpu_changed), ("mail", msmtp_changed or relay_changed)) if c] \
         + ["app:" + n for n in app_changes] + ["remove:" + u for u in removed_units]
     res["edge"] = edge_new
     done("dry-run")
@@ -384,6 +506,37 @@ try:
             done("failed", "edge config rejected: %s" % e)
         res["changes"].append("edge")
 
+    if pc_changed and pc_on:
+        if PC_PHP in pc_diff:
+            # Lint before it replaces the file PHP loads on every request.
+            run("incus", "exec", ct, "--", "sh", "-c", "mkdir -p /etc/captaincore && cat > '%s.cc-check'" % PC_PHP, inp=pc_php)
+            lint = run("incus", "exec", ct, "--", "php", "-l", PC_PHP + ".cc-check", check=False)
+            if lint.returncode != 0:
+                run("incus", "exec", ct, "--", "rm", "-f", PC_PHP + ".cc-check", check=False)
+                done("failed", "page cache file rejected by PHP: %s" % (lint.stdout or lint.stderr).strip()[:300])
+            run("incus", "exec", ct, "--", "sh", "-c", "chmod 0644 '%s.cc-check' && mv '%s.cc-check' '%s'" % (PC_PHP, PC_PHP, PC_PHP))
+        for path in pc_diff:
+            if path != PC_PHP:
+                ct_write_any(path, pc_want[path])
+        run("incus", "exec", ct, "--", "sh", "-c",
+            "install -d -m 0755 /var/cache/captaincore && install -d -o site -g site -m 0750 '%s'" % PC_ROOT)
+        if PC_JSON in pc_diff:
+            # Other hostnames or exclusions: saved pages may no longer be right.
+            run("incus", "exec", ct, "--", "find", PC_ROOT, "-mindepth", "1", "-maxdepth", "1", "-exec", "rm", "-rf", "{}", "+", check=False)
+        run("incus", "exec", ct, "--", "systemctl", "daemon-reload", check=False)
+        run("incus", "exec", ct, "--", "systemctl", "enable", "--now", "cc-page-cache-gc.timer", check=False)
+        res["changes"].append("cache")
+    elif pc_changed:
+        if PC_JSON in pc_diff:
+            ct_write_any(PC_JSON, pc_json)
+        run("incus", "exec", ct, "--", "systemctl", "disable", "--now", "cc-page-cache-gc.timer", check=False)
+        run("incus", "exec", ct, "--", "rm", "-f", *PC_UNITS, check=False)
+        run("incus", "exec", ct, "--", "systemctl", "daemon-reload", check=False)
+        res["changes"].append("cache")
+    if not pc_on and (pc_changed or php_changed):
+        # Nothing serves saved pages once the rules below are gone; drop them.
+        run("incus", "exec", ct, "--", "sh", "-c", "[ -d '%s' ] && find '%s' -mindepth 1 -maxdepth 1 -exec rm -rf {} + || true" % (PC_ROOT, PC_ROOT), check=False)
+
     if php_changed:
         for path, content in PHP_FILES:
             if php_old[path] != content:
@@ -403,6 +556,7 @@ try:
         if v.returncode != 0:
             restore_php()
             done("failed", "php config rejected: %s" % (v.stderr or v.stdout).strip()[:300])
+        run("incus", "exec", ct, "--", "systemctl", "daemon-reload", check=False)
         r = run("incus", "exec", ct, "--", "systemctl", "restart", "frankenphp", check=False)
         if r.returncode != 0:
             why = run("incus", "exec", ct, "--", "journalctl", "-u", "frankenphp", "-n", "3", "--no-pager", "-o", "cat", check=False).stdout.strip()[-300:]
@@ -485,6 +639,14 @@ try:
     time.sleep(1.5)
     code_ct, code_edge = health()
     res["health"] = {"container": code_ct, "edge": code_edge}
+    res["page_cache"] = {"enabled": pc_on, "ttl": pc_ttl}
+    if pc_on and ok(code_ct):
+        # The request above saved the home page if it can be saved; this one
+        # says whether the web server now answers it without PHP.
+        head = run("curl", "-s", "-o", "/dev/null", "-D", "-", "--max-time", "20", "-H", "Host: " + primary,
+                   "-H", "X-Forwarded-Proto: https", "http://%s/" % ip, check=False).stdout
+        m = re.search(r"(?im)^x-cache:\s*(\S+)", head)
+        res["page_cache"]["home"] = m.group(1).upper() if m else "NONE"
     if not ok(code_ct):
         # Roll back what this run changed, then report.
         if php_changed:

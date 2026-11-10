@@ -24,6 +24,12 @@ import (
 //go:embed host_apply.py
 var hostApplyScript string
 
+// The page cache's PHP side, installed in the container by host_apply.py
+// (it travels in the same JSON the script reads on stdin).
+//
+//go:embed host_page_cache.php
+var hostPageCachePHP string
+
 var flagHostDryRun bool
 
 var hostCmd = &cobra.Command{
@@ -109,7 +115,15 @@ func hostApplyNative(cmd *cobra.Command, args []string) {
 	c := exec.Command("ssh", "-oBatchMode=yes", "-oStrictHostKeyChecking=no", "-oConnectTimeout=30",
 		"-oPreferredAuthentications=publickey", "-oIdentitiesOnly=yes", "-i", keyPath,
 		"-p", fmt.Sprint(port), user+"@"+hc.Server.Address, remoteCmd)
-	c.Stdin = bytes.NewReader(raw)
+	payload := raw
+	var full map[string]interface{}
+	if json.Unmarshal(raw, &full) == nil {
+		full["page_cache_php"] = hostPageCachePHP
+		if withPHP, err := json.Marshal(full); err == nil {
+			payload = withPHP
+		}
+	}
+	c.Stdin = bytes.NewReader(payload)
 	var out, errBuf bytes.Buffer
 	c.Stdout, c.Stderr = &out, &errBuf
 	runErr := c.Run()
@@ -153,6 +167,11 @@ func hostApplyNative(cmd *cobra.Command, args []string) {
 	fmt.Printf("%s revision %d applied on %s: %s\n", args[0], hc.Revision, hc.Server.Name, summary)
 	if h, ok := result["health"].(map[string]interface{}); ok {
 		fmt.Printf("  health: container %v, edge %v\n", h["container"], h["edge"])
+	}
+	if pc, ok := result["page_cache"].(map[string]interface{}); ok && pc["enabled"] == true {
+		// HIT: the home page is answered from its saved copy. Anything else
+		// means the page itself opts out (it sets a cookie, say).
+		fmt.Printf("  page cache: on, pages kept %v minutes, home page %v\n", pc["ttl"], pc["home"])
 	}
 }
 

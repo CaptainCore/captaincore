@@ -14,6 +14,8 @@
 #   cc-backups sync    <src> <dst> <both|files|database> <src_host> <dst_host>
 #   cc-backups container <container> [1h|24h|7d]   programs, traffic, Caddyfiles, metrics
 #   cc-backups restart <container> <php|database|cron|app-<name>|container>
+#   cc-backups cache-status <container>  saved pages: how many, how big, how old
+#   cc-backups cache-clear  <container>  delete every saved page
 #   cc-backups site-park <container>     stop, rename <ct>-removed-<date>, unpublish (purged after 7 days)
 #   cc-backups site-purge <parked>       delete one parked container and its volumes now
 #
@@ -115,6 +117,33 @@ def health(ct):
                "-H", "X-Forwarded-Proto: https", "http://%s/" % ip, check=False).stdout
 
 
+# ── Page cache ─────────────────────────────────────────────────────────────
+# Pages saved by the container's PHP (the prepend file `host apply` installs)
+# and served by its web server. Clearing is always safe: the next visitor's
+# request saves the page again.
+PAGE_CACHE = "/var/cache/captaincore/page"
+
+
+def cache_status(ct):
+    if not re.match(r"^[a-z0-9][a-z0-9-]{0,62}$", ct):
+        raise RuntimeError("invalid container name")
+    sh = ("R=%s; grep -q '\"enabled\": true' /etc/captaincore/page-cache.json 2>/dev/null && echo on || echo off; "
+          "if [ -d \"$R\" ]; then find \"$R\" -type f -name '*.html' -printf '%%T@\\n' | "
+          "awk 'BEGIN{n=0;a=0;b=0}{n++; if(a==0||$1<a)a=$1; if($1>b)b=$1}END{printf \"%%d %%d %%d\\n\", n, a, b}'; "
+          "du -sk \"$R\" | cut -f1; else echo '0 0 0'; echo 0; fi") % PAGE_CACHE
+    lines = run("incus", "exec", ct, "--", "sh", "-c", sh).stdout.split("\n")
+    n, oldest, newest = (lines[1].split() + ["0", "0", "0"])[:3]
+    return {"enabled": lines[0].strip() == "on", "pages": int(n), "bytes": int(lines[2].strip() or 0) * 1024 if int(n) else 0,
+            "oldest": int(oldest), "newest": int(newest), "now": int(time.time())}
+
+
+def cache_clear(ct):
+    if not re.match(r"^[a-z0-9][a-z0-9-]{0,62}$", ct):
+        raise RuntimeError("invalid container name")
+    run("incus", "exec", ct, "--", "sh", "-c",
+        "[ -d '%s' ] && find '%s' -mindepth 1 -maxdepth 1 -exec rm -rf {} + || true" % (PAGE_CACHE, PAGE_CACHE), check=False)
+
+
 def restore(ct, snap, what):
     if what not in ("both", "files", "database"):
         raise RuntimeError("restore what: both, files or database")
@@ -137,6 +166,7 @@ def restore(ct, snap, what):
         finally:
             run("incus", "exec", ct, "--", "systemctl", "start", "mariadb")
         done.append("database")
+    cache_clear(ct)
     run("incus", "exec", ct, "--", "systemctl", "restart", "frankenphp", check=False)
     time.sleep(1.5)
     return {"restored": done, "from": snap, "safety_backup": safety, "health": health(ct)}
@@ -237,6 +267,17 @@ def site_park(ct):
     port = next((d.get("listen", "").rsplit(":", 1)[-1] for d in devs.values() if d.get("type") == "proxy"), "")
     ip = ((info.get("expanded_devices") or {}).get("eth0") or {}).get("ipv4.address", "")
     run("incus", "stop", ct, "--timeout", "60", check=False)
+    # Give the address and the SSH port back now: the next new site is handed
+    # the lowest free ones. Incus refuses an address a parked container still
+    # claims, and the DHCP lease outlives a stop (the next container then
+    # boots on a random address); only removing the network device drops the
+    # lease. Both are noted on the container for whoever restores it:
+    #   incus config device override <ct> eth0 ipv4.address=<ip> security.port_isolation=true
+    #   incus config device add <ct> ssh proxy listen=tcp:0.0.0.0:<port> connect=tcp:127.0.0.1:22
+    run("incus", "config", "set", ct, "user.cc_parked_ip=%s" % ip, "user.cc_parked_ssh_port=%s" % port, check=False)
+    for name, d in devs.items():
+        if d.get("type") == "proxy" or (d.get("type") == "nic" and d.get("ipv4.address")):
+            run("incus", "config", "device", "remove", ct, name, check=False)
     parked = "%s-removed-%s" % (ct, time.strftime("%Y%m%d", time.gmtime()))
     run("incus", "rename", ct, parked)
     for path in ("/etc/caddy/sites/%s.caddyfile" % ct, "/etc/caddy/sites/.%s.prev" % ct):
@@ -290,18 +331,43 @@ def create_site(ct, image, ip, port, disk_gib, memory_mib):
         raise RuntimeError("container %s already exists" % ct)
     pool = "default"
     src = run("incus", "storage", "get", pool, "source").stdout.strip()
-    run("incus", "storage", "volume", "create", pool, ct + "-site", "size=%dGiB" % int(disk_gib))
-    run("incus", "storage", "volume", "create", pool, ct + "-db", "size=5GiB")
-    run("zfs", "set", "recordsize=16K", "%s/custom/default_%s-db" % (src, ct), check=False)
-    run("incus", "init", image, ct)
-    for kv in ("limits.memory=%dMiB" % int(memory_mib), "limits.processes=1000", "security.idmap.isolated=true"):
-        run("incus", "config", "set", ct, kv)
-    run("incus", "config", "device", "override", ct, "eth0", "ipv4.address=" + ip, "security.port_isolation=true")
-    run("incus", "storage", "volume", "attach", pool, ct + "-site", ct, "/srv/site")
-    run("incus", "storage", "volume", "attach", pool, ct + "-db", ct, "/var/lib/mysql")
-    run("incus", "config", "device", "add", ct, "ssh", "proxy", "listen=tcp:0.0.0.0:%d" % int(port), "connect=tcp:127.0.0.1:22")
+    for suffix in ("-site", "-db"):
+        if run("incus", "storage", "volume", "show", pool, ct + suffix, check=False).returncode == 0:
+            raise RuntimeError("volume %s%s already exists" % (ct, suffix))
+    try:
+        run("incus", "storage", "volume", "create", pool, ct + "-site", "size=%dGiB" % int(disk_gib))
+        run("incus", "storage", "volume", "create", pool, ct + "-db", "size=5GiB")
+        run("zfs", "set", "recordsize=16K", "%s/custom/default_%s-db" % (src, ct), check=False)
+        run("incus", "init", image, ct)
+        for kv in ("limits.memory=%dMiB" % int(memory_mib), "limits.processes=1000", "security.idmap.isolated=true"):
+            run("incus", "config", "set", ct, kv)
+        run("incus", "config", "device", "override", ct, "eth0", "ipv4.address=" + ip, "security.port_isolation=true")
+        run("incus", "storage", "volume", "attach", pool, ct + "-site", ct, "/srv/site")
+        run("incus", "storage", "volume", "attach", pool, ct + "-db", ct, "/var/lib/mysql")
+        run("incus", "config", "device", "add", ct, "ssh", "proxy", "listen=tcp:0.0.0.0:%d" % int(port), "connect=tcp:127.0.0.1:22")
+        run("incus", "start", ct)
+        # The edge and the mail relay know the site by this address, so a
+        # container that came up on another one (a stale DHCP lease on the
+        # address) is not a site yet. One restart asks again.
+        for attempt in range(2):
+            for _ in range(20):
+                if ip in run("incus", "list", "^%s$" % ct, "-f", "csv", "-c", "4", check=False).stdout:
+                    break
+                time.sleep(1)
+            else:
+                if attempt == 0:
+                    run("incus", "restart", ct, "--timeout", "30", check=False)
+                    continue
+                raise RuntimeError("container came up without its address %s (is it still leased to another container?)" % ip)
+            break
+    except Exception:
+        # Nothing of this name existed a moment ago, so all of it is this
+        # run's: take it away, or the next try would build on a half-made site.
+        run("incus", "delete", ct, "--force", check=False)
+        for suffix in ("-site", "-db"):
+            run("incus", "storage", "volume", "delete", pool, ct + suffix, check=False)
+        raise
     run("ufw", "allow", "%d/tcp" % int(port), check=False)
-    run("incus", "start", ct)
     for _ in range(30):
         if run("incus", "exec", ct, "--", "true", check=False).returncode == 0:
             break
@@ -381,6 +447,7 @@ def sync(src, dst, what, src_host, dst_host):
             wp(dst, "option", "update", "blog_public", keep_public, "--quiet", check=False)
         wp(dst, "cache", "flush", "--quiet", check=False)
         done.append("database")
+    cache_clear(dst)
     run("incus", "exec", dst, "--", "systemctl", "restart", "frankenphp", check=False)
     time.sleep(1.5)
     return {"deployed": done, "from": src, "to": dst, "safety_backup": safety, "health": health(dst)}
@@ -798,6 +865,12 @@ try:
     elif cmd == "daily":
         made = {ct: create(ct, "daily") for ct in site_containers()}
         out({"status": "ok", "created": made, "pruned": prune(), "purged": purge_parked()})
+    elif cmd == "cache-status":
+        out(dict(status="ok", **cache_status(sys.argv[2])))
+    elif cmd == "cache-clear":
+        before = cache_status(sys.argv[2])
+        cache_clear(sys.argv[2])
+        out(dict(status="ok", cleared=before["pages"], **cache_status(sys.argv[2])))
     elif cmd == "site-park":
         out(dict(status="ok", **site_park(sys.argv[2])))
     elif cmd == "site-purge":
@@ -830,6 +903,7 @@ try:
         wp(ct, "search-replace", frm, to, "--all-tables", "--precise", "--quiet")
         wp(ct, "option", "update", "blog_public", public, "--quiet")
         wp(ct, "cache", "flush", "--quiet", check=False)
+        cache_clear(ct)
         out({"status": "ok", "home": wp(ct, "option", "get", "home").stdout.strip()})
     elif cmd == "sample":
         out({"status": "ok", "sample": sample()})
