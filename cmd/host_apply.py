@@ -283,8 +283,28 @@ mem_changed = cur_mem != want_mem
 
 blog_public_fix = noindex and wp("option", "get", "blog_public", check=False).stdout.strip() != "0"
 
+# Container hardening, kept by every apply: customers SSH in only as site,
+# tunnel only to their own database (127.0.0.1:3306), no agent, X11 or tun
+# forwarding; no LLMNR/mDNS listener; at most `cpus` cores (default 4, the
+# PHP thread ceiling), so one busy site can't take the whole server.
+HARDEN_FILES = [
+    ("/etc/ssh/sshd_config.d/10-captaincore.conf", "\n".join([
+        "# Managed by CaptainCore (hosting configuration).",
+        "PermitRootLogin no", "AllowUsers site", "PasswordAuthentication no", "KbdInteractiveAuthentication no",
+        "X11Forwarding no", "AllowAgentForwarding no", "PermitTunnel no", "GatewayPorts no",
+        "AllowTcpForwarding local", "PermitOpen 127.0.0.1:3306 localhost:3306", "MaxAuthTries 3"]) + "\n"),
+    ("/etc/systemd/resolved.conf.d/10-captaincore.conf", "# Managed by CaptainCore (hosting configuration).\n[Resolve]\nLLMNR=no\nMulticastDNS=no\n"),
+]
+harden_old = {path: ct_read(path) for path, _ in HARDEN_FILES}
+harden_changed = [path for path, content in HARDEN_FILES if harden_old[path] != content]
+try:
+    want_cpus = str(max(1, min(int(cfg.get("cpus") or 4), os.cpu_count() or 4)))
+except (TypeError, ValueError):
+    want_cpus = "4"
+cpu_changed = run("incus", "config", "get", ct, "limits.cpu").stdout.strip() != want_cpus
+
 if DRY:
-    res["would_change"] = [n for n, c in (("edge", edge_new != edge_old), ("php", php_changed), ("memory", mem_changed), ("debug", debug_changed), ("blog_public", blog_public_fix)) if c] \
+    res["would_change"] = [n for n, c in (("edge", edge_new != edge_old), ("php", php_changed), ("memory", mem_changed), ("debug", debug_changed), ("blog_public", blog_public_fix), ("hardening", bool(harden_changed)), ("cpu", cpu_changed)) if c] \
         + ["app:" + n for n in app_changes] + ["remove:" + u for u in removed_units]
     res["edge"] = edge_new
     done("dry-run")
@@ -347,6 +367,29 @@ try:
     if mem_changed:
         run("incus", "config", "set", ct, "limits.memory=" + want_mem)
         res["changes"].append("memory")
+
+    if cpu_changed:
+        run("incus", "config", "set", ct, "limits.cpu=" + want_cpus)
+        res["changes"].append("cpu")
+
+    if harden_changed:
+        for path, content in HARDEN_FILES:
+            if path in harden_changed:
+                ct_write_any(path, content)
+        if any("sshd" in p for p in harden_changed):
+            if run("incus", "exec", ct, "--", "sshd", "-t", check=False).returncode != 0:
+                # Never leave SSH unable to start: put the old drop-in back.
+                path = HARDEN_FILES[0][0]
+                if harden_old[path] is None:
+                    run("incus", "exec", ct, "--", "rm", "-f", path, check=False)
+                else:
+                    ct_write_any(path, harden_old[path])
+                res["warnings"] = res.get("warnings", []) + ["sshd rejected the hardening drop-in; left as it was"]
+            else:
+                run("incus", "exec", ct, "--", "systemctl", "reload", "ssh", check=False)
+        if any("resolved" in p for p in harden_changed):
+            run("incus", "exec", ct, "--", "systemctl", "restart", "systemd-resolved", check=False)
+        res["changes"].append("hardening")
 
     for name, files in app_changes.items():
         run("incus", "exec", ct, "--", "install", "-d", "-o", "site", "-g", "site", "/srv/site/apps/" + name, check=False)
