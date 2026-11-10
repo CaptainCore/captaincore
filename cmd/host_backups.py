@@ -639,6 +639,9 @@ define( 'DISABLE_WP_CRON', true );
 PHP
 wp core install --url="https://$HOST" --title="$TITLE" --admin_user="$AUSER" --admin_email="$AEMAIL" --admin_password="$APASS" --skip-email --quiet
 wp option update blog_public 0 --quiet
+# Addresses people can read (/about/), as the web installer would set. With
+# plain ones WordPress answers the home page at any path.
+wp rewrite structure '/%postname%/' --quiet
 """
     run("incus", "exec", ct, "--env", "DBPASS=" + dbpass, "--env", "HOST=" + url_host, "--env", "TITLE=" + title,
         "--env", "AUSER=" + admin_user, "--env", "AEMAIL=" + admin_email, "--env", "APASS=" + adminpass,

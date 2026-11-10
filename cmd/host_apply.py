@@ -91,22 +91,87 @@ pp_on = bool(pp.get("enabled")) and re.match(r"^[A-Za-z0-9._-]{1,64}$", pp.get("
     re.match(r"^\$2[aby]\$\d\d\$[./A-Za-z0-9]{53}$", pp.get("password_hash", ""))
 
 
-SUSPENDED_HTML = ("<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
-                  "<title>Temporarily unavailable</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;"
-                  "font:16px/1.6 -apple-system,Segoe UI,sans-serif;background:#f6f6f7;color:#1a1a1f}main{max-width:420px;padding:32px;text-align:center}"
-                  "h1{font-size:22px;margin:0 0 8px}p{margin:0;color:#5e5e69}@media(prefers-color-scheme:dark){body{background:#0b0b0d;color:#ececed}p{color:#9d9da7}}"
-                  "</style></head><body><main><h1>This site is temporarily unavailable</h1><p>Please check back later.</p></main></body></html>")
+# ── What visitors see when something is wrong ───────────────────────────────
+# The edge answers its own failures (the site's container is down or slow, an
+# address is denied, nothing is at an address) and a suspended site with these
+# pages. They say what a visitor can do and nothing about the server: no
+# hostnames, addresses, software names or versions. /etc/caddy/errors/ is
+# shared by every site on the server and written again when a page changes.
+ERR_DIR = "/etc/caddy/errors"
+ERR_ICONS = {
+    "pulse": "<path d='M3 12h4l2-5 4 10 2-5h6'/>",
+    "clock": "<circle cx='12' cy='12' r='8.5'/><path d='M12 7.5V12l3 2'/>",
+    "lock": "<rect x='5.5' y='10.5' width='13' height='9' rx='2'/><path d='M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5'/>",
+    "search": "<circle cx='11' cy='11' r='6'/><path d='M15.5 15.5 20 20'/>",
+    "pause": "<circle cx='12' cy='12' r='8.5'/><path d='M10 9v6M14 9v6'/>",
+}
+
+
+def error_page(title, message, icon, code="", button=None):
+    btn = "<a class='btn' href='%s'>%s</a>" % button if button else ""
+    foot = "<small>%s</small>" % code if code else ""
+    return ("<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
+            "<meta name='robots' content='noindex'><title>%s</title><style>"
+            ":root{color-scheme:light dark;--bg:#f5f5f7;--card:#fff;--ink:#16161a;--dim:#62626e;--rule:#e4e4ea;--accent:#2f6fde}"
+            "@media(prefers-color-scheme:dark){:root{--bg:#0c0c0f;--card:#17171c;--ink:#ededf0;--dim:#9a9aa6;--rule:#26262e;--accent:#7ba8ff}}"
+            "*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:var(--bg);color:var(--ink);"
+            "font:16px/1.6 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}main{width:100%%;max-width:440px;text-align:center}"
+            ".mark{width:72px;height:72px;margin:0 auto 22px;border-radius:20px;background:var(--card);border:1px solid var(--rule);display:grid;place-items:center;color:var(--accent)}"
+            "h1{font-size:24px;line-height:1.25;margin:0 0 10px;letter-spacing:-.01em}p{margin:0;color:var(--dim)}"
+            "a.btn{display:inline-block;margin-top:24px;padding:10px 20px;border-radius:10px;background:var(--ink);color:var(--bg);text-decoration:none;font-weight:600;font-size:14px}"
+            "small{display:block;margin-top:28px;font-size:12px;color:var(--dim);letter-spacing:.04em}"
+            "</style></head><body><main><div class='mark'><svg viewBox='0 0 24 24' width='34' height='34' fill='none' stroke='currentColor' stroke-width='1.6' "
+            "stroke-linecap='round' stroke-linejoin='round' aria-hidden='true'>%s</svg></div><h1>%s</h1><p>%s</p>%s%s</main></body></html>\n"
+            % (title, ERR_ICONS[icon], title, message, btn, foot))
+
+
+AGAIN = ("", "Try again")   # an empty link reloads the same address
+ERR_PAGES = {
+    "403.html": error_page("You don't have access to this page", "The owner of this site limits who can see it.", "lock", "Error 403"),
+    "404.html": error_page("Page not found", "Nothing is at this address. Check the link, or start from the home page.", "search", "Error 404", ("/", "Go to the home page")),
+    "502.html": error_page("This site isn't responding", "We couldn't reach the site just now. It is usually back within a minute.", "pulse", "Error 502", AGAIN),
+    "503.html": error_page("This site is busy right now", "It has more visitors than it can answer at the moment. Please try again shortly.", "pulse", "Error 503", AGAIN),
+    "504.html": error_page("This page took too long", "The site didn't answer in time. Trying again often works.", "clock", "Error 504", AGAIN),
+    "error.html": error_page("Something went wrong", "Please try again in a moment.", "pulse", "", AGAIN),
+    "suspended.html": error_page("This site is temporarily unavailable", "Please check back later.", "pause"),
+}
+ERR_KNOWN = " || ".join("{http.error.status_code} == %s" % c for c in ("403", "404", "502", "503", "504"))
+# Errors raised at the edge end here, whatever block they came from.
+ERRORS_BLOCK = [
+    "\thandle_errors {", "\t\theader -Server", "\t\theader Cache-Control no-store", "\t\troot * %s" % ERR_DIR,
+    "\t\t@cc_known `%s`" % ERR_KNOWN,
+    "\t\thandle @cc_known {", "\t\t\trewrite * /{http.error.status_code}.html", "\t\t\tfile_server", "\t\t}",
+    "\t\thandle {", "\t\t\trewrite * /error.html", "\t\t\tfile_server", "\t\t}", "\t}"]
+
+
+def proxy(indent, upstream, try_for, site=False):
+    """reverse_proxy to a container. Nothing about the software behind the
+    edge goes out, a container that stops answering is a 504, and for the
+    site itself the bare answers the container's web server gives (a plain
+    text 502/503/504 when PHP is saturated, an empty 404) become the pages
+    above. Pages WordPress or an app made are passed through as they are."""
+    t = "\t" * indent
+    b = [t + "reverse_proxy %s {" % upstream, t + "\tlb_try_duration %s" % try_for, t + "\tlb_try_interval 250ms",
+         t + "\theader_down -Server", t + "\theader_down -X-Powered-By",
+         t + "\ttransport http {", t + "\t\tdial_timeout 3s", t + "\t\tresponse_header_timeout %ds" % (max_exec + 30), t + "\t}"]
+    if site:
+        for code in ("502", "503", "504"):
+            b += [t + "\t@cc_plain%s {" % code, t + "\t\tstatus %s" % code, t + "\t\theader Content-Type text/plain*", t + "\t}",
+                  t + "\thandle_response @cc_plain%s {" % code, t + "\t\terror %s" % code, t + "\t}"]
+        b += [t + "\t@cc_empty404 {", t + "\t\tstatus 404", t + "\t\theader Content-Length 0", t + "\t}",
+              t + "\thandle_response @cc_empty404 {", t + "\t\terror 404", t + "\t}"]
+    return b + [t + "}"]
 
 
 def site_body():
     # A suspended site answers every request (apps too) with a holding page.
     if cfg.get("suspended"):
-        return ["\troute {", "\t\theader Retry-After 3600", "\t\theader Content-Type \"text/html; charset=utf-8\"",
-                "\t\theader Cache-Control no-store", "\t\trespond \"%s\" 503" % SUSPENDED_HTML, "\t}"]
+        return ["\theader -Server", "\troute {", "\t\theader Retry-After 3600", "\t\theader Cache-Control no-store",
+                "\t\troot * %s" % ERR_DIR, "\t\trewrite * /suspended.html", "\t\tfile_server {", "\t\t\tstatus 503", "\t\t}", "\t}"] + ERRORS_BLOCK
     # route keeps the written order: deny, redirects, auth, then the proxy.
-    b = ["\troute {", "\t\tencode zstd gzip"]
+    b = ["\theader -Server", "\troute {", "\t\tencode zstd gzip"]
     if deny:
-        b += ["\t\t@cc_deny remote_ip %s" % " ".join(deny), "\t\trespond @cc_deny 403"]
+        b += ["\t\t@cc_deny remote_ip %s" % " ".join(deny), "\t\terror @cc_deny 403"]
     # Apps at a path of the site: public (before redirects and the password).
     for a in apps:
         if a.get("route") != "path":
@@ -115,14 +180,14 @@ def site_body():
               "\t\troute @cc_app_%s {" % a["name"].replace("-", "_")]
         if a.get("strip_prefix"):
             b.append("\t\t\turi strip_prefix %s" % a["path"])
-        b += ["\t\t\treverse_proxy %s:%d {" % (ip, int(a["port"])), "\t\t\t\tlb_try_duration 5s", "\t\t\t}", "\t\t}"]
+        b += proxy(3, "%s:%d" % (ip, int(a["port"])), "5s") + ["\t\t}"]
     for r in redirects:
         b.append("\t\tredir %s %s %d" % (r["from"], r["to"], int(r["code"])))
     if pp_on:
         import base64
         b += ["\t\tbasicauth {", "\t\t\t%s %s" % (pp["username"], base64.b64encode(pp["password_hash"].encode()).decode()), "\t\t}"]
-    b += ["\t\treverse_proxy %s:80 {" % ip, "\t\t\tlb_try_duration 15s", "\t\t\tlb_try_interval 250ms", "\t\t}", "\t}"]
-    return b
+    b += proxy(2, "%s:80" % ip, "15s", site=True) + ["\t}"]
+    return b + ERRORS_BLOCK
 
 
 # Search engines: noindex (the default; staging always) puts X-Robots-Tag on
@@ -143,10 +208,10 @@ for a in apps:
     if a.get("route") == "hostname" and cfg.get("suspended"):
         edge += ["", "%s {" % addrs([a["hostname"]])] + NOINDEX_LINE + site_body() + ["}"]
     elif a.get("route") == "hostname":
-        edge += ["", "%s {" % addrs([a["hostname"]])] + NOINDEX_LINE + ["\troute {", "\t\tencode zstd gzip"]
+        edge += ["", "%s {" % addrs([a["hostname"]])] + NOINDEX_LINE + ["\theader -Server", "\troute {", "\t\tencode zstd gzip"]
         if deny:
-            edge += ["\t\t@cc_deny remote_ip %s" % " ".join(deny), "\t\trespond @cc_deny 403"]
-        edge += ["\t\treverse_proxy %s:%d {" % (ip, int(a["port"])), "\t\t\tlb_try_duration 5s", "\t\t}", "\t}", "}"]
+            edge += ["\t\t@cc_deny remote_ip %s" % " ".join(deny), "\t\terror @cc_deny 403"]
+        edge += proxy(2, "%s:%d" % (ip, int(a["port"])), "5s") + ["\t}"] + ERRORS_BLOCK + ["}"]
 edge_new = "\n".join(edge) + "\n"
 edge_path = "/etc/caddy/sites/%s.caddyfile" % ct
 edge_prev_path = "/etc/caddy/sites/.%s.prev" % ct
@@ -265,6 +330,9 @@ max_execution_time = %d
 max_input_vars = 5000
 log_errors = On
 error_log = /srv/site/logs/php-error.log
+display_errors = Off
+display_startup_errors = Off
+expose_php = Off
 opcache.memory_consumption = 128
 opcache.interned_strings_buffer = 16
 opcache.max_accelerated_files = 20000
@@ -293,6 +361,15 @@ fcaddy_new = """# CaptainCore site container. TLS ends at the node edge; this se
 	# 50 visitors at once on cached pages cost 650 MB and got PHP killed in a
 	# load test. zstd and gzip stay under 200 MB and answer three times faster.
 	encode zstd gzip
+	# Never for the public, wherever they sit: hidden files and folders (.env,
+	# .git, .htpasswd), logs (wp-content/debug.log), database dumps and
+	# editor or backup copies (wp-config.php.bak would be sent as plain text).
+	# /.well-known/ stays open: certificates and app links live there.
+	@cc_private {
+		path */.* *.log *.sql *.sql.gz *.bak *.old *.orig *.save *.swp *.swo *~
+		not path /.well-known/*
+	}
+	respond @cc_private 404
 %s%s	php_server
 	# ~/logs/access.log is what CaptainCore's Logs view lists. client_ip is
 	# the visitor (trusted_proxies takes it from the edge's X-Forwarded-For).
@@ -491,6 +568,17 @@ def ok(code):
 
 
 try:
+    os.makedirs(ERR_DIR, exist_ok=True)
+    for name, page in ERR_PAGES.items():
+        path = os.path.join(ERR_DIR, name)
+        if not os.path.exists(path) or open(path).read() != page:
+            with open(path + ".cc-new", "w") as f:
+                f.write(page)
+            os.chmod(path + ".cc-new", 0o644)
+            os.replace(path + ".cc-new", path)
+            if "error pages" not in res["changes"]:
+                res["changes"].append("error pages")
+
     if edge_new != edge_old:
         if edge_old is not None:
             open(edge_prev_path, "w").write(edge_old)
@@ -520,8 +608,8 @@ try:
                 ct_write_any(path, pc_want[path])
         run("incus", "exec", ct, "--", "sh", "-c",
             "install -d -m 0755 /var/cache/captaincore && install -d -o site -g site -m 0750 '%s'" % PC_ROOT)
-        if PC_JSON in pc_diff:
-            # Other hostnames or exclusions: saved pages may no longer be right.
+        if PC_JSON in pc_diff or PC_PHP in pc_diff:
+            # Other hostnames, exclusions or saving rules: saved pages may no longer be right.
             run("incus", "exec", ct, "--", "find", PC_ROOT, "-mindepth", "1", "-maxdepth", "1", "-exec", "rm", "-rf", "{}", "+", check=False)
         run("incus", "exec", ct, "--", "systemctl", "daemon-reload", check=False)
         run("incus", "exec", ct, "--", "systemctl", "enable", "--now", "cc-page-cache-gc.timer", check=False)

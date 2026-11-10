@@ -218,6 +218,12 @@ function storable( string $buffer ): bool {
 		if ( is_404() || is_search() || is_feed() || is_preview() || is_trackback() ) {
 			return false;
 		}
+		// Plain permalinks (?p=123): WordPress ignores the path and answers
+		// the home page at any address, so only the home page is a page.
+		$path = (string) strtok( (string) ( $_SERVER['REQUEST_URI'] ?? '' ), '?' );
+		if ( $path !== '/' && \function_exists( 'get_option' ) && (string) get_option( 'permalink_structure' ) === '' ) {
+			return false;
+		}
 		if ( is_singular() && \function_exists( 'post_password_required' ) && post_password_required() ) {
 			return false;
 		}
