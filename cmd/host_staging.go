@@ -274,8 +274,47 @@ func hostSiteCreate(args []string) {
 	fmt.Printf("Site ready: https://%s (SSH port %d). The certificate can take a few minutes on a brand-new domain.\n", info.Primary, info.SSHPort)
 }
 
+// hostSiteRemove takes a site environment off its server: the node parks the
+// container (stopped, renamed <ct>-removed-<date>, unpublished, purged after
+// seven days) and the Manager drops the temporary DNS records and marks the
+// environment removed.
+func hostSiteRemove(args []string) {
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fail("Configuration file not found.")
+	}
+	t, err := hostTarget(system, captain, args[0])
+	if err != nil {
+		fail("%v", err)
+	}
+	if err := t.ensureBackupTool(); err != nil {
+		fail("%v", err)
+	}
+	fmt.Printf("Taking a last local backup of %s…\n", t.container)
+	if _, err := ccTool(t, "create", t.container, "manual"); err != nil {
+		fmt.Printf("  (no backup: %v)\n", err)
+	}
+	fmt.Printf("Parking container %s on %s…\n", t.container, t.server)
+	res, err := ccTool(t, "site-park", t.container)
+	if err != nil {
+		fail("site-park: %v", err)
+	}
+	raw, err := newAPIClient(system, captain).Post("host-site-removed", map[string]interface{}{
+		"site_id": t.site.SiteID, "environment": t.env.Environment, "parked": res["parked"]})
+	if err != nil {
+		fail("manager: %v", err)
+	}
+	fmt.Printf("%s is off %s. The container is kept as %v for %v days, then purged.\n%s\n", args[0], t.server, res["parked"], res["purge_after_days"], strings.TrimSpace(string(raw)))
+}
+
 func init() {
 	siteCmd := &cobra.Command{Use: "site", Short: "Sites on our own servers"}
+	siteCmd.AddCommand(&cobra.Command{
+		Use: "remove <site>[-env]", Short: "Take a site environment off its server (kept 7 days, then purged)", Args: cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			resolveNativeOrWP(cmd, args, func(_ *cobra.Command, a []string) { hostSiteRemove(a) })
+		},
+	})
 	siteCmd.AddCommand(&cobra.Command{
 		Use: "create <site-id>", Short: "Build the container for a site created on one of our servers", Args: cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {

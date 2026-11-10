@@ -14,6 +14,8 @@
 #   cc-backups sync    <src> <dst> <both|files|database> <src_host> <dst_host>
 #   cc-backups container <container> [1h|24h|7d]   programs, traffic, Caddyfiles, metrics
 #   cc-backups restart <container> <php|database|cron|app-<name>|container>
+#   cc-backups site-park <container>     stop, rename <ct>-removed-<date>, unpublish (purged after 7 days)
+#   cc-backups site-purge <parked>       delete one parked container and its volumes now
 #
 # A backup is one atomic `zfs snapshot` of the container's files volume
 # (/srv/site) and database volume (/var/lib/mysql), so the two always match.
@@ -153,6 +155,8 @@ def site_containers():
     names = run("incus", "list", "-f", "csv", "-c", "n").stdout.split()
     out_ = []
     for n in names:
+        if PARKED_RE.match(n):
+            continue
         try:
             volumes(n)
             out_.append(n)
@@ -214,6 +218,62 @@ def clone(src, dst, ip, port):
             break
         time.sleep(1)
     return {"container": dst, "ip": ip, "ssh_port": int(port), "health": health(dst)}
+
+
+# ── Removing a site: park first, purge after a week ─────────────────────────
+# A removed site's container is stopped and renamed <ct>-removed-<YYYYMMDD>;
+# its edge block, firewall port and relay line go at once, so nothing serves
+# it. The container, its volumes and their snapshots stay seven days (an
+# operator can rename it back and re-apply), then `daily` purges them.
+PARKED_RE = re.compile(r"^([a-z0-9][a-z0-9-]*)-removed-(\d{8})$")
+PARK_DAYS = 7
+
+
+def site_park(ct):
+    if not CT_NAME.match(ct) or PARKED_RE.match(ct):
+        raise RuntimeError("invalid container name")
+    info = json.loads(run("incus", "query", "/1.0/instances/" + ct).stdout)
+    devs = info.get("devices") or {}
+    port = next((d.get("listen", "").rsplit(":", 1)[-1] for d in devs.values() if d.get("type") == "proxy"), "")
+    ip = ((info.get("expanded_devices") or {}).get("eth0") or {}).get("ipv4.address", "")
+    run("incus", "stop", ct, "--timeout", "60", check=False)
+    parked = "%s-removed-%s" % (ct, time.strftime("%Y%m%d", time.gmtime()))
+    run("incus", "rename", ct, parked)
+    for path in ("/etc/caddy/sites/%s.caddyfile" % ct, "/etc/caddy/sites/.%s.prev" % ct):
+        if os.path.exists(path):
+            os.remove(path)
+    run("systemctl", "reload", "caddy", check=False)
+    if port.isdigit():
+        run("ufw", "delete", "allow", "%s/tcp" % port, check=False)
+    cc = "/etc/postfix/cc_clients"
+    if ip and os.path.exists(cc):
+        lines = [l for l in open(cc).read().splitlines() if not (l.split()[:1] == [ip])]
+        open(cc, "w").write("\n".join(lines) + "\n")
+        run("postfix", "reload", check=False)
+    return {"parked": parked, "ssh_port": port, "ip": ip, "purge_after_days": PARK_DAYS}
+
+
+def purge_parked(force_name=None):
+    """Delete parked containers older than PARK_DAYS (or one by name), with their volumes."""
+    purged = []
+    for n in run("incus", "list", "-f", "csv", "-c", "n").stdout.split():
+        m = PARKED_RE.match(n)
+        if not m:
+            continue
+        age = (datetime.datetime.now(datetime.timezone.utc) - datetime.datetime.strptime(m.group(2), "%Y%m%d").replace(tzinfo=datetime.timezone.utc)).days
+        if n != force_name and age < PARK_DAYS:
+            continue
+        info = json.loads(run("incus", "query", "/1.0/instances/" + n).stdout)
+        vols = [d["source"] for d in (info.get("devices") or {}).values() if d.get("type") == "disk" and d.get("source") and d.get("pool")]
+        run("incus", "delete", n, "--force")
+        src = run("incus", "storage", "get", "default", "source").stdout.strip()
+        for v in vols:
+            if run("incus", "storage", "volume", "delete", "default", v, check=False).returncode != 0:
+                # Our own zfs snapshots (local backups) block the delete: drop them, try again.
+                run("zfs", "destroy", "-r", "%s/custom/default_%s" % (src, v), check=False)
+                run("incus", "storage", "volume", "delete", "default", v, check=False)
+        purged.append(n)
+    return purged
 
 
 def create_site(ct, image, ip, port, disk_gib, memory_mib):
@@ -737,7 +797,14 @@ try:
         out({"status": "ok", "deleted": sys.argv[3]})
     elif cmd == "daily":
         made = {ct: create(ct, "daily") for ct in site_containers()}
-        out({"status": "ok", "created": made, "pruned": prune()})
+        out({"status": "ok", "created": made, "pruned": prune(), "purged": purge_parked()})
+    elif cmd == "site-park":
+        out(dict(status="ok", **site_park(sys.argv[2])))
+    elif cmd == "site-purge":
+        # An operator purging one parked container before its seven days are up.
+        if not PARKED_RE.match(sys.argv[2]):
+            raise RuntimeError("only a parked container (<name>-removed-<date>) can be purged")
+        out({"status": "ok", "purged": purge_parked(sys.argv[2])})
     elif cmd == "clone":
         out(dict(status="ok", **clone(sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5]))))
     elif cmd == "sync":

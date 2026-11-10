@@ -91,7 +91,18 @@ pp_on = bool(pp.get("enabled")) and re.match(r"^[A-Za-z0-9._-]{1,64}$", pp.get("
     re.match(r"^\$2[aby]\$\d\d\$[./A-Za-z0-9]{53}$", pp.get("password_hash", ""))
 
 
+SUSPENDED_HTML = ("<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
+                  "<title>Temporarily unavailable</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;"
+                  "font:16px/1.6 -apple-system,Segoe UI,sans-serif;background:#f6f6f7;color:#1a1a1f}main{max-width:420px;padding:32px;text-align:center}"
+                  "h1{font-size:22px;margin:0 0 8px}p{margin:0;color:#5e5e69}@media(prefers-color-scheme:dark){body{background:#0b0b0d;color:#ececed}p{color:#9d9da7}}"
+                  "</style></head><body><main><h1>This site is temporarily unavailable</h1><p>Please check back later.</p></main></body></html>")
+
+
 def site_body():
+    # A suspended site answers every request (apps too) with a holding page.
+    if cfg.get("suspended"):
+        return ["\troute {", "\t\theader Retry-After 3600", "\t\theader Content-Type \"text/html; charset=utf-8\"",
+                "\t\theader Cache-Control no-store", "\t\trespond \"%s\" 503" % SUSPENDED_HTML, "\t}"]
     # route keeps the written order: deny, redirects, auth, then the proxy.
     b = ["\troute {", "\t\tencode zstd gzip"]
     if deny:
@@ -129,7 +140,9 @@ if cfg.get("redirect_to_primary") and others:
 else:
     edge += ["%s {" % addrs(site_hosts)] + NOINDEX_LINE + site_body() + ["}"]
 for a in apps:
-    if a.get("route") == "hostname":
+    if a.get("route") == "hostname" and cfg.get("suspended"):
+        edge += ["", "%s {" % addrs([a["hostname"]])] + NOINDEX_LINE + site_body() + ["}"]
+    elif a.get("route") == "hostname":
         edge += ["", "%s {" % addrs([a["hostname"]])] + NOINDEX_LINE + ["\troute {", "\t\tencode zstd gzip"]
         if deny:
             edge += ["\t\t@cc_deny remote_ip %s" % " ".join(deny), "\t\trespond @cc_deny 403"]
