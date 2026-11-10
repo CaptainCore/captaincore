@@ -242,6 +242,201 @@ def sync(src, dst, what, src_host, dst_host):
     return {"deployed": done, "from": src, "to": dst, "safety_backup": safety, "health": health(dst)}
 
 
+# ── Server metrics ─────────────────────────────────────────────────────────
+# `sample` runs every minute (cc-metrics.timer) and appends one JSON line to
+# /var/lib/captaincore/metrics/<date>.jsonl (kept 14 days); `stats <range>`
+# returns a fresh snapshot, system facts, containers and the history.
+MDIR = "/var/lib/captaincore/metrics"
+
+
+def _cpu_times():
+    f = open("/proc/stat").readline().split()[1:]
+    vals = [int(x) for x in f]
+    idle = vals[3] + vals[4]
+    return sum(vals), idle
+
+
+def _meminfo():
+    m = {}
+    for line in open("/proc/meminfo"):
+        k, v = line.split(":", 1)
+        m[k] = int(v.split()[0]) * 1024
+    arc = 0
+    try:
+        for line in open("/proc/spl/kstat/zfs/arcstats"):
+            p = line.split()
+            if p and p[0] == "size":
+                arc = int(p[2])
+    except OSError:
+        pass
+    return m, arc
+
+
+def _uplink():
+    best, rx, tx = "", 0, 0
+    for line in open("/proc/net/dev").readlines()[2:]:
+        name, data = line.split(":", 1)
+        name = name.strip()
+        if name == "lo" or name.startswith(("veth", "incus", "docker")):
+            continue
+        f = data.split()
+        if int(f[0]) + int(f[8]) > rx + tx:
+            best, rx, tx = name, int(f[0]), int(f[8])
+    return best, rx, tx
+
+
+def _pool():
+    p = run("zpool", "list", "-H", "-p", "-o", "name,size,alloc,free,health,frag,cap", check=False).stdout.split("\n")[0].split("\t")
+    if len(p) < 7:
+        return {}
+    return {"name": p[0], "size": int(p[1]), "alloc": int(p[2]), "free": int(p[3]), "health": p[4], "frag": p[5], "cap": p[6]}
+
+
+def _containers():
+    try:
+        items = json.loads(run("incus", "query", "/1.0/instances?recursion=2").stdout)
+    except Exception:
+        return []
+    out_ = []
+    for i in items:
+        st = i.get("state") or {}
+        ip = ""
+        for a in ((st.get("network") or {}).get("eth0") or {}).get("addresses") or []:
+            if a.get("family") == "inet":
+                ip = a["address"]
+        devs = i.get("devices") or {}
+        ssh = next((d.get("listen", "").rsplit(":", 1)[-1] for d in devs.values() if d.get("type") == "proxy"), "")
+        out_.append({
+            "name": i["name"], "status": i.get("status", ""),
+            "cpu_ns": (st.get("cpu") or {}).get("usage", 0),
+            "mem": (st.get("memory") or {}).get("usage", 0),
+            "mem_limit": (st.get("memory") or {}).get("total", 0),
+            "ip": ip, "ssh_port": ssh,
+            "volumes": [d["source"] for d in devs.values() if d.get("type") == "disk" and d.get("source")],
+            "started_at": st.get("started_at", ""),
+        })
+    return out_
+
+
+def sample():
+    os.makedirs(MDIR, exist_ok=True)
+    state_path = os.path.join(MDIR, ".last")
+    total, idle = _cpu_times()
+    nic, rx, tx = _uplink()
+    now = time.time()
+    m, arc = _meminfo()
+    cts = _containers()
+    rec = {"t": int(now), "load": float(open("/proc/loadavg").read().split()[0]),
+           "mem_total": m.get("MemTotal", 0), "mem_avail": m.get("MemAvailable", 0), "arc": arc,
+           "swap_used": m.get("SwapTotal", 0) - m.get("SwapFree", 0)}
+    pool = _pool()
+    rec["disk_used"], rec["disk_size"] = pool.get("alloc", 0), pool.get("size", 0)
+    try:
+        last = json.load(open(state_path))
+    except Exception:
+        last = None
+    if last and now > last["t"]:
+        dt = now - last["t"]
+        rec["cpu"] = round(100.0 * (1 - (idle - last["idle"]) / max(1, total - last["total"])), 1)
+        rec["rx_bps"] = int(max(0, rx - last["rx"]) / dt)
+        rec["tx_bps"] = int(max(0, tx - last["tx"]) / dt)
+        ncpu = os.cpu_count() or 1
+        rec["ct"] = {}
+        for c in cts:
+            prev = last.get("ct", {}).get(c["name"])
+            if prev is not None and c["cpu_ns"] >= prev:
+                rec["ct"][c["name"]] = {"cpu": round(100.0 * (c["cpu_ns"] - prev) / (dt * 1e9 * ncpu), 2), "mem": c["mem"]}
+    json.dump({"t": now, "total": total, "idle": idle, "rx": rx, "tx": tx,
+               "ct": {c["name"]: c["cpu_ns"] for c in cts}}, open(state_path, "w"))
+    if "cpu" in rec:
+        with open(os.path.join(MDIR, time.strftime("%Y-%m-%d.jsonl", time.gmtime(now))), "a") as f:
+            f.write(json.dumps(rec, separators=(",", ":")) + "\n")
+    cutoff = time.strftime("%Y-%m-%d", time.gmtime(now - 14 * 86400))
+    for name in os.listdir(MDIR):
+        if name.endswith(".jsonl") and name < cutoff:
+            os.remove(os.path.join(MDIR, name))
+    return rec
+
+
+def history(seconds, points=240):
+    since = time.time() - seconds
+    rows = []
+    for name in sorted(os.listdir(MDIR)) if os.path.isdir(MDIR) else []:
+        if not name.endswith(".jsonl") or name < time.strftime("%Y-%m-%d", time.gmtime(since)):
+            continue
+        for line in open(os.path.join(MDIR, name)):
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            if r["t"] >= since:
+                rows.append(r)
+    if len(rows) <= points:
+        return rows
+    # Average into `points` buckets so a week stays light.
+    step = seconds / points
+    buckets = {}
+    for r in rows:
+        buckets.setdefault(int((r["t"] - since) // step), []).append(r)
+    out_ = []
+    for k in sorted(buckets):
+        g = buckets[k]
+        avg = lambda key: sum(x.get(key, 0) for x in g) / len(g)
+        out_.append({"t": int(g[-1]["t"]), "cpu": round(avg("cpu"), 1), "load": round(avg("load"), 2),
+                     "mem_total": g[-1]["mem_total"], "mem_avail": int(avg("mem_avail")), "arc": int(avg("arc")),
+                     "rx_bps": int(avg("rx_bps")), "tx_bps": int(avg("tx_bps")),
+                     "disk_used": g[-1]["disk_used"], "disk_size": g[-1]["disk_size"]})
+    return out_
+
+
+def stats(range_):
+    seconds = {"1h": 3600, "24h": 86400, "7d": 7 * 86400}.get(range_, 3600)
+    now = sample()  # also refreshes the CPU baseline
+    osr = {}
+    for line in open("/etc/os-release"):
+        if "=" in line:
+            k, v = line.rstrip().split("=", 1)
+            osr[k] = v.strip('"')
+    upd = run("bash", "-c", "apt-get -s -o Debug::NoLocking=1 upgrade 2>/dev/null | grep -c '^Inst' || true", check=False).stdout.strip()
+    timers = {}
+    for t in ("cc-backups-daily.timer", "cc-metrics.timer", "unattended-upgrades.service"):
+        timers[t] = run("systemctl", "is-active", t, check=False).stdout.strip()
+    lastrun = run("systemctl", "show", "cc-backups-daily.service", "-p", "ExecMainExitTimestamp", "--value", check=False).stdout.strip()
+    cts = _containers()
+    used = {}
+    for line in run("zfs", "list", "-H", "-p", "-o", "name,used,quota,refquota", "-t", "filesystem", check=False).stdout.splitlines():
+        name, u, q, rq = line.split("\t")
+        used[name.rsplit("default_", 1)[-1]] = {"used": int(u), "quota": int(rq if rq != "0" else q)}
+    snaps = {}
+    for line in run("zfs", "list", "-H", "-p", "-t", "snapshot", "-o", "name,used", check=False).stdout.splitlines():
+        n, u = line.split("\t")
+        vol = n.split("@")[0].rsplit("default_", 1)[-1]
+        snaps[vol] = snaps.get(vol, 0) + int(u)
+    for c in cts:
+        c["disk"] = sum(used.get(v, {}).get("used", 0) for v in c["volumes"])
+        c["disk_quota"] = sum(used.get(v, {}).get("quota", 0) for v in c["volumes"])
+        c["snapshots_bytes"] = sum(snaps.get(v, 0) for v in c["volumes"])
+        c["cpu"] = (now.get("ct") or {}).get(c["name"], {}).get("cpu")
+    root = os.statvfs("/")
+    return {
+        "now": now,
+        "system": {
+            "hostname": os.uname().nodename, "os": osr.get("PRETTY_NAME", ""), "kernel": os.uname().release,
+            "uptime_s": int(float(open("/proc/uptime").read().split()[0])),
+            "cpus": os.cpu_count(), "cpu_model": next((l.split(":", 1)[1].strip() for l in open("/proc/cpuinfo") if l.startswith("model name")), ""),
+            "incus": run("incus", "version", check=False).stdout.split("Server version:")[-1].strip(),
+            "zfs": run("zfs", "version", check=False).stdout.split("\n")[0].strip(),
+            "pool": _pool(), "root_fs": {"size": root.f_blocks * root.f_frsize, "free": root.f_bavail * root.f_frsize},
+            "updates_pending": int(upd or 0), "reboot_required": os.path.exists("/var/run/reboot-required"),
+            "arc_max": int(open("/sys/module/zfs/parameters/zfs_arc_max").read() or 0),
+            "timers": timers, "backups_last_run": lastrun,
+        },
+        "containers": cts,
+        "history": history(seconds),
+        "range": range_,
+    }
+
+
 try:
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "create":
@@ -270,6 +465,10 @@ try:
         wp(ct, "option", "update", "blog_public", public, "--quiet")
         wp(ct, "cache", "flush", "--quiet", check=False)
         out({"status": "ok", "home": wp(ct, "option", "get", "home").stdout.strip()})
+    elif cmd == "sample":
+        out({"status": "ok", "sample": sample()})
+    elif cmd == "stats":
+        out(dict(status="ok", **stats(sys.argv[2] if len(sys.argv) > 2 else "1h")))
     elif cmd == "prune":
         out({"status": "ok", "pruned": prune()})
     else:

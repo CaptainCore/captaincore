@@ -38,6 +38,25 @@ Persistent=true
 WantedBy=timers.target
 `
 
+const hostMetricsTimer = `[Unit]
+Description=CaptainCore server metrics (every minute)
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target
+`
+
+const hostMetricsService = `[Unit]
+Description=CaptainCore server metrics sample
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cc-backups sample
+`
+
 const hostBackupsService = `[Unit]
 Description=CaptainCore local backups (daily)
 
@@ -138,7 +157,9 @@ func (t *hostTargetInfo) ensureBackupTool() error {
 	install := "sudo tee /usr/local/sbin/cc-backups >/dev/null && sudo chmod 0755 /usr/local/sbin/cc-backups && " +
 		"printf %s " + shellSingleQuote(hostBackupsService) + " | sudo tee /etc/systemd/system/cc-backups-daily.service >/dev/null && " +
 		"printf %s " + shellSingleQuote(hostBackupsTimer) + " | sudo tee /etc/systemd/system/cc-backups-daily.timer >/dev/null && " +
-		"sudo systemctl daemon-reload && sudo systemctl enable --now cc-backups-daily.timer >/dev/null 2>&1"
+		"printf %s " + shellSingleQuote(hostMetricsService) + " | sudo tee /etc/systemd/system/cc-metrics.service >/dev/null && " +
+		"printf %s " + shellSingleQuote(hostMetricsTimer) + " | sudo tee /etc/systemd/system/cc-metrics.timer >/dev/null && " +
+		"sudo systemctl daemon-reload && sudo systemctl enable --now cc-backups-daily.timer cc-metrics.timer >/dev/null 2>&1"
 	if _, errOut, err := t.ssh(install, hostBackupsScript); err != nil {
 		return fmt.Errorf("installing cc-backups: %v %s", err, strings.TrimSpace(errOut))
 	}

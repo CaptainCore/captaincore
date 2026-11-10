@@ -111,6 +111,8 @@ func hostStagingCreate(args []string) {
 	if err := selfRun("host", "apply", prod.site.Site+"-staging"); err != nil {
 		fail("host apply: %v", err)
 	}
+	fmt.Println("Deploying team SSH keys to staging…")
+	_ = selfRun("ssh-keys", "deploy", prod.site.Site+"-staging")
 	fmt.Println("Syncing staging into CaptainCore…")
 	_ = selfRun("sync-data", prod.site.Site+"-staging")
 	fmt.Printf("Staging is ready: https://%s (SSH port %d). Its certificate may take a few minutes on a brand-new domain.\n", prep.Primary, prep.SSHPort)
