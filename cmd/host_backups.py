@@ -597,6 +597,7 @@ def container(ct, range_):
     nic = (cfg.get("expanded_devices") or {}).get("eth0") or {}
     info["limits"]["security.port_isolation"] = nic.get("security.port_isolation", "")
     info["image"] = conf.get("image.description", "")
+    info["host_cpus"] = os.cpu_count() or 1
     hist = _ct_history(ct, seconds)
     info["cpu"] = hist[-1]["cpu"] if hist else None
 

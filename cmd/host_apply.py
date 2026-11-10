@@ -226,6 +226,13 @@ def wp(*args, check=True):
 
 
 # ── Apps: one systemd service each, as the site user ──────────────────────
+def app_mem(a):
+    try:
+        return max(32, min(int(a.get("memory_mb") or 256), 16384))
+    except (TypeError, ValueError):
+        return 256
+
+
 def app_files(a):
     n = a["name"]
     env_lines = ["# Managed by CaptainCore (hosting configuration)."]
@@ -251,10 +258,13 @@ RestartSec=3
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=full
+MemoryHigh=%dM
+MemoryMax=%dM
+TasksMax=256
 
 [Install]
 WantedBy=multi-user.target
-""" % (n, n, int(a["port"]), n, n),
+""" % (n, n, int(a["port"]), n, n, app_mem(a) * 9 // 10, app_mem(a)),
     }
 
 
