@@ -370,6 +370,14 @@ fcaddy_new = """# CaptainCore site container. TLS ends at the node edge; this se
 		not path /.well-known/*
 	}
 	respond @cc_private 404
+	# PHP never runs from the folders WordPress writes to at runtime. An
+	# uploaded script is the usual first step of a break-in, and nothing a
+	# visitor should reach lives there as PHP (plugins that keep PHP files in
+	# uploads include them from their own code, which this does not touch).
+	# Also caught: other PHP extensions, any letter case, and the path-info
+	# form (/uploads/x.php/y.jpg) that would still run x.php.
+	@cc_upload_php path_regexp (?i)/wp-content/(uploads|upgrade|blogs\\.dir)/.*\\.(php\\d?|phtml|phar|pht|phps)(/|$)
+	respond @cc_upload_php 404
 %s%s	php_server
 	# ~/logs/access.log is what CaptainCore's Logs view lists. client_ip is
 	# the visitor (trusted_proxies takes it from the edge's X-Forwarded-For).
