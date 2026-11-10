@@ -10,6 +10,8 @@
 #   cc-backups delete  <container> <snapshot>
 #   cc-backups daily                 snapshot every site container, then prune
 #   cc-backups prune
+#   cc-backups clone   <src> <dst> <ip> <ssh_port>        new container from src's image + volumes
+#   cc-backups sync    <src> <dst> <both|files|database> <src_host> <dst_host>
 #
 # A backup is one atomic `zfs snapshot` of the container's files volume
 # (/srv/site) and database volume (/var/lib/mysql), so the two always match.
@@ -168,6 +170,78 @@ def prune():
     return removed
 
 
+HOST_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
+
+
+def wp(ct, *args, check=True):
+    cmd = "cd /srv/site/public && wp " + " ".join("'%s'" % a.replace("'", "") for a in args)
+    return run("incus", "exec", ct, "--", "su", "-s", "/bin/bash", "site", "-c", cmd, check=check)
+
+
+def clone(src, dst, ip, port):
+    """New container dst from src's image and a copy of src's volumes."""
+    if not re.match(r"^[a-z0-9][a-z0-9-]{0,62}$", dst) or not re.match(r"^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip) \
+            or not (1024 < int(port) < 65535):
+        raise RuntimeError("invalid clone target")
+    if run("incus", "info", dst, check=False).returncode == 0:
+        raise RuntimeError("container %s already exists" % dst)
+    inst = json.loads(run("incus", "query", "/1.0/instances/" + src).stdout)
+    image = inst.get("config", {}).get("volatile.base_image", "")
+    if not image:
+        raise RuntimeError("cannot tell which image %s runs" % src)
+    devs = {d.get("path"): d for d in inst.get("devices", {}).values() if d.get("type") == "disk" and d.get("source")}
+    run("incus", "init", image, dst)
+    run("incus", "config", "set", dst, "limits.memory=" + inst.get("config", {}).get("limits.memory", "1GiB"))
+    run("incus", "config", "device", "override", dst, "eth0", "ipv4.address=" + ip)
+    for path, suffix in (("/srv/site", "site"), ("/var/lib/mysql", "db")):
+        d = devs[path]
+        name = "%s-%s" % (dst, suffix)
+        run("incus", "storage", "volume", "copy", "%s/%s" % (d["pool"], d["source"]), "%s/%s" % (d["pool"], name))
+        run("incus", "storage", "volume", "attach", d["pool"], name, dst, path)
+    run("incus", "config", "device", "add", dst, "ssh", "proxy", "listen=tcp:0.0.0.0:%d" % int(port), "connect=tcp:127.0.0.1:22")
+    run("ufw", "allow", "%d/tcp" % int(port), check=False)
+    run("incus", "start", dst)
+    for _ in range(40):
+        if run("incus", "exec", dst, "--", "systemctl", "is-active", "mariadb", check=False).stdout.strip() == "active":
+            break
+        time.sleep(1)
+    return {"container": dst, "ip": ip, "ssh_port": int(port), "health": health(dst)}
+
+
+def sync(src, dst, what, src_host, dst_host):
+    """Deploy src's files and/or database onto dst (a backup of dst first)."""
+    if what not in ("both", "files", "database") or not HOST_RE.match(src_host) or not HOST_RE.match(dst_host):
+        raise RuntimeError("invalid deploy arguments")
+    sv, dv = volumes(src), volumes(dst)
+    safety = create(dst, "pre-deploy")
+    point = create(src, "pre-deploy")   # a consistent copy of the source to read from
+    keep_public = wp(dst, "option", "get", "blog_public", check=False).stdout.strip()
+    done = []
+    if what in ("both", "files"):
+        run("rsync", "-aHAX", "--numeric-ids", "--delete", "--exclude=/.ssh/", "--exclude=/public/wp-config.php",
+            "%s/.zfs/snapshot/%s/" % (sv["files"]["mount"], point), dv["files"]["mount"] + "/")
+        done.append("files")
+    if what in ("both", "database"):
+        run("incus", "exec", dst, "--", "systemctl", "stop", "mariadb")
+        try:
+            run("rsync", "-aHAX", "--numeric-ids", "--delete",
+                "%s/.zfs/snapshot/%s/" % (sv["database"]["mount"], point), dv["database"]["mount"] + "/")
+        finally:
+            run("incus", "exec", dst, "--", "systemctl", "start", "mariadb")
+        # The copy carries the source's URLs and search engine setting; give
+        # the destination back its own.
+        if src_host != dst_host:
+            wp(dst, "search-replace", "https://" + src_host, "https://" + dst_host, "--all-tables", "--precise", "--quiet")
+            wp(dst, "search-replace", src_host, dst_host, "--all-tables", "--precise", "--quiet")
+        if keep_public in ("0", "1"):
+            wp(dst, "option", "update", "blog_public", keep_public, "--quiet", check=False)
+        wp(dst, "cache", "flush", "--quiet", check=False)
+        done.append("database")
+    run("incus", "exec", dst, "--", "systemctl", "restart", "frankenphp", check=False)
+    time.sleep(1.5)
+    return {"deployed": done, "from": src, "to": dst, "safety_backup": safety, "health": health(dst)}
+
+
 try:
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "create":
@@ -183,6 +257,19 @@ try:
     elif cmd == "daily":
         made = {ct: create(ct, "daily") for ct in site_containers()}
         out({"status": "ok", "created": made, "pruned": prune()})
+    elif cmd == "clone":
+        out(dict(status="ok", **clone(sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5]))))
+    elif cmd == "sync":
+        out(dict(status="ok", **sync(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6])))
+    elif cmd == "rehost":
+        ct, frm, to, public = sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
+        if not HOST_RE.match(frm) or not HOST_RE.match(to) or public not in ("0", "1"):
+            raise RuntimeError("invalid rehost arguments")
+        wp(ct, "search-replace", "https://" + frm, "https://" + to, "--all-tables", "--precise", "--quiet")
+        wp(ct, "search-replace", frm, to, "--all-tables", "--precise", "--quiet")
+        wp(ct, "option", "update", "blog_public", public, "--quiet")
+        wp(ct, "cache", "flush", "--quiet", check=False)
+        out({"status": "ok", "home": wp(ct, "option", "get", "home").stdout.strip()})
     elif cmd == "prune":
         out({"status": "ok", "pruned": prune()})
     else:

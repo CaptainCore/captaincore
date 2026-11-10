@@ -57,6 +57,7 @@ type hostTargetInfo struct {
 	env       *models.Environment
 	container string
 	ip        string
+	primary   string
 	server    string
 	sshArgs   []string
 }
@@ -81,6 +82,7 @@ func hostTarget(system *config.SystemConfig, captain *config.CaptainConfig, arg 
 		OwnServer bool   `json:"own_server"`
 		Container string `json:"container"`
 		IP        string `json:"ip"`
+		Primary   string `json:"primary"`
 		Server    struct {
 			Name    string `json:"name"`
 			Address string `json:"address"`
@@ -108,7 +110,7 @@ func hostTarget(system *config.SystemConfig, captain *config.CaptainConfig, arg 
 	if user == "" {
 		user = "root"
 	}
-	return &hostTargetInfo{site: site, env: env, container: hc.Container, ip: hc.IP, server: hc.Server.Name,
+	return &hostTargetInfo{site: site, env: env, container: hc.Container, ip: hc.IP, primary: hc.Primary, server: hc.Server.Name,
 		sshArgs: []string{"-oBatchMode=yes", "-oStrictHostKeyChecking=no", "-oConnectTimeout=30",
 			"-oPreferredAuthentications=publickey", "-oIdentitiesOnly=yes", "-i", keyPath,
 			"-p", fmt.Sprint(port), user + "@" + hc.Server.Address}}, nil
