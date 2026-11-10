@@ -107,7 +107,9 @@ run_command() {
   restic_key="${CAPTAINCORE_PATH}/data/restic.key"
 
   # Initialize restic repo if needed
-  if [[ $( restic snapshots --repo "$restic_repo" --password-file="$restic_key" 2>&1 ) == "" ]]; then
+  # restic prints "repository does not exist" for a missing repo, so test
+  # whether its config can be read instead of whether the output is empty.
+  if ! restic cat config --repo "$restic_repo" --password-file="$restic_key" >/dev/null 2>&1; then
     echo "Generating new restic repo ${site}_${site_id}/${environment}/quicksave-repo"
     restic init --quiet --repo "$restic_repo" --password-file="$restic_key"
     # Back up the repo key locally
