@@ -204,5 +204,6 @@ func init() {
 			resolveNativeOrWP(cmd, args, func(_ *cobra.Command, a []string) { nodeRestart(a) })
 		},
 	})
+	registerNodeImage(nodeCmd)
 	rootCmd.AddCommand(nodeCmd)
 }

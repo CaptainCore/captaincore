@@ -38,11 +38,16 @@ func selfRun(args ...string) error {
 }
 
 func ccTool(t *hostTargetInfo, args ...string) (map[string]interface{}, error) {
+	return ccToolIn(t, "", args...)
+}
+
+// ccToolIn runs a cc-backups command on the node with something on its stdin.
+func ccToolIn(t *hostTargetInfo, stdin string, args ...string) (map[string]interface{}, error) {
 	remote := "sudo /usr/local/sbin/cc-backups"
 	for _, a := range args {
 		remote += " " + shellSingleQuote(a)
 	}
-	stdout, stderr, _ := t.ssh(remote, "")
+	stdout, stderr, _ := t.ssh(remote, stdin)
 	line := strings.TrimSpace(stdout)
 	if i := strings.LastIndex(line, "\n"); i >= 0 {
 		line = line[i+1:]

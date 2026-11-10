@@ -75,6 +75,7 @@ func hostApplyNative(cmd *cobra.Command, args []string) {
 		Revision  int    `json:"revision"`
 		Container string `json:"container"`
 		IP        string `json:"ip"`
+		Image     string `json:"image"`
 		Server    struct {
 			Name    string `json:"name"`
 			Address string `json:"address"`
@@ -108,6 +109,13 @@ func hostApplyNative(cmd *cobra.Command, args []string) {
 	if user == "" {
 		user = "root"
 	}
+	// The PHP version is the container's image. A container on another image
+	// is rebuilt on the right one first (same volumes, address and limits);
+	// the script below then writes the site's settings into the new one.
+	var rebuilt map[string]interface{}
+	if hc.Image != "" {
+		rebuilt = hostApplyImage(system, captain, client, args[0], hc.Container, hc.Image, hc.Revision, site.SiteID, env.Environment)
+	}
 	remoteCmd := "sudo python3 -c " + shellSingleQuote(hostApplyScript)
 	if flagHostDryRun {
 		remoteCmd += " --dry-run"
@@ -138,6 +146,9 @@ func hostApplyNative(cmd *cobra.Command, args []string) {
 		result = map[string]interface{}{"status": "failed", "error": strings.TrimSpace(errBuf.String() + " " + fmt.Sprint(runErr))}
 	}
 	status, _ := result["status"].(string)
+	if rebuilt != nil {
+		result["rebuild"] = rebuilt
+	}
 
 	if flagHostDryRun {
 		pretty, _ := json.MarshalIndent(result, "", "  ")

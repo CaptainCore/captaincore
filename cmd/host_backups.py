@@ -14,6 +14,10 @@
 #   cc-backups sync    <src> <dst> <both|files|database> <src_host> <dst_host>
 #   cc-backups container <container> [1h|24h|7d]   programs, traffic, Caddyfiles, metrics
 #   cc-backups restart <container> <php|database|cron|app-<name>|container>
+#   cc-backups image-build <8.3|8.4|8.5>   build cc-wp-php8x (the image script on stdin)
+#   cc-backups image-list                  site images, and how many containers run each
+#   cc-backups image-of <container>        the image a container runs, and whether a newer build exists
+#   cc-backups rebuild <container> <image> same site on another image (a PHP switch, or a refreshed build)
 #   cc-backups cache-status <container>  saved pages: how many, how big, how old
 #   cc-backups cache-clear  <container>  delete every saved page
 #   cc-backups site-park <container>     stop, rename <ct>-removed-<date>, unpublish (purged after 7 days)
@@ -185,7 +189,7 @@ def site_containers():
     names = run("incus", "list", "-f", "csv", "-c", "n").stdout.split()
     out_ = []
     for n in names:
-        if PARKED_RE.match(n):
+        if PARKED_RE.match(n) or OLDROOT_RE.match(n):
             continue
         try:
             volumes(n)
@@ -248,6 +252,217 @@ def clone(src, dst, ip, port):
             break
         time.sleep(1)
     return {"container": dst, "ip": ip, "ssh_port": int(port), "health": health(dst)}
+
+
+# ── Images and rebuilds ─────────────────────────────────────────────────────
+# One image per PHP branch (cc-wp-php83, cc-wp-php84, cc-wp-php85), built by
+# the script the CLI carries (cmd/host_image.sh). A site's files and database
+# live on their own volumes and everything else in its container is written
+# by `host apply`, so changing PHP is not an upgrade in place: the site gets a
+# new container from the other image, with the same volumes, address, SSH
+# port and limits. The same step moves a site onto a refreshed build of its
+# image (a new PHP or FrankenPHP release).
+IMAGE_RE = re.compile(r"^cc-wp-php8[3-5]$")
+OLDROOT_RE = re.compile(r"^([a-z0-9][a-z0-9-]*)-oldroot-(\d{8})\d{6}$")
+
+
+def _images():
+    """alias -> image, for the site images on this server."""
+    found = {}
+    for img in json.loads(run("incus", "image", "list", "-f", "json").stdout):
+        for a in img.get("aliases") or []:
+            if IMAGE_RE.match(a.get("name", "")):
+                found[a["name"]] = img
+    return found
+
+
+def image_of(ct):
+    if not CT_NAME.match(ct):
+        raise RuntimeError("invalid container name")
+    cfg = json.loads(run("incus", "query", "/1.0/instances/" + ct).stdout).get("config", {})
+    images = _images()
+    base = cfg.get("volatile.base_image", "")
+    alias = cfg.get("user.cc_image", "")
+    if not alias:
+        # Containers from before rebuilds existed: note which image they came
+        # from while that build is still here to ask.
+        alias = next((a for a, img in images.items() if img.get("fingerprint") == base), "")
+        if alias:
+            run("incus", "config", "set", ct, "user.cc_image=" + alias, check=False)
+    latest = (images.get(alias) or {}).get("fingerprint", "")
+    return {"image": alias, "fingerprint": base[:12], "latest": latest[:12], "outdated": bool(latest) and latest != base,
+            "available": sorted(images)}
+
+
+def image_list():
+    images = _images()
+    using = {}
+    for inst in json.loads(run("incus", "list", "-f", "json").stdout):
+        if PARKED_RE.match(inst["name"]) or OLDROOT_RE.match(inst["name"]):
+            continue
+        fp = (inst.get("config") or {}).get("volatile.base_image", "")
+        using.setdefault(fp, []).append(inst["name"])
+    rows = []
+    for alias, img in sorted(images.items()):
+        fp = img.get("fingerprint", "")
+        rows.append({"image": alias, "php": "8." + alias[-1], "fingerprint": fp[:12], "built": img.get("created_at", ""),
+                     "size_bytes": img.get("size", 0), "description": (img.get("properties") or {}).get("description", ""),
+                     "containers": sorted(using.get(fp, []))})
+    return rows
+
+
+def image_build(version, script):
+    if version not in ("8.3", "8.4", "8.5"):
+        raise RuntimeError("PHP version must be 8.3, 8.4 or 8.5")
+    if "IMAGE-SETUP-OK" not in script:
+        raise RuntimeError("no image script on stdin")
+    branch = version.replace(".", "")
+    alias, build = "cc-wp-php" + branch, "build-php" + branch
+    run("incus", "delete", build, "--force", check=False)
+    run("incus", "launch", "images:debian/13", build)
+    try:
+        for _ in range(40):
+            if run("incus", "exec", build, "--", "getent", "hosts", "deb.debian.org", check=False).returncode == 0:
+                break
+            time.sleep(1)
+        p = run("incus", "exec", build, "--env", "PHP_BRANCH=" + branch, "--", "bash", "-s", inp=script, check=False)
+        if p.returncode != 0 or "IMAGE-SETUP-OK" not in p.stdout:
+            raise RuntimeError("image script failed: %s" % (p.stderr or p.stdout).strip()[-400:])
+        m = re.search(r"FrankenPHP v([\d.]+)", run("incus", "exec", build, "--", "sh", "-c", "frankenphp version | head -1", check=False).stdout)
+        php = run("incus", "exec", build, "--", "php", "-r", "echo PHP_VERSION;", check=False).stdout.strip()
+        if not m or not php.startswith(version + "."):
+            raise RuntimeError("the build runs PHP %r, not %s" % (php[:40], version))
+        maria = re.search(r"(\d+\.\d+)\.\d+-MariaDB", run("incus", "exec", build, "--", "mariadbd", "--version", check=False).stdout)
+        desc = "CaptainCore WordPress site: Debian 13, FrankenPHP %s, PHP %s, MariaDB %s" % (m.group(1), php, maria.group(1) if maria else "?")
+        run("incus", "stop", build, "--timeout", "60")
+        old = _images().get(alias)
+        # The new build takes the name in one step; containers on the old
+        # build keep running and are noted as that image, so they show as
+        # outdated rather than unknown.
+        run("incus", "image", "alias", "delete", alias + "-new", check=False)
+        run("incus", "publish", build, "--alias", alias + "-new", "description=" + desc)
+        new_fp = json.loads(run("incus", "image", "list", alias + "-new", "-f", "json").stdout)[0]["fingerprint"]
+        if old:
+            for inst in json.loads(run("incus", "list", "-f", "json").stdout):
+                c = inst.get("config") or {}
+                if c.get("volatile.base_image") == old["fingerprint"] and not c.get("user.cc_image"):
+                    run("incus", "config", "set", inst["name"], "user.cc_image=" + alias, check=False)
+            run("incus", "image", "alias", "delete", alias)
+        run("incus", "image", "alias", "create", alias, new_fp)
+        run("incus", "image", "alias", "delete", alias + "-new", check=False)
+        if old and old["fingerprint"] != new_fp:
+            run("incus", "image", "delete", old["fingerprint"], check=False)   # kept on disk while containers still use it
+        return {"image": alias, "fingerprint": new_fp[:12], "description": desc, "replaced": (old or {}).get("fingerprint", "")[:12]}
+    finally:
+        run("incus", "delete", build, "--force", check=False)
+
+
+def _site_devices(ct, devs, add):
+    """The devices that make a container this site: its volumes, its address, its SSH port."""
+    for name, d in sorted(devs.items()):
+        kind = d.get("type")
+        if kind == "disk" and d.get("pool") and d.get("source"):
+            if add:
+                run("incus", "storage", "volume", "attach", d["pool"], d["source"], ct, name, d["path"])
+            else:
+                run("incus", "config", "device", "remove", ct, name)
+        elif kind == "nic":
+            keys = ["%s=%s" % (k, v) for k, v in d.items() if k not in ("type", "name", "network", "nictype", "parent")]
+            if add and keys:
+                run("incus", "config", "device", "override", ct, name, *keys)
+            elif not add:
+                run("incus", "config", "device", "remove", ct, name)   # also drops its DHCP lease
+        elif kind == "proxy":
+            if add:
+                run("incus", "config", "device", "add", ct, name, "proxy", *["%s=%s" % (k, v) for k, v in d.items() if k != "type"])
+            else:
+                run("incus", "config", "device", "remove", ct, name)
+
+
+def _wait_ready(ct, ip):
+    for attempt in range(2):
+        for _ in range(25):
+            if not ip or ip in run("incus", "list", "^%s$" % ct, "-f", "csv", "-c", "4", check=False).stdout:
+                break
+            time.sleep(1)
+        else:
+            if attempt == 0:
+                run("incus", "restart", ct, "--timeout", "30", check=False)
+                continue
+            raise RuntimeError("the container came up without its address %s" % ip)
+        break
+    for _ in range(40):
+        if run("incus", "exec", ct, "--", "systemctl", "is-active", "mariadb", check=False).stdout.strip() == "active":
+            return
+        time.sleep(1)
+    raise RuntimeError("the database did not start")
+
+
+def rebuild(ct, alias):
+    if not CT_NAME.match(ct) or PARKED_RE.match(ct) or OLDROOT_RE.match(ct):
+        raise RuntimeError("invalid container name")
+    if not IMAGE_RE.match(alias) or alias not in _images():
+        raise RuntimeError("image %s is not on this server (build it with: captaincore node image build <server-id> --php=8.%s)" % (alias, alias[-1:]))
+    volumes(ct)   # only a site container (files + database volumes) is rebuilt
+    inst = json.loads(run("incus", "query", "/1.0/instances/" + ct).stdout)
+    devs = inst.get("devices") or {}
+    keep = {k: v for k, v in (inst.get("config") or {}).items() if k.split(".")[0] in ("limits", "security", "user", "raw", "boot")}
+    ip = next((d.get("ipv4.address", "") for d in devs.values() if d.get("type") == "nic"), "")
+    was = image_of(ct)
+    was_running = inst.get("status") == "Running"
+    safety = create(ct, "pre-deploy")
+    # SSH host keys travel, or every key holder gets a "host key changed" warning.
+    keys = run("incus", "exec", ct, "--", "sh", "-c", "cd /etc/ssh && tar -cf - ssh_host_* | base64 -w0", check=False).stdout.strip() if was_running else ""
+    old = "%s-oldroot-%s" % (ct, time.strftime("%Y%m%d%H%M%S", time.gmtime()))
+    started = time.time()
+    if was_running:
+        run("incus", "stop", ct, "--timeout", "60", check=False)
+        if json.loads(run("incus", "query", "/1.0/instances/" + ct).stdout).get("status") != "Stopped":
+            run("incus", "stop", ct, "--force")
+    _site_devices(ct, devs, add=False)
+    run("incus", "rename", ct, old)
+    try:
+        run("incus", "init", alias, ct)
+        for k, v in sorted(keep.items()):
+            run("incus", "config", "set", ct, "%s=%s" % (k, v))
+        run("incus", "config", "set", ct, "user.cc_image=" + alias)
+        _site_devices(ct, devs, add=True)
+        run("incus", "start", ct)
+        _wait_ready(ct, ip)
+        if keys:
+            run("incus", "exec", ct, "--", "sh", "-c", "cd /etc/ssh && rm -f ssh_host_* && base64 -d | tar -xf - && systemctl restart ssh", inp=keys)
+        # No answer yet means PHP is still starting: wait for it. An error
+        # page is an answer: the site does not run on this image, and every
+        # second spent re-asking is a second visitors see that error.
+        code, errors = "000", 0
+        for _ in range(20):
+            code = health(ct)
+            if code.isdigit() and 200 <= int(code) < 400:
+                break
+            if code.isdigit() and int(code) >= 400:
+                errors += 1
+                if errors >= 2:
+                    raise RuntimeError("the site answered %s on %s" % (code, alias))
+            time.sleep(1)
+        else:
+            raise RuntimeError("the site did not answer on %s" % alias)
+    except Exception as e:
+        # The old container has not been touched beyond its devices: put it back as it was.
+        run("incus", "delete", ct, "--force", check=False)
+        run("incus", "rename", old, ct)
+        _site_devices(ct, devs, add=True)
+        if was_running:
+            run("incus", "start", ct, check=False)
+        raise RuntimeError("rebuild failed and the previous container is back: %s" % str(e)[:300])
+    offline = round(time.time() - started, 1)
+    # One replaced container per site is enough to go back to: drop earlier ones.
+    for n in run("incus", "list", "-f", "csv", "-c", "n").stdout.split():
+        m = OLDROOT_RE.match(n)
+        if m and m.group(1) == ct and n != old:
+            run("incus", "delete", n, "--force", check=False)
+    php = "PHP " + run("incus", "exec", ct, "--", "php", "-r", "echo PHP_VERSION;", check=False).stdout.strip()
+    return {"container": ct, "image": alias, "was": was.get("image", ""), "offline_seconds": offline, "health": code,
+            "safety_backup": safety, "old_root": old, "runs": php, "host_keys_kept": bool(keys)}
 
 
 # ── Removing a site: park first, purge after a week ─────────────────────────
@@ -314,6 +529,19 @@ def purge_parked(force_name=None):
                 run("zfs", "destroy", "-r", "%s/custom/default_%s" % (src, v), check=False)
                 run("incus", "storage", "volume", "delete", "default", v, check=False)
         purged.append(n)
+    # Containers a rebuild replaced: only the old root filesystem is left in
+    # them (the volumes went to the new container), so only that is deleted.
+    for n in run("incus", "list", "-f", "csv", "-c", "n").stdout.split():
+        m = OLDROOT_RE.match(n)
+        if not m:
+            continue
+        age = (datetime.datetime.now(datetime.timezone.utc) - datetime.datetime.strptime(m.group(2), "%Y%m%d").replace(tzinfo=datetime.timezone.utc)).days
+        if n == force_name or age >= PARK_DAYS:
+            info = json.loads(run("incus", "query", "/1.0/instances/" + n).stdout)
+            if any(d.get("type") == "disk" and d.get("pool") and d.get("source") for d in (info.get("devices") or {}).values()):
+                continue   # never delete something that still holds a site's volumes
+            run("incus", "delete", n, "--force", check=False)
+            purged.append(n)
     return purged
 
 
@@ -865,6 +1093,14 @@ try:
     elif cmd == "daily":
         made = {ct: create(ct, "daily") for ct in site_containers()}
         out({"status": "ok", "created": made, "pruned": prune(), "purged": purge_parked()})
+    elif cmd == "image-build":
+        out(dict(status="ok", **image_build(sys.argv[2], sys.stdin.read())))
+    elif cmd == "image-list":
+        out({"status": "ok", "images": image_list()})
+    elif cmd == "image-of":
+        out(dict(status="ok", **image_of(sys.argv[2])))
+    elif cmd == "rebuild":
+        out(dict(status="ok", **rebuild(sys.argv[2], sys.argv[3])))
     elif cmd == "cache-status":
         out(dict(status="ok", **cache_status(sys.argv[2])))
     elif cmd == "cache-clear":
@@ -875,8 +1111,8 @@ try:
         out(dict(status="ok", **site_park(sys.argv[2])))
     elif cmd == "site-purge":
         # An operator purging one parked container before its seven days are up.
-        if not PARKED_RE.match(sys.argv[2]):
-            raise RuntimeError("only a parked container (<name>-removed-<date>) can be purged")
+        if not PARKED_RE.match(sys.argv[2]) and not OLDROOT_RE.match(sys.argv[2]):
+            raise RuntimeError("only a parked container (<name>-removed-<date>) or an old root (<name>-oldroot-<date>) can be purged")
         out({"status": "ok", "purged": purge_parked(sys.argv[2])})
     elif cmd == "clone":
         out(dict(status="ok", **clone(sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5]))))
