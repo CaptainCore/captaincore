@@ -38,10 +38,18 @@ var hostCmd = &cobra.Command{
 }
 
 var hostApplyCmd = &cobra.Command{
-	Use:   "apply <site>",
-	Short: "Apply a site's hosting configuration to its server",
-	Args:  cobra.ExactArgs(1),
+	Use:   "apply <site> | --all [--server=<id>]",
+	Short: "Apply a site's hosting configuration to its server (--all: every site on our servers)",
+	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
+		if flagApplyAll {
+			resolveNativeOrWP(cmd, args, func(_ *cobra.Command, _ []string) { hostApplyAll() })
+			return
+		}
+		if len(args) != 1 {
+			fmt.Fprintln(os.Stderr, "Error: name a site, or pass --all.")
+			os.Exit(1)
+		}
 		resolveNativeOrWP(cmd, args, hostApplyNative)
 	},
 }
@@ -179,6 +187,11 @@ func hostApplyNative(cmd *cobra.Command, args []string) {
 	if h, ok := result["health"].(map[string]interface{}); ok {
 		fmt.Printf("  health: container %v, edge %v\n", h["container"], h["edge"])
 	}
+	if warns, ok := result["warnings"].([]interface{}); ok {
+		for _, w := range warns {
+			fmt.Printf("  WARNING: %v\n", w)
+		}
+	}
 	if pc, ok := result["page_cache"].(map[string]interface{}); ok && pc["enabled"] == true {
 		// HIT: the home page is answered from its saved copy. Anything else
 		// means the page itself opts out (it sets a cookie, say).
@@ -190,4 +203,6 @@ func init() {
 	rootCmd.AddCommand(hostCmd)
 	hostCmd.AddCommand(hostApplyCmd)
 	hostApplyCmd.Flags().BoolVar(&flagHostDryRun, "dry-run", false, "Show what would change without writing anything")
+	hostApplyCmd.Flags().BoolVar(&flagApplyAll, "all", false, "Apply every site on our own servers, one after another")
+	hostApplyCmd.Flags().StringVar(&flagApplyServer, "server", "", "With --all: only the sites on this server (id)")
 }

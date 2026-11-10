@@ -2,6 +2,7 @@ package cmd
 
 import (
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -22,6 +23,9 @@ var hostImageScript string
 
 var flagImagePHP string
 var flagRebuildCheck bool
+var flagNodeJSON bool
+var flagApplyAll bool
+var flagApplyServer string
 
 func nodeImageBuild(args []string) {
 	if flagImagePHP != "8.3" && flagImagePHP != "8.4" && flagImagePHP != "8.5" {
@@ -172,6 +176,23 @@ func registerNodeImage(nodeCmd *cobra.Command) {
 	})
 	nodeCmd.AddCommand(imageCmd)
 
+	guard := &cobra.Command{
+		Use: "guard <server-id>", Short: "Addresses blocked from signing in to sites on a server", Args: cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			resolveNativeOrWP(cmd, args, func(_ *cobra.Command, a []string) { nodeGuard(a) })
+		},
+	}
+	unblock := &cobra.Command{
+		Use: "unblock <server-id> <address>", Short: "Let a blocked address sign in again", Args: cobra.ExactArgs(2),
+		Run: func(cmd *cobra.Command, args []string) {
+			resolveNativeOrWP(cmd, args, func(_ *cobra.Command, a []string) { nodeUnblock(a) })
+		},
+	}
+	for _, c := range []*cobra.Command{guard, unblock} {
+		c.Flags().BoolVar(&flagNodeJSON, "json", false, "Print the raw JSON reply")
+		nodeCmd.AddCommand(c)
+	}
+
 	rebuild := &cobra.Command{
 		Use: "rebuild <site>[-env]", Short: "Move a site onto the current build of its image (keeps files, database, address)", Args: cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
@@ -180,4 +201,94 @@ func registerNodeImage(nodeCmd *cobra.Command) {
 	}
 	rebuild.Flags().BoolVar(&flagRebuildCheck, "check", false, "Only say whether the site runs the current build (exit 1 when it does not)")
 	hostCmd.AddCommand(rebuild)
+}
+
+// ── Sign-in protection ──────────────────────────────────────────────────────
+
+func nodeGuard(args []string) {
+	t := nodeTarget(args[0])
+	res, err := ccTool(t, "guard-status")
+	if flagNodeJSON {
+		printJSONResult(res, err)
+		return
+	}
+	if err != nil {
+		fail("%v", err)
+	}
+	list, _ := res["blocked"].([]interface{})
+	fmt.Printf("%d address(es) blocked from signing in on %s\n", len(list), t.server)
+	now := toFloat(res["now"])
+	for _, b := range list {
+		m := b.(map[string]interface{})
+		fmt.Printf("  %-40v %-8v %3.0f min left\n", m["address"], m["why"], (toFloat(m["until"])-now)/60)
+	}
+}
+
+func nodeUnblock(args []string) {
+	t := nodeTarget(args[0])
+	res, err := ccTool(t, "guard-unban", args[1])
+	if flagNodeJSON {
+		printJSONResult(res, err)
+		return
+	}
+	if err != nil {
+		fail("%v", err)
+	}
+	fmt.Printf("%s can sign in again on %s.\n", args[1], t.server)
+}
+
+func printJSONResult(res map[string]interface{}, err error) {
+	if res == nil {
+		res = map[string]interface{}{"status": "error", "error": fmt.Sprint(err)}
+	}
+	line, _ := json.Marshal(res)
+	fmt.Println(string(line))
+	if err != nil {
+		os.Exit(1)
+	}
+}
+
+// host apply --all: every environment on our own servers, one after another.
+// Improvements to what `host apply` writes (web server rules, error pages,
+// hardening) reach a site when it is applied again; this is how they reach
+// all of them.
+func hostApplyAll() {
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fail("Configuration file not found.")
+	}
+	raw, err := newAPIClient(system, captain).Post("host-environments", map[string]interface{}{"server_id": flagApplyServer})
+	if err != nil {
+		fail("manager: %v", err)
+	}
+	var reply struct {
+		Targets []struct {
+			Target string `json:"target"`
+			Server string `json:"server"`
+		} `json:"targets"`
+	}
+	if json.Unmarshal(raw, &reply) != nil {
+		fail("manager reply: %s", strings.TrimSpace(string(raw)))
+	}
+	if len(reply.Targets) == 0 {
+		fmt.Println("No sites on our own servers.")
+		return
+	}
+	failed := []string{}
+	for i, t := range reply.Targets {
+		fmt.Printf("[%d/%d] %s on %s\n", i+1, len(reply.Targets), t.Target, t.Server)
+		args := []string{"host", "apply", t.Target}
+		if flagHostDryRun {
+			args = append(args, "--dry-run")
+		}
+		if err := selfRun(args...); err != nil {
+			failed = append(failed, t.Target)
+		}
+	}
+	fmt.Printf("Applied %d of %d.", len(reply.Targets)-len(failed), len(reply.Targets))
+	if len(failed) > 0 {
+		fmt.Printf(" Failed: %s\n", strings.Join(failed, ", "))
+		os.Exit(1)
+	}
+	fmt.Println()
 }

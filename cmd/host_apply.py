@@ -98,6 +98,27 @@ pp_on = bool(pp.get("enabled")) and re.match(r"^[A-Za-z0-9._-]{1,64}$", pp.get("
 # hostnames, addresses, software names or versions. /etc/caddy/errors/ is
 # shared by every site on the server and written again when a page changes.
 ERR_DIR = "/etc/caddy/errors"
+# Sign-in protection (the block list every site imports, and the sign-in log
+# fail2ban reads) needs Caddy 2.8 or newer at the edge; the node tool's
+# `guard-setup` owns the fail2ban side.
+_cv = re.search(r"v(\d+)\.(\d+)", run("caddy", "version", check=False).stdout or "")
+CADDY_NEW = bool(_cv) and (int(_cv.group(1)), int(_cv.group(2))) >= (2, 8)
+GUARD_FILE = "/etc/caddy/guard.caddyfile"
+MAIN_CADDYFILE = """# Node edge. Managed by CaptainCore (`captaincore host apply`): changes here
+# are overwritten. Each site's block is /etc/caddy/sites/<container>.caddyfile,
+# written from the site's hosting configuration.
+import guard.caddyfile
+import sites/*.caddyfile
+"""
+GUARD_LINES = ["\t\timport cc_guard"] if CADDY_NEW else []
+# Only sign-in attempts are logged at the edge (the site's own access log is
+# in its container): what fail2ban needs to spot password guessing.
+AUTH_LOG = [
+    "\tlog {", "\t\toutput file /var/log/caddy/auth.log {", "\t\t\troll_size 20MiB", "\t\t\troll_keep 3", "\t\t}",
+    "\t\tformat filter {", "\t\t\twrap json", "\t\t\tfields {", "\t\t\t\trequest>headers delete", "\t\t\t\trequest>tls delete",
+    "\t\t\t\tresp_headers delete", "\t\t\t}", "\t\t}", "\t}",
+    "\t@cc_not_signin {", "\t\tnot {", "\t\t\tmethod POST", "\t\t\tpath */wp-login.php */xmlrpc.php", "\t\t}", "\t}",
+    "\tlog_skip @cc_not_signin"] if CADDY_NEW else []
 ERR_ICONS = {
     "pulse": "<path d='M3 12h4l2-5 4 10 2-5h6'/>",
     "clock": "<circle cx='12' cy='12' r='8.5'/><path d='M12 7.5V12l3 2'/>",
@@ -129,13 +150,14 @@ AGAIN = ("", "Try again")   # an empty link reloads the same address
 ERR_PAGES = {
     "403.html": error_page("You don't have access to this page", "The owner of this site limits who can see it.", "lock", "Error 403"),
     "404.html": error_page("Page not found", "Nothing is at this address. Check the link, or start from the home page.", "search", "Error 404", ("/", "Go to the home page")),
+    "429.html": error_page("Too many sign-in attempts", "Signing in from your network is paused for a while after repeated failed attempts. The rest of the site still works. Please try again later.", "lock", "Error 429"),
     "502.html": error_page("This site isn't responding", "We couldn't reach the site just now. It is usually back within a minute.", "pulse", "Error 502", AGAIN),
     "503.html": error_page("This site is busy right now", "It has more visitors than it can answer at the moment. Please try again shortly.", "pulse", "Error 503", AGAIN),
     "504.html": error_page("This page took too long", "The site didn't answer in time. Trying again often works.", "clock", "Error 504", AGAIN),
     "error.html": error_page("Something went wrong", "Please try again in a moment.", "pulse", "", AGAIN),
     "suspended.html": error_page("This site is temporarily unavailable", "Please check back later.", "pause"),
 }
-ERR_KNOWN = " || ".join("{http.error.status_code} == %s" % c for c in ("403", "404", "502", "503", "504"))
+ERR_KNOWN = " || ".join("{http.error.status_code} == %s" % c for c in ("403", "404", "429", "502", "503", "504"))
 # Errors raised at the edge end here, whatever block they came from.
 ERRORS_BLOCK = [
     "\thandle_errors {", "\t\theader -Server", "\t\theader Cache-Control no-store", "\t\troot * %s" % ERR_DIR,
@@ -169,7 +191,7 @@ def site_body():
         return ["\theader -Server", "\troute {", "\t\theader Retry-After 3600", "\t\theader Cache-Control no-store",
                 "\t\troot * %s" % ERR_DIR, "\t\trewrite * /suspended.html", "\t\tfile_server {", "\t\t\tstatus 503", "\t\t}", "\t}"] + ERRORS_BLOCK
     # route keeps the written order: deny, redirects, auth, then the proxy.
-    b = ["\theader -Server", "\troute {", "\t\tencode zstd gzip"]
+    b = AUTH_LOG + ["\theader -Server", "\troute {", "\t\tencode zstd gzip"] + GUARD_LINES
     if deny:
         b += ["\t\t@cc_deny remote_ip %s" % " ".join(deny), "\t\terror @cc_deny 403"]
     # Apps at a path of the site: public (before redirects and the password).
@@ -185,7 +207,7 @@ def site_body():
         b.append("\t\tredir %s %s %d" % (r["from"], r["to"], int(r["code"])))
     if pp_on:
         import base64
-        b += ["\t\tbasicauth {", "\t\t\t%s %s" % (pp["username"], base64.b64encode(pp["password_hash"].encode()).decode()), "\t\t}"]
+        b += ["\t\t%s {" % ("basic_auth" if CADDY_NEW else "basicauth"), "\t\t\t%s %s" % (pp["username"], base64.b64encode(pp["password_hash"].encode()).decode()), "\t\t}"]
     b += proxy(2, "%s:80" % ip, "15s", site=True) + ["\t}"]
     return b + ERRORS_BLOCK
 
@@ -341,6 +363,13 @@ opcache.revalidate_freq = 2
 if pc_on:
     ini_new += "auto_prepend_file = %s\n" % PC_PHP
 
+# PHP's shell commands are off for web requests unless the site turns them
+# on: they are how an uploaded web shell runs anything, and WordPress itself
+# never calls them. This is set on the web server only, so WP-CLI and
+# WP-Cron (which run as commands, not requests) keep them.
+SHELL_FUNCTIONS = "exec,passthru,shell_exec,system,proc_open,popen,pcntl_exec"
+shell_line = "" if php.get("shell") else "\t\tphp_ini disable_functions %s\n" % SHELL_FUNCTIONS
+
 fcaddy_new = """# CaptainCore site container. TLS ends at the node edge; this serves plain
 # HTTP on :80 to the bridge only. Managed by CaptainCore (hosting configuration).
 {
@@ -348,7 +377,7 @@ fcaddy_new = """# CaptainCore site container. TLS ends at the node edge; this se
 		num_threads %d
 		max_threads %d
 		max_wait_time 15s
-	}
+%s	}
 	auto_https off
 	servers {
 		trusted_proxies static 10.77.0.1/32
@@ -396,7 +425,7 @@ fcaddy_new = """# CaptainCore site container. TLS ends at the node edge; this se
 		}
 	}
 }
-""" % (workers, max_workers, static_block, page_blocks)
+""" % (workers, max_workers, shell_line, static_block, page_blocks)
 
 # The web server half of FrankenPHP (Go) sizes its garbage collector from the
 # container's whole memory limit by default, as if PHP and the database were
@@ -587,10 +616,34 @@ try:
             if "error pages" not in res["changes"]:
                 res["changes"].append("error pages")
 
+    if CADDY_NEW:
+        # The block list and its fail2ban jails (idempotent), then the node's
+        # main file, which must name the list before any site imports it.
+        if os.path.exists("/usr/local/sbin/cc-backups"):
+            run("/usr/local/sbin/cc-backups", "guard-setup", check=False)
+        if not os.path.exists(GUARD_FILE):
+            with open(GUARD_FILE, "w") as f:
+                f.write("(cc_guard) {\n\t@cc_guarded {\n\t\tpath */wp-login.php */xmlrpc.php\n\t\tclient_ip 192.0.2.1\n\t}\n\terror @cc_guarded 429\n}\n")
+        os.chmod(GUARD_FILE, 0o644)
+        main_path = "/etc/caddy/Caddyfile"
+        main_old = open(main_path).read() if os.path.exists(main_path) else ""
+        if main_old != MAIN_CADDYFILE:
+            if main_old and not os.path.exists(main_path + ".before-captaincore"):
+                open(main_path + ".before-captaincore", "w").write(main_old)
+            open(main_path, "w").write(MAIN_CADDYFILE)
+            os.chmod(main_path, 0o644)
+            try:
+                run("caddy", "validate", "--config", main_path, "--adapter", "caddyfile")
+            except Exception as e:
+                open(main_path, "w").write(main_old)
+                done("failed", "the node's main edge file was rejected: %s" % e)
+            res["changes"].append("edge main file")
+
     if edge_new != edge_old:
         if edge_old is not None:
             open(edge_prev_path, "w").write(edge_old)
         open(edge_path, "w").write(edge_new)
+        os.chmod(edge_path, 0o644)
         try:
             caddy_reload()
         except Exception as e:
@@ -601,6 +654,8 @@ try:
             caddy_reload()
             done("failed", "edge config rejected: %s" % e)
         res["changes"].append("edge")
+    elif "edge main file" in res["changes"]:
+        caddy_reload()
 
     if pc_changed and pc_on:
         if PC_PHP in pc_diff:
@@ -698,6 +753,10 @@ try:
     if msmtp_changed or relay_changed:
         res["changes"].append("mail")
     res["mail"] = {"relay": mail_on, "sendmail": has_msmtp}
+    if mail_on and not has_msmtp:
+        # Seen for real: a container on a build of its image from before mail
+        # support sends nothing, and nothing else says so.
+        res["warnings"] = res.get("warnings", []) + ["This container has no mail program, so WordPress cannot send email. Its image build is older than mail support: run `captaincore host rebuild` for the site."]
 
     for name, files in app_changes.items():
         run("incus", "exec", ct, "--", "install", "-d", "-o", "site", "-g", "site", "/srv/site/apps/" + name, check=False)

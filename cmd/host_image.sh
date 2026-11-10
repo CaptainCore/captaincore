@@ -117,4 +117,9 @@ systemctl daemon-reload
 systemctl enable wp-cron.timer frankenphp mariadb ssh >/dev/null 2>&1
 frankenphp validate --config /etc/frankenphp/Caddyfile 2>&1 | tail -1
 apt-get clean
+# Everything a site needs must be in the image: a container rebuilt on it
+# (a PHP switch, a refreshed build) keeps nothing from its old system disk.
+for need in /usr/bin/frankenphp /usr/sbin/sendmail /usr/local/bin/wp /usr/sbin/sshd /usr/sbin/mariadbd /usr/sbin/logrotate; do
+	[ -x "$need" ] || { echo "image is missing $need" >&2; exit 1; }
+done
 echo IMAGE-SETUP-OK

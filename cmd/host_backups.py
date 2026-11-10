@@ -14,6 +14,10 @@
 #   cc-backups sync    <src> <dst> <both|files|database> <src_host> <dst_host>
 #   cc-backups container <container> [1h|24h|7d]   programs, traffic, Caddyfiles, metrics
 #   cc-backups restart <container> <php|database|cron|app-<name>|container>
+#   cc-backups guard-setup                 sign-in protection: fail2ban jails that read the edge's sign-in log
+#   cc-backups guard-status                addresses blocked from signing in right now
+#   cc-backups guard-unban <address>       let an address sign in again
+#   cc-backups guard-ban|guard-unbanned <jail> <address>   (called by fail2ban)
 #   cc-backups image-build <8.3|8.4|8.5>   build cc-wp-php8x (the image script on stdin)
 #   cc-backups image-list                  site images, and how many containers run each
 #   cc-backups image-of <container>        the image a container runs, and whether a newer build exists
@@ -252,6 +256,179 @@ def clone(src, dst, ip, port):
             break
         time.sleep(1)
     return {"container": dst, "ip": ip, "ssh_port": int(port), "health": health(dst)}
+
+
+# ── Sign-in protection ──────────────────────────────────────────────────────
+# The edge logs every POST to wp-login.php and xmlrpc.php, on any site, to
+# /var/log/caddy/auth.log. fail2ban reads that log: an address with too many
+# failed sign-ins is blocked from signing in on every site of this server
+# for an hour, longer each time it comes back. Blocked means the edge
+# answers its requests to wp-login.php and xmlrpc.php with a "too many
+# attempts" page (429); the rest of every site keeps working for it, so a
+# customer who mistyped a password is not looking at a dead site. The list
+# is one snippet, /etc/caddy/guard.caddyfile, that every site block imports.
+GUARD_STATE = "/var/lib/captaincore/guard.json"
+GUARD_FILE = "/etc/caddy/guard.caddyfile"
+GUARD_LOG = "/var/log/caddy/auth.log"
+GUARD_JAILS = ("cc-wp-login", "cc-xmlrpc")
+ADDR_RE = re.compile(r"^[0-9A-Fa-f:.]{3,45}$")
+# Jetpack's servers talk to xmlrpc.php all day (jetpack.com/ips-v4.json).
+JETPACK = "122.248.245.244/32 54.217.201.243/32 54.232.116.4/32 192.0.64.0/18 195.234.108.0/22"
+GUARD_CONF = {
+    "/etc/fail2ban/filter.d/cc-wp-login.conf": """# Managed by CaptainCore. A failed WordPress sign-in: the form comes back (200).
+# A good one is a redirect (302) and is not counted.
+[Definition]
+datepattern = "ts":{EPOCH}
+failregex = ^.*"client_ip":"<ADDR>".*"method":"POST".*"uri":"[^"]*/wp-login\\.php[^"]*".*"status":200\\b
+ignoreregex =
+""",
+    "/etc/fail2ban/filter.d/cc-xmlrpc.conf": """# Managed by CaptainCore. Any POST to xmlrpc.php: password guessing through it
+# looks like every other call, so only the volume tells.
+[Definition]
+datepattern = "ts":{EPOCH}
+failregex = ^.*"client_ip":"<ADDR>".*"method":"POST".*"uri":"[^"]*/xmlrpc\\.php[^"]*".*"status":200\\b
+ignoreregex =
+""",
+    "/etc/fail2ban/action.d/cc-guard.conf": """# Managed by CaptainCore. Blocks sign-in at the edge instead of the firewall.
+[Definition]
+actionstart =
+actionstop =
+actioncheck =
+actionban = /usr/local/sbin/cc-backups guard-ban <name> <ip>
+actionunban = /usr/local/sbin/cc-backups guard-unbanned <name> <ip>
+""",
+    "/etc/fail2ban/jail.d/cc-guard.local": """# Managed by CaptainCore (sign-in protection for sites on this server).
+[cc-wp-login]
+enabled = true
+filter = cc-wp-login
+backend = auto
+logpath = %s
+banaction = cc-guard
+maxretry = 10
+findtime = 5m
+bantime = 1h
+bantime.increment = true
+bantime.maxtime = 1d
+
+[cc-xmlrpc]
+enabled = true
+filter = cc-xmlrpc
+backend = auto
+logpath = %s
+banaction = cc-guard
+maxretry = 60
+findtime = 5m
+bantime = 1h
+bantime.increment = true
+bantime.maxtime = 1d
+ignoreip = 127.0.0.1/8 ::1 10.77.0.0/24 %s
+""" % (GUARD_LOG, GUARD_LOG, JETPACK),
+}
+
+
+def _is_address(a):
+    import ipaddress
+    try:
+        ipaddress.ip_address(a)
+        return True
+    except ValueError:
+        return False
+
+
+def _guard_snippet(addresses):
+    # 192.0.2.1 is a documentation address nobody has: it keeps the matcher valid when the list is empty.
+    return ("# Managed by CaptainCore (cc-backups guard-*). Addresses that may not sign in for now.\n"
+            "(cc_guard) {\n\t@cc_guarded {\n\t\tpath */wp-login.php */xmlrpc.php\n\t\tclient_ip %s\n\t}\n\terror @cc_guarded 429\n}\n"
+            % " ".join(sorted(addresses) or ["192.0.2.1"]))
+
+
+def _guard_change(jail, address, banned):
+    import fcntl
+    os.makedirs(os.path.dirname(GUARD_STATE), exist_ok=True)
+    with open(GUARD_STATE + ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            state = json.load(open(GUARD_STATE))
+        except Exception:
+            state = {}
+        if jail:
+            have = set(state.get(jail, []))
+            have.add(address) if banned else have.discard(address)
+            state[jail] = sorted(have)
+            with open(GUARD_STATE + ".new", "w") as f:
+                json.dump(state, f)
+            os.replace(GUARD_STATE + ".new", GUARD_STATE)
+        new = _guard_snippet({a for ips in state.values() for a in ips if _is_address(a)})
+        old = open(GUARD_FILE).read() if os.path.exists(GUARD_FILE) else None
+        if new == old:
+            return False
+        with open(GUARD_FILE + ".new", "w") as f:
+            f.write(new)
+        # Caddy runs as its own user and must be able to read this (fail2ban
+        # creates files for root only; an unreadable import would also stop
+        # the edge from starting at all).
+        os.chmod(GUARD_FILE + ".new", 0o644)
+        os.replace(GUARD_FILE + ".new", GUARD_FILE)
+        if old is not None:
+            # The edge reloads three seconds from now, once, however many
+            # addresses change in between (a wave of blocks is one reload; a
+            # reload keeps open connections and, measured under load, costs
+            # about one brand-new connection). If one is already waiting it
+            # will read this list, so a second request is simply refused.
+            run("systemd-run", "--on-active=3", "--timer-property=AccuracySec=1s", "--unit=cc-guard-reload", "--collect", "--quiet",
+                "systemctl", "reload", "caddy", check=False)
+        return True
+
+
+def guard_setup():
+    changed = []
+    if not os.path.isdir("/etc/fail2ban"):
+        return {"installed": False, "changed": []}
+    if not os.path.exists(GUARD_LOG):
+        open(GUARD_LOG, "a").close()
+        run("chown", "caddy:caddy", GUARD_LOG, check=False)
+    for path, content in GUARD_CONF.items():
+        if not os.path.exists(path) or open(path).read() != content:
+            with open(path, "w") as f:
+                f.write(content)
+            changed.append(os.path.basename(path))
+    _guard_change("", "", False)   # make sure the snippet exists
+    for path in (GUARD_FILE, "/etc/caddy/Caddyfile"):
+        if os.path.exists(path):
+            os.chmod(path, 0o644)
+    active = all(run("fail2ban-client", "status", j, check=False).returncode == 0 for j in GUARD_JAILS)
+    if changed or not active:
+        run("fail2ban-client", "reload", check=False)
+    return {"installed": True, "changed": changed}
+
+
+def guard_status():
+    out_ = {"blocked": [], "jails": {}, "now": int(time.time())}
+    for jail in GUARD_JAILS:
+        st = run("fail2ban-client", "status", jail, check=False)
+        if st.returncode != 0:
+            out_["jails"][jail] = {"active": False}
+            continue
+        num = lambda label: int((re.search(label + r":\s+(\d+)", st.stdout) or [0, 0])[1])
+        out_["jails"][jail] = {"active": True, "failed_now": num("Currently failed"), "failed_total": num("Total failed"),
+                               "blocked_now": num("Currently banned"), "blocked_total": num("Total banned")}
+        for line in run("fail2ban-client", "get", jail, "banip", "--with-time", check=False).stdout.splitlines():
+            m = re.match(r"^(\S+)\s+(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) \+ (\d+) = (\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)", line.strip())
+            if m and ADDR_RE.match(m.group(1)):
+                until = int(time.mktime(time.strptime(m.group(4), "%Y-%m-%d %H:%M:%S")))
+                since = int(time.mktime(time.strptime(m.group(2), "%Y-%m-%d %H:%M:%S")))
+                out_["blocked"].append({"address": m.group(1), "why": "sign-in" if jail == "cc-wp-login" else "xmlrpc", "since": since, "until": until})
+    out_["blocked"].sort(key=lambda b: -b["since"])
+    return out_
+
+
+def guard_unban(address):
+    if not _is_address(address):
+        raise RuntimeError("not an address")
+    run("fail2ban-client", "unban", address, check=False)
+    for jail in GUARD_JAILS:   # in case fail2ban had already forgotten it
+        _guard_change(jail, address, False)
+    return guard_status()
 
 
 # ── Images and rebuilds ─────────────────────────────────────────────────────
@@ -1096,6 +1273,16 @@ try:
     elif cmd == "daily":
         made = {ct: create(ct, "daily") for ct in site_containers()}
         out({"status": "ok", "created": made, "pruned": prune(), "purged": purge_parked()})
+    elif cmd == "guard-setup":
+        out(dict(status="ok", **guard_setup()))
+    elif cmd == "guard-status":
+        out(dict(status="ok", **guard_status()))
+    elif cmd == "guard-unban":
+        out(dict(status="ok", **guard_unban(sys.argv[2])))
+    elif cmd in ("guard-ban", "guard-unbanned"):
+        if sys.argv[2] not in GUARD_JAILS or not _is_address(sys.argv[3]):
+            raise RuntimeError("invalid jail or address")
+        out({"status": "ok", "changed": _guard_change(sys.argv[2], sys.argv[3], cmd == "guard-ban")})
     elif cmd == "image-build":
         out(dict(status="ok", **image_build(sys.argv[2], sys.stdin.read())))
     elif cmd == "image-list":
