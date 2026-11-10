@@ -68,13 +68,38 @@ def addrs(names):
             out.append("http://" + n)
     return ", ".join(out)
 
+REDIR_FROM = re.compile(r"^/[A-Za-z0-9._~%/+-]*\*?$")
+REDIR_TO = re.compile(r"^(/[A-Za-z0-9._~%/+?=&#-]*|https?://[A-Za-z0-9.-]+(:\d+)?(/[A-Za-z0-9._~%/+?=&#-]*)?)$")
+IP_RE = re.compile(r"^[0-9a-fA-F:.]+(/\d{1,3})?$")
+redirects = [r for r in (cfg.get("redirects") or [])
+             if REDIR_FROM.match(r.get("from", "")) and REDIR_TO.match(r.get("to", "")) and int(r.get("code", 301)) in (301, 302, 307, 308)]
+deny = [d for d in (cfg.get("ip_deny") or []) if IP_RE.match(d)]
+pp = cfg.get("password_protect") or {}
+pp_on = bool(pp.get("enabled")) and re.match(r"^[A-Za-z0-9._-]{1,64}$", pp.get("username", "")) and \
+    re.match(r"^\$2[aby]\$\d\d\$[./A-Za-z0-9]{53}$", pp.get("password_hash", ""))
+
+
+def site_body():
+    # route keeps the written order: deny, redirects, auth, then the proxy.
+    b = ["\troute {", "\t\tencode zstd gzip"]
+    if deny:
+        b += ["\t\t@cc_deny remote_ip %s" % " ".join(deny), "\t\trespond @cc_deny 403"]
+    for r in redirects:
+        b.append("\t\tredir %s %s %d" % (r["from"], r["to"], int(r["code"])))
+    if pp_on:
+        import base64
+        b += ["\t\tbasicauth {", "\t\t\t%s %s" % (pp["username"], base64.b64encode(pp["password_hash"].encode()).decode()), "\t\t}"]
+    b += ["\t\treverse_proxy %s:80 {" % ip, "\t\t\tlb_try_duration 15s", "\t\t\tlb_try_interval 250ms", "\t\t}", "\t}"]
+    return b
+
+
 edge = ["# Managed by CaptainCore: %s, revision %s. Changes here are overwritten." % (ct, rev)]
 others = [h for h in hosts if h != primary]
 if cfg.get("redirect_to_primary") and others:
-    edge += ["%s {" % addrs([primary]), "\timport site %s:80" % ip, "}", "",
+    edge += ["%s {" % addrs([primary])] + site_body() + ["}", "",
              "%s {" % addrs(others), "\tredir https://%s{uri} permanent" % primary, "}"]
 else:
-    edge += ["%s {" % addrs(hosts), "\timport site %s:80" % ip, "}"]
+    edge += ["%s {" % addrs(hosts)] + site_body() + ["}"]
 edge_new = "\n".join(edge) + "\n"
 edge_path = "/etc/caddy/sites/%s.caddyfile" % ct
 edge_prev_path = "/etc/caddy/sites/.%s.prev" % ct
@@ -136,12 +161,21 @@ def ct_write(path, content):
 php_old = {path: ct_read(path) for path, _ in PHP_FILES}
 php_changed = any(php_old[path] != content for path, content in PHP_FILES)
 
+def wp(*args, check=True):
+    cmd = "cd /srv/site/public && wp " + " ".join("'%s'" % a.replace("'", "") for a in args)
+    return run("incus", "exec", ct, "--", "su", "-s", "/bin/bash", "site", "-c", cmd, check=check)
+
+
+want_debug = bool(cfg.get("debug"))
+cur_debug = wp("config", "get", "WP_DEBUG", check=False).stdout.strip().lower() in ("1", "true")
+debug_changed = want_debug != cur_debug
+
 cur_mem = run("incus", "config", "get", ct, "limits.memory").stdout.strip()
 want_mem = "%dMiB" % memory_mb
 mem_changed = cur_mem != want_mem
 
 if DRY:
-    res["would_change"] = [n for n, c in (("edge", edge_new != edge_old), ("php", php_changed), ("memory", mem_changed)) if c]
+    res["would_change"] = [n for n, c in (("edge", edge_new != edge_old), ("php", php_changed), ("memory", mem_changed), ("debug", debug_changed)) if c]
     res["edge"] = edge_new
     done("dry-run")
 
@@ -190,6 +224,13 @@ try:
     if mem_changed:
         run("incus", "config", "set", ct, "limits.memory=" + want_mem)
         res["changes"].append("memory")
+
+    if debug_changed:
+        flag = "true" if want_debug else "false"
+        wp("config", "set", "WP_DEBUG", flag, "--raw", "--type=constant")
+        wp("config", "set", "WP_DEBUG_LOG", flag, "--raw", "--type=constant")
+        wp("config", "set", "WP_DEBUG_DISPLAY", "false", "--raw", "--type=constant")
+        res["changes"].append("debug")
 
     time.sleep(1.5)
     code_ct, code_edge = health()
