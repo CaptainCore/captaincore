@@ -437,6 +437,37 @@ def stats(range_):
     }
 
 
+# ── Server logs ────────────────────────────────────────────────────────────
+# Fixed sources only; "ct:<container>:<php|database|ssh>" reads a container's
+# journal. Returns the last N lines as text.
+LOG_SOURCES = {
+    "edge": ["journalctl", "-u", "caddy", "--no-pager", "-o", "short-iso"],
+    "ssh": ["journalctl", "-u", "ssh", "--no-pager", "-o", "short-iso"],
+    "backups": ["journalctl", "-u", "cc-backups-daily", "--no-pager", "-o", "short-iso"],
+    "kernel": ["journalctl", "-k", "-p", "warning", "--no-pager", "-o", "short-iso"],
+    "incus": ["journalctl", "-u", "incus", "--no-pager", "-o", "short-iso"],
+    "updates": ["tail", "/var/log/unattended-upgrades/unattended-upgrades.log"],
+}
+CT_UNITS = {"php": "frankenphp", "database": "mariadb", "ssh": "ssh", "cron": "wp-cron"}
+
+
+def logs(source, lines):
+    lines = max(10, min(int(lines), 2000))
+    if source.startswith("ct:"):
+        _, ct, unit = (source.split(":") + ["", ""])[:3]
+        if not re.match(r"^[a-z0-9][a-z0-9-]{0,62}$", ct) or unit not in CT_UNITS:
+            raise RuntimeError("unknown log source")
+        cmd = ["incus", "exec", ct, "--", "journalctl", "-u", CT_UNITS[unit], "--no-pager", "-o", "short-iso", "-n", str(lines)]
+    elif source in LOG_SOURCES:
+        cmd = LOG_SOURCES[source] + (["-n", str(lines)] if LOG_SOURCES[source][0] == "journalctl" else [])
+        if cmd[0] == "tail":
+            cmd = ["tail", "-n", str(lines), cmd[1]]
+    else:
+        raise RuntimeError("unknown log source")
+    p = run(*cmd, check=False)
+    return (p.stdout or p.stderr or "").rstrip()
+
+
 try:
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "create":
@@ -469,6 +500,8 @@ try:
         out({"status": "ok", "sample": sample()})
     elif cmd == "stats":
         out(dict(status="ok", **stats(sys.argv[2] if len(sys.argv) > 2 else "1h")))
+    elif cmd == "logs":
+        out({"status": "ok", "source": sys.argv[2], "text": logs(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else 200)})
     elif cmd == "prune":
         out({"status": "ok", "pruned": prune()})
     else:

@@ -39,6 +39,56 @@ func defaultKeyPath() (string, error) {
 	return fmt.Sprintf("%s/%s/%s", system.PathKeys, captainID, key), nil
 }
 
+var flagNodeLines = "200"
+
+// nodeTarget resolves a server id to an ssh target with the tool installed.
+func nodeTarget(id string) *hostTargetInfo {
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fail("Configuration file not found.")
+	}
+	raw, err := newAPIClient(system, captain).Post("server-get", map[string]interface{}{"server_id": id})
+	if err != nil {
+		fail("manager: %v", err)
+	}
+	var sv struct {
+		Name    string `json:"name"`
+		Address string `json:"address"`
+		SSHPort int    `json:"ssh_port"`
+		SSHUser string `json:"ssh_user"`
+	}
+	if json.Unmarshal(raw, &sv) != nil || sv.Address == "" {
+		fail("server %s not found: %s", id, strings.TrimSpace(string(raw)))
+	}
+	keyPath, err := defaultKeyPath()
+	if err != nil {
+		fail("%v", err)
+	}
+	if sv.SSHPort == 0 {
+		sv.SSHPort = 22
+	}
+	if sv.SSHUser == "" {
+		sv.SSHUser = "root"
+	}
+	t := &hostTargetInfo{server: sv.Name, sshArgs: []string{"-oBatchMode=yes", "-oStrictHostKeyChecking=no", "-oConnectTimeout=30",
+		"-oPreferredAuthentications=publickey", "-oIdentitiesOnly=yes", "-i", keyPath,
+		"-p", fmt.Sprint(sv.SSHPort), sv.SSHUser + "@" + sv.Address}}
+	if err := t.ensureBackupTool(); err != nil {
+		fail("%v", err)
+	}
+	return t
+}
+
+func nodeLogs(args []string) {
+	t := nodeTarget(args[0])
+	res, err := ccTool(t, "logs", args[1], flagNodeLines)
+	if err != nil {
+		fail("logs: %v", err)
+	}
+	b, _ := json.Marshal(res)
+	fmt.Println(string(b))
+}
+
 func nodeStats(args []string) {
 	if flagNodeRange != "1h" && flagNodeRange != "24h" && flagNodeRange != "7d" {
 		fail("--range must be 1h, 24h or 7d.")
@@ -95,5 +145,13 @@ func init() {
 	}
 	stats.Flags().StringVar(&flagNodeRange, "range", "1h", "1h, 24h or 7d")
 	nodeCmd.AddCommand(stats)
+	logsCmd := &cobra.Command{
+		Use: "logs <server-id> <source>", Short: "Recent lines from a server log (edge, ssh, backups, kernel, incus, updates, ct:<container>:<php|database|ssh|cron>)", Args: cobra.ExactArgs(2),
+		Run: func(cmd *cobra.Command, args []string) {
+			resolveNativeOrWP(cmd, args, func(_ *cobra.Command, a []string) { nodeLogs(a) })
+		},
+	}
+	logsCmd.Flags().StringVar(&flagNodeLines, "lines", "200", "How many lines (10-2000)")
+	nodeCmd.AddCommand(logsCmd)
 	rootCmd.AddCommand(nodeCmd)
 }

@@ -118,6 +118,8 @@ upload_max_filesize = %dM
 post_max_size = %dM
 max_execution_time = %d
 max_input_vars = 5000
+log_errors = On
+error_log = /srv/site/logs/php-error.log
 opcache.memory_consumption = 128
 opcache.interned_strings_buffer = 16
 opcache.max_accelerated_files = 20000
@@ -142,6 +144,22 @@ fcaddy_new = """# CaptainCore site container. TLS ends at the node edge; this se
 	root /srv/site/public
 	encode zstd br gzip
 	php_server
+	# ~/logs/access.log is what CaptainCore's Logs view lists. client_ip is
+	# the visitor (trusted_proxies takes it from the edge's X-Forwarded-For).
+	log {
+		output file /srv/site/logs/access.log {
+			roll_size 25MiB
+			roll_keep 4
+		}
+		format filter {
+			wrap json
+			fields {
+				request>headers delete
+				request>tls delete
+				resp_headers delete
+			}
+		}
+	}
 }
 """ % (workers, max_workers)
 
@@ -157,6 +175,13 @@ def ct_write(path, content):
     # path is one of the constants in PHP_FILES, never input.
     run("incus", "exec", ct, "--", "sh", "-c", "cat > '%s.cc-new' && chmod 0644 '%s.cc-new' && mv '%s.cc-new' '%s'" % (path, path, path, path), inp=content)
 
+
+# The logs directory the Logs view reads (~/logs), owned by the site user.
+if not DRY:
+    run("incus", "exec", ct, "--", "install", "-d", "-o", "site", "-g", "site", "-m", "0750", "/srv/site/logs", check=False)
+    run("incus", "exec", ct, "--", "sh", "-c",
+        "[ -d /etc/logrotate.d ] && printf '%s\\n' '/srv/site/logs/php-error.log {' '  size 25M' '  rotate 4' '  compress' '  missingok' '  notifempty' '  copytruncate' '}' > /etc/logrotate.d/captaincore || true",
+        check=False)
 
 php_old = {path: ct_read(path) for path, _ in PHP_FILES}
 php_changed = any(php_old[path] != content for path, content in PHP_FILES)
@@ -212,13 +237,26 @@ try:
         for path, content in PHP_FILES:
             if php_old[path] != content:
                 ct_write(path, content)
-        v = run("incus", "exec", ct, "--", "frankenphp", "validate", "--config", "/etc/frankenphp/Caddyfile", check=False)
-        if v.returncode != 0:
+        # Validate as the site user: validating opens the log files, and a
+        # root-owned access.log would stop PHP (running as site) from starting.
+        v = run("incus", "exec", ct, "--", "su", "-s", "/bin/sh", "site", "-c",
+                "cd /srv/site && frankenphp validate --config /etc/frankenphp/Caddyfile", check=False)
+        run("incus", "exec", ct, "--", "chown", "-R", "site:site", "/srv/site/logs", check=False)
+
+        def restore_php():
             for path, _ in PHP_FILES:
                 if php_old[path] is not None:
                     ct_write(path, php_old[path])
+            run("incus", "exec", ct, "--", "systemctl", "restart", "frankenphp", check=False)
+
+        if v.returncode != 0:
+            restore_php()
             done("failed", "php config rejected: %s" % (v.stderr or v.stdout).strip()[:300])
-        run("incus", "exec", ct, "--", "systemctl", "restart", "frankenphp")
+        r = run("incus", "exec", ct, "--", "systemctl", "restart", "frankenphp", check=False)
+        if r.returncode != 0:
+            why = run("incus", "exec", ct, "--", "journalctl", "-u", "frankenphp", "-n", "3", "--no-pager", "-o", "cat", check=False).stdout.strip()[-300:]
+            restore_php()
+            done("failed", "PHP would not start with the new config, put the previous one back: %s" % why)
         res["changes"].append("php")
 
     if mem_changed:
