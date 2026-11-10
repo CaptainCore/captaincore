@@ -38,6 +38,15 @@ ip = hc.get("ip", "")
 rev = hc.get("revision", 0)
 hosts = hc.get("hostnames") or []
 primary = hc.get("primary", "")
+APP_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,19}$")
+apps = [a for a in (cfg.get("apps") or []) if APP_NAME_RE.match(str(a.get("name", "")))
+        and 3000 <= int(a.get("port", 0)) <= 3999 and a.get("enabled", True)]
+app_hosts = [a["hostname"] for a in apps if a.get("route") == "hostname" and a.get("hostname")]
+site_hosts = []
+for d in (cfg.get("domains") or []):
+    site_hosts.append(d.get("name", ""))
+    if d.get("www"):
+        site_hosts.append("www." + d.get("name", ""))
 res["revision"] = rev
 
 # Everything below lands in config files or argv, so check it all again here.
@@ -46,8 +55,11 @@ if not re.match(r"^[a-z0-9][a-z0-9-]{0,62}$", ct):
     done("failed", "invalid container name")
 if not re.match(r"^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip):
     done("failed", "invalid container ip")
-if not hosts or not all(HOST_RE.match(h) for h in hosts) or primary not in hosts:
+if not site_hosts or not all(HOST_RE.match(h) for h in site_hosts + app_hosts) or primary not in site_hosts:
     done("failed", "invalid hostnames")
+PATH_RE = re.compile(r"^(/[A-Za-z0-9._~-]+)+$")
+apps = [a for a in apps if (a.get("route") == "hostname" and HOST_RE.match(a.get("hostname", "")))
+        or (a.get("route") == "path" and PATH_RE.match(a.get("path", "")))]
 php = cfg.get("php") or {}
 try:
     workers = int(php["workers"]); max_workers = int(php["max_workers"])
@@ -84,6 +96,15 @@ def site_body():
     b = ["\troute {", "\t\tencode zstd gzip"]
     if deny:
         b += ["\t\t@cc_deny remote_ip %s" % " ".join(deny), "\t\trespond @cc_deny 403"]
+    # Apps at a path of the site: public (before redirects and the password).
+    for a in apps:
+        if a.get("route") != "path":
+            continue
+        b += ["\t\t@cc_app_%s path %s %s/*" % (a["name"].replace("-", "_"), a["path"], a["path"]),
+              "\t\troute @cc_app_%s {" % a["name"].replace("-", "_")]
+        if a.get("strip_prefix"):
+            b.append("\t\t\turi strip_prefix %s" % a["path"])
+        b += ["\t\t\treverse_proxy %s:%d {" % (ip, int(a["port"])), "\t\t\t\tlb_try_duration 5s", "\t\t\t}", "\t\t}"]
     for r in redirects:
         b.append("\t\tredir %s %s %d" % (r["from"], r["to"], int(r["code"])))
     if pp_on:
@@ -93,13 +114,26 @@ def site_body():
     return b
 
 
+# Search engines: noindex (the default; staging always) puts X-Robots-Tag on
+# every response of every block, whatever answers it (WordPress, static
+# files, apps, redirects), and keeps WordPress's blog_public at 0.
+noindex = cfg.get("noindex", True) is not False
+NOINDEX_LINE = ['\theader X-Robots-Tag "noindex, nofollow"'] if noindex else []
+
 edge = ["# Managed by CaptainCore: %s, revision %s. Changes here are overwritten." % (ct, rev)]
 others = [h for h in hosts if h != primary]
+others = [h for h in site_hosts if h != primary]
 if cfg.get("redirect_to_primary") and others:
-    edge += ["%s {" % addrs([primary])] + site_body() + ["}", "",
-             "%s {" % addrs(others), "\tredir https://%s{uri} permanent" % primary, "}"]
+    edge += ["%s {" % addrs([primary])] + NOINDEX_LINE + site_body() + ["}", "",
+             "%s {" % addrs(others)] + NOINDEX_LINE + ["\tredir https://%s{uri} permanent" % primary, "}"]
 else:
-    edge += ["%s {" % addrs(hosts)] + site_body() + ["}"]
+    edge += ["%s {" % addrs(site_hosts)] + NOINDEX_LINE + site_body() + ["}"]
+for a in apps:
+    if a.get("route") == "hostname":
+        edge += ["", "%s {" % addrs([a["hostname"]])] + NOINDEX_LINE + ["\troute {", "\t\tencode zstd gzip"]
+        if deny:
+            edge += ["\t\t@cc_deny remote_ip %s" % " ".join(deny), "\t\trespond @cc_deny 403"]
+        edge += ["\t\treverse_proxy %s:%d {" % (ip, int(a["port"])), "\t\t\tlb_try_duration 5s", "\t\t}", "\t}", "}"]
 edge_new = "\n".join(edge) + "\n"
 edge_path = "/etc/caddy/sites/%s.caddyfile" % ct
 edge_prev_path = "/etc/caddy/sites/.%s.prev" % ct
@@ -191,6 +225,54 @@ def wp(*args, check=True):
     return run("incus", "exec", ct, "--", "su", "-s", "/bin/bash", "site", "-c", cmd, check=check)
 
 
+# ── Apps: one systemd service each, as the site user ──────────────────────
+def app_files(a):
+    n = a["name"]
+    env_lines = ["# Managed by CaptainCore (hosting configuration)."]
+    for k, v in sorted((a.get("env") or {}).items()):
+        if re.match(r"^[A-Z_][A-Z0-9_]{0,63}$", k) and "\n" not in str(v):
+            env_lines.append('%s="%s"' % (k, str(v).replace("\\", "\\\\").replace('"', '\\"')))
+    return {
+        "/etc/captaincore/apps/%s.sh" % n: "#!/bin/sh\n# Managed by CaptainCore (hosting configuration).\ncd /srv/site/apps/%s || exit 1\nexec %s\n" % (n, a["command"]),
+        "/etc/captaincore/apps/%s.env" % n: "\n".join(env_lines) + "\n",
+        "/etc/systemd/system/cc-app-%s.service" % n: """[Unit]
+Description=CaptainCore app %s
+After=network-online.target mariadb.service
+
+[Service]
+User=site
+Group=site
+WorkingDirectory=/srv/site/apps/%s
+Environment=PORT=%d
+EnvironmentFile=-/etc/captaincore/apps/%s.env
+ExecStart=/bin/sh /etc/captaincore/apps/%s.sh
+Restart=always
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
+""" % (n, n, int(a["port"]), n, n),
+    }
+
+
+def ct_write_any(path, content):
+    # App env files hold secrets: root only (systemd reads them as root).
+    mode = "0600" if path.endswith(".env") else "0755" if path.endswith(".sh") else "0644"
+    run("incus", "exec", ct, "--", "sh", "-c", "mkdir -p \"$(dirname '%s')\" && cat > '%s.cc-new' && chmod %s '%s.cc-new' && mv '%s.cc-new' '%s'" % (path, path, mode, path, path, path), inp=content)
+
+
+existing_units = run("incus", "exec", ct, "--", "sh", "-c", "ls /etc/systemd/system/ | grep -E '^cc-app-[a-z0-9-]+\\.service$' || true", check=False).stdout.split()
+want_units = ["cc-app-%s.service" % a["name"] for a in apps]
+app_changes = {}
+for a in apps:
+    for path, content in app_files(a).items():
+        if ct_read(path) != content:
+            app_changes.setdefault(a["name"], {})[path] = content
+removed_units = [u for u in existing_units if u not in want_units]
+
 want_debug = bool(cfg.get("debug"))
 cur_debug = wp("config", "get", "WP_DEBUG", check=False).stdout.strip().lower() in ("1", "true")
 debug_changed = want_debug != cur_debug
@@ -199,8 +281,11 @@ cur_mem = run("incus", "config", "get", ct, "limits.memory").stdout.strip()
 want_mem = "%dMiB" % memory_mb
 mem_changed = cur_mem != want_mem
 
+blog_public_fix = noindex and wp("option", "get", "blog_public", check=False).stdout.strip() != "0"
+
 if DRY:
-    res["would_change"] = [n for n, c in (("edge", edge_new != edge_old), ("php", php_changed), ("memory", mem_changed), ("debug", debug_changed)) if c]
+    res["would_change"] = [n for n, c in (("edge", edge_new != edge_old), ("php", php_changed), ("memory", mem_changed), ("debug", debug_changed), ("blog_public", blog_public_fix)) if c] \
+        + ["app:" + n for n in app_changes] + ["remove:" + u for u in removed_units]
     res["edge"] = edge_new
     done("dry-run")
 
@@ -263,12 +348,38 @@ try:
         run("incus", "config", "set", ct, "limits.memory=" + want_mem)
         res["changes"].append("memory")
 
+    for name, files in app_changes.items():
+        run("incus", "exec", ct, "--", "install", "-d", "-o", "site", "-g", "site", "/srv/site/apps/" + name, check=False)
+        for path, content in files.items():
+            ct_write_any(path, content)
+        res["changes"].append("app:" + name)
+    if apps:   # files written before env files were root only
+        run("incus", "exec", ct, "--", "sh", "-c", "chmod 0600 /etc/captaincore/apps/*.env 2>/dev/null || true", check=False)
+    for unit in removed_units:
+        n = unit[len("cc-app-"):-len(".service")]
+        run("incus", "exec", ct, "--", "systemctl", "disable", "--now", unit, check=False)
+        run("incus", "exec", ct, "--", "rm", "-f", "/etc/systemd/system/" + unit, "/etc/captaincore/apps/%s.sh" % n, "/etc/captaincore/apps/%s.env" % n, check=False)
+        res["changes"].append("removed:" + n)
+    if app_changes or removed_units:
+        run("incus", "exec", ct, "--", "systemctl", "daemon-reload", check=False)
+    for a in apps:
+        unit = "cc-app-%s.service" % a["name"]
+        if a["name"] in app_changes:
+            run("incus", "exec", ct, "--", "systemctl", "enable", unit, check=False)
+            run("incus", "exec", ct, "--", "systemctl", "restart", unit, check=False)
+        else:
+            run("incus", "exec", ct, "--", "systemctl", "enable", "--now", unit, check=False)
+
     if debug_changed:
         flag = "true" if want_debug else "false"
         wp("config", "set", "WP_DEBUG", flag, "--raw", "--type=constant")
         wp("config", "set", "WP_DEBUG_LOG", flag, "--raw", "--type=constant")
         wp("config", "set", "WP_DEBUG_DISPLAY", "false", "--raw", "--type=constant")
         res["changes"].append("debug")
+
+    if blog_public_fix:
+        wp("option", "update", "blog_public", "0", "--quiet", check=False)
+        res["changes"].append("blog_public")
 
     time.sleep(1.5)
     code_ct, code_edge = health()
@@ -292,6 +403,17 @@ except SystemExit:
     raise
 except Exception as e:
     done("failed", str(e)[:400])
+
+# Each app answers on its port (any HTTP answer counts; an app that is down
+# is reported, never rolled back: the site itself is fine).
+if apps:
+    time.sleep(2)
+    res["apps"] = {}
+    for a in apps:
+        code = run("curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "5",
+                   "http://%s:%d/" % (ip, int(a["port"])), check=False).stdout
+        active = run("incus", "exec", ct, "--", "systemctl", "is-active", "cc-app-%s.service" % a["name"], check=False).stdout.strip()
+        res["apps"][a["name"]] = {"service": active, "http": code}
 
 # Certificates Caddy holds for each hostname (issued once DNS points here).
 base = "/var/lib/caddy/.local/share/caddy/certificates"

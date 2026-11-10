@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -89,6 +90,42 @@ func nodeLogs(args []string) {
 	fmt.Println(string(b))
 }
 
+var reContainerName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+
+// nodeContainer prints one container's page data (cc-backups container).
+func nodeContainer(args []string) {
+	if !reContainerName.MatchString(args[1]) {
+		fail("invalid container name")
+	}
+	if flagNodeRange != "1h" && flagNodeRange != "24h" && flagNodeRange != "7d" {
+		fail("--range must be 1h, 24h or 7d.")
+	}
+	t := nodeTarget(args[0])
+	res, err := ccTool(t, "container", args[1], flagNodeRange)
+	if err != nil {
+		fail("container: %v", err)
+	}
+	b, _ := json.Marshal(res)
+	fmt.Println(string(b))
+}
+
+// nodeRestart restarts one program in a container, or the container.
+func nodeRestart(args []string) {
+	if !reContainerName.MatchString(args[1]) {
+		fail("invalid container name")
+	}
+	if !regexp.MustCompile(`^(php|database|cron|container|app-[a-z][a-z0-9-]{0,19})$`).MatchString(args[2]) {
+		fail("restart php, database, cron, app-<name> or container")
+	}
+	t := nodeTarget(args[0])
+	res, err := ccTool(t, "restart", args[1], args[2])
+	if err != nil {
+		fail("restart: %v", err)
+	}
+	b, _ := json.Marshal(res)
+	fmt.Println(string(b))
+}
+
 func nodeStats(args []string) {
 	if flagNodeRange != "1h" && flagNodeRange != "24h" && flagNodeRange != "7d" {
 		fail("--range must be 1h, 24h or 7d.")
@@ -153,5 +190,19 @@ func init() {
 	}
 	logsCmd.Flags().StringVar(&flagNodeLines, "lines", "200", "How many lines (10-2000)")
 	nodeCmd.AddCommand(logsCmd)
+	containerCmd := &cobra.Command{
+		Use: "container <server-id> <container>", Short: "Programs, traffic, web server rules and metrics for one container", Args: cobra.ExactArgs(2),
+		Run: func(cmd *cobra.Command, args []string) {
+			resolveNativeOrWP(cmd, args, func(_ *cobra.Command, a []string) { nodeContainer(a) })
+		},
+	}
+	containerCmd.Flags().StringVar(&flagNodeRange, "range", "1h", "1h, 24h or 7d")
+	nodeCmd.AddCommand(containerCmd)
+	nodeCmd.AddCommand(&cobra.Command{
+		Use: "restart <server-id> <container> <php|database|cron|app-<name>|container>", Short: "Restart a program in a container, or the container", Args: cobra.ExactArgs(3),
+		Run: func(cmd *cobra.Command, args []string) {
+			resolveNativeOrWP(cmd, args, func(_ *cobra.Command, a []string) { nodeRestart(a) })
+		},
+	})
 	rootCmd.AddCommand(nodeCmd)
 }

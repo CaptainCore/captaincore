@@ -6,8 +6,10 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 
+	"github.com/CaptainCore/captaincore/models"
 	"github.com/spf13/cobra"
 )
 
@@ -181,4 +183,104 @@ func init() {
 	deploy.Flags().StringVar(&flagDeployTo, "to", "", "staging or production")
 	deploy.Flags().StringVar(&flagDeployWhat, "what", "both", "both, files or database")
 	hostCmd.AddCommand(deploy)
+}
+
+// host site create <site>: build the container for a site the Manager just
+// created on one of our servers (Servers → Add site…).
+func hostSiteCreate(args []string) {
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fail("Configuration file not found.")
+	}
+	client := newAPIClient(system, captain)
+	// The Manager passes the site id: a site created a moment ago is not in
+	// the CLI's local copy until it is synced.
+	if !regexp.MustCompile(`^\d+$`).MatchString(args[0]) {
+		fail("pass the site id")
+	}
+	fmt.Println("Pulling the new site into the CLI…")
+	if err := selfRun("site", "sync", args[0]); err != nil {
+		fail("site sync: %v", err)
+	}
+	id, _ := strconv.ParseUint(args[0], 10, 64)
+	site, err := models.GetSiteByID(uint(id))
+	if err != nil || site == nil {
+		fail("site %s not found after sync", args[0])
+	}
+	args = []string{site.Site}
+	raw, err := client.Post("host-site-prepare", map[string]interface{}{"site_id": site.SiteID})
+	if err != nil {
+		fail("manager: %v", err)
+	}
+	var info struct {
+		Container, IP, Image, Primary, Start, Title string
+		SSHPort                                     int    `json:"ssh_port"`
+		MemoryMiB                                   int    `json:"memory_mib"`
+		DiskGiB                                     int    `json:"disk_gib"`
+		AdminUser                                   string `json:"admin_user"`
+		AdminEmail                                  string `json:"admin_email"`
+	}
+	if json.Unmarshal(raw, &info) != nil || info.Container == "" || info.Image == "" || !reHostname.MatchString(info.Primary) {
+		fail("manager reply: %s", strings.TrimSpace(string(raw)))
+	}
+	t, err := hostTarget(system, captain, args[0])
+	if err != nil {
+		fail("%v", err)
+	}
+	if err := t.ensureBackupTool(); err != nil {
+		fail("%v", err)
+	}
+	if out, _, _ := t.ssh("sudo incus info "+info.Container+" >/dev/null 2>&1 && echo exists", ""); strings.TrimSpace(out) == "exists" {
+		fmt.Printf("Container %s already exists; carrying on from it.\n", info.Container)
+	} else {
+		fmt.Printf("Building container %s on %s (%s, SSH port %d, %d GiB, %d MiB)…\n", info.Container, t.server, info.IP, info.SSHPort, info.DiskGiB, info.MemoryMiB)
+		if _, err := ccTool(t, "site-create", info.Container, info.Image, info.IP, fmt.Sprint(info.SSHPort), fmt.Sprint(info.DiskGiB), fmt.Sprint(info.MemoryMiB)); err != nil {
+			fail("create: %v", err)
+		}
+	}
+	// CaptainCore's own key first, so the CLI can log in as the site user.
+	keyPath, err := siteKeyPath(system, site)
+	if err != nil {
+		fail("%v", err)
+	}
+	pub, err := exec.Command("ssh-keygen", "-y", "-f", keyPath).Output()
+	if err != nil {
+		fail("reading management key: %v", err)
+	}
+	f := strings.Fields(strings.TrimSpace(string(pub)))
+	if len(f) < 2 {
+		fail("management key has no public half")
+	}
+	if _, err := ccTool(t, "authorize", info.Container, f[0]+" "+f[1]); err != nil {
+		fail("authorize: %v", err)
+	}
+	if out, _, _ := t.ssh("sudo incus exec "+info.Container+" -- test -f /srv/site/public/wp-config.php && echo yes", ""); info.Start != "empty" && strings.TrimSpace(out) != "yes" {
+		fmt.Println("Installing WordPress…")
+		if _, err := ccTool(t, "wp-install", info.Container, info.Primary, info.Title, info.AdminUser, info.AdminEmail); err != nil {
+			fail("install: %v", err)
+		}
+	}
+	fmt.Println("Deploying SSH keys, then the hosting configuration…")
+	if err := selfRun("ssh-keys", "deploy", args[0]); err != nil {
+		fail("ssh keys: %v", err)
+	}
+	if err := selfRun("host", "apply", args[0]); err != nil {
+		fail("host apply: %v", err)
+	}
+	if info.Start != "empty" {
+		fmt.Println("Syncing into CaptainCore…")
+		_ = selfRun("sync-data", args[0])
+	}
+	fmt.Printf("Site ready: https://%s (SSH port %d). The certificate can take a few minutes on a brand-new domain.\n", info.Primary, info.SSHPort)
+}
+
+func init() {
+	siteCmd := &cobra.Command{Use: "site", Short: "Sites on our own servers"}
+	siteCmd.AddCommand(&cobra.Command{
+		Use: "create <site-id>", Short: "Build the container for a site created on one of our servers", Args: cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			resolveNativeOrWP(cmd, args, func(_ *cobra.Command, a []string) { hostSiteCreate(a) })
+		},
+	})
+	hostCmd.AddCommand(siteCmd)
 }

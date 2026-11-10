@@ -12,6 +12,8 @@
 #   cc-backups prune
 #   cc-backups clone   <src> <dst> <ip> <ssh_port>        new container from src's image + volumes
 #   cc-backups sync    <src> <dst> <both|files|database> <src_host> <dst_host>
+#   cc-backups container <container> [1h|24h|7d]   programs, traffic, Caddyfiles, metrics
+#   cc-backups restart <container> <php|database|cron|app-<name>|container>
 #
 # A backup is one atomic `zfs snapshot` of the container's files volume
 # (/srv/site) and database volume (/var/lib/mysql), so the two always match.
@@ -25,8 +27,11 @@ import subprocess
 import sys
 import time
 
-KEEP = {"daily": 14, "pre-restore": 7, "pre-deploy": 7}   # days
-MAX_MANUAL = 10
+# Retention, per site: the newest 30 daily backups (by count, so a node that
+# missed days still keeps 30), every pre-deploy and pre-restore safety backup
+# younger than 30 days, and the newest 10 manual backups.
+KEEP_COUNT = {"daily": 30, "manual": 10}
+KEEP_DAYS = {"pre-deploy": 30, "pre-restore": 30}
 TYPES = ("daily", "manual", "pre-restore", "pre-deploy")
 NAME_RE = re.compile(r"^cc-(\d{8}T\d{6})-(daily|manual|pre-restore|pre-deploy)$")
 
@@ -161,10 +166,13 @@ def prune():
     now = datetime.datetime.now(datetime.timezone.utc)
     for ct in site_containers():
         _, snaps = snapshots(ct)
-        manual = [s for s in snaps if s["type"] == "manual"]
+        by_type = {}
+        for s in snaps:   # newest first
+            by_type.setdefault(s["type"], []).append(s)
         for s in snaps:
             age = (now - datetime.datetime.fromisoformat(s["created"])).days
-            if (s["type"] in KEEP and age >= KEEP[s["type"]]) or (s["type"] == "manual" and s in manual[MAX_MANUAL:]):
+            t = s["type"]
+            if (t in KEEP_DAYS and age >= KEEP_DAYS[t]) or (t in KEEP_COUNT and s in by_type[t][KEEP_COUNT[t]:]):
                 delete(ct, s["name"])
                 removed.append("%s@%s" % (ct, s["name"]))
     return removed
@@ -206,6 +214,82 @@ def clone(src, dst, ip, port):
             break
         time.sleep(1)
     return {"container": dst, "ip": ip, "ssh_port": int(port), "health": health(dst)}
+
+
+def create_site(ct, image, ip, port, disk_gib, memory_mib):
+    """A new site container from an image: its own files and database volumes,
+    a fixed IP and SSH port, the site defaults (own host user ID range, no
+    traffic to other containers, a process limit), MariaDB with a fresh
+    database and user. Prints the database password once."""
+    import secrets
+    if not re.match(r"^[a-z0-9][a-z0-9-]{0,62}$", ct) or not re.match(r"^[a-z0-9][a-z0-9.-]{0,63}$", image) \
+            or not re.match(r"^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip) or not (1024 < int(port) < 65535) \
+            or not (1 <= int(disk_gib) <= 200) or not (512 <= int(memory_mib) <= 8192):
+        raise RuntimeError("invalid create arguments")
+    if run("incus", "info", ct, check=False).returncode == 0:
+        raise RuntimeError("container %s already exists" % ct)
+    pool = "default"
+    src = run("incus", "storage", "get", pool, "source").stdout.strip()
+    run("incus", "storage", "volume", "create", pool, ct + "-site", "size=%dGiB" % int(disk_gib))
+    run("incus", "storage", "volume", "create", pool, ct + "-db", "size=5GiB")
+    run("zfs", "set", "recordsize=16K", "%s/custom/default_%s-db" % (src, ct), check=False)
+    run("incus", "init", image, ct)
+    for kv in ("limits.memory=%dMiB" % int(memory_mib), "limits.processes=1000", "security.idmap.isolated=true"):
+        run("incus", "config", "set", ct, kv)
+    run("incus", "config", "device", "override", ct, "eth0", "ipv4.address=" + ip, "security.port_isolation=true")
+    run("incus", "storage", "volume", "attach", pool, ct + "-site", ct, "/srv/site")
+    run("incus", "storage", "volume", "attach", pool, ct + "-db", ct, "/var/lib/mysql")
+    run("incus", "config", "device", "add", ct, "ssh", "proxy", "listen=tcp:0.0.0.0:%d" % int(port), "connect=tcp:127.0.0.1:22")
+    run("ufw", "allow", "%d/tcp" % int(port), check=False)
+    run("incus", "start", ct)
+    for _ in range(30):
+        if run("incus", "exec", ct, "--", "true", check=False).returncode == 0:
+            break
+        time.sleep(1)
+    dbpass = secrets.token_hex(16)
+    setup = """set -e
+install -d -o site -g site -m 0755 /srv/site /srv/site/public /srv/site/apps
+install -d -o site -g site -m 0750 /srv/site/logs
+install -d -o site -g site -m 0700 /srv/site/.ssh
+chown mysql:mysql /var/lib/mysql
+[ -d /var/lib/mysql/mysql ] || mariadb-install-db --user=mysql --datadir=/var/lib/mysql --skip-test-db >/dev/null 2>&1
+systemctl restart mariadb
+mariadb -e "CREATE DATABASE IF NOT EXISTS wordpress CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CREATE USER IF NOT EXISTS 'wordpress'@'localhost' IDENTIFIED BY '$DBPASS'; GRANT ALL ON wordpress.* TO 'wordpress'@'localhost';"
+[ -n "$(ls -A /srv/site/public)" ] || { printf '%s\n' '<!doctype html><meta charset="utf-8"><meta name="robots" content="noindex"><title>Coming soon</title><style>body{font:16px/1.5 system-ui,sans-serif;display:grid;place-items:center;min-height:90vh;color:#444}</style><p>This site is being set up.</p>' > /srv/site/public/index.html; chown site:site /srv/site/public/index.html; }
+systemctl restart frankenphp || true
+"""
+    run("incus", "exec", ct, "--env", "DBPASS=" + dbpass, "--", "bash", "-c", setup)
+    return {"container": ct, "ip": ip, "ssh_port": int(port), "db_name": "wordpress", "db_user": "wordpress", "db_password": dbpass,
+            "idmap": run("incus", "config", "get", ct, "volatile.idmap.base", check=False).stdout.strip()}
+
+
+def wp_install(ct, url_host, title, admin_user, admin_email):
+    """Fresh WordPress in a new container (after site-create). Reads the
+    database password from MariaDB's grant (never passed around), writes
+    wp-config with the edge's HTTPS header and the cron timer, installs."""
+    import secrets
+    if not HOST_RE.match(url_host) or not re.match(r"^[A-Za-z0-9 ._-]{1,60}$", title) \
+            or not re.match(r"^[A-Za-z0-9._@-]{1,60}$", admin_user) or not re.match(r"^[^\s@'\"]+@[^\s@'\"]+$", admin_email):
+        raise RuntimeError("invalid install arguments")
+    dbpass = secrets.token_hex(16)
+    adminpass = secrets.token_urlsafe(18)
+    run("incus", "exec", ct, "--env", "DBPASS=" + dbpass, "--", "bash", "-c",
+        "mariadb -e \"ALTER USER 'wordpress'@'localhost' IDENTIFIED BY '$DBPASS'\"")
+    script = """set -e
+cd /srv/site/public
+wp core download --quiet
+wp config create --dbname=wordpress --dbuser=wordpress --dbpass="$DBPASS" --dbhost=localhost --skip-check --quiet --extra-php <<'PHP'
+// TLS ends at the node edge; trust its forwarded scheme.
+if ( ( $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '' ) === 'https' ) { $_SERVER['HTTPS'] = 'on'; }
+define( 'DISABLE_WP_CRON', true );
+PHP
+wp core install --url="https://$HOST" --title="$TITLE" --admin_user="$AUSER" --admin_email="$AEMAIL" --admin_password="$APASS" --skip-email --quiet
+wp option update blog_public 0 --quiet
+"""
+    run("incus", "exec", ct, "--env", "DBPASS=" + dbpass, "--env", "HOST=" + url_host, "--env", "TITLE=" + title,
+        "--env", "AUSER=" + admin_user, "--env", "AEMAIL=" + admin_email, "--env", "APASS=" + adminpass,
+        "--", "su", "-s", "/bin/bash", "site", "-c", script)
+    return {"url": "https://" + url_host, "admin_user": admin_user}
 
 
 def sync(src, dst, what, src_host, dst_host):
@@ -437,6 +521,173 @@ def stats(range_):
     }
 
 
+# ── One container, for its page ────────────────────────────────────────────
+# `container <ct> [range]`: what runs inside (each systemd unit: WordPress on
+# FrankenPHP, MariaDB, SSH, wp-cron, the apps), versions, database size, the
+# last minutes of traffic from ~/logs/access.log, both Caddyfiles (the node
+# edge's block and the container's own) and the container's metric history.
+CT_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
+CT_PROBE = r"""
+echo @@versions
+. /etc/os-release; echo "os=$PRETTY_NAME"
+echo "frankenphp=$(frankenphp version 2>/dev/null | head -1)"
+echo "php=$(php -r 'echo PHP_VERSION;' 2>/dev/null)"
+echo "mariadb=$(mariadb --version 2>/dev/null)"
+echo @@units
+apps=$(cd /etc/systemd/system 2>/dev/null && ls cc-app-*.service 2>/dev/null)
+systemctl show frankenphp.service mariadb.service ssh.service wp-cron.timer wp-cron.service $apps --no-pager \
+  -p Id,ActiveState,SubState,ActiveEnterTimestamp,NRestarts,MemoryCurrent,MainPID,Result,ExecMainExitTimestamp,ExecMainStatus
+echo @@listen
+ss -Htln 2>/dev/null | awk '{print $4}'
+echo @@db
+mariadb -N -e "SELECT COALESCE(SUM(data_length+index_length),0) FROM information_schema.tables WHERE table_schema='wordpress'; SHOW GLOBAL STATUS LIKE 'Threads_connected';" 2>/dev/null
+echo @@caddyfile
+cat /etc/frankenphp/Caddyfile 2>/dev/null
+echo @@access
+tail -n 4000 /srv/site/logs/access.log 2>/dev/null
+"""
+
+
+def _ct_history(ct, seconds, points=180):
+    since = time.time() - seconds
+    rows = []
+    for name in sorted(os.listdir(MDIR)) if os.path.isdir(MDIR) else []:
+        if not name.endswith(".jsonl") or name < time.strftime("%Y-%m-%d", time.gmtime(since)):
+            continue
+        for line in open(os.path.join(MDIR, name)):
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            c = (r.get("ct") or {}).get(ct)
+            if r["t"] >= since and c:
+                rows.append({"t": r["t"], "cpu": c.get("cpu", 0), "mem": c.get("mem", 0)})
+    if len(rows) <= points:
+        return rows
+    step, buckets = seconds / points, {}
+    for r in rows:
+        buckets.setdefault(int((r["t"] - since) // step), []).append(r)
+    return [{"t": g[-1]["t"], "cpu": round(sum(x["cpu"] for x in g) / len(g), 2), "mem": int(sum(x["mem"] for x in g) / len(g))}
+            for g in (buckets[k] for k in sorted(buckets))]
+
+
+def container(ct, range_):
+    if not CT_NAME.match(ct):
+        raise RuntimeError("invalid container name")
+    seconds = {"1h": 3600, "24h": 86400, "7d": 7 * 86400}.get(range_, 3600)
+    info = next((c for c in _containers() if c["name"] == ct), None)
+    if not info:
+        raise RuntimeError("no container named %s" % ct)
+    cfg = json.loads(run("incus", "query", "/1.0/instances/" + ct).stdout)
+    conf = cfg.get("config") or {}
+    used = {}
+    for line in run("zfs", "list", "-H", "-p", "-o", "name,used,quota,refquota", "-t", "filesystem", check=False).stdout.splitlines():
+        name, u, q, rq = line.split("\t")
+        used[name.rsplit("default_", 1)[-1]] = (int(u), int(rq if rq != "0" else q))
+    snaps = 0
+    for line in run("zfs", "list", "-H", "-p", "-t", "snapshot", "-o", "name,used", check=False).stdout.splitlines():
+        n, u = line.split("\t")
+        if n.split("@")[0].rsplit("default_", 1)[-1] in info["volumes"]:
+            snaps += int(u)
+    info["disk"] = sum(used.get(v, (0, 0))[0] for v in info["volumes"])
+    info["disk_quota"] = sum(used.get(v, (0, 0))[1] for v in info["volumes"])
+    info["snapshots_bytes"] = snaps
+    info["limits"] = {k: conf.get(k, "") for k in ("limits.memory", "limits.processes", "limits.cpu", "limits.cpu.allowance",
+                                                    "security.idmap.isolated", "security.nesting", "security.privileged")}
+    nic = (cfg.get("expanded_devices") or {}).get("eth0") or {}
+    info["limits"]["security.port_isolation"] = nic.get("security.port_isolation", "")
+    info["image"] = conf.get("image.description", "")
+    hist = _ct_history(ct, seconds)
+    info["cpu"] = hist[-1]["cpu"] if hist else None
+
+    res = {"container": info, "history": hist, "range": range_, "versions": {}, "units": [], "listening": [],
+           "db": {}, "caddyfile": "", "edge_caddyfile": "", "traffic": {}}
+    edge_path = "/etc/caddy/sites/%s.caddyfile" % ct
+    res["edge_caddyfile"] = open(edge_path).read() if os.path.exists(edge_path) else ""
+    if info["status"] != "Running":
+        return res
+    p = run("incus", "exec", ct, "--", "bash", "-c", CT_PROBE, check=False)
+    sec, buf = None, {}
+    for line in p.stdout.split("\n"):
+        if line.startswith("@@") and line[2:] in ("versions", "units", "listen", "db", "caddyfile", "access"):
+            sec = line[2:]
+            buf[sec] = []
+        elif sec:
+            buf[sec].append(line)
+    for line in buf.get("versions", []):
+        if "=" in line:
+            k, v = line.split("=", 1)
+            res["versions"][k] = v.strip()
+    unit, units = {}, []
+    for line in buf.get("units", []) + [""]:
+        if not line.strip():
+            if unit:
+                units.append(unit)
+            unit = {}
+            continue
+        k, _, v = line.partition("=")
+        unit[k] = v
+    roles = {"frankenphp.service": "php", "mariadb.service": "database", "ssh.service": "ssh", "wp-cron.timer": "cron-timer", "wp-cron.service": "cron"}
+    for u in units:
+        uid = u.get("Id", "")
+        mem = u.get("MemoryCurrent", "")
+        res["units"].append({
+            "id": uid, "role": "app" if uid.startswith("cc-app-") else roles.get(uid, uid),
+            "app": uid[len("cc-app-"):-len(".service")] if uid.startswith("cc-app-") else "",
+            "active": u.get("ActiveState", ""), "sub": u.get("SubState", ""), "since": u.get("ActiveEnterTimestamp", ""),
+            "restarts": int(u.get("NRestarts") or 0) if (u.get("NRestarts") or "").isdigit() else 0,
+            "memory": int(mem) if mem.isdigit() else None, "pid": int(u.get("MainPID") or 0) if (u.get("MainPID") or "").isdigit() else 0,
+            "result": u.get("Result", ""), "last_exit": u.get("ExecMainExitTimestamp", ""), "exit_status": u.get("ExecMainStatus", ""),
+        })
+    res["listening"] = sorted({l.rsplit(":", 1)[-1] for l in buf.get("listen", []) if ":" in l}, key=lambda x: int(x) if x.isdigit() else 0)
+    db = [l for l in buf.get("db", []) if l.strip()]
+    if db:
+        res["db"]["bytes"] = int(db[0]) if db[0].strip().isdigit() else 0
+        if len(db) > 1:
+            res["db"]["connections"] = int(db[1].split("\t")[-1] or 0)
+    res["caddyfile"] = "\n".join(buf.get("caddyfile", [])).rstrip() + "\n"
+    # Traffic WordPress served (the edge sends app paths straight to the app,
+    # so these are the site's own requests): the last 15 minutes, or what the
+    # tail covers on a busy site.
+    now, window = time.time(), 900
+    hits, codes, slow, oldest = 0, {"2xx": 0, "3xx": 0, "4xx": 0, "5xx": 0}, [], None
+    for line in buf.get("access", []):
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        ts = r.get("ts", 0)
+        if ts < now - window:
+            continue
+        oldest = ts if oldest is None else min(oldest, ts)
+        hits += 1
+        st = int(r.get("status", 0))
+        if 200 <= st < 600:
+            codes["%dxx" % (st // 100)] += 1
+        slow.append(float(r.get("duration", 0)))
+    tail_full = len([l for l in buf.get("access", []) if l.strip()]) >= 3990
+    span = max(60, now - oldest) if tail_full and oldest and hits >= 3990 else window
+    slow.sort()
+    res["traffic"] = {"window_s": int(span), "requests": hits, "per_min": round(hits / span * 60, 1), "codes": codes,
+                      "p95_ms": round(slow[int(len(slow) * 0.95) - 1] * 1000) if len(slow) >= 20 else None}
+    return res
+
+
+def restart(ct, what):
+    if not CT_NAME.match(ct):
+        raise RuntimeError("invalid container name")
+    m = APP_UNIT.match(what)
+    if what == "container":
+        run("incus", "restart", ct, "--timeout", "60")
+    elif what in ("php", "database", "cron") or m:
+        unit = {"php": "frankenphp", "database": "mariadb", "cron": "wp-cron.timer"}.get(what) or "cc-app-" + m.group(1)
+        run("incus", "exec", ct, "--", "systemctl", "restart", unit)
+    else:
+        raise RuntimeError("restart php, database, cron, app-<name> or container")
+    time.sleep(2 if what != "container" else 4)
+    return {"restarted": what, "health": health(ct)}
+
+
 # ── Server logs ────────────────────────────────────────────────────────────
 # Fixed sources only; "ct:<container>:<php|database|ssh>" reads a container's
 # journal. Returns the last N lines as text.
@@ -449,15 +700,18 @@ LOG_SOURCES = {
     "updates": ["tail", "/var/log/unattended-upgrades/unattended-upgrades.log"],
 }
 CT_UNITS = {"php": "frankenphp", "database": "mariadb", "ssh": "ssh", "cron": "wp-cron"}
+APP_UNIT = re.compile(r"^app-([a-z][a-z0-9-]{0,19})$")
 
 
 def logs(source, lines):
     lines = max(10, min(int(lines), 2000))
     if source.startswith("ct:"):
         _, ct, unit = (source.split(":") + ["", ""])[:3]
-        if not re.match(r"^[a-z0-9][a-z0-9-]{0,62}$", ct) or unit not in CT_UNITS:
+        m = APP_UNIT.match(unit)
+        if not re.match(r"^[a-z0-9][a-z0-9-]{0,62}$", ct) or (unit not in CT_UNITS and not m):
             raise RuntimeError("unknown log source")
-        cmd = ["incus", "exec", ct, "--", "journalctl", "-u", CT_UNITS[unit], "--no-pager", "-o", "short-iso", "-n", str(lines)]
+        name = CT_UNITS[unit] if unit in CT_UNITS else "cc-app-" + m.group(1)
+        cmd = ["incus", "exec", ct, "--", "journalctl", "-u", name, "--no-pager", "-o", "short-iso", "-n", str(lines)]
     elif source in LOG_SOURCES:
         cmd = LOG_SOURCES[source] + (["-n", str(lines)] if LOG_SOURCES[source][0] == "journalctl" else [])
         if cmd[0] == "tail":
@@ -487,6 +741,19 @@ try:
         out(dict(status="ok", **clone(sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5]))))
     elif cmd == "sync":
         out(dict(status="ok", **sync(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6])))
+    elif cmd == "site-create":
+        out(dict(status="ok", **create_site(sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5]), int(sys.argv[6]), int(sys.argv[7]))))
+    elif cmd == "authorize":
+        ct, key = sys.argv[2], sys.argv[3]
+        if not re.match(r"^[a-z0-9][a-z0-9-]{0,62}$", ct) or not re.match(r"^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)) [A-Za-z0-9+/]+={0,3}$", key):
+            raise RuntimeError("invalid authorize arguments")
+        run("incus", "exec", ct, "--env", "KEY=" + key + " captaincore-management", "--", "sh", "-c",
+            "install -d -o site -g site -m 0700 /srv/site/.ssh && touch /srv/site/.ssh/authorized_keys && "
+            "grep -qF \"$KEY\" /srv/site/.ssh/authorized_keys || printf '%s\\n' \"$KEY\" >> /srv/site/.ssh/authorized_keys; "
+            "chown site:site /srv/site/.ssh/authorized_keys && chmod 600 /srv/site/.ssh/authorized_keys")
+        out({"status": "ok"})
+    elif cmd == "wp-install":
+        out(dict(status="ok", **wp_install(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6])))
     elif cmd == "rehost":
         ct, frm, to, public = sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
         if not HOST_RE.match(frm) or not HOST_RE.match(to) or public not in ("0", "1"):
@@ -504,6 +771,10 @@ try:
         out({"status": "ok", "source": sys.argv[2], "text": logs(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else 200)})
     elif cmd == "prune":
         out({"status": "ok", "pruned": prune()})
+    elif cmd == "container":
+        out(dict(status="ok", **container(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "1h")))
+    elif cmd == "restart":
+        out(dict(status="ok", **restart(sys.argv[2], sys.argv[3])))
     else:
         out({"status": "error", "error": "usage: cc-backups create|list|restore|delete|daily|prune"}, 2)
 except IndexError:
