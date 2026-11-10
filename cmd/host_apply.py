@@ -214,7 +214,7 @@ def ct_write(path, content):
 if not DRY:
     run("incus", "exec", ct, "--", "install", "-d", "-o", "site", "-g", "site", "-m", "0750", "/srv/site/logs", check=False)
     run("incus", "exec", ct, "--", "sh", "-c",
-        "[ -d /etc/logrotate.d ] && printf '%s\\n' '/srv/site/logs/php-error.log {' '  size 25M' '  rotate 4' '  compress' '  missingok' '  notifempty' '  copytruncate' '}' > /etc/logrotate.d/captaincore || true",
+        "[ -d /etc/logrotate.d ] && printf '%s\\n' '/srv/site/logs/php-error.log /srv/site/logs/mail.log {' '  size 25M' '  rotate 4' '  compress' '  missingok' '  notifempty' '  copytruncate' '}' > /etc/logrotate.d/captaincore || true",
         check=False)
 
 php_old = {path: ct_read(path) for path, _ in PHP_FILES}
@@ -313,8 +313,31 @@ except (TypeError, ValueError):
     want_cpus = "4"
 cpu_changed = run("incus", "config", "get", ct, "limits.cpu").stdout.strip() != want_cpus
 
+# Outgoing mail: the container's sendmail (msmtp) hands mail to the server's
+# relay on 10.77.0.1:2525, which sends it through Mailgun with credentials the
+# container never sees. The relay knows each container by its address: a tag
+# for Mailgun's logs, or a refusal when mail is turned off for the site.
+mail_on = cfg.get("mail", "relay") != "off"
+MSMTP_PATH = "/etc/msmtprc"
+msmtp_new = "\n".join([
+    "# Managed by CaptainCore (hosting configuration).",
+    "# Mail goes to this server's relay, which sends it through Mailgun.",
+    "defaults", "auth off", "tls off", "syslog off", "logfile /srv/site/logs/mail.log",
+    "account relay", "host 10.77.0.1", "port 2525", "from wordpress@%s" % primary,
+    "allow_from_override on", "set_from_header auto", "account default : relay"]) + "\n"
+has_msmtp = run("incus", "exec", ct, "--", "test", "-x", "/usr/bin/msmtp", check=False).returncode == 0
+msmtp_changed = has_msmtp and ct_read(MSMTP_PATH) != msmtp_new
+CC_CLIENTS = "/etc/postfix/cc_clients"
+relay_line = ("%s PREPEND X-Mailgun-Tag: %s" % (ip, ct)) if mail_on else ("%s REJECT Outgoing mail is turned off for this site" % ip)
+relay_old = open(CC_CLIENTS).read() if os.path.exists(CC_CLIENTS) else None
+relay_new = None
+if relay_old is not None and ip:
+    keep = [l for l in relay_old.splitlines() if l.strip() and not l.startswith("#") and l.split()[0] != ip]
+    relay_new = "# Managed by CaptainCore: one line per site container (host apply).\n" + "\n".join(sorted(keep + [relay_line])) + "\n"
+relay_changed = relay_new is not None and relay_new != relay_old
+
 if DRY:
-    res["would_change"] = [n for n, c in (("edge", edge_new != edge_old), ("php", php_changed), ("memory", mem_changed), ("debug", debug_changed), ("blog_public", blog_public_fix), ("hardening", bool(harden_changed)), ("cpu", cpu_changed)) if c] \
+    res["would_change"] = [n for n, c in (("edge", edge_new != edge_old), ("php", php_changed), ("memory", mem_changed), ("debug", debug_changed), ("blog_public", blog_public_fix), ("hardening", bool(harden_changed)), ("cpu", cpu_changed), ("mail", msmtp_changed or relay_changed)) if c] \
         + ["app:" + n for n in app_changes] + ["remove:" + u for u in removed_units]
     res["edge"] = edge_new
     done("dry-run")
@@ -400,6 +423,18 @@ try:
         if any("resolved" in p for p in harden_changed):
             run("incus", "exec", ct, "--", "systemctl", "restart", "systemd-resolved", check=False)
         res["changes"].append("hardening")
+
+    if msmtp_changed:
+        ct_write_any(MSMTP_PATH, msmtp_new)
+    if relay_changed:
+        tmp = CC_CLIENTS + ".cc-new"
+        with open(tmp, "w") as f:
+            f.write(relay_new)
+        os.replace(tmp, CC_CLIENTS)
+        run("postfix", "reload", check=False)
+    if msmtp_changed or relay_changed:
+        res["changes"].append("mail")
+    res["mail"] = {"relay": mail_on, "sendmail": has_msmtp}
 
     for name, files in app_changes.items():
         run("incus", "exec", ct, "--", "install", "-d", "-o", "site", "-g", "site", "/srv/site/apps/" + name, check=False)
