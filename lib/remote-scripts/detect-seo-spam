@@ -37,9 +37,12 @@
 #     pharma   a link whose URL or anchor text names a drug or an online
 #              pharmacy. Needs 2+ per location (one could be a legitimate
 #              medical reference).
-#     casino   a link whose URL or anchor text says casino / kazino /
-#              казино without a known spam brand. Needs 2+ per location (a
-#              casino resort or a news story can link one legitimately).
+#     casino   a link whose HOST says casino / kazino without a known spam
+#              brand (memocasinos.com). Needs 2+ different such hosts per
+#              location: a wedding blog links its casino venue many times,
+#              a spam post links several casinos. Anchor text
+#              alone does not count: wedding venues and resort hotels name
+#              their casino in the link text.
 #              Spam brands (1win, 1xbet, Pinco, Mostbet, ...) and Cyrillic
 #              betting words count as gambling, so one is enough.
 #
@@ -250,11 +253,12 @@ is_valid_external_host() {
 # Both are matched against "<href> <anchor text>", lowercased, so a
 # keyword in either the URL or the visible text counts.
 
-PHARMA_KW='cialis|viagra|kamagra|sildenafil|tadalafil|vardenafil|levitra|dapoxetine|nolvadex|propecia|tetracycline|isotretinoin|accutane|clomid|doxycycline|prednisone|wellbutrin|abilify|maxalt|elocon|tramadol|xanax|alprazolam|valium|ambien|zolpidem|modafinil|oxycodone|rxpills|rxtabs|edtabs|pharmacyrx|onlinepharmacy|online-pharmacy|pharmacy-online|rxonline|rxbest|cheaprx|fastrx|norxbest|noprescription|nopres|farmacia|apotek|apotheke|pharmacie|payday|louisvuitton'
+PHARMA_KW='cialis|viagra|kamagra|sildenafil|tadalafil|vardenafil|levitra|dapoxetine|nolvadex|propecia|tetracycline|isotretinoin|accutane|clomid|doxycycline|prednisone|wellbutrin|abilify|maxalt|elocon|tramadol|xanax|alprazolam|valium|ambien([^ct]|$)|zolpidem|modafinil|oxycodone|rxpills|rxtabs|edtabs|pharmacyrx|onlinepharmacy|online-pharmacy|pharmacy-online|rxonline|rxbest|cheaprx|fastrx|norxbest|noprescription|nopres|farmacia|apotek|apotheke|pharmacie|payday|louisvuitton'
 # Indonesian slot/togel spam, the betting brands that buy links in bulk,
 # and Russian betting words. Cyrillic words are spelled out in both cases
 # because tr and [] ranges are byte-wise in the C locale used over ssh.
-GAMBLING_KW='slot[[:space:]_-]*(gacor|online|toto|thailand|demo|server|deposit|dana|maxwin|88)|situs[[:space:]_-]*(slot|toto|judi|togel)|togel|judi[[:space:]_-]*(bola|online|slot)|sbobet|maxwin|bandar[[:space:]_-]*(togel|slot|judi|bola)|toto[[:space:]_-]*(slot|macau|togel|online|4d)|scatter[[:space:]_-]*hitam|mahjong[[:space:]_-]*ways|pragmatic[[:space:]_-]*play|1win([^a-z]|$)|1-win\.|1[[:space:]_-]?x[[:space:]_-]?bet|1xslots|mostbet|melbet|pinco([^a-z]|$)|pin[[:space:]_-]?up[[:space:]_-]*(casino|bet|kz|az|official)|vavada|betwinner|22bet|parimatch|linebet|megapari|888starz|betandreas|leonbets|fonbet|olimpbet|joycasino|selector[[:space:]_-]*casino|casino[[:space:]_-]*(zerkalo|mirror|vhod|vkhod|bonus|no[[:space:]_-]*deposit|online|login|promo)|online[[:space:]_-]*casino|kazino|free[[:space:]_-]*spins|no[[:space:]_-]*deposit[[:space:]_-]*bonus|Казино|казино|КАЗИНО|Ставки|ставки|ставок|Букмекер|букмекер|Зеркало|зеркало|Пинко|пинко|Вавада|вавада|Мостбет|мостбет'
+# Brand names need a word start: "linebet" sits inside "onlinebetting".
+GAMBLING_KW='slot[[:space:]_-]*(gacor|online|toto|thailand|demo|server|deposit|dana|maxwin|88)|situs[[:space:]_-]*(slot|toto|judi|togel)|togel|judi[[:space:]_-]*(bola|online|slot)|sbobet|maxwin|bandar[[:space:]_-]*(togel|slot|judi|bola)|toto[[:space:]_-]*(slot|macau|togel|online|4d)|scatter[[:space:]_-]*hitam|mahjong[[:space:]_-]*ways|pragmatic[[:space:]_-]*play|1win([^a-z]|$)|1-win\.|1[[:space:]_-]?x[[:space:]_-]?bet|1xslots|pinco([^a-z]|$)|pin[[:space:]_-]?up[[:space:]_-]*(casino|bet|kz|az|official)|(^|[^a-z0-9])(mostbet|melbet|vavada|betwinner|22bet|parimatch|linebet|megapari|888starz|betandreas|leonbets|fonbet|olimpbet|joycasino)|selector[[:space:]_-]*casino|casino[[:space:]_-]*(zerkalo|mirror|vhod|vkhod|bonus|no[[:space:]_-]*deposit|online|login|promo)|online[[:space:]_-]*casino|kazino|free[[:space:]_-]*spins|no[[:space:]_-]*deposit[[:space:]_-]*bonus|Казино|казино|КАЗИНО|Ставки|ставки|ставок|Букмекер|букмекер|Зеркало|зеркало|Пинко|пинко|Вавада|вавада|Мостбет|мостбет'
 # Weaker on its own: a casino resort or a news story can link one.
 CASINO_KW='casino|casinos'
 # Titles and slugs that are themselves spam, matched against the
@@ -264,11 +268,23 @@ CASINO_KW='casino|casinos'
 # WEAK: a plain casino/sportsbook/bookmaker title; one of the post's own
 # links must also look like gambling (LINK_GAMBLING_RE), so a trip report
 # about a casino resort linking the resort is left alone.
-# Pharma words need a word end here ("ambien" is not "Ambient").
-TITLE_STRONG_KW="${GAMBLING_KW}|(${PHARMA_KW}|pharmacy|farm(a|á)cia|aptek)([^a-z]|$)"
+# A drug name in a title is only spam with a sales word next to it: law
+# firms write about Accutane, pharmacies about "New Pharmacy Signage".
+# Pharma words need a word end ("ambien" is not "Ambient").
+PHARMA_SALE='buy|cheap|order|discount|generic|purchase|online|without[[:space:]_-]*(a[[:space:]_-]*)?(doctor|prescription|rx)|no[[:space:]_-]*(prescription|rx)|for[[:space:]_-]*sale|price|prices|pills?|tablets?'
+TITLE_PHARMA="(${PHARMA_SALE})[[:space:]_-]+([a-z]+[[:space:]_-]+)?(${PHARMA_KW})([^a-z]|$)|(${PHARMA_KW})[[:space:]_-]+(${PHARMA_SALE})([^a-z]|$)"
+TITLE_STRONG_KW="${GAMBLING_KW}|${TITLE_PHARMA}"
+# Pharmacy in another language ("Farmácia Leal") is spam on an English
+# site whatever words surround it.
+TITLE_FOREIGN_PHARMA='farm(a|á)cia|farmácia|aptek|apotek|apotheke|pharmacie'
+
 TITLE_WEAK_KW='casino|casinos|sportsbook|bookmaker|betting[[:space:]_-]*(site|tips|odds|guide)|sports[[:space:]_-]*betting'
 TITLE_KW="${TITLE_STRONG_KW}|${TITLE_WEAK_KW}"
-LINK_GAMBLING_RE="${GAMBLING_KW}|casino|kazino|bet|slot|spin|jackpot|lucky|win|poker|roulette|blackjack"
+# Checked against the link HOST only. Anchor text says "Catalina Casino"
+# on a wedding photographer's post; a spam post's host is the casino.
+# "bet" must not run on into "better" / "betting" (betterinstitute.com,
+# sportsbettingalliance.org).
+LINK_GAMBLING_RE="${GAMBLING_KW}|casino|kazino|bet([^t]|$)|slot|spin|jackpot|lucky|win|poker|roulette|blackjack"
 
 # Inline content allowed between a hiding element's open tag and the
 # links inside it. Block-level tags (</p>, <div>) end the run, so a link
@@ -307,14 +323,17 @@ href_host() {
     grep -ioE "href=[\"']https?://[^\"'/]+" | head -1 | sed -E "s|^href=[\"']https?://||" | tr 'A-Z' 'a-z'
 }
 
-# "host visible-text" of an anchor, lowercased, with any URL in the text
-# removed. Casino words in an image path (".../casino_night.jpg") are not a
-# gambling link; in the host or the words a reader sees, they are.
-link_words() {
-    local a="$1" host text
-    host=$(printf '%s' "$a" | href_host)
-    text=$(printf '%s' "$a" | sed -E 's/<[^>]*>/ /g; s#https?://[^[:space:]]+# #g')
-    printf '%s %s\n' "$host" "$text" | tr 'A-Z' 'a-z'
+# Brand candidates from the words before "casino" in a title, one per
+# line: the two words joined and the last word alone, each kept when it is
+# 4+ characters. "Red Lion Casino" -> redlion, lion; "Playing on Incognito
+# Casino" -> onincognito, incognito.
+title_brand() {
+    local pre
+    pre=$(printf '%s' "$1" | tr 'A-Z' 'a-z' \
+        | grep -oE "([a-z0-9]+[[:space:]]+)?[a-z0-9]+[[:space:]]+casino" | head -1 \
+        | sed -E 's/[[:space:]]+casino$//')
+    [ -z "$pre" ] && return 0
+    { printf '%s\n' "$pre" | tr -d ' \t'; printf '%s\n' "${pre##* }"; } | grep -E '^[a-z0-9]{4,}$' | sort -u || true
 }
 
 # True when the text (stdin) holds a Cyrillic letter. Byte-wise, so it
@@ -357,7 +376,7 @@ scan_html() {
             kind=gambling
         elif printf '%s' "$text" | grep -qE "$PHARMA_KW"; then
             kind=pharma
-        elif link_words "$anchor" | grep -qE "(^|[^a-z])(${CASINO_KW})"; then
+        elif printf '%s' "$anchor" | href_host | grep -qE "${CASINO_KW}|kazino"; then
             kind=casino
         elif printf '%s' "$text" | grep -qE 'link-factory'; then
             kind=toolkit
@@ -374,7 +393,7 @@ scan_html() {
 # location qualifies, nothing otherwise.
 summarize() {
     local cloak=0 hidden=0 gambling=0 pharma=0 casino=0 title=0 script=0 toolkit=0
-    local sample="" kind host
+    local sample="" kind host casino_hosts=" "
     while IFS=$'\t' read -r kind host; do
         [ -z "$kind" ] && continue
         case "$kind" in
@@ -382,7 +401,10 @@ summarize() {
             hidden)   hidden=$((hidden + 1)) ;;
             gambling) gambling=$((gambling + 1)) ;;
             pharma)   pharma=$((pharma + 1)) ;;
-            casino)   casino=$((casino + 1)) ;;
+            casino)   case "$casino_hosts" in
+                          *" ${host#www.} "*) ;;
+                          *) casino_hosts="${casino_hosts}${host#www.} "; casino=$((casino + 1)) ;;
+                      esac ;;
             title)    title=1 ;;
             script)   script=1 ;;
             toolkit)  toolkit=$((toolkit + 1)) ;;
@@ -434,16 +456,26 @@ post_signals() {
     words=$(printf '%s %s' "$title" "$slug" | tr 'A-Z' 'a-z')
     if printf '%s' "$words" | grep -qE "(^|[^a-z])(${TITLE_STRONG_KW})"; then
         printf 'title\t%s\n' "$first"
+    elif [ "${SITE_LOCALE:-en_US}" != "${SITE_LOCALE#en}" ] \
+        && printf '%s' "$words" | grep -qE "(^|[^a-z])(${TITLE_FOREIGN_PHARMA})"; then
+        printf 'title\t%s\n' "$first"
     elif printf '%s' "$words" | grep -qE "(^|[^a-z])(${TITLE_WEAK_KW})"; then
         local hit
         hit=$(printf '%s\n' "$links" | while IFS=$'\t' read -r lhost lanchor; do
-                link_words "$lanchor" | grep -qE "$LINK_GAMBLING_RE" && { printf '%s\n' "$lhost"; break; }
+                printf '%s' "$lhost" | grep -qE "$LINK_GAMBLING_RE" && { printf '%s\n' "$lhost"; break; }
             done)
         if [ -n "$hit" ]; then
             printf 'title\t%s\n' "$hit"
         else
-            # Not enough alone; the POST loop counts these site-wide.
-            printf 'weak\t%s\n' "$first"
+            # Not enough alone. When a link's host carries the brand named
+            # before "casino" in the title ("Golden Genie Casino" ->
+            # goldengeniee.com), the POST loop counts it site-wide.
+            local brand
+            brand=$(title_brand "$title")
+            if [ -n "$brand" ]; then
+                hit=$(printf '%s\n' "$links" | cut -f1 | tr -d '-' | grep -F -f <(printf '%s\n' "$brand") | head -1)
+                [ -n "$hit" ] && printf 'weak\t%s\n' "$hit"
+            fi
         fi
     fi
     if [ -n "$CYRILLIC_ODD" ] && printf '%s' "$title" | has_cyrillic; then
@@ -506,6 +538,12 @@ WHERE post_status = 'publish' AND post_type IN ('post', 'page')
         ;;
 esac
 
+# Post types that store form submissions, mail logs or plugin data rather
+# than pages anyone reads. Contact-form spam lands in them by the hundred
+# (Flamingo, Elementor form DB, Post SMTP log), so they are never scanned.
+SKIP_TYPES="'revision', 'nav_menu_item', 'oembed_cache', 'customize_changeset', 'wp_global_styles', 'flamingo_inbound', 'flamingo_outbound', 'flamingo_contact', 'elementor_cf_db', 'postman_sent_mail', 'feedback', 'jetpack_feedback', 'nf_sub', 'wpforms', 'wpcf7_contact_form', 'shop_order', 'shop_order_refund', 'edd_payment', 'edd_log', 'wc_user_membership', 'um_form', 'wp_log', 'wp_mail_smtp_log', 'mailpoet_page', 'cfdb7'"
+SKIP_TYPES_RE='(_log|_logs|_entry|_entries|_submission|_submissions|_sent_mail|_cf_db)$'
+
 # Rows qualify on a link pattern (as before), a spam title or slug, a
 # Cyrillic title (only when that is odd for this site), or a toolkit
 # marker. scan_html and post_signals decide what is actually flagged.
@@ -516,7 +554,8 @@ POST_QUERY="
 SELECT ID, post_type, post_status, $(b64 post_title), post_name, $(b64 post_content)
 FROM ${PREFIX}posts
 WHERE post_status IN ('publish', 'draft', 'private', 'future', 'pending')
-  AND post_type NOT IN ('revision', 'nav_menu_item', 'oembed_cache', 'customize_changeset', 'wp_global_styles')
+  AND post_type NOT IN (${SKIP_TYPES})
+  AND post_type NOT REGEXP '${SKIP_TYPES_RE}'
   AND (
         ($(prefilter post_content))
      OR (post_content LIKE '%href%' AND (post_title REGEXP '${SQL_TITLE}' OR post_name REGEXP '${SQL_TITLE}'))
@@ -527,10 +566,11 @@ ORDER BY post_modified_gmt DESC
 LIMIT 2000
 "
 
-# A post whose only signal is a weak casino title is held back. One such
-# post is a trip report; three or more casino-titled posts all linking out
-# to other sites is a spam run (a real casino's posts link to itself, and
-# self links are never counted), so then each is emitted as "title-bulk".
+# A post whose only signal is a weak casino title whose link host carries
+# the casino's name is held back. One such post is a trip report; three or
+# more is a spam run of casino "reviews" (a real casino's posts link to
+# itself, and self links are never counted), so then each is emitted as
+# "title-bulk".
 weak_rows=()
 
 while IFS=$'\t' read -r id ptype pstatus ptitle_b64 pname body; do
@@ -562,6 +602,9 @@ fi
 #
 # Only meta of live posts. Revisions carry copies of the same spam and
 # get cleaned along with the parent, so they would only add noise.
+# _oembed_* rows are WordPress's cache of third-party embeds: abandoned
+# image hosts and hacked blogs now answer with casino cards, so the cache
+# fills with them even though the page never shows them.
 
 if [ -z "$skip_meta" ]; then
     META_QUERY="
@@ -569,7 +612,9 @@ SELECT p.ID, p.post_type, p.post_status, p.post_title, pm.meta_key, $(b64 pm.met
 FROM ${PREFIX}postmeta pm
 INNER JOIN ${PREFIX}posts p ON p.ID = pm.post_id
 WHERE p.post_status IN ('publish', 'draft', 'private')
-  AND p.post_type <> 'revision'
+  AND p.post_type NOT IN (${SKIP_TYPES})
+  AND p.post_type NOT REGEXP '${SKIP_TYPES_RE}'
+  AND pm.meta_key NOT LIKE '\\_oembed\\_%'
   AND $(prefilter pm.meta_value)
 LIMIT 2000
 "
