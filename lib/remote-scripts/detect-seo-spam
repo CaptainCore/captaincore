@@ -37,6 +37,33 @@
 #     pharma   a link whose URL or anchor text names a drug or an online
 #              pharmacy. Needs 2+ per location (one could be a legitimate
 #              medical reference).
+#     casino   a link whose URL or anchor text says casino / kazino /
+#              казино without a known spam brand. Needs 2+ per location (a
+#              casino resort or a news story can link one legitimately).
+#              Spam brands (1win, 1xbet, Pinco, Mostbet, ...) and Cyrillic
+#              betting words count as gambling, so one is enough.
+#
+#   Post-level signals (posts only, each needs an external link in the
+#   post so a plain article about a casino is not flagged):
+#
+#     title    the title or slug is gambling or pharmacy spam ("Pinco
+#              Casino Zerkalo", "1win vkhod", "farmacia online"). Spam posts
+#              often carry a single plain money link that no link rule
+#              catches on its own.
+#              A plain "casino" title counts only when one of the post's
+#              links also looks like gambling, or as "title-bulk" when 3+
+#              such posts link out (a casino's own posts link to itself).
+#     script   the title is Cyrillic while the site locale is not a Cyrillic
+#              language and Cyrillic posts are under 20% of the site's
+#              published posts.
+#
+#   Toolkit markers (flagged with no keyword or link needed):
+#
+#     toolkit  Link Factory: the "link-factory-link-removal-check"
+#              verification comment, a link to link-factory.test, a post
+#              starting with the <!-- cache:<10 hex> --> page marker, or
+#              _sys_marker postmeta (pages published through the client's
+#              secret POST endpoint, hidden from wp-admin).
 #
 #   Locations scanned:
 #
@@ -45,18 +72,32 @@
 #        keep the rendered HTML here: ACF flexible-content fields,
 #        _elementor_data (JSON-escaped), _fl_builder_data (serialized).
 #     3. wp_options.option_value (widgets, theme mods).
-#     4. The homepage fetched as Googlebot via localhost (Host-header
-#        routed, cache-bypassed). Catches server-side injection that is in
-#        none of the tables above.
+#     4. The homepage fetched as Googlebot and as Bingbot via localhost
+#        (Host-header routed, cache-bypassed). Catches server-side
+#        injection that is in none of the tables above. Some clients only
+#        trust Google after a reverse-DNS check but take a Bing user agent
+#        at its word, so the Bingbot fetch can surface what Googlebot can't.
+#     5. Plugin, mu-plugin and theme PHP files carrying the signature of an
+#        on-demand SEO-spam client: the code that fetches links from a
+#        remote server per request and injects them. Such a site can be
+#        clean in the database and on a test fetch while the client is
+#        armed. Families: Link Factory (self-copies into mu-plugins, hides
+#        from the Plugins list, ?sp reveals it) and Easypost
+#        (EASYPOST_ENDPOINT_CONFIG). The C2 host is decoded when the file
+#        carries it as a hex-escaped string.
 #
 #   Output format (pipe-delimited):
 #     SEVERITY|SOURCE|ID|TYPE|STATUS|TITLE|HITS|SAMPLE
 #
-#     SOURCE   = POST / META / OPTION / FRONTEND
-#     ID       = post ID (POST, META), option_id (OPTION), "home" (FRONTEND)
-#     TITLE    = post title; META rows append [meta_key]
-#     HITS     = flagged links, with the reason, e.g. "4 cloak" or "2 pharma"
-#     SAMPLE   = first external host among the flagged links
+#     SOURCE   = POST / META / OPTION / FRONTEND / FILE
+#     ID       = post ID (POST, META), option_id (OPTION), "home" or
+#                "home-bing" (FRONTEND), relative path (FILE)
+#     TITLE    = post title; META rows append [meta_key]; FILE rows carry
+#                the Plugin Name header
+#     HITS     = flagged links and signals with the reason, e.g. "4 cloak",
+#                "2 pharma", "1 gambling 1 title", "1 toolkit",
+#                "link-factory client"
+#     SAMPLE   = first external host among the flagged links (FILE: C2 host)
 #
 #   Honeypot fields and screen-reader skip links use the same off-screen
 #   trick, so a hit always needs an <a href> to a real external host: not
@@ -70,6 +111,15 @@
 #       "Slot Toto Online" link to a hacked .go.id host. No cloaking CSS.
 #     - margin-top:-175px in Elementor CSS is layout, not cloaking. The
 #       offset property must start the declaration.
+#     - A customer site (2026-11): 9 published casino posts (Russian and
+#       English, 1win / 1xBet / Pinco) and a Link Factory verification
+#       post, from a brute-forced admin, plus the Link Factory client as a
+#       plugin and an mu-plugin. Each post had ONE plain money link whose
+#       anchor named no keyword, and the gambling list only knew Indonesian
+#       slot terms, so the scan reported clean. The same site's earlier
+#       wave (64 English casino posts, "verywell casino" style anchors)
+#       was missed the same way. Hence the casino/brand keywords, the
+#       title, script and toolkit signals, and the FILE scan.
 #
 #   Usage:
 #     captaincore ssh <site> --script=detect-seo-spam
@@ -79,6 +129,7 @@
 #     --quiet         Only emit output when findings exist
 #     --skip-frontend Skip the live curl step (DB scan only)
 #     --skip-meta     Skip the postmeta scan (very large postmeta tables)
+#     --skip-files    Skip the plugin/mu-plugin/theme client signature scan
 #
 
 set -uo pipefail
@@ -87,11 +138,13 @@ set -uo pipefail
 quiet=""
 skip_frontend=""
 skip_meta=""
+skip_files=""
 for _arg in "$@"; do
     case "$_arg" in
         --quiet) quiet=true ;;
         --skip-frontend) skip_frontend=true ;;
         --skip-meta) skip_meta=true ;;
+        --skip-files) skip_files=true ;;
         --*) ;;
         *)  WP_ROOT="$_arg" ;;
     esac
@@ -198,13 +251,31 @@ is_valid_external_host() {
 # keyword in either the URL or the visible text counts.
 
 PHARMA_KW='cialis|viagra|kamagra|sildenafil|tadalafil|vardenafil|levitra|dapoxetine|nolvadex|propecia|tetracycline|isotretinoin|accutane|clomid|doxycycline|prednisone|wellbutrin|abilify|maxalt|elocon|tramadol|xanax|alprazolam|valium|ambien|zolpidem|modafinil|oxycodone|rxpills|rxtabs|edtabs|pharmacyrx|onlinepharmacy|online-pharmacy|pharmacy-online|rxonline|rxbest|cheaprx|fastrx|norxbest|noprescription|nopres|farmacia|apotek|apotheke|pharmacie|payday|louisvuitton'
-GAMBLING_KW='slot[[:space:]_-]*(gacor|online|toto|thailand|demo|server|deposit|dana|maxwin|88)|situs[[:space:]_-]*(slot|toto|judi|togel)|togel|judi[[:space:]_-]*(bola|online|slot)|sbobet|maxwin|bandar[[:space:]_-]*(togel|slot|judi|bola)|toto[[:space:]_-]*(slot|macau|togel|online|4d)|scatter[[:space:]_-]*hitam|mahjong[[:space:]_-]*ways|pragmatic[[:space:]_-]*play'
+# Indonesian slot/togel spam, the betting brands that buy links in bulk,
+# and Russian betting words. Cyrillic words are spelled out in both cases
+# because tr and [] ranges are byte-wise in the C locale used over ssh.
+GAMBLING_KW='slot[[:space:]_-]*(gacor|online|toto|thailand|demo|server|deposit|dana|maxwin|88)|situs[[:space:]_-]*(slot|toto|judi|togel)|togel|judi[[:space:]_-]*(bola|online|slot)|sbobet|maxwin|bandar[[:space:]_-]*(togel|slot|judi|bola)|toto[[:space:]_-]*(slot|macau|togel|online|4d)|scatter[[:space:]_-]*hitam|mahjong[[:space:]_-]*ways|pragmatic[[:space:]_-]*play|1win([^a-z]|$)|1-win\.|1[[:space:]_-]?x[[:space:]_-]?bet|1xslots|mostbet|melbet|pinco([^a-z]|$)|pin[[:space:]_-]?up[[:space:]_-]*(casino|bet|kz|az|official)|vavada|betwinner|22bet|parimatch|linebet|megapari|888starz|betandreas|leonbets|fonbet|olimpbet|joycasino|selector[[:space:]_-]*casino|casino[[:space:]_-]*(zerkalo|mirror|vhod|vkhod|bonus|no[[:space:]_-]*deposit|online|login|promo)|online[[:space:]_-]*casino|kazino|free[[:space:]_-]*spins|no[[:space:]_-]*deposit[[:space:]_-]*bonus|Казино|казино|КАЗИНО|Ставки|ставки|ставок|Букмекер|букмекер|Зеркало|зеркало|Пинко|пинко|Вавада|вавада|Мостбет|мостбет'
+# Weaker on its own: a casino resort or a news story can link one.
+CASINO_KW='casino|casinos'
+# Titles and slugs that are themselves spam, matched against the
+# lowercased "title slug" of a post that also carries an external link.
+# STRONG: brands, slot/togel terms, Cyrillic betting words, drugs and
+# pharmacies; any outbound link is enough.
+# WEAK: a plain casino/sportsbook/bookmaker title; one of the post's own
+# links must also look like gambling (LINK_GAMBLING_RE), so a trip report
+# about a casino resort linking the resort is left alone.
+# Pharma words need a word end here ("ambien" is not "Ambient").
+TITLE_STRONG_KW="${GAMBLING_KW}|(${PHARMA_KW}|pharmacy|farm(a|á)cia|aptek)([^a-z]|$)"
+TITLE_WEAK_KW='casino|casinos|sportsbook|bookmaker|betting[[:space:]_-]*(site|tips|odds|guide)|sports[[:space:]_-]*betting'
+TITLE_KW="${TITLE_STRONG_KW}|${TITLE_WEAK_KW}"
+LINK_GAMBLING_RE="${GAMBLING_KW}|casino|kazino|bet|slot|spin|jackpot|lucky|win|poker|roulette|blackjack"
 
 # Inline content allowed between a hiding element's open tag and the
 # links inside it. Block-level tags (</p>, <div>) end the run, so a link
 # AFTER the hidden element never counts as inside it.
 INLINE='([^<]|<(br|strong|em|b|i|u|span|font|small|sup|sub)([[:space:]][^>]*)?/?>|</(strong|em|b|i|u|span|font|small|sup|sub)>)*'
-ANCHOR='<a[[:space:]][^>]*href="https?://[^"]+"[^>]*>[^<]{0,200}</a>'
+# href in double or single quotes.
+ANCHOR="<a[[:space:]][^>]*href=[\"']https?://[^\"']+[\"'][^>]*>[^<]{0,200}</a>"
 BLOCK_STYLE='<(div|p|span|section|ul|li|font|small|td|center)[[:space:]][^>]*style="([^"]*[;[:space:]])?'
 
 # Offset values of -500 and beyond. -50px overlaps and -175px margins
@@ -217,7 +288,14 @@ HIDDEN_RE="${BLOCK_STYLE}(display[[:space:]]*:[[:space:]]*none|visibility[[:spac
 # deliberately looser than scan_html. (^|[^a-z]) keeps "specialist" from
 # matching cialis.
 SQL_OFFSET='(left|top|right|bottom|text-indent)[[:space:]]*:[[:space:]]*-([5-9][0-9]{2}|[0-9]{4,})'
-SQL_KEYWORD="(^|[^a-z])(${PHARMA_KW}|${GAMBLING_KW})"
+SQL_KEYWORD="(^|[^a-z])(${PHARMA_KW}|${GAMBLING_KW}|${CASINO_KW})"
+SQL_TITLE="(^|[^a-z])(${TITLE_KW})"
+# Link Factory markers: verification comment / host, and the page marker
+# the client writes at the top of every page it publishes.
+SQL_TOOLKIT="link-factory-link-removal-check|link-factory\\\\.test|^<!-- cache:[0-9a-f]{10} -->"
+# Cyrillic letters U+0400-U+047F are UTF-8 D0 80..D1 BF. Matching the hex
+# keeps this byte-exact on MySQL and MariaDB regardless of collation.
+SQL_CYRILLIC="HEX(%s) REGEXP '^(..)*D[01][89AB]'"
 
 prefilter() {
     local col="$1"
@@ -226,7 +304,23 @@ prefilter() {
 
 # Lowercased host of the first href in a string.
 href_host() {
-    grep -ioE 'href="https?://[^"/]+' | head -1 | sed -E 's|^href="https?://||' | tr 'A-Z' 'a-z'
+    grep -ioE "href=[\"']https?://[^\"'/]+" | head -1 | sed -E "s|^href=[\"']https?://||" | tr 'A-Z' 'a-z'
+}
+
+# "host visible-text" of an anchor, lowercased, with any URL in the text
+# removed. Casino words in an image path (".../casino_night.jpg") are not a
+# gambling link; in the host or the words a reader sees, they are.
+link_words() {
+    local a="$1" host text
+    host=$(printf '%s' "$a" | href_host)
+    text=$(printf '%s' "$a" | sed -E 's/<[^>]*>/ /g; s#https?://[^[:space:]]+# #g')
+    printf '%s %s\n' "$host" "$text" | tr 'A-Z' 'a-z'
+}
+
+# True when the text (stdin) holds a Cyrillic letter. Byte-wise, so it
+# works in the C locale ssh sessions usually get.
+has_cyrillic() {
+    LC_ALL=C grep -q $'[\xd0\xd1][\x80-\xbf]'
 }
 
 # Reads HTML on stdin. Prints one "kind<TAB>host" line per flagged link
@@ -263,6 +357,10 @@ scan_html() {
             kind=gambling
         elif printf '%s' "$text" | grep -qE "$PHARMA_KW"; then
             kind=pharma
+        elif link_words "$anchor" | grep -qE "(^|[^a-z])(${CASINO_KW})"; then
+            kind=casino
+        elif printf '%s' "$text" | grep -qE 'link-factory'; then
+            kind=toolkit
         else
             continue
         fi
@@ -275,7 +373,8 @@ scan_html() {
 # Reads scan_html output on stdin. Prints "hits<TAB>sample" when the
 # location qualifies, nothing otherwise.
 summarize() {
-    local cloak=0 hidden=0 gambling=0 pharma=0 sample="" kind host
+    local cloak=0 hidden=0 gambling=0 pharma=0 casino=0 title=0 script=0 toolkit=0
+    local sample="" kind host
     while IFS=$'\t' read -r kind host; do
         [ -z "$kind" ] && continue
         case "$kind" in
@@ -283,8 +382,16 @@ summarize() {
             hidden)   hidden=$((hidden + 1)) ;;
             gambling) gambling=$((gambling + 1)) ;;
             pharma)   pharma=$((pharma + 1)) ;;
+            casino)   casino=$((casino + 1)) ;;
+            title)    title=1 ;;
+            script)   script=1 ;;
+            toolkit)  toolkit=$((toolkit + 1)) ;;
+            *)        continue ;;
         esac
-        [ -z "$sample" ] && sample="$host"
+        # Prefer a host from a flagged link over the toolkit/title marker.
+        if [ -z "$sample" ] || [ "$sample" = "-" ]; then
+            [ -n "$host" ] && sample="$host"
+        fi
     done
 
     local reasons=""
@@ -292,9 +399,56 @@ summarize() {
     [ "$hidden" -gt 0 ]   && reasons="${reasons} ${hidden} hidden"
     [ "$gambling" -gt 0 ] && reasons="${reasons} ${gambling} gambling"
     [ "$pharma" -ge 2 ]   && reasons="${reasons} ${pharma} pharma"
+    [ "$casino" -ge 2 ]   && reasons="${reasons} ${casino} casino"
+    [ "$title" -gt 0 ]    && reasons="${reasons} 1 title"
+    [ "$script" -gt 0 ]   && reasons="${reasons} 1 script"
+    [ "$toolkit" -gt 0 ]  && reasons="${reasons} ${toolkit} toolkit"
     [ -z "$reasons" ] && return 0
 
-    printf '%s\t%s\n' "${reasons# }" "$sample"
+    printf '%s\t%s\n' "${reasons# }" "${sample:--}"
+}
+
+# Post-level signals. Reads the post HTML on stdin, takes the title and
+# slug as arguments, prints scan lines for summarize. Title and script
+# signals only fire when the post links out to an external host.
+post_signals() {
+    local title="$1" slug="$2" html links first
+    html=$(cat)
+    case "$html" in
+        "<!-- cache:"[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]" -->"*)
+            printf 'toolkit\t-\n' ;;
+    esac
+    printf '%s' "$html" | grep -q 'link-factory-link-removal-check' && printf 'toolkit\t-\n'
+
+    # External anchors only, one per line.
+    links=$(printf '%s' "$html" | sed -e 's/\\"/"/g' -e 's#\\/#/#g' | tr '\n\r\t' '   ' \
+        | grep -ioE "$ANCHOR" | while read -r anchor; do
+            host=$(printf '%s' "$anchor" | href_host)
+            is_valid_external_host "$host" "$SITE_HOST" || continue
+            printf '%s\t%s\n' "$host" "$anchor"
+        done)
+    [ -z "$links" ] && return 0
+    first=$(printf '%s\n' "$links" | head -1 | cut -f1)
+
+    local words
+    words=$(printf '%s %s' "$title" "$slug" | tr 'A-Z' 'a-z')
+    if printf '%s' "$words" | grep -qE "(^|[^a-z])(${TITLE_STRONG_KW})"; then
+        printf 'title\t%s\n' "$first"
+    elif printf '%s' "$words" | grep -qE "(^|[^a-z])(${TITLE_WEAK_KW})"; then
+        local hit
+        hit=$(printf '%s\n' "$links" | while IFS=$'\t' read -r lhost lanchor; do
+                link_words "$lanchor" | grep -qE "$LINK_GAMBLING_RE" && { printf '%s\n' "$lhost"; break; }
+            done)
+        if [ -n "$hit" ]; then
+            printf 'title\t%s\n' "$hit"
+        else
+            # Not enough alone; the POST loop counts these site-wide.
+            printf 'weak\t%s\n' "$first"
+        fi
+    fi
+    if [ -n "$CYRILLIC_ODD" ] && printf '%s' "$title" | has_cyrillic; then
+        printf 'script\t%s\n' "$first"
+    fi
 }
 
 found_any=""
@@ -329,24 +483,80 @@ decode_b64() {
 }
 
 # ── 1. wp_posts.post_content ─────────────────────────────────────
+#
+# Is a Cyrillic title out of place here? Only when the site locale is not a
+# Cyrillic language AND Cyrillic titles are under 20% of published posts,
+# so a bilingual site with real Russian content is left alone.
+
+CYRILLIC_ODD=""
+SITE_LOCALE=$(wp eval 'echo get_locale();' $WP_FLAGS 2>/dev/null | strip_wpcli_status)
+case "$SITE_LOCALE" in
+    ru*|uk*|bg*|sr*|mk*|be*|kk*|ky*|mn*|tg*|tt*|ba*|cv*|sah*|os*) ;;
+    *)
+        cyr_counts=$(wp db query "
+SELECT SUM($(printf "$SQL_CYRILLIC" post_title)), COUNT(*)
+FROM ${PREFIX}posts
+WHERE post_status = 'publish' AND post_type IN ('post', 'page')
+" --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status)
+        read -r cyr_n all_n <<< "$cyr_counts"
+        cyr_n=${cyr_n//[!0-9]/}; all_n=${all_n//[!0-9]/}
+        if [ -n "$cyr_n" ] && [ -n "$all_n" ] && [ "$all_n" -gt 0 ] && [ $((cyr_n * 5)) -lt "$all_n" ]; then
+            CYRILLIC_ODD=true
+        fi
+        ;;
+esac
+
+# Rows qualify on a link pattern (as before), a spam title or slug, a
+# Cyrillic title (only when that is odd for this site), or a toolkit
+# marker. scan_html and post_signals decide what is actually flagged.
+CYR_CLAUSE=""
+[ -n "$CYRILLIC_ODD" ] && CYR_CLAUSE="OR (post_content LIKE '%href%' AND $(printf "$SQL_CYRILLIC" post_title))"
 
 POST_QUERY="
-SELECT ID, post_type, post_status, post_title, $(b64 post_content)
+SELECT ID, post_type, post_status, $(b64 post_title), post_name, $(b64 post_content)
 FROM ${PREFIX}posts
-WHERE post_status IN ('publish', 'draft', 'private')
-  AND post_type <> 'revision'
-  AND $(prefilter post_content)
+WHERE post_status IN ('publish', 'draft', 'private', 'future', 'pending')
+  AND post_type NOT IN ('revision', 'nav_menu_item', 'oembed_cache', 'customize_changeset', 'wp_global_styles')
+  AND (
+        ($(prefilter post_content))
+     OR (post_content LIKE '%href%' AND (post_title REGEXP '${SQL_TITLE}' OR post_name REGEXP '${SQL_TITLE}'))
+     OR post_content REGEXP '${SQL_TOOLKIT}'
+     ${CYR_CLAUSE}
+  )
 ORDER BY post_modified_gmt DESC
 LIMIT 2000
 "
 
-while IFS=$'\t' read -r id ptype pstatus ptitle body; do
-    [ -z "${id// }" ] && continue
-    summary=$(printf '%s' "$body" | decode_b64 | scan_html | summarize)
-    [ -z "$summary" ] && continue
+# A post whose only signal is a weak casino title is held back. One such
+# post is a trip report; three or more casino-titled posts all linking out
+# to other sites is a spam run (a real casino's posts link to itself, and
+# self links are never counted), so then each is emitted as "title-bulk".
+weak_rows=()
+
+while IFS=$'\t' read -r id ptype pstatus ptitle_b64 pname body; do
+    [[ "$id" =~ ^[0-9]+$ ]] || continue
+    ptitle=$(printf '%s' "$ptitle_b64" | decode_b64 | tr '\n\r\t' '   ')
+    html=$(printf '%s' "$body" | decode_b64)
+    signals=$(printf '%s' "$html" | post_signals "$ptitle" "$pname")
+    summary=$({
+        printf '%s' "$html" | scan_html
+        printf '%s\n' "$signals"
+    } | summarize)
+    if [ -z "$summary" ]; then
+        weak=$(printf '%s\n' "$signals" | grep -m1 '^weak' | cut -f2)
+        [ -n "$weak" ] && weak_rows+=("${id}"$'\t'"${ptype}"$'\t'"${pstatus}"$'\t'"${ptitle}"$'\t'"${weak}")
+        continue
+    fi
     IFS=$'\t' read -r hits sample <<< "$summary"
     emit "$(severity_for "$pstatus")" POST "$id" "$ptype" "$pstatus" "$ptitle" "$hits" "$sample"
 done < <(wp db query "$POST_QUERY" --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status)
+
+if [ "${#weak_rows[@]}" -ge 3 ]; then
+    for row in "${weak_rows[@]}"; do
+        IFS=$'\t' read -r id ptype pstatus ptitle sample <<< "$row"
+        emit "$(severity_for "$pstatus")" POST "$id" "$ptype" "$pstatus" "$ptitle" "1 title-bulk" "$sample"
+    done
+fi
 
 # ── 2. wp_postmeta (ACF fields, page-builder data) ───────────────
 #
@@ -365,13 +575,30 @@ LIMIT 2000
 "
 
     while IFS=$'\t' read -r id ptype pstatus ptitle mkey body; do
-        [ -z "${id// }" ] && continue
+        [[ "$id" =~ ^[0-9]+$ ]] || continue
         summary=$(printf '%s' "$body" | decode_b64 | scan_html | summarize)
         [ -z "$summary" ] && continue
         IFS=$'\t' read -r hits sample <<< "$summary"
         emit "$(severity_for "$pstatus")" META "$id" "$ptype" "$pstatus" "$ptitle [$mkey]" "$hits" "$sample"
     done < <(wp db query "$META_QUERY" --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status)
 fi
+
+# Link Factory marks every page it publishes through its secret POST
+# endpoint with _sys_marker postmeta, then hides those pages from wp-admin
+# lists and counts. Checked on every post status, and even with
+# --skip-meta, because it is one indexed meta_key lookup.
+MARKER_QUERY="
+SELECT p.ID, p.post_type, p.post_status, $(b64 p.post_title), pm.meta_value
+FROM ${PREFIX}postmeta pm
+INNER JOIN ${PREFIX}posts p ON p.ID = pm.post_id
+WHERE pm.meta_key = '_sys_marker' AND pm.meta_value <> ''
+LIMIT 500
+"
+while IFS=$'\t' read -r id ptype pstatus ptitle_b64 mval; do
+    [[ "$id" =~ ^[0-9]+$ ]] || continue
+    ptitle=$(printf '%s' "$ptitle_b64" | decode_b64 | tr '\n\r\t' '   ')
+    emit "$(severity_for "$pstatus")" META "$id" "$ptype" "$pstatus" "$ptitle [_sys_marker]" "1 toolkit" "${mval:--}"
+done < <(wp db query "$MARKER_QUERY" --skip-column-names $WP_FLAGS 2>/dev/null | strip_wpcli_status)
 
 # ── 3. wp_options.option_value (widgets, theme mods, etc.) ───────
 #
@@ -390,7 +617,7 @@ LIMIT 500
 "
 
 while IFS=$'\t' read -r opt_id opt_name body; do
-    [ -z "${opt_id// }" ] && continue
+    [[ "$opt_id" =~ ^[0-9]+$ ]] || continue
     summary=$(printf '%s' "$body" | decode_b64 | scan_html | summarize)
     [ -z "$summary" ] && continue
     IFS=$'\t' read -r hits sample <<< "$summary"
@@ -404,26 +631,81 @@ done < <(wp db query "$OPTION_QUERY" --skip-column-names $WP_FLAGS 2>/dev/null |
 # corroborates DB findings (or surfaces spam in unscanned tables).
 
 if [ -z "$skip_frontend" ] && command -v curl &>/dev/null && [ -n "$SITE_HOST" ]; then
-    UA_BOT="Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
     CACHEBUST=$(date +%s)
+    frontend_seen=""
 
-    page=$(curl -ksL --max-time 20 \
-        -A "$UA_BOT" \
-        -H "Host: $SITE_HOST" \
-        -H "Cache-Control: no-cache" \
-        -H "Pragma: no-cache" \
-        "https://localhost/?nocache=${CACHEBUST}" 2>/dev/null)
+    # Googlebot first, then Bingbot. A Bingbot hit is only reported when it
+    # differs from the Googlebot one, so the usual case prints one row.
+    for bot in "home|Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" \
+               "home-bing|Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)"; do
+        label="${bot%%|*}"
+        ua="${bot#*|}"
+        page=$(curl -ksL --max-time 20 \
+            -A "$ua" \
+            -H "Host: $SITE_HOST" \
+            -H "Cache-Control: no-cache" \
+            -H "Pragma: no-cache" \
+            "https://localhost/?nocache=${CACHEBUST}${label}" 2>/dev/null)
 
-    if [ -n "$page" ]; then
+        [ -z "$page" ] && continue
         summary=$(printf '%s' "$page" | scan_html | summarize)
-        if [ -n "$summary" ]; then
-            IFS=$'\t' read -r hits sample <<< "$summary"
-            emit CRITICAL FRONTEND home -- live "$SITE_HOST" "$hits" "$sample"
-        fi
+        [ -z "$summary" ] && continue
+        [ "$summary" = "$frontend_seen" ] && continue
+        frontend_seen="$summary"
+        IFS=$'\t' read -r hits sample <<< "$summary"
+        emit CRITICAL FRONTEND "$label" -- live "$SITE_HOST" "$hits" "$sample"
+    done
+fi
+
+# ── 5. On-demand SEO-spam clients in plugin/theme code ───────────
+#
+# Signatures are identifiers the client needs to work, not cosmetic
+# strings, so a renamed plugin still matches. Kept short and specific: a
+# legitimate plugin shipping any of them would be a surprise.
+#
+#   link-factory  lf_sync_mu_plugin_copy (the plugins/ -> mu-plugins self
+#                 copy), wpnc_registry_reveal_gate (the ?sp reveal switch),
+#                 wp_plugin_registry_adjust_bump (Must-Use count fudge), and
+#                 the _wpnonce_custom + _sys_marker publish endpoint pair.
+#   easypost      EASYPOST_ENDPOINT_CONFIG (signed remote injection endpoint).
+
+if [ -z "$skip_files" ] && [ -d wp-content ]; then
+    FILE_SIG='lf_sync_mu_plugin_copy|wpnc_registry_reveal_gate|wp_plugin_registry_adjust_bump|EASYPOST_ENDPOINT_CONFIG|link-factory-link-removal-check'
+    scan_dirs=""
+    for d in wp-content/mu-plugins wp-content/plugins wp-content/themes; do
+        [ -d "$d" ] && scan_dirs="$scan_dirs $d"
+    done
+
+    if [ -n "$scan_dirs" ]; then
+        # shellcheck disable=SC2086
+        while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            family=link-factory
+            grep -q 'EASYPOST_ENDPOINT_CONFIG' "$f" 2>/dev/null && family=easypost
+
+            # C2: a server_url property or any http(s) URL written as \xHH
+            # escapes. printf %b decodes them.
+            c2=$(grep -oE '"(\\x[0-9a-fA-F]{2}|[a-zA-Z0-9:/._-])*\\x[0-9a-fA-F]{2}(\\x[0-9a-fA-F]{2}|[a-zA-Z0-9:/._-])*"' "$f" 2>/dev/null \
+                | head -20 | while read -r lit; do
+                    lit="${lit%\"}"; lit="${lit#\"}"
+                    printf '%b\n' "$lit"
+                done | grep -oE '^https?://[^/"]+' | head -1 | sed -E 's|^https?://||')
+            [ -z "$c2" ] && c2=$(grep -oE 'https?://[a-z0-9.-]+\.[a-z]{2,}/[a-z0-9_/-]*\.php' "$f" 2>/dev/null | head -1 | sed -E 's|^https?://||;s|/.*||')
+
+            name=$(grep -m1 -iE '^[[:space:]/*#]*Plugin Name:' "$f" 2>/dev/null | sed -E 's/^[^:]*:[[:space:]]*//' | tr -d '\r')
+            [ -z "$name" ] && name=$(basename "$f")
+
+            case "$f" in
+                wp-content/mu-plugins/*) ftype=mu-plugin ;;
+                wp-content/themes/*)     ftype=theme ;;
+                *)                       ftype=plugin ;;
+            esac
+            emit CRITICAL FILE "$f" "$ftype" live "$name" "${family} client" "${c2:--}"
+        done < <(grep -rlE --include='*.php' "$FILE_SIG" $scan_dirs 2>/dev/null | head -50)
     fi
 fi
 
-# ── 5. Result ────────────────────────────────────────────────────
+# ── 6. Result ────────────────────────────────────────────────────
 
 if [ -z "$found_any" ]; then
     [ -z "$quiet" ] && echo "No SEO spam detected."
