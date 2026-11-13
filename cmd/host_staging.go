@@ -239,7 +239,11 @@ func hostSiteCreate(args []string) {
 		fmt.Printf("Container %s already exists; carrying on from it.\n", info.Container)
 	} else {
 		fmt.Printf("Building container %s on %s (%s, SSH port %d, %d GiB, %d MiB)…\n", info.Container, t.server, info.IP, info.SSHPort, info.DiskGiB, info.MemoryMiB)
-		if _, err := ccTool(t, "site-create", info.Container, info.Image, info.IP, fmt.Sprint(info.SSHPort), fmt.Sprint(info.DiskGiB), fmt.Sprint(info.MemoryMiB)); err != nil {
+		stack := "wordpress"
+		if info.Start == "plain" {
+			stack = "plain"
+		}
+		if _, err := ccTool(t, "site-create", info.Container, info.Image, info.IP, fmt.Sprint(info.SSHPort), fmt.Sprint(info.DiskGiB), fmt.Sprint(info.MemoryMiB), stack); err != nil {
 			fail("create: %v", err)
 		}
 	}
@@ -259,7 +263,9 @@ func hostSiteCreate(args []string) {
 	if _, err := ccTool(t, "authorize", info.Container, f[0]+" "+f[1]); err != nil {
 		fail("authorize: %v", err)
 	}
-	if out, _, _ := t.ssh("sudo incus exec "+info.Container+" -- test -f /srv/site/public/wp-config.php && echo yes", ""); info.Start != "empty" && strings.TrimSpace(out) != "yes" {
+	// "empty" (a placeholder for a copy) and "plain" (HTML files) get no WordPress.
+	wordpress := info.Start != "empty" && info.Start != "plain"
+	if out, _, _ := t.ssh("sudo incus exec "+info.Container+" -- test -f /srv/site/public/wp-config.php && echo yes", ""); wordpress && strings.TrimSpace(out) != "yes" {
 		fmt.Println("Installing WordPress…")
 		if _, err := ccTool(t, "wp-install", info.Container, info.Primary, info.Title, info.AdminUser, info.AdminEmail); err != nil {
 			fail("install: %v", err)
@@ -272,7 +278,7 @@ func hostSiteCreate(args []string) {
 	if err := selfRun("host", "apply", args[0]); err != nil {
 		fail("host apply: %v", err)
 	}
-	if info.Start != "empty" {
+	if wordpress {
 		fmt.Println("Syncing into CaptainCore…")
 		_ = selfRun("sync-data", args[0])
 	}

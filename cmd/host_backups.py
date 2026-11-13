@@ -125,6 +125,23 @@ def health(ct):
                "-H", "X-Forwarded-Proto: https", "http://%s/" % ip, check=False).stdout
 
 
+# A plain site (HTML files, no WordPress) has the same volumes as any other,
+# so backups, restores, rebuilds and parking work unchanged, but MariaDB and
+# the WordPress cron timer stay masked. The mark is the container's
+# user.cc_stack, which a rebuild carries over with the other user.* keys.
+def is_plain(ct):
+    return run("incus", "config", "get", ct, "user.cc_stack", check=False).stdout.strip() == "plain"
+
+
+def db_off(ct):
+    run("incus", "exec", ct, "--", "sh", "-c",
+        # mask refuses wp-cron.timer (its unit file lives in /etc); disabled is
+        # enough there, and the timer needs wp-config.php anyway. MariaDB may
+        # have failed at first boot on the empty volume: clear that state.
+        "systemctl disable --now mariadb wp-cron.timer >/dev/null 2>&1; systemctl mask mariadb >/dev/null 2>&1; "
+        "systemctl reset-failed mariadb >/dev/null 2>&1; true", check=False)
+
+
 # ── Page cache ─────────────────────────────────────────────────────────────
 # Pages saved by the container's PHP (the prepend file `host apply` installs)
 # and served by its web server. Clearing is always safe: the next visitor's
@@ -166,7 +183,7 @@ def restore(ct, snap, what):
         # SSH keys are managed separately (ssh-keys deploy); keep the current ones.
         run("rsync", "-aHAX", "--numeric-ids", "--delete", "--exclude=/.ssh/", src, vols["files"]["mount"] + "/")
         done.append("files")
-    if what in ("both", "database"):
+    if what in ("both", "database") and not is_plain(ct):
         run("incus", "exec", ct, "--", "systemctl", "stop", "mariadb")
         try:
             src = "%s/.zfs/snapshot/%s/" % (vols["database"]["mount"], snap)
@@ -568,6 +585,14 @@ def _wait_ready(ct, ip):
                 continue
             raise RuntimeError("the container came up without its address %s" % ip)
         break
+    if is_plain(ct):
+        # A fresh root from the image has MariaDB enabled again.
+        for _ in range(30):
+            if run("incus", "exec", ct, "--", "true", check=False).returncode == 0:
+                break
+            time.sleep(1)
+        db_off(ct)
+        return
     for _ in range(40):
         if run("incus", "exec", ct, "--", "systemctl", "is-active", "mariadb", check=False).stdout.strip() == "active":
             return
@@ -722,12 +747,16 @@ def purge_parked(force_name=None):
     return purged
 
 
-def create_site(ct, image, ip, port, disk_gib, memory_mib):
+def create_site(ct, image, ip, port, disk_gib, memory_mib, stack="wordpress"):
     """A new site container from an image: its own files and database volumes,
     a fixed IP and SSH port, the site defaults (own host user ID range, no
     traffic to other containers, a process limit), MariaDB with a fresh
-    database and user. Prints the database password once."""
+    database and user. Prints the database password once. A plain site
+    (stack "plain") gets a small database volume and no MariaDB at all."""
     import secrets
+    if stack not in ("wordpress", "plain"):
+        raise RuntimeError("invalid stack")
+    plain = stack == "plain"
     if not re.match(r"^[a-z0-9][a-z0-9-]{0,62}$", ct) or not re.match(r"^[a-z0-9][a-z0-9.-]{0,63}$", image) \
             or not re.match(r"^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip) or not (1024 < int(port) < 65535) \
             or not (1 <= int(disk_gib) <= 200) or not (512 <= int(memory_mib) <= 8192):
@@ -741,10 +770,11 @@ def create_site(ct, image, ip, port, disk_gib, memory_mib):
             raise RuntimeError("volume %s%s already exists" % (ct, suffix))
     try:
         run("incus", "storage", "volume", "create", pool, ct + "-site", "size=%dGiB" % int(disk_gib))
-        run("incus", "storage", "volume", "create", pool, ct + "-db", "size=5GiB")
+        run("incus", "storage", "volume", "create", pool, ct + "-db", "size=%s" % ("1GiB" if plain else "5GiB"))
         run("zfs", "set", "recordsize=16K", "%s/custom/default_%s-db" % (src, ct), check=False)
         run("incus", "init", image, ct)
-        for kv in ("limits.memory=%dMiB" % int(memory_mib), "limits.processes=1000", "security.idmap.isolated=true"):
+        for kv in ("limits.memory=%dMiB" % int(memory_mib), "limits.processes=1000", "security.idmap.isolated=true") \
+                + (("user.cc_stack=plain",) if plain else ()):
             run("incus", "config", "set", ct, kv)
         run("incus", "config", "device", "override", ct, "eth0", "ipv4.address=" + ip, "security.port_isolation=true")
         run("incus", "storage", "volume", "attach", pool, ct + "-site", ct, "/srv/site")
@@ -778,20 +808,32 @@ def create_site(ct, image, ip, port, disk_gib, memory_mib):
             break
         time.sleep(1)
     dbpass = secrets.token_hex(16)
+    database = """chown mysql:mysql /var/lib/mysql
+[ -d /var/lib/mysql/mysql ] || mariadb-install-db --user=mysql --datadir=/var/lib/mysql --skip-test-db >/dev/null 2>&1
+systemctl restart mariadb
+mariadb -e "CREATE DATABASE IF NOT EXISTS wordpress CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CREATE USER IF NOT EXISTS 'wordpress'@'localhost' IDENTIFIED BY '$DBPASS'; GRANT ALL ON wordpress.* TO 'wordpress'@'localhost';"
+"""
+    if plain:
+        db_off(ct)
+        database = ""
     setup = """set -e
 install -d -o site -g site -m 0755 /srv/site /srv/site/public /srv/site/apps
 install -d -o site -g site -m 0750 /srv/site/logs
 install -d -o site -g site -m 0700 /srv/site/.ssh
-chown mysql:mysql /var/lib/mysql
-[ -d /var/lib/mysql/mysql ] || mariadb-install-db --user=mysql --datadir=/var/lib/mysql --skip-test-db >/dev/null 2>&1
-systemctl restart mariadb
-mariadb -e "CREATE DATABASE IF NOT EXISTS wordpress CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CREATE USER IF NOT EXISTS 'wordpress'@'localhost' IDENTIFIED BY '$DBPASS'; GRANT ALL ON wordpress.* TO 'wordpress'@'localhost';"
-[ -n "$(ls -A /srv/site/public)" ] || { printf '%s\n' '<!doctype html><meta charset="utf-8"><meta name="robots" content="noindex"><title>Coming soon</title><style>body{font:16px/1.5 system-ui,sans-serif;display:grid;place-items:center;min-height:90vh;color:#444}</style><p>This site is being set up.</p>' > /srv/site/public/index.html; chown site:site /srv/site/public/index.html; }
+# The image carries the build container's SSH host keys: every site would
+# share one key. Each site gets its own (a rebuild keeps these).
+rm -f /etc/ssh/ssh_host_*
+ssh-keygen -A >/dev/null
+systemctl restart ssh
+""" + database + """[ -n "$(ls -A /srv/site/public)" ] || { printf '%s\n' '<!doctype html><meta charset="utf-8"><meta name="robots" content="noindex"><title>Coming soon</title><style>body{font:16px/1.5 system-ui,sans-serif;display:grid;place-items:center;min-height:90vh;color:#444}</style><p>This site is being set up.</p>' > /srv/site/public/index.html; chown site:site /srv/site/public/index.html; }
 systemctl restart frankenphp || true
 """
     run("incus", "exec", ct, "--env", "DBPASS=" + dbpass, "--", "bash", "-c", setup)
+    idmap = run("incus", "config", "get", ct, "volatile.idmap.base", check=False).stdout.strip()
+    if plain:
+        return {"container": ct, "ip": ip, "ssh_port": int(port), "stack": "plain", "idmap": idmap}
     return {"container": ct, "ip": ip, "ssh_port": int(port), "db_name": "wordpress", "db_user": "wordpress", "db_password": dbpass,
-            "idmap": run("incus", "config", "get", ct, "volatile.idmap.base", check=False).stdout.strip()}
+            "idmap": idmap}
 
 
 def wp_install(ct, url_host, title, admin_user, admin_email):
@@ -1309,7 +1351,8 @@ try:
     elif cmd == "sync":
         out(dict(status="ok", **sync(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6])))
     elif cmd == "site-create":
-        out(dict(status="ok", **create_site(sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5]), int(sys.argv[6]), int(sys.argv[7]))))
+        out(dict(status="ok", **create_site(sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5]), int(sys.argv[6]), int(sys.argv[7]),
+                                            sys.argv[8] if len(sys.argv) > 8 else "wordpress")))
     elif cmd == "authorize":
         ct, key = sys.argv[2], sys.argv[3]
         if not re.match(r"^[a-z0-9][a-z0-9-]{0,62}$", ct) or not re.match(r"^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)) [A-Za-z0-9+/]+={0,3}$", key):

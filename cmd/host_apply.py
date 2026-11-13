@@ -38,6 +38,9 @@ ip = hc.get("ip", "")
 rev = hc.get("revision", 0)
 hosts = hc.get("hostnames") or []
 primary = hc.get("primary", "")
+# A plain site (HTML files, no WordPress or database): no page cache, no
+# WordPress debug constants, no blog_public to keep at 0.
+plain = hc.get("stack") == "plain"
 APP_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,19}$")
 apps = [a for a in (cfg.get("apps") or []) if APP_NAME_RE.match(str(a.get("name", "")))
         and 3000 <= int(a.get("port", 0)) <= 3999 and a.get("enabled", True)]
@@ -180,7 +183,9 @@ def proxy(indent, upstream, try_for, site=False):
         for code in ("502", "503", "504"):
             b += [t + "\t@cc_plain%s {" % code, t + "\t\tstatus %s" % code, t + "\t\theader Content-Type text/plain*", t + "\t}",
                   t + "\thandle_response @cc_plain%s {" % code, t + "\t\terror %s" % code, t + "\t}"]
-        b += [t + "\t@cc_empty404 {", t + "\t\tstatus 404", t + "\t\theader Content-Length 0", t + "\t}",
+        # A plain site has no index.php to answer a missing .php path, so
+        # PHP says "No input file specified."; every 404 there is the edge's.
+        b += [t + "\t@cc_empty404 {", t + "\t\tstatus 404"] + ([] if plain else [t + "\t\theader Content-Length 0"]) + [t + "\t}",
               t + "\thandle_response @cc_empty404 {", t + "\t\terror 404", t + "\t}"]
     return b + [t + "}"]
 
@@ -253,7 +258,7 @@ def caddy_reload():
 # and query rules here are the same ones the prepend file applies.
 pc = cfg.get("page_cache") if isinstance(cfg.get("page_cache"), dict) else {}
 pc_php = hc.get("page_cache_php") or ""
-pc_on = bool(pc.get("enabled")) and pc_php.startswith("<?php")
+pc_on = bool(pc.get("enabled")) and pc_php.startswith("<?php") and not plain
 try:
     pc_ttl = max(5, min(int(pc.get("ttl") or 60), 10080))
 except (TypeError, ValueError):
@@ -519,15 +524,15 @@ for a in apps:
             app_changes.setdefault(a["name"], {})[path] = content
 removed_units = [u for u in existing_units if u not in want_units]
 
-want_debug = bool(cfg.get("debug"))
-cur_debug = wp("config", "get", "WP_DEBUG", check=False).stdout.strip().lower() in ("1", "true")
+want_debug = bool(cfg.get("debug")) and not plain
+cur_debug = not plain and wp("config", "get", "WP_DEBUG", check=False).stdout.strip().lower() in ("1", "true")
 debug_changed = want_debug != cur_debug
 
 cur_mem = run("incus", "config", "get", ct, "limits.memory").stdout.strip()
 want_mem = "%dMiB" % memory_mb
 mem_changed = cur_mem != want_mem
 
-blog_public_fix = noindex and wp("option", "get", "blog_public", check=False).stdout.strip() != "0"
+blog_public_fix = noindex and not plain and wp("option", "get", "blog_public", check=False).stdout.strip() != "0"
 
 # Container hardening, kept by every apply: customers SSH in only as site,
 # tunnel only to their own database (127.0.0.1:3306), no agent, X11 or tun
