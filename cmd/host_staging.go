@@ -318,6 +318,76 @@ func hostSiteRemove(args []string) {
 	fmt.Printf("%s is off %s. The container is kept as %v for %v days, then purged.\n%s\n", args[0], t.server, res["parked"], res["purge_after_days"], strings.TrimSpace(string(raw)))
 }
 
+// hostWordPressInstall turns a plain site into a WordPress site in place
+// (container page → Install WordPress): the node tool takes a local backup,
+// turns MariaDB on with a fresh database and moves the current files out of
+// ~/public, WordPress is installed on the primary domain with the operator
+// who created the site as its administrator, the Manager records the site as
+// WordPress (page cache on, WordPress-sized PHP and memory), then the hosting
+// configuration is applied and the site synced.
+func hostWordPressInstall(args []string) {
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fail("Configuration file not found.")
+	}
+	client := newAPIClient(system, captain)
+	t, err := hostTarget(system, captain, args[0])
+	if err != nil {
+		fail("%v", err)
+	}
+	if !strings.EqualFold(t.env.Environment, "Production") {
+		fail("WordPress can only be installed on a plain site's production environment")
+	}
+	raw, err := client.Post("host-site-prepare", map[string]interface{}{"site_id": t.site.SiteID})
+	if err != nil {
+		fail("manager: %v", err)
+	}
+	var info struct {
+		Container, Primary, Start, Title string
+		AdminUser                        string `json:"admin_user"`
+		AdminEmail                       string `json:"admin_email"`
+	}
+	if json.Unmarshal(raw, &info) != nil || info.Container == "" || !reHostname.MatchString(info.Primary) {
+		fail("manager reply: %s", strings.TrimSpace(string(raw)))
+	}
+	if info.Start != "plain" {
+		fail("%s is not a plain site", args[0])
+	}
+	if info.Container != t.container {
+		fail("container mismatch: manager says %s, CLI resolved %s", info.Container, t.container)
+	}
+	if err := t.ensureBackupTool(); err != nil {
+		fail("%v", err)
+	}
+	fmt.Printf("Turning on MariaDB in %s (a local backup first)…\n", t.container)
+	res, err := ccTool(t, "wp-enable", t.container)
+	if err != nil {
+		fail("wp-enable: %v", err)
+	}
+	fmt.Printf("  backup %v", res["backup"])
+	if m, _ := res["moved_to"].(string); m != "" {
+		fmt.Printf("; the files that were in ~/public are now in %s", m)
+	}
+	fmt.Println()
+	fmt.Printf("Installing WordPress at https://%s…\n", info.Primary)
+	if _, err := ccTool(t, "wp-install", t.container, info.Primary, info.Title, info.AdminUser, info.AdminEmail); err != nil {
+		fail("install: %v", err)
+	}
+	if out, err := client.Post("host-wordpress-installed", map[string]interface{}{"site_id": t.site.SiteID, "environment": t.env.Environment}); err != nil {
+		fail("manager: %v", err)
+	} else {
+		fmt.Println(strings.TrimSpace(string(out)))
+	}
+	// The CLI's cached copy of the site still says plain; refresh it first.
+	_ = selfRun("site", "sync", fmt.Sprint(t.site.SiteID))
+	if err := selfRun("host", "apply", args[0]); err != nil {
+		fail("host apply: %v", err)
+	}
+	fmt.Println("Syncing into CaptainCore…")
+	_ = selfRun("sync-data", args[0])
+	fmt.Printf("WordPress is installed at https://%s (administrator %s). Use Login to WordPress to sign in.\n", info.Primary, info.AdminUser)
+}
+
 func init() {
 	siteCmd := &cobra.Command{Use: "site", Short: "Sites on our own servers"}
 	siteCmd.AddCommand(&cobra.Command{
@@ -333,4 +403,13 @@ func init() {
 		},
 	})
 	hostCmd.AddCommand(siteCmd)
+
+	wpCmd := &cobra.Command{Use: "wordpress", Short: "WordPress on a site on our own servers"}
+	wpCmd.AddCommand(&cobra.Command{
+		Use: "install <site>", Short: "Install WordPress on a plain site (MariaDB on, current files moved aside)", Args: cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			resolveNativeOrWP(cmd, args, func(_ *cobra.Command, a []string) { hostWordPressInstall(a) })
+		},
+	})
+	hostCmd.AddCommand(wpCmd)
 }

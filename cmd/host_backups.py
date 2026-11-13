@@ -747,6 +747,43 @@ def purge_parked(force_name=None):
     return purged
 
 
+# MariaDB's data directory on the database volume, the wordpress database and
+# its user ($DBPASS). Idempotent; wp-install sets the password it keeps.
+DB_SETUP = """chown mysql:mysql /var/lib/mysql
+[ -d /var/lib/mysql/mysql ] || mariadb-install-db --user=mysql --datadir=/var/lib/mysql --skip-test-db >/dev/null 2>&1
+systemctl restart mariadb
+mariadb -e "CREATE DATABASE IF NOT EXISTS wordpress CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CREATE USER IF NOT EXISTS 'wordpress'@'localhost' IDENTIFIED BY '$DBPASS'; GRANT ALL ON wordpress.* TO 'wordpress'@'localhost';"
+"""
+
+
+def wp_enable(ct):
+    """Make a plain site ready for WordPress (Install WordPress, before
+    wp-install): a local backup, MariaDB unmasked and running with the
+    wordpress database, the cron timer on, and whatever is in ~/public moved
+    to ~/html-before-wordpress-<UTC datetime> so WordPress starts from an
+    empty folder. Refuses a container that already has WordPress."""
+    import secrets
+    if not CT_NAME.match(ct) or PARKED_RE.match(ct) or OLDROOT_RE.match(ct):
+        raise RuntimeError("invalid container name")
+    if run("incus", "exec", ct, "--", "test", "-f", "/srv/site/public/wp-config.php", check=False).returncode == 0:
+        raise RuntimeError("WordPress is already installed here (wp-config.php exists)")
+    backup = create(ct, "pre-deploy")
+    moved = "html-before-wordpress-" + time.strftime("%Y%m%d%H%M%S", time.gmtime())
+    script = """set -e
+systemctl unmask mariadb >/dev/null 2>&1 || true
+systemctl enable mariadb wp-cron.timer >/dev/null 2>&1
+""" + DB_SETUP + """systemctl start wp-cron.timer
+if [ -n "$(ls -A /srv/site/public)" ]; then
+  install -d -o site -g site -m 0755 "/srv/site/$MOVED"
+  find /srv/site/public -mindepth 1 -maxdepth 1 -exec mv -t "/srv/site/$MOVED" {} +
+  echo moved
+fi
+"""
+    p = run("incus", "exec", ct, "--env", "DBPASS=" + secrets.token_hex(16), "--env", "MOVED=" + moved, "--", "bash", "-c", script)
+    run("incus", "config", "unset", ct, "user.cc_stack", check=False)
+    return {"container": ct, "backup": backup, "moved_to": ("~/" + moved) if "moved" in p.stdout else ""}
+
+
 def create_site(ct, image, ip, port, disk_gib, memory_mib, stack="wordpress"):
     """A new site container from an image: its own files and database volumes,
     a fixed IP and SSH port, the site defaults (own host user ID range, no
@@ -808,11 +845,7 @@ def create_site(ct, image, ip, port, disk_gib, memory_mib, stack="wordpress"):
             break
         time.sleep(1)
     dbpass = secrets.token_hex(16)
-    database = """chown mysql:mysql /var/lib/mysql
-[ -d /var/lib/mysql/mysql ] || mariadb-install-db --user=mysql --datadir=/var/lib/mysql --skip-test-db >/dev/null 2>&1
-systemctl restart mariadb
-mariadb -e "CREATE DATABASE IF NOT EXISTS wordpress CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CREATE USER IF NOT EXISTS 'wordpress'@'localhost' IDENTIFIED BY '$DBPASS'; GRANT ALL ON wordpress.* TO 'wordpress'@'localhost';"
-"""
+    database = DB_SETUP
     if plain:
         db_off(ct)
         database = ""
@@ -1110,6 +1143,8 @@ echo @@versions
 echo "frankenphp=$(frankenphp version 2>/dev/null | head -1)"
 echo "php=$(php -r 'echo PHP_VERSION;' 2>/dev/null)"
 echo "mariadb=$(mariadb --version 2>/dev/null)"
+echo "wordpress=$(sed -n "s/^\$wp_version = '\(.*\)';/\1/p" /srv/site/public/wp-includes/version.php 2>/dev/null)"
+echo "wp_config=$([ -f /srv/site/public/wp-config.php ] && echo 1 || echo 0)"
 echo @@units
 apps=$(cd /etc/systemd/system 2>/dev/null && ls cc-app-*.service 2>/dev/null)
 systemctl show frankenphp.service mariadb.service ssh.service wp-cron.timer wp-cron.service $apps --no-pager \
@@ -1179,7 +1214,8 @@ def container(ct, range_):
     info["cpu"] = hist[-1]["cpu"] if hist else None
 
     res = {"container": info, "history": hist, "range": range_, "versions": {}, "units": [], "listening": [],
-           "db": {}, "caddyfile": "", "edge_caddyfile": "", "traffic": {}}
+           "db": {}, "caddyfile": "", "edge_caddyfile": "", "traffic": {},
+           "stack": "plain" if conf.get("user.cc_stack") == "plain" else "wordpress"}
     edge_path = "/etc/caddy/sites/%s.caddyfile" % ct
     res["edge_caddyfile"] = open(edge_path).read() if os.path.exists(edge_path) else ""
     if info["status"] != "Running":
@@ -1362,6 +1398,8 @@ try:
             "grep -qF \"$KEY\" /srv/site/.ssh/authorized_keys || printf '%s\\n' \"$KEY\" >> /srv/site/.ssh/authorized_keys; "
             "chown site:site /srv/site/.ssh/authorized_keys && chmod 600 /srv/site/.ssh/authorized_keys")
         out({"status": "ok"})
+    elif cmd == "wp-enable":
+        out(dict(status="ok", **wp_enable(sys.argv[2])))
     elif cmd == "wp-install":
         out(dict(status="ok", **wp_install(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6])))
     elif cmd == "rehost":
