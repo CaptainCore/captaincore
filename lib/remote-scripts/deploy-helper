@@ -314,6 +314,12 @@ class Helpers {
 		add_filter( 'wp_enable_random_content_redirect', '__return_false' );
 		add_action( 'init', [ __CLASS__, 'maybe_flush_random_rewrite_rules' ], 99 );
 
+		// Trackbacks and pingbacks are closed everywhere: wp-trackback.php and
+		// pingback.ping both check pings_open(), so nothing is stored or emailed.
+		add_filter( 'pings_open', '__return_false', 9999 );
+		add_filter( 'xmlrpc_methods', [ __CLASS__, 'remove_pingback_methods' ] );
+		add_filter( 'wp_headers', [ __CLASS__, 'remove_pingback_header' ] );
+
 		// CleanTalk clutter removal
 		add_action( 'admin_menu', [ __CLASS__, 'modify_cleantalk_admin_menu' ], 20 );
 		add_action( 'after_setup_theme', [ __CLASS__, 'remove_cleantalk_plugin_links_filter' ] );
@@ -335,6 +341,22 @@ class Helpers {
 		}
 		flush_rewrite_rules( false );
 		update_option( 'captaincore_random_rewrite_flushed', $version, false );
+	}
+
+	/**
+	 * Drops the pingback XML-RPC methods so pingbacks can't be sent in.
+	 */
+	public static function remove_pingback_methods( $methods ) {
+		unset( $methods['pingback.ping'], $methods['pingback.extensions.getPingbacks'] );
+		return $methods;
+	}
+
+	/**
+	 * Stops advertising the pingback endpoint in the X-Pingback header.
+	 */
+	public static function remove_pingback_header( $headers ) {
+		unset( $headers['X-Pingback'] );
+		return $headers;
 	}
 
 	/**
