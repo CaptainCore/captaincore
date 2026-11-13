@@ -61,7 +61,7 @@ read -r -d '' build_mu_plugin << 'heredoc'
  * Plugin Name: CaptainCore Helper
  * Plugin URI: https://captaincore.io
  * Description: Collection of helper functions for CaptainCore
- * Version: 0.7.3
+ * Version: 0.8.0
  * Author: CaptainCore
  * Author URI: https://captaincore.io
  * Text Domain: captaincore-helper
@@ -8550,6 +8550,15 @@ captaincore ssh <site> --script=deploy-helper
 ```
 
 ## Changelog
+
+### 0.8.0 — 2026-11-13
+- Trackbacks and pingbacks are closed on every post: `pings_open()` is
+  always false, so `wp-trackback.php` and `pingback.ping` refuse them and
+  no moderation email goes out. The pingback XML-RPC methods and the
+  `X-Pingback` header are removed. Comments are unaffected.
+- WordPress 7.2 random content redirects (`/random/`) are disabled, and
+  their rewrite rules are flushed once per WordPress version. No-op on
+  older WordPress.
 
 ### 0.7.3 — 2026-05-11
 - `wp captaincore security-log list` now accepts `--action=<name>[,<name>]`
