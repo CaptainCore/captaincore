@@ -365,8 +365,37 @@ opcache.interned_strings_buffer = 16
 opcache.max_accelerated_files = 20000
 opcache.revalidate_freq = 2
 """ % (mem_limit, upload, upload, max_exec)
-if pc_on:
-    ini_new += "auto_prepend_file = %s\n" % PC_PHP
+# PHP loads one file before every request and command (auto_prepend_file):
+# a small one written here that pulls in what the site needs, the page cache
+# and, with outgoing mail off, the mail block. Nothing of it shows in WordPress.
+mail_on = cfg.get("mail", "relay") != "off"
+MAIL_OFF_PHP = "/etc/captaincore/mail-off.php"
+PREPEND_PHP = "/etc/captaincore/prepend.php"
+mail_block = not mail_on and not plain
+# WordPress defines wp_mail only when nothing has yet, and so do the SMTP
+# plugins that replace it (Gravity SMTP, FluentSMTP, WP Mail SMTP): defined
+# here first, no mail leaves the site by any of them, whatever port or API
+# they would use. The relay switch alone only stops sendmail.
+MAIL_OFF_SRC = r"""<?php
+// Managed by CaptainCore (hosting configuration): outgoing email is turned
+// off for this site. Every attempt is noted in ~/logs/mail.log.
+if ( ! function_exists( 'wp_mail' ) ) {
+	function wp_mail( $to, $subject, $message, $headers = '', $attachments = array() ) {
+		$to   = is_array( $to ) ? implode( ', ', $to ) : (string) $to;
+		$line = gmdate( 'Y-m-d H:i:s' ) . ' not sent, outgoing email is off: to=' . substr( $to, 0, 200 )
+			. ' subject=' . substr( preg_replace( '/\s+/', ' ', (string) $subject ), 0, 200 ) . "\n";
+		@file_put_contents( '/srv/site/logs/mail.log', $line, FILE_APPEND );
+		if ( function_exists( 'do_action' ) && class_exists( 'WP_Error' ) ) {
+			do_action( 'wp_mail_failed', new WP_Error( 'wp_mail_failed', 'Outgoing email is turned off for this site.' ) );
+		}
+		return false;
+	}
+}
+"""
+prepend_new = "<?php\n// Managed by CaptainCore (hosting configuration): loaded before every request and command.\n" \
+    + ("require '%s';\n" % MAIL_OFF_PHP if mail_block else "") + ("require '%s';\n" % PC_PHP if pc_on else "")
+if pc_on or mail_block:
+    ini_new += "auto_prepend_file = %s\n" % PREPEND_PHP
 
 # PHP's shell commands are off for web requests unless the site turns them
 # on: they are how an uploaded web shell runs anything, and WordPress itself
@@ -558,7 +587,6 @@ cpu_changed = run("incus", "config", "get", ct, "limits.cpu").stdout.strip() != 
 # relay on 10.77.0.1:2525, which sends it through Mailgun with credentials the
 # container never sees. The relay knows each container by its address: a tag
 # for Mailgun's logs, or a refusal when mail is turned off for the site.
-mail_on = cfg.get("mail", "relay") != "off"
 MSMTP_PATH = "/etc/msmtprc"
 msmtp_new = "\n".join([
     "# Managed by CaptainCore (hosting configuration).",
@@ -576,6 +604,10 @@ if relay_old is not None and ip:
     keep = [l for l in relay_old.splitlines() if l.strip() and not l.startswith("#") and l.split()[0] != ip]
     relay_new = "# Managed by CaptainCore: one line per site container (host apply).\n" + "\n".join(sorted(keep + [relay_line])) + "\n"
 relay_changed = relay_new is not None and relay_new != relay_old
+prepend_want = {PREPEND_PHP: prepend_new} if (pc_on or mail_block) else {}
+if mail_block:
+    prepend_want[MAIL_OFF_PHP] = MAIL_OFF_SRC
+prepend_diff = [path for path, content in prepend_want.items() if ct_read(path) != content]
 
 # WordPress cron: the container's wp-cron.timer runs due events every minute.
 # Off for a copy that must not act on its own (a restored backup can hold live
@@ -599,7 +631,7 @@ else:
 pc_changed = bool(pc_diff)
 
 if DRY:
-    res["would_change"] = [n for n, c in (("cache", pc_changed), ("edge", edge_new != edge_old), ("php", php_changed), ("memory", mem_changed), ("debug", debug_changed), ("blog_public", blog_public_fix), ("hardening", bool(harden_changed)), ("cpu", cpu_changed), ("mail", msmtp_changed or relay_changed), ("cron", cron_changed)) if c] \
+    res["would_change"] = [n for n, c in (("cache", pc_changed), ("edge", edge_new != edge_old), ("php", php_changed), ("memory", mem_changed), ("debug", debug_changed), ("blog_public", blog_public_fix), ("hardening", bool(harden_changed)), ("cpu", cpu_changed), ("mail", msmtp_changed or relay_changed or bool(prepend_diff)), ("cron", cron_changed)) if c] \
         + ["app:" + n for n in app_changes] + ["remove:" + u for u in removed_units]
     res["edge"] = edge_new
     done("dry-run")
@@ -700,6 +732,20 @@ try:
     if not pc_on and (pc_changed or php_changed):
         # Nothing serves saved pages once the rules below are gone; drop them.
         run("incus", "exec", ct, "--", "sh", "-c", "[ -d '%s' ] && find '%s' -mindepth 1 -maxdepth 1 -exec rm -rf {} + || true" % (PC_ROOT, PC_ROOT), check=False)
+
+    # The prepend file and what it pulls in exist before PHP is told to load
+    # them (a missing auto_prepend_file stops every request).
+    for path in sorted(prepend_diff, key=lambda x: x == PREPEND_PHP):
+        run("incus", "exec", ct, "--", "sh", "-c", "mkdir -p /etc/captaincore && cat > '%s.cc-check'" % path, inp=prepend_want[path])
+        lint = run("incus", "exec", ct, "--", "php", "-n", "-l", path + ".cc-check", check=False)
+        if lint.returncode != 0:
+            run("incus", "exec", ct, "--", "rm", "-f", path + ".cc-check", check=False)
+            done("failed", "%s rejected by PHP: %s" % (path, (lint.stdout or lint.stderr).strip()[:300]))
+        run("incus", "exec", ct, "--", "sh", "-c", "chmod 0644 '%s.cc-check' && mv '%s.cc-check' '%s'" % (path, path, path))
+    if prepend_diff and not php_changed:
+        run("incus", "exec", ct, "--", "systemctl", "restart", "frankenphp", check=False)
+    if prepend_diff:
+        res["changes"].append("prepend")
 
     if php_changed:
         for path, content in PHP_FILES:
