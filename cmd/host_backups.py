@@ -26,6 +26,8 @@
 #   cc-backups cache-clear  <container>  delete every saved page
 #   cc-backups site-park <container>     stop, rename <ct>-removed-<date>, unpublish (purged after 7 days)
 #   cc-backups site-purge <parked>       delete one parked container and its volumes now
+#   cc-backups site-restore <container> <host> <on|off> [restic|tar]   a long-term backup into a new site (restic: credentials
+#                                        JSON on stdin, restored on this server; tar: a restic dump stream on stdin); cron on or off
 #
 # A backup is one atomic `zfs snapshot` of the container's files volume
 # (/srv/site) and database volume (/var/lib/mysql), so the two always match.
@@ -54,7 +56,12 @@ def out(obj, code=0):
 
 
 def run(*args, check=True, inp=None):
-    p = subprocess.run(list(args), capture_output=True, text=True, input=inp)
+    # Never hand our stdin to a child: `incus exec` forwards it into the
+    # container, and site-restore's stdin is the backup.
+    if inp is None:
+        p = subprocess.run(list(args), capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    else:
+        p = subprocess.run(list(args), capture_output=True, text=True, input=inp)
     if check and p.returncode != 0:
         raise RuntimeError("%s: %s" % (" ".join(args[:4]), (p.stderr or p.stdout).strip()[:400]))
     return p
@@ -800,6 +807,16 @@ def create_site(ct, image, ip, port, disk_gib, memory_mib, stack="wordpress"):
         raise RuntimeError("invalid create arguments")
     if run("incus", "info", ct, check=False).returncode == 0:
         raise RuntimeError("container %s already exists" % ct)
+    # The Manager picks the address and SSH port from the sites it knows; a
+    # container it does not know about (made from another Manager, or not
+    # imported yet) can already hold them.
+    for other in json.loads(run("incus", "list", "-f", "json").stdout):
+        nic = (other.get("devices") or {}).get("eth0") or {}
+        if nic.get("ipv4.address") == ip:
+            raise RuntimeError("address %s is already used by container %s" % (ip, other.get("name")))
+        for dev in (other.get("devices") or {}).values():
+            if dev.get("type") == "proxy" and dev.get("listen", "").endswith(":%d" % int(port)):
+                raise RuntimeError("SSH port %d is already used by container %s" % (int(port), other.get("name")))
     pool = "default"
     src = run("incus", "storage", "get", pool, "source").stdout.strip()
     for suffix in ("-site", "-db"):
@@ -899,6 +916,194 @@ wp rewrite structure '/%postname%/' --quiet
         "--env", "AUSER=" + admin_user, "--env", "AEMAIL=" + admin_email, "--env", "APASS=" + adminpass,
         "--", "su", "-s", "/bin/bash", "site", "-c", script)
     return {"url": "https://" + url_host, "admin_user": admin_user}
+
+
+# Restoring a long-term (restic) backup into a new container. The CLI streams
+# `restic dump <snapshot> / --archive tar` on stdin: the site's files with its
+# database dump (database-backup.sql) at the top. Files a host put there for
+# itself are moved aside, not deleted: an object cache drop-in pointing at the
+# old host's Redis, and Kinsta's and WP Engine's must-use plugins.
+HOST_LEFTOVERS = ("wp-content/object-cache.php", "wp-content/mu-plugins/kinsta-mu-plugins.php", "wp-content/mu-plugins/kinsta-mu-plugins",
+                  "wp-content/mu-plugins/mu-plugin.php", "wp-content/mu-plugins/wpengine-common",
+                  "wp-content/mu-plugins/wpengine-security-auditor.php", "wp-content/mu-plugins/wpe-wp-sign-on-plugin.php",
+                  "wp-content/mu-plugins/wpe-wp-sign-on-plugin", "wp-content/mu-plugins/wpe-elasticpress-autosuggest-logger.php",
+                  "wp-content/mu-plugins/force-strong-passwords", "wp-content/mu-plugins/slt-force-strong-passwords.php")
+
+# Runs in the container with the new database password in $DBPASS: the edge's
+# HTTPS header, the container's database, and the cron timer (not WP-Cron on
+# page views), whatever the copied wp-config.php said.
+WP_CONFIG_FIX = r"""<?php
+$f = '/srv/site/public/wp-config.php';
+$c = file_get_contents( $f );
+if ( $c === false ) { fwrite( STDERR, "no wp-config.php\n" ); exit( 1 ); }
+$set = function ( $name, $value ) use ( &$c ) {
+	$re = '/define\s*\(\s*([\'"])' . $name . '\1\s*,\s*(?:[^;]|\n)*?\)\s*;/';
+	$line = "define( '" . $name . "', " . var_export( $value, true ) . " );";
+	if ( preg_match( $re, $c ) ) { $c = preg_replace( $re, addcslashes( $line, '\\$' ), $c, 1 ); }
+	else { $c = preg_replace( '/<\?php/', "<?php\n" . addcslashes( $line, '\\$' ), $c, 1 ); }
+};
+$set( 'DB_NAME', 'wordpress' );
+$set( 'DB_USER', 'wordpress' );
+$set( 'DB_PASSWORD', getenv( 'DBPASS' ) );
+$set( 'DB_HOST', 'localhost' );
+$set( 'DISABLE_WP_CRON', true );
+if ( strpos( $c, 'HTTP_X_FORWARDED_PROTO' ) === false ) {
+	$c = preg_replace( '/<\?php/', "<?php\n// TLS ends at the node edge; trust its forwarded scheme.\nif ( ( \$_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '' ) === 'https' ) { \$_SERVER['HTTPS'] = 'on'; }", $c, 1 );
+}
+file_put_contents( $f, $c );
+$multi = preg_match( '/define\s*\(\s*[\'"]MULTISITE[\'"]\s*,\s*true/i', $c ) ? 1 : 0;
+$sub   = preg_match( '/define\s*\(\s*[\'"]SUBDOMAIN_INSTALL[\'"]\s*,\s*true/i', $c ) ? 1 : 0;
+echo json_encode( [ 'multisite' => $multi, 'subdomain' => $sub ] );
+"""
+
+
+def _restore_restic(ct, creds):
+    """restic restore on the node, straight from B2 into the container's files
+    volume (parallel downloads; `restic dump` fetches one piece at a time).
+    The credentials come on stdin and only ever live in restic's environment.
+    Files land owned by the host's root, then become the site user's."""
+    import shutil
+    if not shutil.which("restic"):
+        for _ in range(12):
+            if run("apt-get", "install", "-y", "-q", "restic", check=False).returncode == 0:
+                break
+            time.sleep(10)   # unattended-upgrades holding the apt lock
+        else:
+            raise RuntimeError("could not install restic on the server")
+    if not re.match(r"^b2:[A-Za-z0-9-]{6,50}:[A-Za-z0-9._/-]{1,400}$", creds.get("repo", "")) or not reResticID.match(creds.get("snapshot", "")):
+        raise RuntimeError("invalid repo or snapshot")
+    target = volumes(ct)["files"]["mount"] + "/public"
+    env = dict(os.environ, B2_ACCOUNT_ID=creds["b2_id"], B2_ACCOUNT_KEY=creds["b2_key"], RESTIC_PASSWORD=creds["password"])
+    # A cache for this run only: without one restic fetches every piece of
+    # the file tree as its own request, thousands of them one after another.
+    cache = "/var/cache/captaincore/restic-%s-%d" % (ct, os.getpid())
+    os.makedirs(cache, mode=0o700, exist_ok=True)
+    try:
+        p = subprocess.run(["restic", "restore", creds["snapshot"], "--target", target, "--repo", creds["repo"], "--cache-dir", cache, "--no-lock",
+                            "--exclude-xattr", "*", "-o", "b2.connections=10", "--quiet"], env=env, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    finally:
+        shutil.rmtree(cache, ignore_errors=True)
+    if p.returncode != 0:
+        raise RuntimeError("restic restore failed: " + (p.stderr or p.stdout).strip()[-300:])
+    # Older snapshots can hold the site under its full original path; the
+    # folder with the database dump is the site's top.
+    top = target
+    if not os.path.exists(target + "/database-backup.sql") and not os.path.exists(target + "/wp-config.php"):
+        found = run("find", target, "-maxdepth", "8", "-name", "database-backup.sql", "-type", "f", "-not", "-path", "*/wp-content/*", check=False).stdout.split("\n")
+        found = sorted((f for f in found if f), key=len)
+        if found:
+            top = os.path.dirname(found[0])
+    if top != target:
+        hold = volumes(ct)["files"]["mount"] + "/.restore-hoist"
+        os.rename(top, hold)
+        shutil.rmtree(target)
+        os.rename(hold, target)
+    uid = run("incus", "exec", ct, "--", "id", "-u", "site").stdout.strip()
+    gid = run("incus", "exec", ct, "--", "id", "-g", "site").stdout.strip()
+    base = int(run("incus", "config", "get", ct, "volatile.idmap.base").stdout.strip() or 0)
+    if not uid.isdigit() or not gid.isdigit() or base <= 0:
+        raise RuntimeError("could not read the container's user mapping")
+    # -h: change a symlink itself, never what it points to (the host's files).
+    run("chown", "-hR", "%d:%d" % (base + int(uid), base + int(gid)), target)
+    run("chmod", "0755", target)
+
+
+def _restore_tar(ct):
+    """Unpack a tar stream on stdin into ~/public as the site user."""
+    p = subprocess.run(["incus", "exec", "-T", ct, "--", "su", "-s", "/bin/bash", "site", "-c",
+                        "tar -x -C /srv/site/public --no-same-owner --delay-directory-restore"],
+                       stdin=sys.stdin.buffer, capture_output=True, text=True)
+    if p.returncode != 0:
+        noise = [l for l in (p.stdout + p.stderr).splitlines() if "Removing leading" not in l]
+        raise RuntimeError("unpacking failed: " + "\n".join(noise)[-300:])
+
+
+reResticID = re.compile(r"^[0-9a-f]{8,64}$")
+
+
+def site_restore(ct, url_host, cron, mode="tar"):
+    """A long-term backup into a new site's container: the files into
+    ~/public (mode "restic": restic restore on this server with credentials
+    from stdin; "tar": a `restic dump` tar stream on stdin), the dump imported
+    into its database, wp-config pointed at that database, the old address
+    replaced with this site's, search engines asked to stay away. With cron
+    "off" the WordPress cron timer stays stopped so the copy does nothing on
+    its own."""
+    import secrets
+    if not CT_NAME.match(ct) or PARKED_RE.match(ct) or OLDROOT_RE.match(ct) or not HOST_RE.match(url_host) \
+            or cron not in ("on", "off") or mode not in ("tar", "restic"):
+        raise RuntimeError("invalid restore arguments")
+    if is_plain(ct):
+        raise RuntimeError("a plain site has no database to restore into")
+    if run("incus", "exec", ct, "--", "test", "-f", "/srv/site/public/wp-config.php", check=False).returncode == 0:
+        raise RuntimeError("this site already has WordPress; restore into a new site")
+    creds = json.loads(sys.stdin.readline()) if mode == "restic" else None
+    stamp = time.strftime("%Y%m%d%H%M%S", time.gmtime())
+    aside = "/srv/site/restore-" + stamp
+    # The placeholder page (or a failed attempt's files, which can belong to
+    # the host's root) goes, from the host side; then the files arrive.
+    run("find", volumes(ct)["files"]["mount"] + "/public", "-mindepth", "1", "-maxdepth", "1", "-exec", "rm", "-rf", "{}", "+")
+    started = time.time()
+    if mode == "restic":
+        _restore_restic(ct, creds)
+        creds = None
+    else:
+        _restore_tar(ct)
+    files_secs = int(time.time() - started)
+    check = run("incus", "exec", ct, "--", "bash", "-c",
+                "cd /srv/site/public; ls database-backup-*.sql 2>/dev/null | head -1; [ -f database-backup.sql ] && echo DUMP; "
+                "[ -f wp-config.php ] && echo CONFIG; du -sb . | cut -f1", check=False).stdout.split()
+    if any(x.startswith("database-backup-") for x in check):
+        raise RuntimeError("this is a WP Freighter tenant backup (its own database dump and content folder only); not supported yet")
+    if "CONFIG" not in check:
+        raise RuntimeError("the backup has no wp-config.php at its top; is it a WordPress site?")
+    if "DUMP" not in check:
+        raise RuntimeError("the backup has no database-backup.sql")
+    files_bytes = int(check[-1]) if check and check[-1].isdigit() else 0
+    # Out of the web root before anything else runs: the dump, and drop-ins
+    # that would load on every request (even WP-CLI's with plugins skipped).
+    moved = []
+    run("incus", "exec", ct, "--", "install", "-d", "-o", "site", "-g", "site", "-m", "0700", aside)
+    run("incus", "exec", ct, "--", "mv", "/srv/site/public/database-backup.sql", aside + "/database-backup.sql")
+    for rel in HOST_LEFTOVERS:
+        if run("incus", "exec", ct, "--", "test", "-e", "/srv/site/public/" + rel, check=False).returncode == 0:
+            dest = aside + "/removed/" + os.path.dirname(rel)
+            run("incus", "exec", ct, "--", "su", "-s", "/bin/bash", "site", "-c",
+                "mkdir -p '%s' && mv '/srv/site/public/%s' '%s/'" % (dest, rel, dest))
+            moved.append(rel)
+    dbpass = secrets.token_hex(16)
+    run("incus", "exec", ct, "--env", "DBPASS=" + dbpass, "--", "bash", "-c",
+        "mariadb -e \"ALTER USER 'wordpress'@'localhost' IDENTIFIED BY '$DBPASS'\"")
+    fixed = run("incus", "exec", ct, "--env", "DBPASS=" + dbpass, "--", "su", "-s", "/bin/bash", "site", "-c", "php", inp=WP_CONFIG_FIX)
+    flags = json.loads(fixed.stdout.strip().splitlines()[-1])
+    if flags.get("subdomain"):
+        raise RuntimeError("subdomain multisite can't run on one temporary address; not supported yet")
+    started = time.time()
+    run("incus", "exec", ct, "--", "bash", "-c", "mariadb wordpress < '%s/database-backup.sql'" % aside)
+    db_secs = int(time.time() - started)
+    db_bytes = int(run("incus", "exec", ct, "--", "stat", "-c", "%s", aside + "/database-backup.sql").stdout.strip() or 0)
+    skip = ("--skip-plugins", "--skip-themes")
+    old_home = wp(ct, "option", "get", "home", *skip).stdout.strip()
+    old_host = re.sub(r"^https?://", "", old_home).split("/")[0].split(":")[0].lower()
+    if old_host and old_host != url_host:
+        for scheme in ("https://", "http://"):
+            wp(ct, "search-replace", scheme + old_host, "https://" + url_host, "--all-tables", "--precise", "--quiet", *skip)
+        wp(ct, "search-replace", old_host, url_host, "--all-tables", "--precise", "--quiet", *skip)
+        if flags.get("multisite"):
+            wp(ct, "config", "set", "DOMAIN_CURRENT_SITE", url_host, "--type=constant", "--quiet", *skip, check=False)
+    wp(ct, "option", "update", "blog_public", "0", "--quiet", *skip, check=False)
+    wp(ct, "cache", "flush", "--quiet", *skip, check=False)
+    wp(ct, "rewrite", "flush", "--quiet", *skip, check=False)
+    # The dump stays beside the files (outside the web root) until the copy
+    # is checked: delete ~/restore-<datetime> when it is no longer needed.
+    run("incus", "exec", ct, "--", "chown", "-R", "site:site", aside)
+    run("incus", "exec", ct, "--", "systemctl", "enable" if cron == "on" else "disable", "--now", "wp-cron.timer", check=False)
+    cache_clear(ct)
+    run("incus", "exec", ct, "--", "systemctl", "restart", "frankenphp", check=False)
+    time.sleep(1.5)
+    return {"container": ct, "old_home": old_home, "home": "https://" + url_host, "files_bytes": files_bytes, "files_seconds": files_secs,
+            "database_bytes": db_bytes, "database_seconds": db_secs, "moved_aside": moved, "kept_in": aside.replace("/srv/site", "~"),
+            "multisite": bool(flags.get("multisite")), "cron": cron, "health": health(ct)}
 
 
 def sync(src, dst, what, src_host, dst_host):
@@ -1400,6 +1605,9 @@ try:
         out({"status": "ok"})
     elif cmd == "wp-enable":
         out(dict(status="ok", **wp_enable(sys.argv[2])))
+    elif cmd == "site-restore":
+        out(dict(status="ok", **site_restore(sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else "off",
+                                             sys.argv[5] if len(sys.argv) > 5 else "tar")))
     elif cmd == "wp-install":
         out(dict(status="ok", **wp_install(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6])))
     elif cmd == "rehost":

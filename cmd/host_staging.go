@@ -219,11 +219,12 @@ func hostSiteCreate(args []string) {
 	}
 	var info struct {
 		Container, IP, Image, Primary, Start, Title string
-		SSHPort                                     int    `json:"ssh_port"`
-		MemoryMiB                                   int    `json:"memory_mib"`
-		DiskGiB                                     int    `json:"disk_gib"`
-		AdminUser                                   string `json:"admin_user"`
-		AdminEmail                                  string `json:"admin_email"`
+		SSHPort                                     int                `json:"ssh_port"`
+		MemoryMiB                                   int                `json:"memory_mib"`
+		DiskGiB                                     int                `json:"disk_gib"`
+		AdminUser                                   string             `json:"admin_user"`
+		AdminEmail                                  string             `json:"admin_email"`
+		Restore                                     *hostRestoreSource `json:"restore"`
 	}
 	if json.Unmarshal(raw, &info) != nil || info.Container == "" || info.Image == "" || !reHostname.MatchString(info.Primary) {
 		fail("manager reply: %s", strings.TrimSpace(string(raw)))
@@ -231,6 +232,25 @@ func hostSiteCreate(args []string) {
 	t, err := hostTarget(system, captain, args[0])
 	if err != nil {
 		fail("%v", err)
+	}
+	// A restore checks its source first and sizes the disk to the backup.
+	var restoreRepoPath, restoreKey string
+	if info.Start == "restore" {
+		if info.Restore == nil {
+			fail("the Manager gave no backup to restore")
+		}
+		var src *models.Site
+		restoreRepoPath, restoreKey, src, err = restoreRepo(system, captain, *info.Restore)
+		if err != nil {
+			fail("%v", err)
+		}
+		size, when, err := restoreSnapshotBytes(restoreRepoPath, restoreKey, info.Restore.BackupID)
+		if err != nil {
+			fail("%v", err)
+		}
+		info.DiskGiB = restoreDiskGiB(size, info.DiskGiB)
+		fmt.Printf("Restoring %s (%s) backup %s from %s, %s; files volume %d GiB.\n", src.Site, info.Restore.Environment,
+			info.Restore.BackupID[:8], when, fmtBytes(size), info.DiskGiB)
 	}
 	if err := t.ensureBackupTool(); err != nil {
 		fail("%v", err)
@@ -263,9 +283,12 @@ func hostSiteCreate(args []string) {
 	if _, err := ccTool(t, "authorize", info.Container, f[0]+" "+f[1]); err != nil {
 		fail("authorize: %v", err)
 	}
-	// "empty" (a placeholder for a copy) and "plain" (HTML files) get no WordPress.
+	// "empty" (a placeholder for a copy) and "plain" (HTML files) get no
+	// WordPress; a restore gets the backup's.
 	wordpress := info.Start != "empty" && info.Start != "plain"
-	if out, _, _ := t.ssh("sudo incus exec "+info.Container+" -- test -f /srv/site/public/wp-config.php && echo yes", ""); wordpress && strings.TrimSpace(out) != "yes" {
+	if info.Start == "restore" {
+		hostSiteRestore(system, captain, t, *info.Restore, restoreRepoPath, restoreKey, info.Primary)
+	} else if out, _, _ := t.ssh("sudo incus exec "+info.Container+" -- test -f /srv/site/public/wp-config.php && echo yes", ""); wordpress && strings.TrimSpace(out) != "yes" {
 		fmt.Println("Installing WordPress…")
 		if _, err := ccTool(t, "wp-install", info.Container, info.Primary, info.Title, info.AdminUser, info.AdminEmail); err != nil {
 			fail("install: %v", err)

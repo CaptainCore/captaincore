@@ -577,6 +577,14 @@ if relay_old is not None and ip:
     relay_new = "# Managed by CaptainCore: one line per site container (host apply).\n" + "\n".join(sorted(keep + [relay_line])) + "\n"
 relay_changed = relay_new is not None and relay_new != relay_old
 
+# WordPress cron: the container's wp-cron.timer runs due events every minute.
+# Off for a copy that must not act on its own (a restored backup can hold live
+# payment keys and subscription renewals). Kept in the config so a rebuild,
+# which starts from the image with the timer on, gets it turned off again.
+cron_on = cfg.get("cron", True) is not False
+cron_state = "" if plain else run("incus", "exec", ct, "--", "systemctl", "is-enabled", "wp-cron.timer", check=False).stdout.strip()
+cron_changed = cron_state in ("enabled", "disabled") and (cron_state == "enabled") != cron_on
+
 # Page cache files in the container. The prepend file must exist before the
 # PHP settings name it (a missing auto_prepend_file is a fatal error), so it
 # is written first and never removed.
@@ -591,7 +599,7 @@ else:
 pc_changed = bool(pc_diff)
 
 if DRY:
-    res["would_change"] = [n for n, c in (("cache", pc_changed), ("edge", edge_new != edge_old), ("php", php_changed), ("memory", mem_changed), ("debug", debug_changed), ("blog_public", blog_public_fix), ("hardening", bool(harden_changed)), ("cpu", cpu_changed), ("mail", msmtp_changed or relay_changed)) if c] \
+    res["would_change"] = [n for n, c in (("cache", pc_changed), ("edge", edge_new != edge_old), ("php", php_changed), ("memory", mem_changed), ("debug", debug_changed), ("blog_public", blog_public_fix), ("hardening", bool(harden_changed)), ("cpu", cpu_changed), ("mail", msmtp_changed or relay_changed), ("cron", cron_changed)) if c] \
         + ["app:" + n for n in app_changes] + ["remove:" + u for u in removed_units]
     res["edge"] = edge_new
     done("dry-run")
@@ -758,6 +766,11 @@ try:
     if msmtp_changed or relay_changed:
         res["changes"].append("mail")
     res["mail"] = {"relay": mail_on, "sendmail": has_msmtp}
+    if cron_changed:
+        run("incus", "exec", ct, "--", "systemctl", "enable" if cron_on else "disable", "--now", "wp-cron.timer", check=False)
+        res["changes"].append("cron")
+    if not plain:
+        res["cron"] = cron_on
     if mail_on and not has_msmtp:
         # Seen for real: a container on a build of its image from before mail
         # support sends nothing, and nothing else says so.
