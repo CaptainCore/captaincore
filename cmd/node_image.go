@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/CaptainCore/captaincore/apiclient"
@@ -188,7 +189,22 @@ func registerNodeImage(nodeCmd *cobra.Command) {
 			resolveNativeOrWP(cmd, args, func(_ *cobra.Command, a []string) { nodeUnblock(a) })
 		},
 	}
-	for _, c := range []*cobra.Command{guard, unblock} {
+	purge := &cobra.Command{
+		Use:   "purge <server-id> <container>",
+		Short: "Delete a parked container, an old root, or (with --park) a container no site uses, now",
+		Long: `Deletes one container on a server and its volumes right away, instead of
+waiting the 7 days the daily run keeps them. Without --park only a parked
+container (<name>-removed-<date>) or an old root (<name>-oldroot-<datetime>)
+qualifies. --park first parks a container (stops it, gives back its address
+and SSH port, drops its web server rules) and then deletes it: for scratch
+containers no site environment uses. The Manager checks that before it asks.`,
+		Args: cobra.ExactArgs(2),
+		Run: func(cmd *cobra.Command, args []string) {
+			resolveNativeOrWP(cmd, args, func(_ *cobra.Command, a []string) { nodePurge(a) })
+		},
+	}
+	purge.Flags().BoolVar(&flagNodePurgePark, "park", false, "Park the container first (one no site uses)")
+	for _, c := range []*cobra.Command{guard, unblock, purge} {
 		c.Flags().BoolVar(&flagNodeJSON, "json", false, "Print the raw JSON reply")
 		nodeCmd.AddCommand(c)
 	}
@@ -235,6 +251,43 @@ func nodeUnblock(args []string) {
 		fail("%v", err)
 	}
 	fmt.Printf("%s can sign in again on %s.\n", args[1], t.server)
+}
+
+var flagNodePurgePark bool
+
+func nodePurge(args []string) {
+	t := nodeTarget(args[0])
+	name := args[1]
+	if !regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`).MatchString(name) || regexp.MustCompile(`^build-php8\d$`).MatchString(name) {
+		fail("invalid container name %q", name)
+	}
+	parked := regexp.MustCompile(`-(removed-\d{8}|oldroot-\d{14})$`).MatchString(name)
+	if !parked {
+		if !flagNodePurgePark {
+			fail("%s is not parked; pass --park to park it and then delete it", name)
+		}
+		res, err := ccTool(t, "site-park", name)
+		if err != nil {
+			if flagNodeJSON {
+				printJSONResult(res, err)
+				return
+			}
+			fail("park %s: %v", name, err)
+		}
+		name = fmt.Sprint(res["parked"])
+	}
+	res, err := ccTool(t, "site-purge", name)
+	if flagNodeJSON {
+		if res != nil {
+			res["container"] = name
+		}
+		printJSONResult(res, err)
+		return
+	}
+	if err != nil {
+		fail("%v", err)
+	}
+	fmt.Printf("Deleted %s on %s: %v\n", name, t.server, res["purged"])
 }
 
 func printJSONResult(res map[string]interface{}, err error) {
