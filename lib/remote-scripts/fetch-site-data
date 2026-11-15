@@ -1542,3 +1542,14 @@ if [[ -z "$capture_plugin_pages_json" ]]; then
     capture_plugin_pages_json="[]"
 fi
 echo "capture_plugin_pages:$(trim "$capture_plugin_pages_json")"
+# The SSH keys this environment actually holds: sha256 of the Manager's lines
+# inside the CaptainCore managed block of ~/.ssh/authorized_keys (the CLI's
+# own management line left out), the same hash `ssh-keys deploy` reports. The
+# Manager compares it with what the environment should hold, so a key edited
+# or deleted on the server is put back by the next `ssh-keys deploy --stale`.
+# "none" when there is no block (sites at providers such as Kinsta).
+ssh_keys_live="none"
+if [[ -f "$HOME/.ssh/authorized_keys" ]] && grep -q '^# BEGIN CaptainCore managed keys' "$HOME/.ssh/authorized_keys" 2>/dev/null; then
+    ssh_keys_live=$(printf '%s' "$(awk '/^# BEGIN CaptainCore managed keys/{f=1;next} /^# END CaptainCore managed keys/{f=0} f && $0 !~ / captaincore-management$/' "$HOME/.ssh/authorized_keys")" | sha256sum | cut -d' ' -f1)
+fi
+echo "ssh_keys_live:${ssh_keys_live}"
