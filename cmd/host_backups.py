@@ -1432,6 +1432,7 @@ def server_health():
     now = time.time()
     states = {c["name"]: c for c in json.loads(run("incus", "list", "-f", "json", check=False).stdout or "[]")}
     cts = {}
+    usage = {}  # per container, bytes used and the cap of each volume: the Manager's storage figure
     for ct in site_containers():
         items = []
         c = states.get(ct) or {}
@@ -1468,6 +1469,7 @@ def server_health():
                 used = int(p.get("referenced", "0"))
             except ValueError:
                 continue
+            usage.setdefault(ct, {})[role] = {"used": used, "limit": limit}
             if limit and used >= 0.95 * limit:
                 at_ceiling = limit / 2 ** 30 >= GROW_CEILING_GIB.get(role, 50)
                 items.append(_item("disk-" + role, "high", ("Files" if role == "files" else "Database") + " volume full",
@@ -1484,7 +1486,7 @@ def server_health():
         cts[ct] = items
     os.makedirs(os.path.dirname(OOM_STATE), exist_ok=True)
     json.dump(oom, open(OOM_STATE, "w"))
-    return {"server": srv, "containers": cts, "checked_at": int(now)}
+    return {"server": srv, "containers": cts, "usage": usage, "checked_at": int(now)}
 
 
 def history(seconds, points=240):
