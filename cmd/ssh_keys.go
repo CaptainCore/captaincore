@@ -20,11 +20,13 @@ import (
 // `captaincore ssh-keys deploy` writes the SSH keys the Manager wants on an
 // environment (Servers → Team SSH keys, plus the Profile keys of everyone who
 // can access the site) into a managed block of ~/.ssh/authorized_keys on
-// sites that run on our own servers. `--stale` does only the environments
+// sites that run on our own servers, and on Kinsta environments the Manager
+// puts in scope (Profile keys only). `--stale` does only the environments
 // whose keys differ (run after changes and from cron). Lines outside
 // the block are kept; the block itself is replaced whole, so a key removed in
-// the Manager disappears on the next deploy. The CLI always adds the public
-// half of the key it connects with, so a deploy cannot lock CaptainCore out.
+// the Manager disappears on the next deploy. On our servers the CLI always
+// adds the public half of the key it connects with, so a deploy cannot lock
+// CaptainCore out; Kinsta lets that key in on its own, so there it is left out.
 
 const (
 	sshKeysBegin = "# BEGIN CaptainCore managed keys (do not edit)"
@@ -83,7 +85,7 @@ func sshKeysDeployNative(cmd *cobra.Command, args []string) {
 				os.Exit(1)
 			}
 			if len(res.Targets) == 0 {
-				fmt.Println("Every environment on our servers has its keys.")
+				fmt.Println("Every managed environment has its keys.")
 				return
 			}
 			targets = res.Targets
@@ -185,6 +187,7 @@ func deploySSHKeys(system *config.SystemConfig, captain *config.CaptainConfig, t
 	}
 	var want struct {
 		OwnServer bool     `json:"own_server"`
+		Host      string   `json:"host"`
 		Keys      []string `json:"keys"`
 		Hash      string   `json:"hash"`
 	}
@@ -192,7 +195,7 @@ func deploySSHKeys(system *config.SystemConfig, captain *config.CaptainConfig, t
 		return fmt.Errorf("manager reply: %v", err)
 	}
 	if !want.OwnServer {
-		fmt.Printf("%s: skipped, not on one of our servers\n", target)
+		fmt.Printf("%s: skipped, its keys are not managed here\n", target)
 		return nil
 	}
 
@@ -209,7 +212,10 @@ func deploySSHKeys(system *config.SystemConfig, captain *config.CaptainConfig, t
 		return fmt.Errorf("management key has no public half")
 	}
 
-	lines := []string{sshKeysBegin, mgmt[0] + " " + mgmt[1] + " captaincore-management"}
+	lines := []string{sshKeysBegin}
+	if want.Host != "kinsta" {
+		lines = append(lines, mgmt[0]+" "+mgmt[1]+" captaincore-management")
+	}
 	for _, k := range want.Keys {
 		// Defence in depth: the Manager validates keys, but these lines land
 		// in a file sshd trusts, so anything else is dropped here too.
@@ -275,7 +281,11 @@ echo "keys=$(grep -c '^[a-z]' "$f")"
 	}); err != nil {
 		return fmt.Errorf("deployed, but reporting back failed: %v", err)
 	}
-	fmt.Printf("%s: %d key(s) + management key deployed (%s)\n", target, len(want.Keys), strings.TrimSpace(out.String()))
+	extra := " + management key"
+	if want.Host == "kinsta" {
+		extra = " (Kinsta)"
+	}
+	fmt.Printf("%s: %d key(s)%s deployed (%s)\n", target, len(want.Keys), extra, strings.TrimSpace(out.String()))
 	return nil
 }
 
