@@ -701,7 +701,7 @@ func quicksaveCoreChecksumScan(site *models.Site, env *models.Environment, syste
 
 	// Determine remote root directory
 	remoteRoot := "public"
-	switch site.Provider {
+	switch site.ProviderFor(env) {
 	case "rocketdotnet":
 		remoteRoot = env.HomeDirectory
 	default:
@@ -808,7 +808,7 @@ func quicksaveLooseFilesScan(site *models.Site, env *models.Environment, system 
 
 	// Determine remote root directory
 	remoteRoot := "public"
-	switch site.Provider {
+	switch site.ProviderFor(env) {
 	case "rocketdotnet":
 		remoteRoot = env.HomeDirectory
 	default:

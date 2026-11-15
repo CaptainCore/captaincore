@@ -610,7 +610,7 @@ func newSteerConn(site *models.Site, env *models.Environment, system *config.Sys
 		remoteOpts: remoteOpts,
 	}
 
-	switch site.Provider {
+	switch site.ProviderFor(env) {
 	case "kinsta":
 		conn.commandPrep = "cd public/ &&"
 		conn.user = env.Username

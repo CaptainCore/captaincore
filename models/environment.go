@@ -2,45 +2,50 @@ package models
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 )
 
 // Environment mirrors captaincore_environments from the PHP schema.
 type Environment struct {
-	EnvironmentID         uint   `gorm:"primaryKey;column:environment_id;autoIncrement" json:"environment_id,string"`
-	SiteID                uint   `gorm:"column:site_id" json:"site_id,string"`
-	CreatedAt             string `gorm:"column:created_at" json:"created_at"`
-	UpdatedAt             string `gorm:"column:updated_at" json:"updated_at"`
-	Environment           string `gorm:"column:environment" json:"environment"`
-	Address               string `gorm:"column:address" json:"address"`
-	Username              string `gorm:"column:username" json:"username"`
-	Password              string `gorm:"column:password" json:"password"`
-	Protocol              string `gorm:"column:protocol" json:"protocol"`
-	Port                  string `gorm:"column:port" json:"port"`
-	Fathom                string `gorm:"column:fathom;type:text" json:"fathom"`
-	HomeDirectory         string `gorm:"column:home_directory" json:"home_directory"`
-	DatabaseName          string `gorm:"column:database_name" json:"database_name"`
-	DatabaseUsername      string `gorm:"column:database_username" json:"database_username"`
-	DatabasePassword      string `gorm:"column:database_password" json:"database_password"`
-	OffloadEnabled        string `gorm:"column:offload_enabled" json:"offload_enabled"`
-	OffloadProvider       string `gorm:"column:offload_provider" json:"offload_provider"`
-	OffloadAccessKey      string `gorm:"column:offload_access_key" json:"offload_access_key"`
-	OffloadSecretKey      string `gorm:"column:offload_secret_key" json:"offload_secret_key"`
-	OffloadBucket         string `gorm:"column:offload_bucket" json:"offload_bucket"`
-	OffloadPath           string `gorm:"column:offload_path" json:"offload_path"`
-	Token                 string `gorm:"column:token" json:"token"`
-	PHPMemory             string `gorm:"column:php_memory" json:"php_memory"`
-	Storage               string `gorm:"column:storage" json:"storage"`
-	Visits                string `gorm:"column:visits" json:"visits"`
-	Core                  string `gorm:"column:core" json:"core"`
-	CoreVerifyChecksums   string `gorm:"column:core_verify_checksums;default:'1'" json:"core_verify_checksums"`
-	SubsiteCount          string `gorm:"column:subsite_count" json:"subsite_count"`
-	HomeURL               string `gorm:"column:home_url" json:"home_url"`
-	CapturePages          string `gorm:"column:capture_pages;type:text" json:"capture_pages"`
-	Themes                string `gorm:"column:themes;type:text" json:"themes"`
-	Plugins               string `gorm:"column:plugins;type:text" json:"plugins"`
-	Users                 string `gorm:"column:users;type:text" json:"users"`
-	Details               string `gorm:"column:details;type:text" json:"details"`
+	EnvironmentID       uint   `gorm:"primaryKey;column:environment_id;autoIncrement" json:"environment_id,string"`
+	SiteID              uint   `gorm:"column:site_id" json:"site_id,string"`
+	CreatedAt           string `gorm:"column:created_at" json:"created_at"`
+	UpdatedAt           string `gorm:"column:updated_at" json:"updated_at"`
+	Environment         string `gorm:"column:environment" json:"environment"`
+	Address             string `gorm:"column:address" json:"address"`
+	Username            string `gorm:"column:username" json:"username"`
+	Password            string `gorm:"column:password" json:"password"`
+	Protocol            string `gorm:"column:protocol" json:"protocol"`
+	Port                string `gorm:"column:port" json:"port"`
+	Fathom              string `gorm:"column:fathom;type:text" json:"fathom"`
+	HomeDirectory       string `gorm:"column:home_directory" json:"home_directory"`
+	DatabaseName        string `gorm:"column:database_name" json:"database_name"`
+	DatabaseUsername    string `gorm:"column:database_username" json:"database_username"`
+	DatabasePassword    string `gorm:"column:database_password" json:"database_password"`
+	OffloadEnabled      string `gorm:"column:offload_enabled" json:"offload_enabled"`
+	OffloadProvider     string `gorm:"column:offload_provider" json:"offload_provider"`
+	OffloadAccessKey    string `gorm:"column:offload_access_key" json:"offload_access_key"`
+	OffloadSecretKey    string `gorm:"column:offload_secret_key" json:"offload_secret_key"`
+	OffloadBucket       string `gorm:"column:offload_bucket" json:"offload_bucket"`
+	OffloadPath         string `gorm:"column:offload_path" json:"offload_path"`
+	Token               string `gorm:"column:token" json:"token"`
+	PHPMemory           string `gorm:"column:php_memory" json:"php_memory"`
+	Storage             string `gorm:"column:storage" json:"storage"`
+	Visits              string `gorm:"column:visits" json:"visits"`
+	Core                string `gorm:"column:core" json:"core"`
+	CoreVerifyChecksums string `gorm:"column:core_verify_checksums;default:'1'" json:"core_verify_checksums"`
+	SubsiteCount        string `gorm:"column:subsite_count" json:"subsite_count"`
+	HomeURL             string `gorm:"column:home_url" json:"home_url"`
+	CapturePages        string `gorm:"column:capture_pages;type:text" json:"capture_pages"`
+	Themes              string `gorm:"column:themes;type:text" json:"themes"`
+	Plugins             string `gorm:"column:plugins;type:text" json:"plugins"`
+	Users               string `gorm:"column:users;type:text" json:"users"`
+	Details             string `gorm:"column:details;type:text" json:"details"`
+	// ServerID is set when the environment runs on one of our own servers
+	// (the Manager's server_id): its host is then CaptainCore, whatever the
+	// site's provider is.
+	ServerID              string `gorm:"column:server_id" json:"server_id"`
 	Screenshot            string `gorm:"column:screenshot" json:"screenshot"`
 	MonitorEnabled        string `gorm:"column:monitor_enabled" json:"monitor_enabled"`
 	UpdatesEnabled        string `gorm:"column:updates_enabled" json:"updates_enabled"`
@@ -204,4 +209,10 @@ func GetEnvironmentByID(id uint) (*Environment, error) {
 		return nil, result.Error
 	}
 	return &env, nil
+}
+
+// OnOwnServer reports whether the environment runs on one of our servers.
+func (e *Environment) OnOwnServer() bool {
+	n, err := strconv.Atoi(strings.TrimSpace(e.ServerID))
+	return err == nil && n > 0
 }

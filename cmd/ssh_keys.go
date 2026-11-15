@@ -87,8 +87,10 @@ func sshKeysDeployNative(cmd *cobra.Command, args []string) {
 	}
 }
 
-// ownServerTargets lists active sites with the provider used for our own
-// servers. The Manager makes the final call per environment (own_server).
+// ownServerTargets lists the environments on our own servers: every one of
+// a captaincore site, and any other site's environment placed on one of our
+// servers (a Kinsta site's Development). The Manager makes the final call
+// per environment (own_server).
 func ownServerTargets() []string {
 	sites, err := models.GetAllActiveSites()
 	if err != nil {
@@ -96,12 +98,9 @@ func ownServerTargets() []string {
 	}
 	var out []string
 	for _, s := range sites {
-		if s.Provider != "captaincore" {
-			continue
-		}
 		envs, _ := models.FindEnvironmentsBySiteID(s.SiteID)
-		for _, e := range envs {
-			if e.Address == "" {
+		for i, e := range envs {
+			if e.Address == "" || s.ProviderFor(&envs[i]) != "captaincore" {
 				continue
 			}
 			name := s.Site

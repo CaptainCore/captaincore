@@ -84,9 +84,9 @@ func logsArchiveSingle(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	if site.Provider != "kinsta" {
+	if site.ProviderFor(env) != "kinsta" {
 		fmt.Printf("Skipping %s-%s (provider=%s, only Kinsta supported)\n",
-			site.Site, strings.ToLower(env.Environment), site.Provider)
+			site.Site, strings.ToLower(env.Environment), site.ProviderFor(env))
 		return
 	}
 
@@ -329,7 +329,7 @@ func newLogsConn(site *models.Site, env *models.Environment, system *config.Syst
 		port:       env.Port,
 	}
 
-	switch site.Provider {
+	switch site.ProviderFor(env) {
 	case "kinsta":
 		conn.commandPrep = ""
 	case "wpengine":

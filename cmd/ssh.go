@@ -281,7 +281,7 @@ func sshNative(cmd *cobra.Command, args []string) {
 	// Build command prep and remote server based on provider
 	var commandPrep, remoteServer string
 	target := fmt.Sprintf("%s@%s port %s", env.Username, env.Address, env.Port)
-	switch site.Provider {
+	switch site.ProviderFor(env) {
 	case "kinsta":
 		commandPrep = fmt.Sprintf("%s cd public/ &&", environmentVars)
 		remoteServer = fmt.Sprintf("%s %s@%s -p %s", remoteOptions, env.Username, env.Address, env.Port)

@@ -30,19 +30,19 @@ func (Site) TableName() string {
 
 // SiteDetails represents the JSON stored in the details column.
 type SiteDetails struct {
-	Key            string          `json:"key"`
+	Key             string          `json:"key"`
 	EnvironmentVars json.RawMessage `json:"environment_vars"`
-	Subsites       json.RawMessage `json:"subsites"`
-	Storage        json.RawMessage `json:"storage"`
-	Visits         json.RawMessage `json:"visits"`
-	Mailgun        json.RawMessage `json:"mailgun"`
-	Core           json.RawMessage `json:"core"`
-	Verify         json.RawMessage `json:"verify"`
-	RemoteKey      string          `json:"remote_key"`
-	BackupSettings *BackupSettings `json:"backup_settings"`
-	ScreenshotBase string          `json:"screenshot_base"`
-	Removed        json.RawMessage `json:"removed"`
-	ConsoleErrors  json.RawMessage `json:"console_errors"`
+	Subsites        json.RawMessage `json:"subsites"`
+	Storage         json.RawMessage `json:"storage"`
+	Visits          json.RawMessage `json:"visits"`
+	Mailgun         json.RawMessage `json:"mailgun"`
+	Core            json.RawMessage `json:"core"`
+	Verify          json.RawMessage `json:"verify"`
+	RemoteKey       string          `json:"remote_key"`
+	BackupSettings  *BackupSettings `json:"backup_settings"`
+	ScreenshotBase  string          `json:"screenshot_base"`
+	Removed         json.RawMessage `json:"removed"`
+	ConsoleErrors   json.RawMessage `json:"console_errors"`
 }
 
 type BackupSettings struct {
@@ -388,4 +388,15 @@ func ParseTargetString(target string) (environment string, minorTargets []string
 		}
 	}
 	return
+}
+
+// ProviderFor is who hosts one of the site's environments: "captaincore" for
+// an environment on one of our servers, else the site's provider. A Kinsta
+// site can have a Development environment on our servers, which must not get
+// Kinsta's paths and commands.
+func (s *Site) ProviderFor(env *Environment) string {
+	if env != nil && env.OnOwnServer() {
+		return "captaincore"
+	}
+	return s.Provider
 }
