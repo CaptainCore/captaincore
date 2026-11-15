@@ -118,7 +118,7 @@ func hostTarget(system *config.SystemConfig, captain *config.CaptainConfig, arg 
 	if !regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`).MatchString(hc.Container) {
 		return nil, fmt.Errorf("invalid container name %q", hc.Container)
 	}
-	keyPath, err := siteKeyPath(system, site)
+	keyPath, err := nodeKeyPath(system)
 	if err != nil {
 		return nil, err
 	}

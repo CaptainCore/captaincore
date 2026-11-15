@@ -212,8 +212,20 @@ func hostSiteCreate(args []string) {
 	if err != nil || site == nil {
 		fail("site %s not found after sync", args[0])
 	}
+	// A site's other environments are built the same way (Add environment
+	// on one of our servers): <site>-<environment> is the target from here on.
+	envName := "Production"
+	if flagSiteCreateEnv != "" {
+		if !reEnvName.MatchString(strings.ToLower(flagSiteCreateEnv)) {
+			fail("invalid environment name %q", flagSiteCreateEnv)
+		}
+		envName = flagSiteCreateEnv
+	}
 	args = []string{site.Site}
-	raw, err := client.Post("host-site-prepare", map[string]interface{}{"site_id": site.SiteID})
+	if !strings.EqualFold(envName, "production") {
+		args[0] = site.Site + "-" + strings.ToLower(envName)
+	}
+	raw, err := client.Post("host-site-prepare", map[string]interface{}{"site_id": site.SiteID, "environment": envName})
 	if err != nil {
 		fail("manager: %v", err)
 	}
@@ -244,13 +256,17 @@ func hostSiteCreate(args []string) {
 		if err != nil {
 			fail("%v", err)
 		}
-		size, when, err := restoreSnapshotBytes(restoreRepoPath, restoreKey, info.Restore.BackupID)
+		size, when, snapID, err := restoreSnapshotBytes(restoreRepoPath, restoreKey, info.Restore.BackupID)
 		if err != nil {
 			fail("%v", err)
 		}
+		// "latest" becomes the snapshot it is now, so the record says which.
+		if reResticID.MatchString(snapID) && snapID != "latest" {
+			info.Restore.BackupID = snapID
+		}
 		info.DiskGiB = restoreDiskGiB(size, info.DiskGiB)
 		fmt.Printf("Restoring %s (%s) backup %s from %s, %s; files volume %d GiB.\n", src.Site, info.Restore.Environment,
-			info.Restore.BackupID[:8], when, fmtBytes(size), info.DiskGiB)
+			shortID(info.Restore.BackupID), when, fmtBytes(size), info.DiskGiB)
 	}
 	if err := t.ensureBackupTool(); err != nil {
 		fail("%v", err)
@@ -419,12 +435,14 @@ func init() {
 			resolveNativeOrWP(cmd, args, func(_ *cobra.Command, a []string) { hostSiteRemove(a) })
 		},
 	})
-	siteCmd.AddCommand(&cobra.Command{
-		Use: "create <site-id>", Short: "Build the container for a site created on one of our servers", Args: cobra.ExactArgs(1),
+	createCmd := &cobra.Command{
+		Use: "create <site-id> [--environment=<name>]", Short: "Build the container for a site (or one of its environments) created on one of our servers", Args: cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			resolveNativeOrWP(cmd, args, func(_ *cobra.Command, a []string) { hostSiteCreate(a) })
 		},
-	})
+	}
+	createCmd.Flags().StringVar(&flagSiteCreateEnv, "environment", "", "the environment to build (default Production)")
+	siteCmd.AddCommand(createCmd)
 	hostCmd.AddCommand(siteCmd)
 
 	wpCmd := &cobra.Command{Use: "wordpress", Short: "WordPress on a site on our own servers"}

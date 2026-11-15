@@ -104,7 +104,7 @@ func hostApplyNative(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	keyPath, err := siteKeyPath(system, site)
+	keyPath, err := nodeKeyPath(system)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

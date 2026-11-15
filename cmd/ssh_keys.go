@@ -115,6 +115,13 @@ func ownServerTargets() []string {
 
 // siteKeyPath resolves the private key the CLI connects to a site with,
 // the same way `captaincore ssh` does (site key, else the default key).
+// nodeKeyPath is the key the CLI manages our own servers with: the default
+// key, whatever key a site uses. A Kinsta site with its own key can have an
+// environment on our servers, and the node only trusts the management key.
+func nodeKeyPath(system *config.SystemConfig) (string, error) {
+	return siteKeyPath(system, &models.Site{Site: "management"})
+}
+
 func siteKeyPath(system *config.SystemConfig, site *models.Site) (string, error) {
 	key := site.ParseDetails().Key
 	if key == "" {

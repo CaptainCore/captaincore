@@ -31,7 +31,17 @@ type hostRestoreSource struct {
 	Cron        string `json:"cron"`
 }
 
-var reResticID = regexp.MustCompile(`^[0-9a-f]{8,64}$`)
+// A snapshot id, or "latest" (the newest backup of the source environment).
+var reResticID = regexp.MustCompile(`^([0-9a-f]{8,64}|latest)$`)
+
+var flagSiteCreateEnv string
+
+func shortID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
+}
 
 // reEnvName is an environment's name as the CLI uses it: one lowercase word
 // (production, staging, development, dev2), the same rule as the Manager's
@@ -61,12 +71,13 @@ func restoreRepo(system *config.SystemConfig, captain *config.CaptainConfig, src
 
 // restoreSnapshotBytes is how much the snapshot holds (restic's summary, else
 // the size tag the backup was made with), 0 when unknown.
-func restoreSnapshotBytes(repo, key, id string) (float64, string, error) {
+func restoreSnapshotBytes(repo, key, id string) (float64, string, string, error) {
 	out, err := exec.Command("restic", "snapshots", id, "--json", "--repo", repo, "--password-file", key, "--no-lock").Output()
 	if err != nil {
-		return 0, "", fmt.Errorf("reading backup %s: %v", id, err)
+		return 0, "", "", fmt.Errorf("reading backup %s: %v", id, err)
 	}
 	var snaps []struct {
+		ID      string   `json:"id"`
 		Time    string   `json:"time"`
 		Tags    []string `json:"tags"`
 		Summary struct {
@@ -74,21 +85,21 @@ func restoreSnapshotBytes(repo, key, id string) (float64, string, error) {
 		} `json:"summary"`
 	}
 	if json.Unmarshal(out, &snaps) != nil || len(snaps) == 0 {
-		return 0, "", fmt.Errorf("backup %s not found in the repo", id)
+		return 0, "", "", fmt.Errorf("backup %s not found in the repo", id)
 	}
 	s := snaps[0]
 	if s.Summary.Bytes > 0 {
-		return s.Summary.Bytes, s.Time, nil
+		return s.Summary.Bytes, s.Time, s.ID, nil
 	}
 	units := map[string]float64{"K": 1 << 10, "M": 1 << 20, "G": 1 << 30, "T": 1 << 40}
 	for _, t := range s.Tags {
 		if m := regexp.MustCompile(`^size:([\d.]+)([KMGT])$`).FindStringSubmatch(t); m != nil {
 			var n float64
 			fmt.Sscanf(m[1], "%g", &n)
-			return n * units[m[2]], s.Time, nil
+			return n * units[m[2]], s.Time, s.ID, nil
 		}
 	}
-	return 0, s.Time, nil
+	return 0, s.Time, s.ID, nil
 }
 
 // restoreDiskGiB sizes the files volume for a restore: the backup plus a
@@ -222,7 +233,7 @@ func hostSiteRestore(system *config.SystemConfig, captain *config.CaptainConfig,
 	if src.Cron == "on" {
 		cron = "on"
 	}
-	fmt.Printf("Restoring backup %s into %s (files, then the database)…\n", src.BackupID[:8], t.container)
+	fmt.Printf("Restoring backup %s into %s (files, then the database)…\n", shortID(src.BackupID), t.container)
 	started := time.Now()
 	res, err := hostRestoreRun(t, repo, key, src.BackupID, host, cron)
 	if err != nil {
@@ -235,7 +246,7 @@ func hostSiteRestore(system *config.SystemConfig, captain *config.CaptainConfig,
 		fmt.Printf("  moved the old host's drop-ins aside: %v\n", moved)
 	}
 	fmt.Printf("  the database dump is kept in %v (outside the web root); cron is %s; health %v\n", res["kept_in"], cron, res["health"])
-	payload := map[string]interface{}{"site_id": t.site.SiteID, "result": res}
+	payload := map[string]interface{}{"site_id": t.site.SiteID, "environment": t.env.Environment, "result": res}
 	if out, err := newAPIClient(system, captain).Post("host-site-restored", payload); err != nil {
 		fmt.Printf("  (the Manager did not take the result: %v)\n", err)
 	} else {
