@@ -1261,16 +1261,29 @@ func runCommand(head string, arguments []string, t Task) string {
 	// Format the command
 	command := exec.Command(head, arguments...)
 
-	// Sanity check -- capture stdout and stderr:
-	stdout, _ := command.StdoutPipe() // Standard out: out.String()
-	stderr, _ := command.StderrPipe() // Standard errors: stderr.String()
+	// stdout and stderr share one pipe, read as it fills. Reading stdout to
+	// its end before stderr (a MultiReader) let a command that writes more
+	// than a pipe's worth to stderr while still running block forever.
+	outR, outW, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		t.Status = "Failed"
+		t.Response = "Failed to start command: " + pipeErr.Error()
+		db.Save(&t)
+		return t.Response
+	}
+	command.Stdout = outW
+	command.Stderr = outW
 
 	// Setup process group
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	// Run the command
 	err := command.Start()
+	// The child holds its own copy of the write end; ours would keep the
+	// reader below from ever seeing the end of the output.
+	outW.Close()
 	if err != nil {
+		outR.Close()
 		// Don't crash the daemon if a command fails to start; record it and bail.
 		log.Printf("cmd.Start() failed with '%s'\n", err)
 		t.Status = "Failed"
@@ -1287,7 +1300,8 @@ func runCommand(head string, arguments []string, t Task) string {
 		fmt.Println("Starting command process ID " + strconv.Itoa(command.Process.Pid))
 	}
 
-	s := bufio.NewScanner(io.MultiReader(stdout, stderr))
+	defer outR.Close()
+	s := bufio.NewScanner(outR)
 	// Default Scanner caps a line at 64 KB; past that Scan() errors out, the
 	// pipe stops draining, and the child blocks on write forever — the request
 	// then hangs until the caller's HTTP timeout. Allow long lines instead.
