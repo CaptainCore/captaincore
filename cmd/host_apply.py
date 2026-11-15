@@ -697,6 +697,71 @@ prepend_diff = [path for path, content in prepend_want.items() if ct_read(path) 
 # payment keys and subscription renewals). Kept in the config so a rebuild,
 # which starts from the image with the timer on, gets it turned off again.
 cron_on = cfg.get("cron", True) is not False
+
+# ── Scheduled tasks (hosting setting cron_jobs) ────────────────────────────
+# One command each on a fixed schedule, run as the site user in ~/public by a
+# systemd timer + oneshot service (an hour at most, memory capped). They run
+# only while the site's cron switch is on, so a restored copy or a new
+# environment never acts on its own. Checked again here: name, preset, time.
+CRON_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,19}$")
+CRON_AT_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+def cron_calendar(j):
+    at = j.get("at") if CRON_AT_RE.match(str(j.get("at", ""))) else "03:00"
+    return {"every-5-minutes": "*:0/5", "every-15-minutes": "*:0/15", "hourly": "*:00",
+            "daily": "*-*-* %s:00" % at, "weekly": "Mon *-*-* %s:00" % at}.get(j.get("schedule"))
+
+cron_jobs = [j for j in (cfg.get("cron_jobs") or []) if CRON_NAME_RE.match(str(j.get("name", ""))) and cron_calendar(j)
+             and 0 < len(str(j.get("command", ""))) <= 500 and not re.search(r"[\x00-\x1f\x7f]", str(j.get("command", "")))]
+cron_mem = max(128, min(memory_mb - 512, 1024))
+
+def cron_files(j):
+    n = j["name"]
+    return {
+        "/etc/captaincore/cron/%s.sh" % n: "#!/bin/bash\n# Managed by CaptainCore (hosting configuration).\ncd /srv/site/public || exit 1\n%s\n" % j["command"],
+        "/etc/systemd/system/cc-cron-%s.service" % n: """[Unit]
+Description=CaptainCore scheduled task %s
+After=network-online.target mariadb.service
+
+[Service]
+Type=oneshot
+User=site
+Group=site
+WorkingDirectory=/srv/site/public
+ExecStart=/bin/bash /etc/captaincore/cron/%s.sh
+TimeoutStartSec=3600
+Nice=10
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+MemoryHigh=%dM
+MemoryMax=%dM
+TasksMax=128
+""" % (n, n, cron_mem * 9 // 10, cron_mem),
+        "/etc/systemd/system/cc-cron-%s.timer" % n: """[Unit]
+Description=CaptainCore scheduled task %s
+
+[Timer]
+OnCalendar=%s
+AccuracySec=10s
+RandomizedDelaySec=20
+
+[Install]
+WantedBy=timers.target
+""" % (n, cron_calendar(j)),
+    }
+
+cron_existing = run("incus", "exec", ct, "--", "sh", "-c", "ls /etc/systemd/system/ | grep -E '^cc-cron-[a-z0-9-]+\\.timer$' || true", check=False).stdout.split()
+cron_want = ["cc-cron-%s.timer" % j["name"] for j in cron_jobs]
+cron_file_changes = {}
+for j in cron_jobs:
+    for path, content in cron_files(j).items():
+        if ct_read(path) != content:
+            cron_file_changes.setdefault(j["name"], {})[path] = content
+cron_removed = [u for u in cron_existing if u not in cron_want]
+cron_active = set(run("incus", "exec", ct, "--", "sh", "-c", "systemctl list-unit-files 'cc-cron-*.timer' --state=enabled --no-legend 2>/dev/null | cut -d' ' -f1; true", check=False).stdout.split())
+cron_should = set("cc-cron-%s.timer" % j["name"] for j in cron_jobs if cron_on and j.get("enabled", True) is not False)
+cron_toggle = (cron_should ^ (cron_active & set(cron_want)))
+cron_jobs_changed = bool(cron_file_changes or cron_removed or cron_toggle)
 cron_state = "" if plain else run("incus", "exec", ct, "--", "systemctl", "is-enabled", "wp-cron.timer", check=False).stdout.strip()
 cron_changed = cron_state in ("enabled", "disabled") and (cron_state == "enabled") != cron_on
 
@@ -715,7 +780,7 @@ pc_changed = bool(pc_diff)
 
 if DRY:
     res["would_change"] = [n for n, c in (("cache", pc_changed), ("edge", edge_new != edge_old), ("php", php_changed), ("memory", mem_changed), ("debug", debug_changed), ("blog_public", blog_public_fix), ("hardening", bool(harden_changed)), ("cpu", cpu_changed), ("mail", msmtp_changed or relay_changed or bool(prepend_diff) or mail_ports_changed), ("cron", cron_changed), ("root disk", root_changed), ("volume quotas", bool(refq_changed)),
-        ("bandwidth", bw_changed), ("setuid", bool(suid_on)), ("ssh keys", ak_changed), ("database tunnel", db_twin_changed)) if c] \
+        ("bandwidth", bw_changed), ("setuid", bool(suid_on)), ("ssh keys", ak_changed), ("database tunnel", db_twin_changed), ("scheduled tasks", cron_jobs_changed)) if c] \
         + ["app:" + n for n in app_changes] + ["remove:" + u for u in removed_units]
     res["edge"] = edge_new
     done("dry-run")
@@ -1040,6 +1105,36 @@ try:
             run("incus", "exec", ct, "--", "systemctl", "restart", unit, check=False)
         else:
             run("incus", "exec", ct, "--", "systemctl", "enable", "--now", unit, check=False)
+
+    if cron_jobs_changed:
+        for name, files in cron_file_changes.items():
+            for path, content in files.items():
+                ct_write_any(path, content)
+        for unit in cron_removed:
+            n = unit[len("cc-cron-"):-len(".timer")]
+            run("incus", "exec", ct, "--", "systemctl", "disable", "--now", unit, check=False)
+            run("incus", "exec", ct, "--", "rm", "-f", "/etc/systemd/system/" + unit, "/etc/systemd/system/cc-cron-%s.service" % n, "/etc/captaincore/cron/%s.sh" % n, check=False)
+        run("incus", "exec", ct, "--", "systemctl", "daemon-reload", check=False)
+        for j in cron_jobs:
+            unit = "cc-cron-%s.timer" % j["name"]
+            if unit in cron_should:
+                run("incus", "exec", ct, "--", "systemctl", "enable", unit, check=False)
+                run("incus", "exec", ct, "--", "systemctl", "restart", unit, check=False)
+            else:
+                run("incus", "exec", ct, "--", "systemctl", "disable", "--now", unit, check=False)
+        res["changes"].append("scheduled tasks")
+    # Last run of each task, for the Hosting tab.
+    if cron_jobs:
+        _names = ["cc-cron-%s.service" % j["name"] for j in cron_jobs]
+        _show = run("incus", "exec", ct, "--", "systemctl", "show", *_names, "-p", "Id,Result,ExecMainStatus,ExecMainExitTimestampMonotonic,ExecMainExitTimestamp", check=False).stdout
+        res["cron_jobs"] = {}
+        for block in _show.strip().split("\n\n"):
+            kv = dict(l.split("=", 1) for l in block.splitlines() if "=" in l)
+            n = kv.get("Id", "")[len("cc-cron-"):-len(".service")]
+            if n:
+                ran = kv.get("ExecMainExitTimestampMonotonic", "0") not in ("", "0")
+                res["cron_jobs"][n] = {"last_run": kv.get("ExecMainExitTimestamp", "") if ran else "",
+                                       "result": (kv.get("Result", "") if ran else ""), "exit": kv.get("ExecMainStatus", "") if ran else ""}
 
     if debug_changed:
         flag = "true" if want_debug else "false"
