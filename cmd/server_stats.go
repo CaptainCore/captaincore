@@ -205,5 +205,6 @@ func init() {
 		},
 	})
 	registerNodeImage(nodeCmd)
+	registerNodeHealth(nodeCmd)
 	rootCmd.AddCommand(nodeCmd)
 }

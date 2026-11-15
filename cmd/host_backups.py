@@ -1373,6 +1373,115 @@ def growth_recent(n=20):
         return []
 
 
+# Health: what needs someone on this server right now, as a complete state
+# (the CLI's `node health` posts it to the Manager, which keeps it as Hosting
+# signals: open while reported, resolved when gone). One list for the server
+# and one per site container; each item is a stable key, a severity
+# (critical / high: on the attention list; medium / low: recorded only), a
+# title, a detail and the measured value.
+OOM_STATE = "/var/lib/captaincore/oom.json"
+OOM_WINDOW = 86400
+
+
+def _item(key, severity, title, detail, value=""):
+    return {"key": key, "severity": severity, "title": title, "detail": detail, "value": str(value)}
+
+
+def health():
+    srv = []
+    pool = _pool()
+    cap = int(100 * (pool.get("alloc", 0) or 0) / max(1, pool.get("size", 1) or 1))
+    if cap >= 85:
+        srv.append(_item("pool", "critical", "Storage pool nearly full", "The pool holding every site is %d%% full; volumes can no longer grow." % cap, "%d%%" % cap))
+    elif cap >= 70:
+        srv.append(_item("pool", "high", "Storage pool filling up", "The pool holding every site is %d%% full. Plan a move or more disk." % cap, "%d%%" % cap))
+    if pool.get("health") and pool.get("health") != "ONLINE":
+        srv.append(_item("pool-health", "critical", "Storage pool degraded", "zpool reports %s: a disk may have failed." % pool["health"], pool["health"]))
+    st = os.statvfs("/")
+    root_pct = int(100 * (1 - st.f_bavail / max(1, st.f_blocks)))
+    if root_pct >= 85:
+        srv.append(_item("root-disk", "high", "Server system disk filling up", "/ is %d%% full (logs, images, packages)." % root_pct, "%d%%" % root_pct))
+    m, _arc = _meminfo()
+    avail = 100 * m.get("MemAvailable", 0) / max(1, m.get("MemTotal", 1))
+    if avail < 10:
+        srv.append(_item("memory", "high", "Server memory nearly used up", "%d%% of memory is available." % avail, "%d%%" % avail))
+    for unit, key, sev, title in (("caddy", "edge", "critical", "The edge (Caddy) is not running"),
+                                  ("cc-metrics.timer", "metrics-timer", "medium", "Metrics and disk growth timer stopped"),
+                                  ("cc-backups-daily.timer", "backups-timer", "high", "Local backups timer stopped"),
+                                  ("fail2ban", "guard", "medium", "Sign-in protection (fail2ban) stopped")):
+        state = run("systemctl", "is-active", unit, check=False).stdout.strip()
+        if state != "active":
+            srv.append(_item(key, sev, title, "%s is %s." % (unit, state or "unknown"), state))
+    result = run("systemctl", "show", "cc-backups-daily.service", "-p", "Result", "--value", check=False).stdout.strip()
+    if result and result != "success":
+        srv.append(_item("backups-run", "high", "Last local backup run failed", "cc-backups-daily.service ended with %s; see `node logs backups`." % result, result))
+    if os.path.exists("/var/run/reboot-required"):
+        age = time.time() - os.path.getmtime("/var/run/reboot-required")
+        if age > 3 * 86400:
+            srv.append(_item("reboot", "medium", "Reboot pending for days", "An update has waited %d days for a reboot (the 09:00 UTC window has not taken it)." % (age // 86400), "%dd" % (age // 86400)))
+
+    try:
+        oom = json.load(open(OOM_STATE))
+    except Exception:
+        oom = {}
+    now = time.time()
+    states = {c["name"]: c for c in json.loads(run("incus", "list", "-f", "json", check=False).stdout or "[]")}
+    cts = {}
+    for ct in site_containers():
+        items = []
+        c = states.get(ct) or {}
+        if c.get("status") != "Running":
+            items.append(_item("container", "critical", "Container is not running", "%s is %s." % (ct, c.get("status") or "missing"), c.get("status") or "missing"))
+            cts[ct] = items
+            continue
+        units = ["frankenphp"] + ([] if is_plain(ct) else ["mariadb"])
+        active = run("incus", "exec", ct, "--", "systemctl", "is-active", *units, check=False).stdout.split()
+        for unit, state in zip(units, active):
+            if state != "active":
+                name = "PHP (FrankenPHP)" if unit == "frankenphp" else "MariaDB"
+                items.append(_item(unit, "critical", name + " is not running", "%s in %s is %s." % (unit, ct, state), state))
+        try:
+            kills = int(next((l.split()[1] for l in open("/sys/fs/cgroup/lxc.payload.%s/memory.events" % ct) if l.startswith("oom_kill ")), "0"))
+        except Exception:
+            kills = None
+        if kills is not None:
+            prev = oom.get(ct) or {}
+            if kills > prev.get("count", kills):
+                prev["last"] = now
+            prev["count"] = kills
+            oom[ct] = prev
+            if prev.get("last") and now - prev["last"] < OOM_WINDOW:
+                items.append(_item("oom", "high", "Out of memory", "Something in %s was killed for running out of memory in the last day (container memory limit). Raise the site's memory or find the leak." % ct, kills))
+        try:
+            vols = volumes(ct)
+        except Exception:
+            vols = {}
+        for role, v in vols.items():
+            p = dict(l.split("\t", 1) for l in run("zfs", "get", "-Hp", "-o", "property,value", "referenced,refquota,quota", v["dataset"], check=False).stdout.splitlines() if "\t" in l)
+            try:
+                limit = int(p.get("refquota", "0")) or int(p.get("quota", "0"))
+                used = int(p.get("referenced", "0"))
+            except ValueError:
+                continue
+            if limit and used >= 0.95 * limit:
+                at_ceiling = limit / 2 ** 30 >= GROW_CEILING_GIB.get(role, 50)
+                items.append(_item("disk-" + role, "high", ("Files" if role == "files" else "Database") + " volume full",
+                                   "%.1f of %d GiB used%s." % (used / 2 ** 30, round(limit / 2 ** 30), ", at the growth ceiling: raise it by hand" if at_ceiling else ", and it did not grow"),
+                                   "%d%%" % (100 * used // limit)))
+        try:
+            _, snaps = snapshots(ct)
+            newest = max((datetime.datetime.strptime(NAME_RE.match(sn["name"]).group(1), "%Y%m%dT%H%M%S")
+                          .replace(tzinfo=datetime.timezone.utc).timestamp() for sn in snaps), default=0)
+        except Exception:
+            newest = 0
+        if newest and now - newest > 30 * 3600:
+            items.append(_item("local-backup", "high", "No recent local backup", "The newest local backup of %s is %d hours old." % (ct, (now - newest) // 3600), "%dh" % ((now - newest) // 3600)))
+        cts[ct] = items
+    os.makedirs(os.path.dirname(OOM_STATE), exist_ok=True)
+    json.dump(oom, open(OOM_STATE, "w"))
+    return {"server": srv, "containers": cts, "checked_at": int(now)}
+
+
 def history(seconds, points=240):
     since = time.time() - seconds
     rows = []
@@ -1724,6 +1833,8 @@ try:
         out({"status": "ok"})
     elif cmd == "wp-enable":
         out(dict(status="ok", **wp_enable(sys.argv[2])))
+    elif cmd == "health":
+        out(dict(status="ok", **health()))
     elif cmd == "grow":
         out({"status": "ok", "grown": grow()})
     elif cmd == "site-restore":
