@@ -17,9 +17,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// `captaincore ssh-keys deploy` writes the operator SSH keys the Manager
-// holds (Servers → Team SSH keys) into a managed block of
-// ~/.ssh/authorized_keys on sites that run on our own servers. Lines outside
+// `captaincore ssh-keys deploy` writes the SSH keys the Manager wants on an
+// environment (Servers → Team SSH keys, plus the Profile keys of everyone who
+// can access the site) into a managed block of ~/.ssh/authorized_keys on
+// sites that run on our own servers. `--stale` does only the environments
+// whose keys differ (run after changes and from cron). Lines outside
 // the block are kept; the block itself is replaced whole, so a key removed in
 // the Manager disappears on the next deploy. The CLI always adds the public
 // half of the key it connects with, so a deploy cannot lock CaptainCore out.
@@ -31,6 +33,7 @@ const (
 
 var (
 	flagSSHKeysAll    bool
+	flagSSHKeysStale  bool
 	flagSSHKeysDryRun bool
 	reAuthorizedKey   = regexp.MustCompile(`^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com) [A-Za-z0-9+/]+={0,3}( [A-Za-z0-9._@:-]{1,120})?$`)
 )
@@ -49,7 +52,8 @@ Only sites whose environment runs on one of our own servers are touched.
 
   captaincore ssh-keys deploy austingindercc
   captaincore ssh-keys deploy austingindercc-staging
-  captaincore ssh-keys deploy --all`,
+  captaincore ssh-keys deploy --all
+  captaincore ssh-keys deploy --stale`,
 	Run: func(cmd *cobra.Command, args []string) {
 		resolveNativeOrWP(cmd, args, sshKeysDeployNative)
 	},
@@ -57,8 +61,8 @@ Only sites whose environment runs on one of our own servers are touched.
 
 func sshKeysDeployNative(cmd *cobra.Command, args []string) {
 	{
-		if !flagSSHKeysAll && len(args) == 0 {
-			fmt.Fprintln(os.Stderr, "Error: name a <site> or pass --all.")
+		if !flagSSHKeysAll && !flagSSHKeysStale && len(args) == 0 {
+			fmt.Fprintln(os.Stderr, "Error: name a <site>, or pass --all or --stale.")
 			os.Exit(1)
 		}
 		_, system, captain, err := loadCaptainConfig()
@@ -67,6 +71,23 @@ func sshKeysDeployNative(cmd *cobra.Command, args []string) {
 			os.Exit(1)
 		}
 		targets := args
+		if flagSSHKeysStale {
+			// The Manager knows what each environment should hold (team keys +
+			// the own keys of everyone with access) and which ones differ.
+			raw, err := newAPIClient(system, captain).Post("authorized-keys-stale", map[string]interface{}{})
+			var res struct {
+				Targets []string `json:"targets"`
+			}
+			if err != nil || json.Unmarshal(raw, &res) != nil {
+				fmt.Fprintf(os.Stderr, "Error: the Manager did not list stale environments: %v\n", err)
+				os.Exit(1)
+			}
+			if len(res.Targets) == 0 {
+				fmt.Println("Every environment on our servers has its keys.")
+				return
+			}
+			targets = res.Targets
+		}
 		if flagSSHKeysAll {
 			targets = ownServerTargets()
 			if len(targets) == 0 {
@@ -254,7 +275,7 @@ echo "keys=$(grep -c '^[a-z]' "$f")"
 	}); err != nil {
 		return fmt.Errorf("deployed, but reporting back failed: %v", err)
 	}
-	fmt.Printf("%s: %d operator key(s) + management key deployed (%s)\n", target, len(want.Keys), strings.TrimSpace(out.String()))
+	fmt.Printf("%s: %d key(s) + management key deployed (%s)\n", target, len(want.Keys), strings.TrimSpace(out.String()))
 	return nil
 }
 
@@ -262,5 +283,6 @@ func init() {
 	rootCmd.AddCommand(sshKeysCmd)
 	sshKeysCmd.AddCommand(sshKeysDeployCmd)
 	sshKeysDeployCmd.Flags().BoolVar(&flagSSHKeysAll, "all", false, "Every site on our own servers")
+	sshKeysDeployCmd.Flags().BoolVar(&flagSSHKeysStale, "stale", false, "Only environments whose keys differ from what the Manager wants (for cron)")
 	sshKeysDeployCmd.Flags().BoolVar(&flagSSHKeysDryRun, "dry-run", false, "Print the block instead of writing it")
 }

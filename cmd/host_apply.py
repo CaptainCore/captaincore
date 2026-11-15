@@ -612,33 +612,6 @@ SETUID_OFF = ["/usr/bin/pkexec", "/usr/lib/polkit-1/polkit-agent-helper-1", "/us
 suid_on = run("incus", "exec", ct, "--", "sh", "-c",
               "for f in %s; do [ -u \"$f\" ] && echo \"$f\"; done; true" % " ".join(SETUID_OFF), check=False).stdout.split()
 
-# SSH keys of the people who work on the site (hosting setting ssh_keys): a
-# managed block of the site user's authorized_keys, beside the team keys block
-# `captaincore ssh-keys deploy` writes. Lines outside the block are kept, and
-# each key is checked again here: one public key, no options.
-SITE_KEYS_BEGIN = "# BEGIN CaptainCore site keys (do not edit)"
-SITE_KEYS_END = "# END CaptainCore site keys"
-SITE_KEY_RE = re.compile(r"^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com) [A-Za-z0-9+/]+={0,3}$")
-site_keys = []
-for _k in (cfg.get("ssh_keys") or []):
-    _key = str((_k or {}).get("key", "")).strip()
-    if SITE_KEY_RE.match(_key):
-        _label = re.sub(r"[^A-Za-z0-9._@-]+", "-", str(_k.get("title", ""))).strip("-")[:60] or "key"
-        site_keys.append(_key + " site:" + _label)
-ak_old = run("incus", "exec", ct, "--", "su", "-s", "/bin/bash", "site", "-c",
-             "cat \"$HOME/.ssh/authorized_keys\" 2>/dev/null; true", check=False).stdout
-_ak_keep, _skip = [], False
-for _line in ak_old.splitlines():
-    if _line.startswith("# BEGIN CaptainCore site keys"):
-        _skip = True
-    elif _line.startswith("# END CaptainCore site keys"):
-        _skip = False
-    elif not _skip:
-        _ak_keep.append(_line)
-ak_new = "\n".join(_ak_keep + ([SITE_KEYS_BEGIN] + site_keys + [SITE_KEYS_END] if site_keys else []))
-ak_new = ak_new + "\n" if ak_new else ""
-ak_changed = ak_new != ak_old
-
 # Database over an SSH tunnel: sshd lets the site user forward only to
 # 127.0.0.1:3306, and MariaDB (skip_name_resolve) sees those connections as
 # 127.0.0.1, which never matches a user@localhost. Keep a 127.0.0.1 twin of
@@ -780,7 +753,7 @@ pc_changed = bool(pc_diff)
 
 if DRY:
     res["would_change"] = [n for n, c in (("cache", pc_changed), ("edge", edge_new != edge_old), ("php", php_changed), ("memory", mem_changed), ("debug", debug_changed), ("blog_public", blog_public_fix), ("hardening", bool(harden_changed)), ("cpu", cpu_changed), ("mail", msmtp_changed or relay_changed or bool(prepend_diff) or mail_ports_changed), ("cron", cron_changed), ("root disk", root_changed), ("volume quotas", bool(refq_changed)),
-        ("bandwidth", bw_changed), ("setuid", bool(suid_on)), ("ssh keys", ak_changed), ("database tunnel", db_twin_changed), ("scheduled tasks", cron_jobs_changed)) if c] \
+        ("bandwidth", bw_changed), ("setuid", bool(suid_on)), ("database tunnel", db_twin_changed), ("scheduled tasks", cron_jobs_changed)) if c] \
         + ["app:" + n for n in app_changes] + ["remove:" + u for u in removed_units]
     res["edge"] = edge_new
     done("dry-run")
@@ -1042,13 +1015,6 @@ try:
         if any("resolved" in p for p in harden_changed):
             run("incus", "exec", ct, "--", "systemctl", "restart", "systemd-resolved", check=False)
         res["changes"].append("hardening")
-
-    if ak_changed:
-        run("incus", "exec", ct, "--", "su", "-s", "/bin/bash", "site", "-c",
-            'umask 077 && mkdir -p "$HOME/.ssh" && t=$(mktemp "$HOME/.ssh/.authorized_keys.XXXXXX") && '
-            'cat > "$t" && chmod 600 "$t" && mv "$t" "$HOME/.ssh/authorized_keys"', inp=ak_new)
-        res["changes"].append("ssh keys")
-    res["ssh_keys"] = len(site_keys)
 
     if db_twin_changed:
         r = db_sql("; ".join(db_twin_sql) + ";")
