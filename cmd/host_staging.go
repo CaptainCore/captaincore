@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/CaptainCore/captaincore/models"
 	"github.com/spf13/cobra"
@@ -22,9 +23,11 @@ import (
 //                                cc-backups sync (a backup of the target first).
 
 var (
-	flagDeployTo   string
-	flagDeployWhat = "both"
-	reHostname     = regexp.MustCompile(`^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
+	flagDeployFrom    string
+	flagRefreshBackup = "latest"
+	flagDeployTo      string
+	flagDeployWhat    = "both"
+	reHostname        = regexp.MustCompile(`^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
 )
 
 func selfRun(args ...string) error {
@@ -126,47 +129,116 @@ func hostStagingCreate(args []string) {
 }
 
 func hostDeploy(args []string) {
-	if flagDeployTo != "staging" && flagDeployTo != "production" {
-		fail("--to must be staging or production.")
-	}
 	if flagDeployWhat != "both" && flagDeployWhat != "files" && flagDeployWhat != "database" {
 		fail("--what must be both, files or database.")
+	}
+	to, from := strings.ToLower(flagDeployTo), strings.ToLower(flagDeployFrom)
+	if from == "" {
+		// The original pair: staging and production deploy onto each other.
+		switch to {
+		case "production":
+			from = "staging"
+		case "staging":
+			from = "production"
+		default:
+			fail("--from is needed when --to is not production or staging.")
+		}
+	}
+	if !reEnvName.MatchString(to) || !reEnvName.MatchString(from) || to == from {
+		fail("--from and --to must be two different environments of the site.")
 	}
 	_, system, captain, err := loadCaptainConfig()
 	if err != nil || system == nil {
 		fail("Configuration file not found.")
 	}
 	slug := strings.SplitN(args[0], "-", 2)[0]
-	prod, err := hostTarget(system, captain, slug)
-	if err != nil {
-		fail("%v", err)
+	targetOf := func(env string) string {
+		if env == "production" {
+			return slug
+		}
+		return slug + "-" + env
 	}
-	stag, err := hostTarget(system, captain, slug+"-staging")
+	src, err := hostTarget(system, captain, targetOf(from))
 	if err != nil {
-		fail("staging: %v", err)
+		fail("%s: %v (to copy an environment hosted elsewhere onto one of ours, use host refresh %s --from=%s)", from, err, targetOf(to), from)
 	}
-	if prod.primary == "" || stag.primary == "" || !reHostname.MatchString(prod.primary) || !reHostname.MatchString(stag.primary) {
+	dst, err := hostTarget(system, captain, targetOf(to))
+	if err != nil {
+		fail("%s: %v", to, err)
+	}
+	if src.server != dst.server {
+		fail("%s and %s are on different servers (%s, %s); use host refresh to copy a backup across.", from, to, src.server, dst.server)
+	}
+	if src.primary == "" || dst.primary == "" || !reHostname.MatchString(src.primary) || !reHostname.MatchString(dst.primary) {
 		fail("both environments need a primary domain in their hosting configuration")
 	}
-	src, dst := prod, stag
-	if flagDeployTo == "production" {
-		src, dst = stag, prod
-	}
-	if err := prod.ensureBackupTool(); err != nil {
+	if err := dst.ensureBackupTool(); err != nil {
 		fail("%v", err)
 	}
 	fmt.Printf("Deploying %s of %s (%s) onto %s (%s); a backup of the target is taken first…\n", flagDeployWhat, src.env.Environment, src.primary, dst.env.Environment, dst.primary)
-	res, err := ccTool(prod, "sync", src.container, dst.container, flagDeployWhat, src.primary, dst.primary)
+	res, err := ccTool(dst, "sync", src.container, dst.container, flagDeployWhat, src.primary, dst.primary)
 	if err != nil {
 		fail("deploy: %v", err)
 	}
 	fmt.Printf("Deployed %v. Backup of %s before the deploy: %v. It answers %v.\n", res["deployed"], strings.ToLower(dst.env.Environment), res["safety_backup"], res["health"])
-	target := slug
-	if dst == stag {
-		target += "-staging"
+	fmt.Println("Syncing into CaptainCore…")
+	_ = selfRun("sync-data", targetOf(to))
+}
+
+// hostRefresh copies another environment of the site, from its long-term
+// backup, over an environment on one of our servers: Kinsta's Production
+// into our Development. The node takes a local backup of the target first,
+// replaces its files and database, then the target gets its own address and
+// hosting settings back (host apply) and is synced.
+func hostRefresh(args []string) {
+	from := strings.ToLower(flagDeployFrom)
+	if !reEnvName.MatchString(from) {
+		fail("--from must name an environment of the site.")
+	}
+	if !reResticID.MatchString(flagRefreshBackup) {
+		fail("--backup must be a backup id or latest.")
+	}
+	_, system, captain, err := loadCaptainConfig()
+	if err != nil || system == nil {
+		fail("Configuration file not found.")
+	}
+	t, err := hostTarget(system, captain, args[0])
+	if err != nil {
+		fail("%v", err)
+	}
+	if strings.EqualFold(t.env.Environment, from) {
+		fail("an environment cannot be refreshed from itself")
+	}
+	if t.primary == "" || !reHostname.MatchString(t.primary) {
+		fail("the target needs a primary domain in its hosting configuration")
+	}
+	repo, key, _, err := restoreRepo(system, captain, hostRestoreSource{SiteID: t.site.SiteID, Environment: from, BackupID: flagRefreshBackup})
+	if err != nil {
+		fail("%v", err)
+	}
+	size, when, snapID, err := restoreSnapshotBytes(repo, key, flagRefreshBackup)
+	if err != nil {
+		fail("%v", err)
+	}
+	if err := t.ensureBackupTool(); err != nil {
+		fail("%v", err)
+	}
+	fmt.Printf("Refreshing %s from %s's backup %s (%s, %s); a local backup of %s is taken first…\n",
+		t.env.Environment, from, shortID(snapID), when, fmtBytes(size), t.env.Environment)
+	started := time.Now()
+	res, err := hostRestoreRun(t, repo, key, snapID, t.primary, "off", true)
+	if err != nil {
+		fail("refresh: %v", err)
+	}
+	fmt.Printf("  files %s in %vs, database %s in %vs (%s total); was %v, now %v; backup before: %v\n",
+		fmtBytes(num(res["files_bytes"])), res["files_seconds"], fmtBytes(num(res["database_bytes"])), res["database_seconds"],
+		time.Since(started).Round(time.Second), res["old_home"], res["home"], res["safety_backup"])
+	// Its own settings again (cron, mail, cache, noindex), whatever the copy carried.
+	if err := selfRun("host", "apply", args[0]); err != nil {
+		fail("host apply: %v", err)
 	}
 	fmt.Println("Syncing into CaptainCore…")
-	_ = selfRun("sync-data", target)
+	_ = selfRun("sync-data", args[0])
 }
 
 var hostStagingCmd = &cobra.Command{Use: "staging", Short: "Staging environments on our own servers"}
@@ -185,9 +257,19 @@ func init() {
 			resolveNativeOrWP(cmd, args, func(_ *cobra.Command, a []string) { hostDeploy(a) })
 		},
 	}
-	deploy.Flags().StringVar(&flagDeployTo, "to", "", "staging or production")
+	deploy.Flags().StringVar(&flagDeployTo, "to", "", "the environment to deploy onto (production, staging, development…)")
+	deploy.Flags().StringVar(&flagDeployFrom, "from", "", "the environment to copy (default: the other of production and staging)")
 	deploy.Flags().StringVar(&flagDeployWhat, "what", "both", "both, files or database")
 	hostCmd.AddCommand(deploy)
+	refresh := &cobra.Command{
+		Use: "refresh <site>-<environment> --from=<environment> [--backup=latest]", Short: "Replace an environment on our servers with a backup of another environment of the site", Args: cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			resolveNativeOrWP(cmd, args, func(_ *cobra.Command, a []string) { hostRefresh(a) })
+		},
+	}
+	refresh.Flags().StringVar(&flagDeployFrom, "from", "", "the environment whose backup to copy")
+	refresh.Flags().StringVar(&flagRefreshBackup, "backup", "latest", "a backup id, or latest")
+	hostCmd.AddCommand(refresh)
 }
 
 // host site create <site>: build the container for a site the Manager just

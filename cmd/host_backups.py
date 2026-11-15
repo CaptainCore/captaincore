@@ -1031,12 +1031,18 @@ def site_restore(ct, url_host, cron, mode="tar"):
     its own."""
     import secrets
     if not CT_NAME.match(ct) or PARKED_RE.match(ct) or OLDROOT_RE.match(ct) or not HOST_RE.match(url_host) \
-            or cron not in ("on", "off") or mode not in ("tar", "restic"):
+            or cron not in ("on", "off") or mode not in ("tar", "restic", "tar-replace", "restic-replace"):
         raise RuntimeError("invalid restore arguments")
+    # "-replace": an existing environment is refreshed from another one's
+    # backup (host refresh); a local backup of it is taken first.
+    replace = mode.endswith("-replace")
+    mode = mode.replace("-replace", "")
     if is_plain(ct):
         raise RuntimeError("a plain site has no database to restore into")
-    if run("incus", "exec", ct, "--", "test", "-f", "/srv/site/public/wp-config.php", check=False).returncode == 0:
+    has_wp = run("incus", "exec", ct, "--", "test", "-f", "/srv/site/public/wp-config.php", check=False).returncode == 0
+    if has_wp and not replace:
         raise RuntimeError("this site already has WordPress; restore into a new site")
+    safety = create(ct, "pre-restore") if replace else ""
     creds = json.loads(sys.stdin.readline()) if mode == "restic" else None
     stamp = time.strftime("%Y%m%d%H%M%S", time.gmtime())
     aside = "/srv/site/restore-" + stamp
@@ -1074,6 +1080,10 @@ def site_restore(ct, url_host, cron, mode="tar"):
     dbpass = secrets.token_hex(16)
     run("incus", "exec", ct, "--env", "DBPASS=" + dbpass, "--", "bash", "-c",
         "mariadb -e \"ALTER USER 'wordpress'@'localhost' IDENTIFIED BY '$DBPASS'\"")
+    if replace:
+        # The old database goes whole: the copy may use another table prefix.
+        run("incus", "exec", ct, "--", "mariadb", "-e",
+            "DROP DATABASE IF EXISTS wordpress; CREATE DATABASE wordpress CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
     fixed = run("incus", "exec", ct, "--env", "DBPASS=" + dbpass, "--", "su", "-s", "/bin/bash", "site", "-c", "php", inp=WP_CONFIG_FIX)
     flags = json.loads(fixed.stdout.strip().splitlines()[-1])
     if flags.get("subdomain"):
@@ -1103,7 +1113,38 @@ def site_restore(ct, url_host, cron, mode="tar"):
     time.sleep(1.5)
     return {"container": ct, "old_home": old_home, "home": "https://" + url_host, "files_bytes": files_bytes, "files_seconds": files_secs,
             "database_bytes": db_bytes, "database_seconds": db_secs, "moved_aside": moved, "kept_in": aside.replace("/srv/site", "~"),
-            "multisite": bool(flags.get("multisite")), "cron": cron, "health": health(ct)}
+            "multisite": bool(flags.get("multisite")), "cron": cron, "safety_backup": safety, "health": health(ct)}
+
+
+def _idmap_base(ct):
+    try:
+        return int(run("incus", "config", "get", ct, "volatile.idmap.base", check=False).stdout.strip() or 0)
+    except ValueError:
+        return 0
+
+
+def shift_owners(path, src_base, dst_base, span=65536):
+    """Files copied from one container's volume to another's keep the first
+    container's host user ids; each container has its own range (isolated
+    idmap), so the copy would belong to nobody in the second one (MariaDB
+    refuses to start). Moves every owner in the source range to the same
+    place in the target range. lchown: a symlink itself, never its target."""
+    if src_base == dst_base or src_base <= 0 or dst_base <= 0:
+        return 0
+    moved = 0
+    for root, dirs, files in os.walk(path):
+        for name in [""] + dirs + files:
+            p = os.path.join(root, name) if name else root
+            if name == "" and root != path:
+                continue
+            st = os.lstat(p)
+            uid, gid = st.st_uid, st.st_gid
+            nu = uid - src_base + dst_base if src_base <= uid < src_base + span else uid
+            ng = gid - src_base + dst_base if src_base <= gid < src_base + span else gid
+            if (nu, ng) != (uid, gid):
+                os.lchown(p, nu, ng)
+                moved += 1
+    return moved
 
 
 def sync(src, dst, what, src_host, dst_host):
@@ -1118,14 +1159,23 @@ def sync(src, dst, what, src_host, dst_host):
     if what in ("both", "files"):
         run("rsync", "-aHAX", "--numeric-ids", "--delete", "--exclude=/.ssh/", "--exclude=/public/wp-config.php",
             "%s/.zfs/snapshot/%s/" % (sv["files"]["mount"], point), dv["files"]["mount"] + "/")
+        shift_owners(dv["files"]["mount"], _idmap_base(src), _idmap_base(dst))
         done.append("files")
     if what in ("both", "database"):
         run("incus", "exec", dst, "--", "systemctl", "stop", "mariadb")
         try:
             run("rsync", "-aHAX", "--numeric-ids", "--delete",
                 "%s/.zfs/snapshot/%s/" % (sv["database"]["mount"], point), dv["database"]["mount"] + "/")
+            shift_owners(dv["database"]["mount"], _idmap_base(src), _idmap_base(dst))
         finally:
             run("incus", "exec", dst, "--", "systemctl", "start", "mariadb")
+        # The copy carries the source's database users; the target keeps its
+        # own wp-config.php, so its database user gets the target's password
+        # back (two containers built apart have different ones).
+        dbpass = wp(dst, "config", "get", "DB_PASSWORD", "--skip-plugins", "--skip-themes", check=False).stdout.strip()
+        if dbpass and re.match(r"^[A-Za-z0-9]{8,128}$", dbpass):
+            run("incus", "exec", dst, "--env", "DBPASS=" + dbpass, "--", "bash", "-c",
+                "mariadb -e \"ALTER USER 'wordpress'@'localhost' IDENTIFIED BY '$DBPASS'\"")
         # The copy carries the source's URLs and search engine setting; give
         # the destination back its own.
         if src_host != dst_host:

@@ -148,8 +148,16 @@ func restoreB2Creds(repo string) (map[string]string, bool) {
 // report. On a B2 repo the node runs restic restore itself (parallel, straight
 // from B2) with the credentials on stdin; otherwise the CLI pipes
 // `restic dump … --archive tar` through ssh (one piece at a time: slow).
-func hostRestoreRun(t *hostTargetInfo, repo, key, id, host, cron string) (map[string]interface{}, error) {
+func hostRestoreRun(t *hostTargetInfo, repo, key, id, host, cron string, replace bool) (map[string]interface{}, error) {
 	remote := "sudo /usr/local/sbin/cc-backups site-restore " + shellSingleQuote(t.container) + " " + shellSingleQuote(host) + " " + shellSingleQuote(cron)
+	mode := "tar"
+	if _, ok := restoreB2Creds(repo); ok {
+		mode = "restic"
+	}
+	if replace {
+		mode += "-replace"
+	}
+	remote += " " + mode
 	var dump *exec.Cmd
 	var dumpErr bytes.Buffer
 	node := exec.Command("ssh", append(append([]string{}, t.sshArgs...), remote)...)
@@ -161,7 +169,7 @@ func hostRestoreRun(t *hostTargetInfo, repo, key, id, host, cron string) (map[st
 		creds["password"] = strings.TrimRight(strings.SplitN(string(pass), "\n", 2)[0], "\r")
 		creds["snapshot"] = id
 		line, _ := json.Marshal(creds)
-		node = exec.Command("ssh", append(append([]string{}, t.sshArgs...), remote+" restic")...)
+		node = exec.Command("ssh", append(append([]string{}, t.sshArgs...), remote)...)
 		node.Stdin = bytes.NewReader(append(line, '\n'))
 	} else {
 		fmt.Println("  (not a B2 repo: streaming through this server, which is slower)")
@@ -235,7 +243,7 @@ func hostSiteRestore(system *config.SystemConfig, captain *config.CaptainConfig,
 	}
 	fmt.Printf("Restoring backup %s into %s (files, then the database)…\n", shortID(src.BackupID), t.container)
 	started := time.Now()
-	res, err := hostRestoreRun(t, repo, key, src.BackupID, host, cron)
+	res, err := hostRestoreRun(t, repo, key, src.BackupID, host, cron, false)
 	if err != nil {
 		fail("restore: %v", err)
 	}
