@@ -255,12 +255,14 @@ func siteDeleteNative(cmd *cobra.Command, args []string) {
 				fmt.Printf("Error: no environments found for %s, so no final snapshot can be taken. Re-run with --skip-snapshot to delete without one.\n", site.Site)
 				os.Exit(1)
 			}
+			// Every environment gets its final snapshot, not just production
+			// and staging (a site can have a Development, a Kinsta premium one...).
 			for _, env := range envs {
-				switch strings.ToLower(env.Environment) {
-				case "production":
+				name := strings.ToLower(env.Environment)
+				if name == "production" {
 					targets = append(targets, snapshotTarget{site.Site, env.EnvironmentID})
-				case "staging":
-					targets = append(targets, snapshotTarget{site.Site + "-staging", env.EnvironmentID})
+				} else if reEnvName.MatchString(name) {
+					targets = append(targets, snapshotTarget{site.Site + "-" + name, env.EnvironmentID})
 				}
 			}
 			adminEmail := getVarString(captain, "captaincore_admin_email")

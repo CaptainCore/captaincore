@@ -24,10 +24,12 @@ site=$1
 run_command() {
 
   # Extract environment
-  if [[ "$site" == *"-staging" ]]; then
-    environment=staging
-  else
-    environment=production
+  # The site's own name for the environment (production, staging or any other it has).
+  # Unknown means stop: guessing production would act on the wrong site.
+  environment=$(captaincore site get "$site" --field=environment --captain-id=$CAPTAIN_ID)
+  if [[ -z "$environment" ]]; then
+    echo "Error: $site not found." >&2
+    exit 1
   fi
 
   # Load site configs

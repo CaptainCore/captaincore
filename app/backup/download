@@ -26,16 +26,12 @@ backup_id=$2
 payload_id=$3
 
 # Extract environment
-if [[ "$site" == *"-staging"* ]]; then
-    environment=staging
-fi
-
-if [[ "$site" == *"-production"* ]]; then
-    environment=production
-fi
-
-if [[ "$site" != *"-"* ]]; then
-    environment=production
+# The site's own name for the environment (production, staging or any other it has).
+# Unknown means stop: guessing production would act on the wrong site.
+environment=$(captaincore site get "$site" --field=environment --captain-id=$CAPTAIN_ID)
+if [[ -z "$environment" ]]; then
+  echo "Error: $site not found." >&2
+  exit 1
 fi
 mkdir -p "${CAPTAINCORE_PATH}/data/payload/"
 payload_file="${CAPTAINCORE_PATH}/data/payload/${payload_id}.txt"

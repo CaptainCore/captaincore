@@ -29,18 +29,7 @@ if [[ "$site" == -* ]]; then
     exit 1
 fi
 
-# Extract environment
-if [[ "$site" == *"-staging"* ]]; then
-    environment=staging
-fi
-if [[ "$site" == *"-production"* ]]; then
-    environment=production
-fi
-if [[ "$site" != *"-"* ]]; then
-    environment=production
-fi
-
-# Load specific site details
+# Load specific site details (environment= is the site's own name for it)
 IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do [[ ${line%%=*} =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] && declare "$line"; done; unset IFS
 
 if [[ -z "$site_id" ]]; then

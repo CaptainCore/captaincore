@@ -383,6 +383,7 @@ func siteGetNative(cmd *cobra.Command, args []string) {
 		"environment_vars":        environmentVars,
 		"name":                    site.Name,
 		"home_url":                env.HomeURL,
+		"environment":             strings.ToLower(env.Environment),
 		"defaults":                json.RawMessage(defaultsStr),
 		"fathom":                  fathomStr,
 		"wp_content":              wpContent,
@@ -515,7 +516,8 @@ updates_exclude_themes=%s
 updates_exclude_plugins=%s
 backup_active=%s
 backup_interval=%s
-backup_mode=%s`,
+backup_mode=%s
+environment=%s`,
 			site.SiteID,
 			site.Name,
 			siteDetails.Key,
@@ -543,6 +545,7 @@ backup_mode=%s`,
 			backupActive,
 			backupInterval,
 			backupMode,
+			strings.ToLower(env.Environment),
 		)
 		fmt.Print(bash)
 	}

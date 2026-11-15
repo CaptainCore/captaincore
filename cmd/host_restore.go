@@ -33,6 +33,11 @@ type hostRestoreSource struct {
 
 var reResticID = regexp.MustCompile(`^[0-9a-f]{8,64}$`)
 
+// reEnvName is an environment's name as the CLI uses it: one lowercase word
+// (production, staging, development, dev2), the same rule as the Manager's
+// Environments::valid_name.
+var reEnvName = regexp.MustCompile(`^[a-z][a-z0-9]{0,19}$`)
+
 // restoreRepo is the source environment's restic repo and the password file.
 func restoreRepo(system *config.SystemConfig, captain *config.CaptainConfig, src hostRestoreSource) (string, string, *models.Site, error) {
 	if !reResticID.MatchString(src.BackupID) {
@@ -47,7 +52,7 @@ func restoreRepo(system *config.SystemConfig, captain *config.CaptainConfig, src
 		return "", "", nil, fmt.Errorf("source site %d not found", src.SiteID)
 	}
 	env := strings.ToLower(src.Environment)
-	if env != "production" && env != "staging" {
+	if !reEnvName.MatchString(env) {
 		return "", "", nil, fmt.Errorf("invalid source environment %q", src.Environment)
 	}
 	repo := fmt.Sprintf("rclone:%s/%s_%d/%s/restic-repo", getRcloneBackup(captain, system), site.Site, site.SiteID, env)
