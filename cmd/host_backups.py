@@ -1387,7 +1387,7 @@ def _item(key, severity, title, detail, value=""):
     return {"key": key, "severity": severity, "title": title, "detail": detail, "value": str(value)}
 
 
-def health():
+def server_health():
     srv = []
     pool = _pool()
     cap = int(100 * (pool.get("alloc", 0) or 0) / max(1, pool.get("size", 1) or 1))
@@ -1839,7 +1839,7 @@ try:
     elif cmd == "wp-enable":
         out(dict(status="ok", **wp_enable(sys.argv[2])))
     elif cmd == "health":
-        out(dict(status="ok", **health()))
+        out(dict(status="ok", **server_health()))
     elif cmd == "grow":
         out({"status": "ok", "grown": grow()})
     elif cmd == "site-restore":
