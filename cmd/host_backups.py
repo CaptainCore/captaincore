@@ -687,6 +687,10 @@ def site_park(ct):
     if not CT_NAME.match(ct) or PARKED_RE.match(ct):
         raise RuntimeError("invalid container name")
     info = json.loads(run("incus", "query", "/1.0/instances/" + ct).stdout)
+    # A mail block for this address would otherwise catch the next site given it.
+    _addr = ((info.get("devices") or {}).get("eth0") or {}).get("ipv4.address", "")
+    if _addr:
+        run("ufw", "route", "delete", "deny", "from", _addr, "to", "any", "port", "465,587,2525", "proto", "tcp", check=False)
     devs = info.get("devices") or {}
     port = next((d.get("listen", "").rsplit(":", 1)[-1] for d in devs.values() if d.get("type") == "proxy"), "")
     ip = ((info.get("expanded_devices") or {}).get("eth0") or {}).get("ipv4.address", "")
@@ -818,15 +822,18 @@ def create_site(ct, image, ip, port, disk_gib, memory_mib, stack="wordpress"):
             if dev.get("type") == "proxy" and dev.get("listen", "").endswith(":%d" % int(port)):
                 raise RuntimeError("SSH port %d is already used by container %s" % (int(port), other.get("name")))
     pool = "default"
+    # Caps count live data only (our snapshots never use up a site's space).
+    run("incus", "storage", "set", pool, "volume.zfs.use_refquota=true", check=False)
     src = run("incus", "storage", "get", pool, "source").stdout.strip()
     for suffix in ("-site", "-db"):
         if run("incus", "storage", "volume", "show", pool, ct + suffix, check=False).returncode == 0:
             raise RuntimeError("volume %s%s already exists" % (ct, suffix))
     try:
         run("incus", "storage", "volume", "create", pool, ct + "-site", "size=%dGiB" % int(disk_gib))
-        run("incus", "storage", "volume", "create", pool, ct + "-db", "size=%s" % ("1GiB" if plain else "5GiB"))
+        run("incus", "storage", "volume", "create", pool, ct + "-db", "size=%s" % ("1GiB" if plain else "10GiB"))
         run("zfs", "set", "recordsize=16K", "%s/custom/default_%s-db" % (src, ct), check=False)
         run("incus", "init", image, ct)
+        run("incus", "config", "device", "override", ct, "root", "size=5GiB", check=False)
         for kv in ("limits.memory=%dMiB" % int(memory_mib), "limits.processes=1000", "security.idmap.isolated=true") \
                 + (("user.cc_stack=plain",) if plain else ()):
             run("incus", "config", "set", ct, kv)
@@ -1304,7 +1311,66 @@ def sample():
     for name in os.listdir(MDIR):
         if name.endswith(".jsonl") and name < cutoff:
             os.remove(os.path.join(MDIR, name))
+    if time.gmtime(now).tm_min % 15 == 0:
+        try:
+            grow()
+        except Exception:
+            pass
     return rec
+
+
+# Disk growth. A site's files and database volumes are capped (refquota:
+# live data only, our snapshots never count), but ZFS only takes the space
+# that is filled, so the cap is a brake against a runaway, not a size. A
+# volume past 80% of its cap grows by half (at least 5 GiB) up to a ceiling;
+# at the ceiling it is reported instead. Runs every 15 minutes from `sample`
+# and on `cc-backups grow`; every change goes to GROW_LOG. The pool itself
+# is watched in `stats` (warning at 70%, critical at 85%).
+GROW_AT = 0.80
+GROW_CEILING_GIB = {"files": 200, "database": 50}
+GROW_LOG = "/var/lib/captaincore/growth.jsonl"
+
+
+def grow():
+    out = []
+    for ct in site_containers():
+        try:
+            vols = volumes(ct)
+        except Exception:
+            continue
+        for role, v in vols.items():
+            p = dict(l.split("\t", 1) for l in run("zfs", "get", "-Hp", "-o", "property,value", "referenced,refquota,quota",
+                                                       v["dataset"], check=False).stdout.splitlines() if "\t" in l)
+            try:
+                limit = int(p.get("refquota", "0")) or int(p.get("quota", "0"))
+                used = int(p.get("referenced", "0"))
+            except ValueError:
+                continue
+            if not limit or used < GROW_AT * limit:
+                continue
+            gib, ceiling = limit / 2 ** 30, GROW_CEILING_GIB.get(role, 50)
+            rec = {"t": int(time.time()), "container": ct, "volume": role, "used_gib": round(used / 2 ** 30, 1), "from_gib": round(gib)}
+            if gib >= ceiling:
+                rec["at_ceiling"] = True
+            else:
+                new = int(min(ceiling, max(-(-gib * 1.5 // 1), -(-gib // 1) + 5)))
+                vol = v["dataset"].split("/default_", 1)[1]
+                r = run("incus", "storage", "volume", "set", "default", vol, "size=%dGiB" % new, check=False)
+                rec["to_gib"] = new
+                if r.returncode != 0:
+                    rec["error"] = (r.stderr or r.stdout).strip()[:200]
+            os.makedirs(os.path.dirname(GROW_LOG), exist_ok=True)
+            with open(GROW_LOG, "a") as f:
+                f.write(json.dumps(rec, separators=(",", ":")) + "\n")
+            out.append(rec)
+    return out
+
+
+def growth_recent(n=20):
+    try:
+        return [json.loads(l) for l in open(GROW_LOG).read().splitlines()[-n:] if l.strip()]
+    except Exception:
+        return []
 
 
 def history(seconds, points=240):
@@ -1380,6 +1446,9 @@ def stats(range_):
             "arc_max": int(open("/sys/module/zfs/parameters/zfs_arc_max").read() or 0),
             "timers": timers, "backups_last_run": lastrun,
         },
+        "growth": growth_recent(),
+        "pool_alert": (lambda c: "critical" if c >= 85 else "warning" if c >= 70 else "")(
+            int(100 * (_pool().get("alloc", 0) or 0) / max(1, _pool().get("size", 1) or 1))),
         "containers": cts,
         "history": history(seconds),
         "range": range_,
@@ -1655,6 +1724,8 @@ try:
         out({"status": "ok"})
     elif cmd == "wp-enable":
         out(dict(status="ok", **wp_enable(sys.argv[2])))
+    elif cmd == "grow":
+        out({"status": "ok", "grown": grow()})
     elif cmd == "site-restore":
         out(dict(status="ok", **site_restore(sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else "off",
                                              sys.argv[5] if len(sys.argv) > 5 else "tar")))

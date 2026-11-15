@@ -583,6 +583,35 @@ except (TypeError, ValueError):
     want_cpus = "4"
 cpu_changed = run("incus", "config", "get", ct, "limits.cpu").stdout.strip() != want_cpus
 
+# Limits the site never sees:
+#  - root disk: the container's system disk is capped (the site's files and
+#    database have their own volumes; /tmp is memory). Without a cap a
+#    runaway log could fill the server for every site on it.
+#  - files and database volumes count live data only (refquota): our local
+#    backups (ZFS snapshots) never use up a site's space.
+#  - network: each container's bandwidth capped both ways (bandwidth_mbit).
+ROOT_SIZE = "5GiB"
+try:
+    want_bw = "%dMbit" % max(10, min(int(cfg.get("bandwidth_mbit") or 250), 1000))
+except (TypeError, ValueError):
+    want_bw = "250Mbit"
+_inst = json.loads(run("incus", "query", "/1.0/instances/" + ct).stdout)
+_local = _inst.get("devices") or {}
+root_changed = (_local.get("root") or {}).get("size") != ROOT_SIZE
+_nic = _local.get("eth0") or {}
+bw_changed = _nic.get("limits.egress") != want_bw or _nic.get("limits.ingress") != want_bw
+_vols = [d["source"] for d in _local.values() if d.get("type") == "disk" and d.get("source") and d.get("pool") == "default"]
+refq_changed = [v for v in _vols if run("incus", "storage", "volume", "get", "default", v, "zfs.use_refquota", check=False).stdout.strip() != "true"]
+
+# Programs that run with root's rights for whoever starts them; a site needs
+# none of them, and each is a step towards root inside the container. Their
+# setuid bit goes through dpkg-statoverride, so package updates keep it off.
+SETUID_OFF = ["/usr/bin/pkexec", "/usr/lib/polkit-1/polkit-agent-helper-1", "/usr/lib/dbus-1.0/dbus-daemon-launch-helper",
+              "/usr/bin/mount", "/usr/bin/umount", "/usr/bin/chfn", "/usr/bin/chsh", "/usr/bin/gpasswd", "/usr/bin/newgrp",
+              "/usr/bin/su", "/usr/bin/passwd", "/usr/lib/openssh/ssh-keysign", "/usr/bin/chage", "/usr/bin/expiry"]
+suid_on = run("incus", "exec", ct, "--", "sh", "-c",
+              "for f in %s; do [ -u \"$f\" ] && echo \"$f\"; done; true" % " ".join(SETUID_OFF), check=False).stdout.split()
+
 # Outgoing mail: the container's sendmail (msmtp) hands mail to the server's
 # relay on 10.77.0.1:2525, which sends it through Mailgun with credentials the
 # container never sees. The relay knows each container by its address: a tag
@@ -604,6 +633,13 @@ if relay_old is not None and ip:
     keep = [l for l in relay_old.splitlines() if l.strip() and not l.startswith("#") and l.split()[0] != ip]
     relay_new = "# Managed by CaptainCore: one line per site container (host apply).\n" + "\n".join(sorted(keep + [relay_line])) + "\n"
 relay_changed = relay_new is not None and relay_new != relay_old
+# With mail off, the container cannot reach other mail servers either (SMTP
+# submission ports), so a script on the site cannot send around the relay.
+# Port 25 is closed for every container already.
+MAIL_PORTS = "465,587,2525"
+mail_ports_blocked = bool(ip) and re.search(r"^%s/tcp\s+DENY FWD\s+%s(\s|$)" % (re.escape(MAIL_PORTS), re.escape(ip)),
+                                            run("ufw", "status", check=False).stdout, re.M) is not None
+mail_ports_changed = bool(ip) and mail_on == mail_ports_blocked
 prepend_want = {PREPEND_PHP: prepend_new} if (pc_on or mail_block) else {}
 if mail_block:
     prepend_want[MAIL_OFF_PHP] = MAIL_OFF_SRC
@@ -631,7 +667,8 @@ else:
 pc_changed = bool(pc_diff)
 
 if DRY:
-    res["would_change"] = [n for n, c in (("cache", pc_changed), ("edge", edge_new != edge_old), ("php", php_changed), ("memory", mem_changed), ("debug", debug_changed), ("blog_public", blog_public_fix), ("hardening", bool(harden_changed)), ("cpu", cpu_changed), ("mail", msmtp_changed or relay_changed or bool(prepend_diff)), ("cron", cron_changed)) if c] \
+    res["would_change"] = [n for n, c in (("cache", pc_changed), ("edge", edge_new != edge_old), ("php", php_changed), ("memory", mem_changed), ("debug", debug_changed), ("blog_public", blog_public_fix), ("hardening", bool(harden_changed)), ("cpu", cpu_changed), ("mail", msmtp_changed or relay_changed or bool(prepend_diff) or mail_ports_changed), ("cron", cron_changed), ("root disk", root_changed), ("volume quotas", bool(refq_changed)),
+        ("bandwidth", bw_changed), ("setuid", bool(suid_on))) if c] \
         + ["app:" + n for n in app_changes] + ["remove:" + u for u in removed_units]
     res["edge"] = edge_new
     done("dry-run")
@@ -660,6 +697,23 @@ try:
             os.replace(path + ".cc-new", path)
             if "error pages" not in res["changes"]:
                 res["changes"].append("error pages")
+
+    # The server's own updates: security updates install daily (Ubuntu's
+    # defaults) and the edge's Caddy from its own repository too; when an
+    # update needs a restart (a new kernel), the server reboots at 09:00 UTC
+    # (sites are back within a minute: containers start with the server).
+    APT_FILE = "/etc/apt/apt.conf.d/52captaincore"
+    APT_NEW = "\n".join([
+        "// Managed by CaptainCore (host apply).",
+        'Unattended-Upgrade::Origins-Pattern { "origin=cloudsmith/caddy/stable"; };',
+        'Unattended-Upgrade::Automatic-Reboot "true";',
+        'Unattended-Upgrade::Automatic-Reboot-WithUsers "true";',
+        'Unattended-Upgrade::Automatic-Reboot-Time "09:00";', ""])
+    if not os.path.exists(APT_FILE) or open(APT_FILE).read() != APT_NEW:
+        with open(APT_FILE, "w") as f:
+            f.write(APT_NEW)
+        os.chmod(APT_FILE, 0o644)
+        res["changes"].append("server updates")
 
     if CADDY_NEW:
         # The block list and its fail2ban jails (idempotent), then the node's
@@ -782,6 +836,31 @@ try:
         run("incus", "config", "set", ct, "limits.cpu=" + want_cpus)
         res["changes"].append("cpu")
 
+    if root_changed:
+        r = run("incus", "config", "device", "set", ct, "root", "size=" + ROOT_SIZE, check=False)
+        if r.returncode != 0:
+            r = run("incus", "config", "device", "override", ct, "root", "size=" + ROOT_SIZE, check=False)
+        if r.returncode == 0:
+            res["changes"].append("root disk")
+        else:
+            res["warnings"] = res.get("warnings", []) + ["root disk not capped: %s" % (r.stderr or r.stdout).strip()[:200]]
+
+    for v in refq_changed:
+        run("incus", "storage", "volume", "set", "default", v, "zfs.use_refquota=true", check=False)
+    if refq_changed:
+        res["changes"].append("volume quotas")
+
+    if bw_changed:
+        run("incus", "config", "device", "set", ct, "eth0", "limits.egress=" + want_bw, "limits.ingress=" + want_bw)
+        res["changes"].append("bandwidth")
+
+    if suid_on:
+        run("incus", "exec", ct, "--", "sh", "-c",
+            "for f in %s; do [ -u \"$f\" ] || continue; m=$(stat -c %%a \"$f\"); "
+            "dpkg-statoverride --list \"$f\" >/dev/null 2>&1 && dpkg-statoverride --remove \"$f\" >/dev/null 2>&1; "
+            "dpkg-statoverride --update --add \"$(stat -c %%U \"$f\")\" \"$(stat -c %%G \"$f\")\" $(printf %%o $((0$m & 03777))) \"$f\"; done" % " ".join(suid_on), check=False)
+        res["changes"].append("setuid")
+
     if harden_changed:
         for path, content in HARDEN_FILES:
             if path in harden_changed:
@@ -809,7 +888,13 @@ try:
             f.write(relay_new)
         os.replace(tmp, CC_CLIENTS)
         run("postfix", "reload", check=False)
-    if msmtp_changed or relay_changed:
+    if mail_ports_changed:
+        if mail_on:
+            run("ufw", "route", "delete", "deny", "from", ip, "to", "any", "port", MAIL_PORTS, "proto", "tcp", check=False)
+        else:
+            run("ufw", "route", "insert", "1", "deny", "from", ip, "to", "any", "port", MAIL_PORTS, "proto", "tcp",
+                "comment", "cc-mail-off " + ct, check=False)
+    if msmtp_changed or relay_changed or mail_ports_changed:
         res["changes"].append("mail")
     res["mail"] = {"relay": mail_on, "sendmail": has_msmtp}
     if cron_changed:
