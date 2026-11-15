@@ -674,6 +674,37 @@ if DRY:
     done("dry-run")
 
 
+KERNEL_REBOOT_SH = """#!/bin/bash
+# Managed by CaptainCore (host apply). Reboots this server into a newer
+# installed kernel (cc-kernel-reboot.timer, 09:00 UTC); does nothing while the
+# running kernel is the newest. kexec goes straight into the new kernel (seconds
+# offline); when the last kexec into a kernel did not take, a normal reboot.
+# --force reboots now even without a newer kernel (to test the window).
+set -u
+force="${1:-}"
+running="$(uname -r)"
+newest="$(ls /boot/vmlinuz-* 2>/dev/null | sed 's|/boot/vmlinuz-||' | sort -V | tail -1)"
+state=/var/lib/captaincore/kernel-reboot
+mkdir -p /var/lib/captaincore
+if [ "$force" != "--force" ] && { [ -z "$newest" ] || [ "$newest" = "$running" ]; }; then
+  echo "running $running, the newest installed kernel"; rm -f "$state"; exit 0
+fi
+target="${newest:-$running}"
+if [ "$force" != "--force" ] && [ -f "$state" ] && [ "$(cat "$state")" = "$target" ]; then
+  logger -t cc-kernel-reboot "kexec into $target did not take last time; normal reboot"
+  rm -f "$state"; systemctl reboot; exit 0
+fi
+echo "$target" > "$state"
+if command -v kexec >/dev/null && kexec -l "/boot/vmlinuz-$target" --initrd="/boot/initrd.img-$target" --reuse-cmdline; then
+  logger -t cc-kernel-reboot "kexec into $target (running $running)"
+  systemctl kexec
+else
+  logger -t cc-kernel-reboot "kexec could not load $target; normal reboot"
+  systemctl reboot
+fi
+"""
+
+
 def health():
     code_ct = run("curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "20",
                   "-H", "Host: " + primary, "-H", "X-Forwarded-Proto: https", "http://%s/" % ip, check=False).stdout
@@ -698,21 +729,41 @@ try:
             if "error pages" not in res["changes"]:
                 res["changes"].append("error pages")
 
-    # The server's own updates: security updates install daily (Ubuntu's
-    # defaults) and the edge's Caddy from its own repository too; when an
-    # update needs a restart (a new kernel), the server reboots at 09:00 UTC
-    # (sites are back within a minute: containers start with the server).
-    APT_FILE = "/etc/apt/apt.conf.d/52captaincore"
-    APT_NEW = "\n".join([
-        "// Managed by CaptainCore (host apply).",
-        'Unattended-Upgrade::Origins-Pattern { "origin=cloudsmith/caddy/stable"; };',
-        'Unattended-Upgrade::Automatic-Reboot "true";',
-        'Unattended-Upgrade::Automatic-Reboot-WithUsers "true";',
-        'Unattended-Upgrade::Automatic-Reboot-Time "09:00";', ""])
-    if not os.path.exists(APT_FILE) or open(APT_FILE).read() != APT_NEW:
-        with open(APT_FILE, "w") as f:
-            f.write(APT_NEW)
-        os.chmod(APT_FILE, 0o644)
+    # The server's own updates. Security updates (and Caddy's) install daily
+    # (Ubuntu's unattended-upgrades); needrestart then restarts whatever runs
+    # an old library, so most updates need no reboot. Only a newer kernel
+    # does: cc-kernel-reboot.timer checks at 09:00 UTC and reboots into it
+    # with kexec (straight into the new kernel, skipping the firmware's
+    # checks: seconds offline instead of minutes); if a kexec ever does not
+    # take, the next run reboots normally. Containers start with the server.
+    NODE_FILES = {
+        "/etc/apt/apt.conf.d/52captaincore": "\n".join([
+            "// Managed by CaptainCore (host apply).",
+            'Unattended-Upgrade::Origins-Pattern { "origin=cloudsmith/caddy/stable"; };',
+            "// Kernel reboots are cc-kernel-reboot's (09:00 UTC, kexec); other updates restart services (needrestart).",
+            'Unattended-Upgrade::Automatic-Reboot "false";', ""]),
+        "/etc/needrestart/conf.d/50-captaincore.conf": "# Managed by CaptainCore (host apply): restart services after updates, no prompts.\n$nrconf{restart} = 'a';\n$nrconf{kernelhints} = 0;\n",
+        "/usr/local/sbin/cc-kernel-reboot": KERNEL_REBOOT_SH,
+        "/etc/systemd/system/cc-kernel-reboot.service": "[Unit]\nDescription=CaptainCore: reboot into a newer kernel (kexec)\n\n[Service]\nType=oneshot\nExecStart=/usr/local/sbin/cc-kernel-reboot\n",
+        "/etc/systemd/system/cc-kernel-reboot.timer": "[Unit]\nDescription=CaptainCore: kernel reboot window (09:00 UTC)\n\n[Timer]\nOnCalendar=*-*-* 09:00:00 UTC\n\n[Install]\nWantedBy=timers.target\n",
+    }
+    node_changed = []
+    for path, content in NODE_FILES.items():
+        if not os.path.exists(path) or open(path).read() != content:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path + ".cc-new", "w") as f:
+                f.write(content)
+            os.chmod(path + ".cc-new", 0o755 if path.startswith("/usr/local/sbin/") else 0o644)
+            os.replace(path + ".cc-new", path)
+            node_changed.append(path)
+    if run("bash", "-c", "command -v kexec", check=False).returncode != 0:
+        # kexec-tools asks whether it should take over every reboot: no, only ours.
+        run("bash", "-c", "echo 'kexec-tools kexec-tools/load_kexec boolean false' | debconf-set-selections && "
+            "DEBIAN_FRONTEND=noninteractive apt-get install -y -q kexec-tools", check=False)
+        node_changed.append("kexec-tools")
+    if node_changed:
+        run("systemctl", "daemon-reload", check=False)
+        run("systemctl", "enable", "--now", "cc-kernel-reboot.timer", check=False)
         res["changes"].append("server updates")
 
     if CADDY_NEW:

@@ -1415,10 +1415,15 @@ def health():
     result = run("systemctl", "show", "cc-backups-daily.service", "-p", "Result", "--value", check=False).stdout.strip()
     if result and result != "success":
         srv.append(_item("backups-run", "high", "Last local backup run failed", "cc-backups-daily.service ended with %s; see `node logs backups`." % result, result))
-    if os.path.exists("/var/run/reboot-required"):
-        age = time.time() - os.path.getmtime("/var/run/reboot-required")
+    # A newer kernel than the running one, left for days: the 09:00 UTC
+    # window (cc-kernel-reboot) has not taken it. Other updates restart
+    # services and need no reboot.
+    kernels = sorted((f[len("vmlinuz-"):] for f in os.listdir("/boot") if f.startswith("vmlinuz-")),
+                     key=lambda v: [int(x) if x.isdigit() else x for x in re.split(r"[.-]", v)])
+    if kernels and kernels[-1] != os.uname().release:
+        age = time.time() - os.path.getmtime("/boot/vmlinuz-" + kernels[-1])
         if age > 3 * 86400:
-            srv.append(_item("reboot", "medium", "Reboot pending for days", "An update has waited %d days for a reboot (the 09:00 UTC window has not taken it)." % (age // 86400), "%dd" % (age // 86400)))
+            srv.append(_item("reboot", "medium", "New kernel not running for days", "Kernel %s has been installed for %d days and %s is still running; the 09:00 UTC reboot window has not taken it." % (kernels[-1], age // 86400, os.uname().release), kernels[-1]))
 
     try:
         oom = json.load(open(OOM_STATE))
