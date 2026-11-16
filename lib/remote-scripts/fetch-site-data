@@ -765,6 +765,358 @@ if [[ -z "$licenses_json" ]]; then
 fi
 echo "licenses:$(trim "$licenses_json")"
 
+# Email delivery: which mail plugin sends, its settings with secrets redacted, the
+# effective route (WordPress load order decides between plugins), must-use plugins that
+# take over wp_mail, and Gravity SMTP's send log for the last seven days. Read-only and
+# offline: nothing is sent. A Mailgun secret leaves only as a 16-hex sha256 so the
+# Manager can tell whether it is the password it last deployed.
+read -r -d '' email_php <<'EMAILEOF'
+<?php
+// How this site sends email, read from what each mail plugin stored. Runs with
+// --skip-plugins: nothing is sent and no provider is contacted. Secrets never
+// leave the site: they become "set", and a Mailgun secret also gets a short
+// sha256 so the Manager can tell whether it is the current one.
+$active = (array) get_option( 'active_plugins', [] );
+if ( is_multisite() ) {
+	$active = array_merge( array_keys( (array) get_site_option( 'active_sitewide_plugins', [] ) ), $active );
+}
+$order = [];
+foreach ( array_values( $active ) as $i => $file ) {
+	$slug = strtok( (string) $file, '/' );
+	if ( ! isset( $order[ $slug ] ) ) {
+		$order[ $slug ] = $i;
+	}
+}
+$opt = function ( $name ) {
+	$v = get_option( $name );
+	if ( is_string( $v ) && $v !== '' && ( $v[0] === '{' || $v[0] === '[' ) ) {
+		$d = json_decode( $v, true );
+		if ( is_array( $d ) ) {
+			return $d;
+		}
+	}
+	return is_object( $v ) ? json_decode( wp_json_encode( $v ), true ) : $v;
+};
+$secret_key = '/pass|secret|api_?key|apikey|token|private|license|client_?secret|refresh|access_?key|auth_?key|_key$/i';
+$redact = function ( $v, $depth = 0 ) use ( &$redact, $secret_key ) {
+	if ( ! is_array( $v ) || $depth > 4 ) {
+		return is_array( $v ) ? '…' : $v;
+	}
+	$out = [];
+	foreach ( $v as $k => $x ) {
+		if ( is_string( $k ) && preg_match( $secret_key, $k ) && ! is_bool( $x ) && ! preg_match( '/^(auth|use|is|has|enable|encrypt)/i', $k ) ) {
+			$out[ $k ] = ( $x === '' || $x === null || $x === [] ) ? '' : 'set';
+		} else {
+			$out[ $k ] = $redact( $x, $depth + 1 );
+		}
+	}
+	return $out;
+};
+$cap = function ( $settings ) use ( $redact ) {
+	$r = $redact( is_array( $settings ) ? $settings : [] );
+	$j = wp_json_encode( $r );
+	return strlen( (string) $j ) > 6000 ? [ 'truncated' => true ] : $r;
+};
+$fp      = function ( $s ) { return ( is_string( $s ) && $s !== '' ) ? substr( hash( 'sha256', $s ), 0, 16 ) : ''; };
+$lower   = function ( $s ) { return strtolower( trim( (string) $s ) ); };
+$provider_for_host = function ( $host ) use ( $lower ) {
+	$h = $lower( $host );
+	$map = [
+		'mailgun.org' => 'mailgun', 'sendgrid.net' => 'sendgrid', 'postmarkapp.com' => 'postmark', 'amazonaws.com' => 'ses',
+		'gmail.com' => 'google', 'googlemail.com' => 'google', 'office365.com' => 'microsoft', 'outlook.com' => 'microsoft',
+		'brevo.com' => 'brevo', 'sendinblue.com' => 'brevo', 'smtp2go.com' => 'smtp2go', 'sparkpostmail.com' => 'sparkpost',
+		'mailjet.com' => 'mailjet', 'zoho.com' => 'zoho', 'zoho.eu' => 'zoho', 'elasticemail.com' => 'elasticemail',
+		'resend.com' => 'resend', 'mailersend.net' => 'mailersend', 'mandrillapp.com' => 'mandrill', 'socketlabs.com' => 'socketlabs',
+		'smtp.com' => 'smtpcom', 'sendlayer.net' => 'sendlayer', 'secureserver.net' => 'godaddy', 'kinsta.com' => 'kinsta',
+	];
+	foreach ( $map as $suffix => $p ) {
+		if ( $h === $suffix || substr( $h, -strlen( $suffix ) - 1 ) === '.' . $suffix ) {
+			return $p;
+		}
+	}
+	return $h === '' ? '' : 'smtp';
+};
+$domain_of = function ( $email ) use ( $lower ) {
+	$e = $lower( $email );
+	return strpos( $e, '@' ) !== false ? substr( $e, strrpos( $e, '@' ) + 1 ) : '';
+};
+$constants = [];
+foreach ( get_defined_constants( true )['user'] ?? [] as $name => $value ) {
+	if ( preg_match( '/^(GRAVITYSMTP_|WPMS_|MAILGUN_|POSTMAN_|FLUENTMAIL|POSTMARK_|SENDGRID_|SMTP_|WP_SMTP|EASY_WP_SMTP|WPOSES_|WP_SES_)/', $name ) ) {
+		$constants[ $name ] = ( preg_match( $secret_key, $name ) && is_string( $value ) ) ? ( $value === '' ? '' : 'set' ) : ( is_scalar( $value ) ? $value : '…' );
+	}
+}
+$const = function ( $name, $fallback = null ) { return defined( $name ) ? constant( $name ) : $fallback; };
+
+$mailers = [];
+$add = function ( $m ) use ( &$mailers, $order ) {
+	$m += [ 'provider' => '', 'host' => '', 'username' => '', 'domain' => '', 'from_email' => '', 'from_name' => '', 'secret' => '', 'secret_hash' => '', 'configured' => false, 'kind' => 'hook' ];
+	$m['order'] = $order[ $m['plugin'] ] ?? 999;
+	if ( $m['provider'] === 'mailgun' && $m['domain'] === '' && $m['username'] !== '' ) {
+		$m['domain'] = strrpos( $m['username'], '@' ) !== false ? substr( $m['username'], strrpos( $m['username'], '@' ) + 1 ) : '';
+	}
+	$mailers[] = $m;
+};
+
+// Gravity SMTP: the primary connector named in gravitysmtp_config, each connector in its own
+// option, wp-config constants (GRAVITYSMTP_<CONNECTOR>_<FIELD>) winning over the option.
+if ( isset( $order['gravitysmtp'] ) ) {
+	$config  = $opt( 'gravitysmtp_config' );
+	$config  = is_array( $config ) ? $config : [];
+	$truthy  = function ( $v ) { return $v === true || $v === 'true' || $v === '1' || $v === 1; };
+	$pick    = function ( $key ) use ( $config, $truthy ) { foreach ( (array) ( $config[ $key ] ?? [] ) as $c => $on ) { if ( $truthy( $on ) ) return (string) $c; } return ''; };
+	$primary = $pick( 'primary_connector' );
+	$backup  = $pick( 'backup_connector' );
+	$c       = $primary !== '' ? $opt( 'gravitysmtp_' . $primary ) : null;
+	$c       = is_array( $c ) ? $c : [];
+	$cu      = 'GRAVITYSMTP_' . strtoupper( $primary ) . '_';
+	foreach ( [ 'host', 'port', 'username', 'password', 'api_key', 'domain', 'region', 'from_email', 'from_name' ] as $f ) {
+		if ( $primary !== '' && defined( $cu . strtoupper( $f ) ) ) {
+			$c[ $f ] = constant( $cu . strtoupper( $f ) );
+		}
+	}
+	$types = [ 'generic' => '', 'mailgun' => 'mailgun', 'sendgrid' => 'sendgrid', 'postmark' => 'postmark', 'amazon' => 'ses', 'brevo' => 'brevo',
+		'google' => 'google', 'microsoft' => 'microsoft', 'mailjet' => 'mailjet', 'mailersend' => 'mailersend', 'resend' => 'resend',
+		'smtp2go' => 'smtp2go', 'sparkpost' => 'sparkpost', 'zoho' => 'zoho', 'elastic_email' => 'elasticemail', 'mailchimp' => 'mandrill', 'phpmail' => 'php_mail' ];
+	$provider = $primary === 'generic' ? $provider_for_host( $c['host'] ?? '' ) : ( $types[ $primary ] ?? $primary );
+	$secret   = $primary === 'mailgun' ? ( $c['api_key'] ?? '' ) : ( $c['password'] ?? ( $c['api_key'] ?? '' ) );
+	$add( [
+		'plugin' => 'gravitysmtp', 'name' => 'Gravity SMTP', 'kind' => 'pluggable',
+		'connector' => $primary, 'backup' => $backup, 'provider' => $provider === '' ? '' : $provider,
+		'host' => (string) ( $c['host'] ?? '' ), 'username' => $lower( $c['username'] ?? '' ),
+		'domain' => $lower( $c['domain'] ?? '' ), 'region' => (string) ( $c['region'] ?? '' ),
+		'from_email' => (string) ( $c['from_email'] ?? '' ), 'from_name' => (string) ( $c['from_name'] ?? '' ),
+		'secret' => $secret === '' ? 'missing' : 'set', 'secret_hash' => $provider === 'mailgun' ? $fp( $secret ) : '',
+		'configured' => $primary !== '' && $primary !== 'phpmail' && ( $truthy( $c['configured'] ?? false ) || $secret !== '' ),
+		'test_mode' => $truthy( $config['test_mode'] ?? false ),
+		'settings' => $cap( [ 'config' => array_diff_key( $config, [ 'license_key' => 1 ] ), 'primary' => $c ] ),
+	] );
+}
+
+// Mailgun's own plugin: API mode replaces wp_mail, SMTP mode configures PHPMailer.
+if ( isset( $order['mailgun'] ) ) {
+	$m      = $opt( 'mailgun' );
+	$m      = is_array( $m ) ? $m : [];
+	$use_api = (string) $const( 'MAILGUN_USEAPI', $m['useAPI'] ?? '1' ) === '1';
+	$domain = $lower( $const( 'MAILGUN_DOMAIN', $m['domain'] ?? '' ) );
+	$user   = $lower( $const( 'MAILGUN_USERNAME', $m['username'] ?? '' ) );
+	$secret = $use_api ? (string) $const( 'MAILGUN_APIKEY', $m['apiKey'] ?? '' ) : (string) $const( 'MAILGUN_PASSWORD', $m['password'] ?? '' );
+	$add( [
+		'plugin' => 'mailgun', 'name' => 'Mailgun', 'kind' => $use_api ? 'pluggable' : 'hook', 'mode' => $use_api ? 'api' : 'smtp',
+		'provider' => 'mailgun', 'host' => $use_api ? '' : 'smtp.mailgun.org', 'username' => $user,
+		'domain' => $use_api ? $domain : '', 'region' => (string) $const( 'MAILGUN_REGION', $m['region'] ?? '' ),
+		'from_email' => (string) ( $m['from-address'] ?? '' ), 'from_name' => (string) ( $m['from-name'] ?? '' ),
+		'secret' => $secret === '' ? 'missing' : 'set', 'secret_hash' => $fp( $secret ),
+		'configured' => $secret !== '' && ( $use_api ? $domain !== '' : $user !== '' ),
+		'settings' => $cap( $m ),
+	] );
+}
+
+// WP Mail SMTP (and Easy WP SMTP 2.x, which stores the same shape). The password is
+// encrypted at rest, so no hash.
+foreach ( [ 'wp-mail-smtp' => [ 'wp_mail_smtp', 'WP Mail SMTP' ], 'wp-mail-smtp-pro' => [ 'wp_mail_smtp', 'WP Mail SMTP Pro' ], 'easy-wp-smtp' => [ 'easy_wp_smtp', 'Easy WP SMTP' ], 'easy-wp-smtp-pro' => [ 'easy_wp_smtp', 'Easy WP SMTP Pro' ] ] as $slug => $info ) {
+	if ( ! isset( $order[ $slug ] ) ) {
+		continue;
+	}
+	$o = $opt( $info[0] );
+	if ( $slug === 'easy-wp-smtp' && ! is_array( $o ) ) {
+		// Easy WP SMTP 1.x: swpsmtp_options.
+		$v1 = $opt( 'swpsmtp_options' );
+		$v1 = is_array( $v1 ) ? $v1 : [];
+		$s  = (array) ( $v1['smtp_settings'] ?? [] );
+		$add( [
+			'plugin' => $slug, 'name' => $info[1], 'provider' => $provider_for_host( $s['host'] ?? '' ),
+			'host' => (string) ( $s['host'] ?? '' ), 'username' => $lower( $s['username'] ?? '' ),
+			'from_email' => (string) ( $v1['from_email_field'] ?? '' ), 'from_name' => (string) ( $v1['from_name_field'] ?? '' ),
+			'secret' => empty( $s['password'] ) ? 'missing' : 'set', 'configured' => ! empty( $s['host'] ),
+			'settings' => $cap( $v1 ),
+		] );
+		continue;
+	}
+	$o      = is_array( $o ) ? $o : [];
+	$wpms   = $slug !== 'easy-wp-smtp' && $slug !== 'easy-wp-smtp-pro' && $const( 'WPMS_ON' );
+	$mailer = (string) ( $wpms && defined( 'WPMS_MAILER' ) ? WPMS_MAILER : ( $o['mail']['mailer'] ?? 'mail' ) );
+	$smtp   = (array) ( $o['smtp'] ?? [] );
+	$host   = (string) ( $wpms && defined( 'WPMS_SMTP_HOST' ) ? WPMS_SMTP_HOST : ( $smtp['host'] ?? '' ) );
+	$user   = $lower( $wpms && defined( 'WPMS_SMTP_USER' ) ? WPMS_SMTP_USER : ( $smtp['user'] ?? '' ) );
+	$names  = [ 'mail' => 'php_mail', 'smtp' => '', 'mailgun' => 'mailgun', 'sendgrid' => 'sendgrid', 'postmark' => 'postmark', 'amazonses' => 'ses',
+		'gmail' => 'google', 'outlook' => 'microsoft', 'sendinblue' => 'brevo', 'brevo' => 'brevo', 'sparkpost' => 'sparkpost', 'smtpcom' => 'smtpcom',
+		'zoho' => 'zoho', 'mailjet' => 'mailjet', 'elasticemail' => 'elasticemail', 'smtp2go' => 'smtp2go', 'sendlayer' => 'sendlayer', 'mailersend' => 'mailersend', 'resend' => 'resend' ];
+	$provider = $mailer === 'smtp' ? $provider_for_host( $host ) : ( $names[ $mailer ] ?? $mailer );
+	$domain   = $mailer === 'mailgun' ? $lower( $wpms && defined( 'WPMS_MAILGUN_DOMAIN' ) ? WPMS_MAILGUN_DOMAIN : ( $o['mailgun']['domain'] ?? '' ) ) : '';
+	$add( [
+		'plugin' => $slug, 'name' => $info[1], 'mailer' => $mailer, 'provider' => $provider,
+		'host' => $mailer === 'smtp' ? $host : '', 'username' => $mailer === 'smtp' ? $user : '', 'domain' => $domain,
+		'from_email' => (string) ( $o['mail']['from_email'] ?? '' ), 'from_name' => (string) ( $o['mail']['from_name'] ?? '' ),
+		'secret' => $mailer === 'mail' ? '' : ( ( $mailer === 'smtp' ? ( $smtp['pass'] ?? '' ) : ( $o[ $mailer ]['api_key'] ?? ( $o[ $mailer ]['client_secret'] ?? '' ) ) ) !== '' || ( $wpms && defined( 'WPMS_SMTP_PASS' ) ) ? 'set' : 'missing' ),
+		'configured' => $mailer !== 'mail' && $provider !== '',
+		'settings' => $cap( $o ),
+	] );
+}
+
+// Post SMTP: secrets are base64 in postman_options.
+foreach ( [ 'post-smtp', 'postman-smtp' ] as $slug ) {
+	if ( ! isset( $order[ $slug ] ) ) {
+		continue;
+	}
+	$p    = $opt( 'postman_options' );
+	$p    = is_array( $p ) ? $p : [];
+	$t    = (string) ( $p['transport_type'] ?? 'default' );
+	$api  = [ 'mailgun_api' => 'mailgun', 'sendgrid_api' => 'sendgrid', 'postmark_api' => 'postmark', 'mandrill_api' => 'mandrill', 'sendinblue_api' => 'brevo',
+		'sparkpost_api' => 'sparkpost', 'elasticemail_api' => 'elasticemail', 'office365_api' => 'microsoft', 'gmail_api' => 'google', 'aws_ses_api' => 'ses',
+		'smtp2go_api' => 'smtp2go', 'mailjet_api' => 'mailjet', 'mailersend_api' => 'mailersend', 'resend_api' => 'resend', 'default' => 'php_mail' ];
+	$provider = $t === 'smtp' ? $provider_for_host( $p['hostname'] ?? '' ) : ( $api[ $t ] ?? $t );
+	$secret   = $t === 'mailgun_api' ? base64_decode( (string) ( $p['mailgun_api_key'] ?? '' ) ) : base64_decode( (string) ( $p['basic_auth_password'] ?? '' ) );
+	$add( [
+		'plugin' => $slug, 'name' => 'Post SMTP', 'kind' => 'pluggable', 'mailer' => $t, 'provider' => $provider,
+		'host' => $t === 'smtp' ? (string) ( $p['hostname'] ?? '' ) : '', 'username' => $t === 'smtp' ? $lower( $p['basic_auth_username'] ?? '' ) : '',
+		'domain' => $t === 'mailgun_api' ? $lower( $p['mailgun_domain_name'] ?? '' ) : '',
+		'from_email' => (string) ( $p['sender_email'] ?? '' ), 'from_name' => (string) ( $p['sender_name'] ?? '' ),
+		'secret' => $t === 'default' ? '' : ( $secret === '' ? 'missing' : 'set' ), 'secret_hash' => $provider === 'mailgun' ? $fp( $secret ) : '',
+		'configured' => $t !== 'default',
+		'settings' => $cap( $p ),
+	] );
+}
+
+// FluentSMTP: the default connection (passwords are encrypted, so no hash).
+if ( isset( $order['fluent-smtp'] ) ) {
+	$f     = $opt( 'fluentmail-settings' );
+	$f     = is_array( $f ) ? $f : [];
+	$key   = (string) ( $f['misc']['default_connection'] ?? '' );
+	$conns = (array) ( $f['connections'] ?? [] );
+	if ( $key === '' && $conns ) {
+		$key = (string) array_key_first( $conns );
+	}
+	$s        = (array) ( $conns[ $key ]['provider_settings'] ?? [] );
+	$prov     = (string) ( $s['provider'] ?? '' );
+	$names    = [ 'smtp' => '', 'mailgun' => 'mailgun', 'sendgrid' => 'sendgrid', 'postmark' => 'postmark', 'ses' => 'ses', 'gmail' => 'google', 'outlook' => 'microsoft',
+		'sendinblue' => 'brevo', 'sparkpost' => 'sparkpost', 'pepipost' => 'netcore', 'elasticmail' => 'elasticemail', 'smtp2go' => 'smtp2go', 'default' => 'php_mail', 'resend' => 'resend' ];
+	$provider = $prov === 'smtp' ? $provider_for_host( $s['host'] ?? '' ) : ( $names[ $prov ] ?? $prov );
+	$add( [
+		'plugin' => 'fluent-smtp', 'name' => 'FluentSMTP', 'kind' => 'pluggable', 'mailer' => $prov, 'provider' => $provider,
+		'host' => (string) ( $s['host'] ?? '' ), 'username' => $lower( $s['username'] ?? '' ), 'domain' => $lower( $s['domain_name'] ?? '' ),
+		'from_email' => (string) ( $s['sender_email'] ?? '' ), 'from_name' => (string) ( $s['sender_name'] ?? '' ),
+		'secret' => ( ( $s['password'] ?? '' ) !== '' || ( $s['api_key'] ?? '' ) !== '' ) ? 'set' : 'missing',
+		'configured' => $prov !== '' && $prov !== 'default', 'connections' => count( $conns ),
+		'settings' => $cap( $f ),
+	] );
+}
+
+// Plugins that send through one service, identified by the plugin alone.
+$single = [
+	'postmark-approved-wordpress-plugin' => [ 'Postmark', 'postmark', 'postmark_settings' ],
+	'sendgrid-email-delivery-simplified' => [ 'SendGrid', 'sendgrid', '' ],
+	'site-mailer'                        => [ 'Site Mailer', 'site-mailer', '' ],
+	'mailin'                             => [ 'Brevo', 'brevo', 'sib_home_option' ],
+	'wp-ses'                             => [ 'WP Offload SES', 'ses', 'wposes_settings' ],
+	'wpo365-msgraphmailer'               => [ 'WPO365 Mail', 'microsoft', '' ],
+	'elastic-email-sender'               => [ 'Elastic Email', 'elasticemail', '' ],
+	'sparkpost'                          => [ 'SparkPost', 'sparkpost', 'sp_settings' ],
+	'mailster-amazonses'                 => [ 'Mailster Amazon SES', 'ses', '' ],
+];
+foreach ( $single as $slug => $info ) {
+	if ( ! isset( $order[ $slug ] ) ) {
+		continue;
+	}
+	$o = $info[2] !== '' ? $opt( $info[2] ) : null;
+	$add( [
+		'plugin' => $slug, 'name' => $info[0], 'kind' => 'pluggable', 'provider' => $info[1],
+		'from_email' => is_array( $o ) ? (string) ( $o['sender_address'] ?? ( $o['from_email'] ?? '' ) ) : '',
+		'configured' => true, 'settings' => $cap( is_array( $o ) ? $o : [] ),
+	] );
+}
+
+// Generic SMTP plugins: host and username from their own option.
+$generic = [
+	'wp-smtp'           => [ 'WP SMTP', 'wp_smtp_options', 'host', 'username', 'from', 'fromname' ],
+	'smtp-mailer'       => [ 'SMTP Mailer', 'smtp_mailer_options', 'smtp_host', 'smtp_username', 'from_email', 'from_name' ],
+	'wp-multisite-smtp' => [ 'WP Multisite SMTP', 'wp_multisite_smtp', 'host', 'username', 'from', 'fromname' ],
+	'gmail-smtp'        => [ 'Gmail SMTP', 'gmail_smtp_options', 'smtp_host', 'oauth_user_email', 'from_email', 'from_name' ],
+	'smart-smtp'        => [ 'Smart SMTP', 'smart_smtp_options', 'host', 'username', 'from_email', 'from_name' ],
+	'easy-smtp'         => [ 'Easy SMTP', 'easy_smtp_options', 'host', 'username', 'from', 'from_name' ],
+	'wp-mail-bank'      => [ 'WP Mail Bank', 'mail_bank_email_configuration', 'hostname', 'username', 'sender_email', 'sender_name' ],
+	'newsletter-smtp'   => [ 'Newsletter SMTP', 'newsletter_smtp', 'host', 'user', '', '' ],
+	'lk-smtp-settings'  => [ 'LK SMTP Settings', 'lk_smtp_settings', 'host', 'username', 'from_email', 'from_name' ],
+	'groundhogg-smtp'   => [ 'Groundhogg SMTP', '', '', '', '', '' ],
+];
+foreach ( $generic as $slug => $g ) {
+	if ( ! isset( $order[ $slug ] ) ) {
+		continue;
+	}
+	$o    = $g[1] !== '' ? $opt( $g[1] ) : null;
+	$o    = is_array( $o ) ? $o : [];
+	$host = (string) ( $o[ $g[2] ] ?? '' );
+	$add( [
+		'plugin' => $slug, 'name' => $g[0], 'provider' => $host !== '' ? $provider_for_host( $host ) : 'unknown', 'host' => $host,
+		'username' => $lower( $o[ $g[3] ] ?? '' ), 'from_email' => (string) ( $o[ $g[4] ] ?? '' ), 'from_name' => (string) ( $o[ $g[5] ] ?? '' ),
+		'configured' => $host !== '' || ! $o, 'settings' => $cap( $o ),
+	] );
+}
+
+// Which one sends. WordPress loads plugins in active_plugins order. A plugin that
+// replaces wp_mail wins when it loads first; otherwise the last PHPMailer hook applies.
+$live = array_values( array_filter( $mailers, function ( $m ) { return $m['configured'] && $m['provider'] !== 'php_mail'; } ) );
+usort( $live, function ( $a, $b ) { return $a['order'] <=> $b['order']; } );
+$effective = null;
+foreach ( $live as $m ) {
+	if ( $m['kind'] === 'pluggable' ) { $effective = $m; break; }
+}
+if ( ! $effective && $live ) {
+	$effective = end( $live );
+}
+
+// Must-use plugins that replace wp_mail or configure PHPMailer themselves.
+$mu = [];
+foreach ( (array) glob( WPMU_PLUGIN_DIR . '/*.php' ) as $file ) {
+	$src = @file_get_contents( $file, false, null, 0, 300000 );
+	if ( is_string( $src ) && preg_match( '/function\s+wp_mail\s*\(|[\'"]phpmailer_init[\'"]|[\'"]pre_wp_mail[\'"]/', $src ) ) {
+		$mu[] = basename( $file );
+	}
+}
+
+// What stops mail outright: a plugin that disables it while active, or WP Staging's
+// optimizer on a site flagged as a staging copy (a staging site pushed over this one).
+$blockers = [];
+foreach ( [ 'disable-emails' => 'Disable Emails plugin', 'stop-emails' => 'Stop Emails plugin' ] as $slug => $label ) {
+	if ( isset( $order[ $slug ] ) ) {
+		$blockers[] = $label;
+	}
+}
+if ( in_array( 'wp-staging-optimizer.php', $mu, true ) && get_option( 'wpstg_is_staging_site' ) === 'true' ) {
+	$blockers[] = 'WP Staging (site flagged as a staging copy)';
+}
+
+// Gravity SMTP's send log: the last seven days.
+$log = null;
+global $wpdb;
+$table = $wpdb->prefix . 'gravitysmtp_events';
+if ( isset( $order['gravitysmtp'] ) && $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table ) {
+	$since = gmdate( 'Y-m-d H:i:s', time() - 7 * DAY_IN_SECONDS );
+	$log   = [ 'source' => 'gravitysmtp', 'sent' => 0, 'failed' => 0, 'sandboxed' => 0 ];
+	foreach ( (array) $wpdb->get_results( $wpdb->prepare( "SELECT status, COUNT(*) n FROM $table WHERE date_created >= %s GROUP BY status", $since ) ) as $r ) {
+		$log[ preg_replace( '/[^a-z_]/', '', strtolower( (string) $r->status ) ) ?: 'other' ] = (int) $r->n;
+	}
+	$log['last_sent']   = (string) $wpdb->get_var( "SELECT MAX(date_created) FROM $table WHERE status = 'sent'" );
+	$log['last_failed'] = (string) $wpdb->get_var( "SELECT MAX(date_created) FROM $table WHERE status = 'failed'" );
+}
+
+echo wp_json_encode( [
+	'v'         => 1,
+	'effective' => $effective ? $effective['plugin'] : '',
+	'mailers'   => array_map( function ( $m ) { unset( $m['order'] ); return $m; }, $mailers ),
+	'constants' => (object) $constants,
+	'mu'        => $mu,
+	'blockers'  => $blockers,
+	'log'       => $log,
+] );
+EMAILEOF
+
+email_json=$(echo "$email_php" | wp eval-file - --skip-themes --skip-plugins 2>/dev/null)
+if [[ -z "$email_json" ]]; then
+    email_json="null"
+fi
+echo "email:$(trim "$email_json")"
+
 # Session / privilege signal — compromise telemetry for WP Registry session-anomaly detection.
 # Efficient by design: NEVER loads all users. Scans capability ROLE definitions + a targeted
 # capabilities-meta query, then pulls session_tokens only for the (tiny) privileged set, so
