@@ -62,7 +62,6 @@ run_command() {
       echo "${b2_key_pair[0]}" >> "$vault_file"
       echo "${b2_key_pair[1]}" >> "$vault_file"
       cat ${CAPTAINCORE_PATH}/data/restic.key >> "$vault_file"
-      echo "Generating $vault_file"
     fi
 
     if [[ "$key" != "use_password" ]]; then
@@ -70,14 +69,12 @@ run_command() {
         key=$( captaincore configuration get --field=default_key )
       fi
       ssh_file="$path_keys/${CAPTAIN_ID}/${key}"
-      echo "Generating rclone configs for ${site}-${environment} with SSH key"
       quiet=$( rclone config create $environment $protocol host $address user $username port $port key_file $ssh_file --config="$rclone_config_file" )
     fi
 
     if [[ "$key" == "use_password" ]]; then
       password=$( captaincore site get ${site}-${environment} --field=password --captain-id=$CAPTAIN_ID )
       rclone_pass=$( rclone obscure "$password" )
-      echo "Generating rclone configs for ${site}-${environment} with password"
       quiet=$( rclone config create $environment $protocol host $address user $username port $port pass --config="$rclone_config_file" -- $rclone_pass )
     fi
 
