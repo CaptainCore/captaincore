@@ -1172,6 +1172,33 @@ var reservedTaskFlags = map[string]bool{
 	"--config":     true,
 }
 
+// nameOnlyTaskFlags take the name of a built-in script or a recipe id. On the
+// command line `captaincore ssh --script=<path>` also accepts a local file,
+// which `ssh` pipes into the remote shell; through the server that would let a
+// caller stream any file on this machine (configs, the fleet database) into a
+// site they own and read it back in the job output. Server tasks only ever
+// name a built-in (`--script=launch`, `--recipe=12`), so anything else is
+// reduced to name characters and fails as "Can't locate script".
+var nameOnlyTaskFlags = map[string]bool{
+	"--script": true,
+	"--recipe": true,
+}
+
+var taskNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
+var taskNameStrip = regexp.MustCompile(`[^A-Za-z0-9_-]`)
+
+func safeTaskName(flag, v string) string {
+	if taskNameRe.MatchString(v) {
+		return v
+	}
+	log.Printf("task: %s value is not a built-in name, refused", flag)
+	clean := strings.TrimLeft(taskNameStrip.ReplaceAllString(v, ""), "_-")
+	if clean == "" {
+		clean = "invalid"
+	}
+	return "refused-" + clean
+}
+
 // stripReservedFlags removes any reserved global flag (and its separate value,
 // for the "--flag value" form) from a caller-supplied argument list.
 func stripReservedFlags(args []string) []string {
@@ -1183,6 +1210,18 @@ func stripReservedFlags(args []string) []string {
 		if idx := strings.Index(arg, "="); idx >= 0 {
 			name = arg[:idx]
 			hasInlineValue = true
+		}
+		if nameOnlyTaskFlags[name] {
+			// "--script value": the value is the next element.
+			if !hasInlineValue && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				out = append(out, arg, safeTaskName(name, args[i+1]))
+				i++
+				continue
+			}
+			if hasInlineValue {
+				out = append(out, name+"="+safeTaskName(name, arg[len(name)+1:]))
+				continue
+			}
 		}
 		if !reservedTaskFlags[name] {
 			out = append(out, arg)
