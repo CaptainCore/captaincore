@@ -24,7 +24,8 @@ apt-get install -y -qq frankenphp php-zts-cli php-zts-mysqli php-zts-mysqlnd php
 apt-get install -y -qq unattended-upgrades msmtp-mta >/dev/null
 printf "%s\n" 'APT::Periodic::Update-Package-Lists "1";' 'APT::Periodic::Unattended-Upgrade "1";' > /etc/apt/apt.conf.d/20auto-upgrades
 SUDO_FORCE_REMOVE=yes apt-get purge -y -qq sudo >/dev/null 2>&1 || true
-# Site user: owns the WordPress files, runs PHP, is the SSH login.
+# Site user (uid 1000): owns the WordPress files, runs PHP, is the SSH login.
+# `host apply` renames the login after the site; units name it by number.
 id site >/dev/null 2>&1 || useradd --uid 1000 --create-home --home-dir /srv/site --shell /bin/bash site
 mkdir -p /srv/site/public /srv/site/.ssh && chmod 700 /srv/site/.ssh && chown -R site:site /srv/site
 
@@ -32,8 +33,8 @@ mkdir -p /srv/site/public /srv/site/.ssh && chmod 700 /srv/site/.ssh && chown -R
 mkdir -p /etc/systemd/system/frankenphp.service.d
 cat > /etc/systemd/system/frankenphp.service.d/site.conf <<EOF
 [Service]
-User=site
-Group=site
+User=1000
+Group=1000
 Restart=always
 EOF
 chown -R site:site /var/lib/frankenphp
@@ -101,7 +102,7 @@ ConditionPathExists=/srv/site/public/wp-config.php
 After=mariadb.service
 [Service]
 Type=oneshot
-User=site
+User=1000
 ExecStart=/usr/local/bin/wp --path=/srv/site/public cron event run --due-now --quiet
 EOF
 cat > /etc/systemd/system/wp-cron.timer <<"EOF"

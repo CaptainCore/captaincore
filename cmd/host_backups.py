@@ -247,9 +247,72 @@ def prune():
 HOST_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 
 
+def site_user(ct):
+    """The login name of the site user (uid 1000). Containers start with
+    `site`; `host apply` renames it after the site (`yoursbymk`), so never
+    assume the name."""
+    line = run("incus", "exec", ct, "--", "getent", "passwd", "1000", check=False).stdout.strip()
+    name = line.split(":", 1)[0]
+    return name if re.match(r"^[a-z][a-z0-9-]{0,31}$", name) else "site"
+
+
+def public_ipv4():
+    """This server's public IPv4: what site SSH ports listen on. They are
+    Incus proxies in NAT mode (the container sees the visitor's real address,
+    so sshd logs it and fail2ban can block it), and NAT mode needs a real
+    address, not 0.0.0.0."""
+    out = run("ip", "-4", "-o", "route", "get", "1.1.1.1").stdout
+    m = re.search(r"\bsrc (\d{1,3}(?:\.\d{1,3}){3})\b", out)
+    if not m:
+        raise RuntimeError("cannot tell this server's public address")
+    return m.group(1)
+
+
+def ssh_proxy(ct, ip, port):
+    """The device that hands the site's SSH port to the container."""
+    run("incus", "config", "device", "add", ct, "ssh", "proxy", "listen=tcp:%s:%d" % (public_ipv4(), int(port)),
+        "connect=tcp:%s:22" % ip, "nat=true")
+
+
+def ssh_jail_drop(ct):
+    """Forget a container's SSH jail (`host apply` writes it) when it stops being a site."""
+    path = "/etc/fail2ban/jail.d/cc-ssh-%s.local" % ct
+    if os.path.exists(path):
+        os.remove(path)
+        run("fail2ban-client", "reload", check=False)
+
+
+# Rename the site user (uid 1000) in a running container. usermod refuses
+# while PHP runs as the user, and the user id never changes, so the account
+# files are edited directly: running programs keep working. Units that named
+# the user switch to the number first, so a later restart still finds it.
+RENAME_LOGIN_SH = r"""set -e
+new="$1"
+old="$(getent passwd 1000 | cut -d: -f1)"
+[ -n "$old" ] || { echo "no user 1000" >&2; exit 2; }
+[ "$old" = "$new" ] && exit 0
+if getent passwd "$new" >/dev/null || getent group "$new" >/dev/null; then echo "the name $new is taken in this container" >&2; exit 3; fi
+for f in /etc/systemd/system/frankenphp.service.d/*.conf /etc/systemd/system/wp-cron.service /etc/systemd/system/cc-*.service; do
+  [ -f "$f" ] && sed -i -e "s/^User=$old\$/User=1000/" -e "s/^Group=$old\$/Group=1000/" "$f"
+done
+systemctl daemon-reload
+exec 9>/etc/.pwd.lock; flock 9
+sed -i "s/^$old:/$new:/" /etc/passwd /etc/shadow
+sed -i -e "s/^$old:/$new:/" -e "s/\([:,]\)$old\(,\|\$\)/\1$new\2/g" /etc/group /etc/gshadow
+for f in /etc/ssh/sshd_config.d/*.conf; do sed -i "s/^AllowUsers .*/AllowUsers $new/" "$f"; done
+sshd -t && systemctl reload ssh
+"""
+
+
+def rename_login(ct, new):
+    if not re.match(r"^[a-z][a-z0-9-]{0,31}$", new):
+        raise RuntimeError("invalid login name")
+    run("incus", "exec", ct, "--", "sh", "-c", RENAME_LOGIN_SH, "rename-login", new)
+
+
 def wp(ct, *args, check=True):
     cmd = "cd /srv/site/public && wp " + " ".join("'%s'" % a.replace("'", "") for a in args)
-    return run("incus", "exec", ct, "--", "su", "-s", "/bin/bash", "site", "-c", cmd, check=check)
+    return run("incus", "exec", ct, "--", "su", "-s", "/bin/bash", site_user(ct), "-c", cmd, check=check)
 
 
 def clone(src, dst, ip, port):
@@ -272,8 +335,7 @@ def clone(src, dst, ip, port):
         name = "%s-%s" % (dst, suffix)
         run("incus", "storage", "volume", "copy", "%s/%s" % (d["pool"], d["source"]), "%s/%s" % (d["pool"], name))
         run("incus", "storage", "volume", "attach", d["pool"], name, dst, path)
-    run("incus", "config", "device", "add", dst, "ssh", "proxy", "listen=tcp:0.0.0.0:%d" % int(port), "connect=tcp:127.0.0.1:22")
-    run("ufw", "allow", "%d/tcp" % int(port), check=False)
+    ssh_proxy(dst, ip, port)
     run("incus", "start", dst)
     for _ in range(40):
         if run("incus", "exec", dst, "--", "systemctl", "is-active", "mariadb", check=False).stdout.strip() == "active":
@@ -622,13 +684,22 @@ def rebuild(ct, alias):
     safety = create(ct, "pre-deploy")
     # SSH host keys travel, or every key holder gets a "host key changed" warning.
     keys = run("incus", "exec", ct, "--", "sh", "-c", "cd /etc/ssh && tar -cf - ssh_host_* | base64 -w0", check=False).stdout.strip() if was_running else ""
+    login = site_user(ct) if was_running else ""   # the new root starts as `site`; the login name travels
     old = "%s-oldroot-%s" % (ct, time.strftime("%Y%m%d%H%M%S", time.gmtime()))
     started = time.time()
     if was_running:
         run("incus", "stop", ct, "--timeout", "60", check=False)
         if json.loads(run("incus", "query", "/1.0/instances/" + ct).stdout).get("status") != "Stopped":
             run("incus", "stop", ct, "--force")
-    _site_devices(ct, devs, add=False)
+    try:
+        _site_devices(ct, devs, add=False)
+    except Exception as e:
+        # Taking the devices off did not finish: put back what came off and start it as it was.
+        have = json.loads(run("incus", "query", "/1.0/instances/" + ct).stdout).get("devices") or {}
+        _site_devices(ct, {k: v for k, v in devs.items() if k not in have}, add=True)
+        if was_running:
+            run("incus", "start", ct, check=False)
+        raise RuntimeError("rebuild did not start, the container is as it was: %s" % str(e)[:300])
     run("incus", "rename", ct, old)
     try:
         run("incus", "init", alias, ct)
@@ -640,6 +711,8 @@ def rebuild(ct, alias):
         _wait_ready(ct, ip)
         if keys:
             run("incus", "exec", ct, "--", "sh", "-c", "cd /etc/ssh && rm -f ssh_host_* && base64 -d | tar -xf - && systemctl restart ssh", inp=keys)
+        if login and login != "site":
+            rename_login(ct, login)
         # No answer yet means PHP is still starting: wait for it. An error
         # page is an answer: the site does not run on this image, and every
         # second spent re-asking is a second visitors see that error.
@@ -669,6 +742,9 @@ def rebuild(ct, alias):
         m = OLDROOT_RE.match(n)
         if m and m.group(1) == ct and n != old:
             run("incus", "delete", n, "--force", check=False)
+    # Its SSH jail reads the container's journal by path: a new root is a new journal.
+    if os.path.exists("/etc/fail2ban/jail.d/cc-ssh-%s.local" % ct):
+        run("fail2ban-client", "reload", "cc-ssh-" + ct, check=False)
     php = "PHP " + run("incus", "exec", ct, "--", "php", "-r", "echo PHP_VERSION;", check=False).stdout.strip()
     return {"container": ct, "image": alias, "was": was.get("image", ""), "offline_seconds": offline, "health": code,
             "safety_backup": safety, "old_root": old, "runs": php, "host_keys_kept": bool(keys)}
@@ -701,13 +777,14 @@ def site_park(ct):
     # boots on a random address); only removing the network device drops the
     # lease. Both are noted on the container for whoever restores it:
     #   incus config device override <ct> eth0 ipv4.address=<ip> security.port_isolation=true
-    #   incus config device add <ct> ssh proxy listen=tcp:0.0.0.0:<port> connect=tcp:127.0.0.1:22
+    #   incus config device add <ct> ssh proxy listen=tcp:<public ip>:<port> connect=tcp:<ip>:22 nat=true
     run("incus", "config", "set", ct, "user.cc_parked_ip=%s" % ip, "user.cc_parked_ssh_port=%s" % port, check=False)
     for name, d in devs.items():
         if d.get("type") == "proxy" or (d.get("type") == "nic" and d.get("ipv4.address")):
             run("incus", "config", "device", "remove", ct, name, check=False)
     parked = "%s-removed-%s" % (ct, time.strftime("%Y%m%d", time.gmtime()))
     run("incus", "rename", ct, parked)
+    ssh_jail_drop(ct)
     for path in ("/etc/caddy/sites/%s.caddyfile" % ct, "/etc/caddy/sites/.%s.prev" % ct):
         if os.path.exists(path):
             os.remove(path)
@@ -735,6 +812,10 @@ def purge_parked(force_name=None):
         info = json.loads(run("incus", "query", "/1.0/instances/" + n).stdout)
         vols = [d["source"] for d in (info.get("devices") or {}).values() if d.get("type") == "disk" and d.get("source") and d.get("pool")]
         run("incus", "delete", n, "--force")
+        jdir = "/var/lib/captaincore/journal/" + m.group(1)
+        if re.match(r"^/var/lib/captaincore/journal/[a-z0-9][a-z0-9-]*$", jdir) and os.path.isdir(jdir) \
+                and run("incus", "info", m.group(1), check=False).returncode != 0:
+            subprocess.run(["rm", "-rf", "--one-file-system", jdir])   # its journal, unless a site of that name is back
         src = run("incus", "storage", "get", "default", "source").stdout.strip()
         for v in vols:
             if run("incus", "storage", "volume", "delete", "default", v, check=False).returncode != 0:
@@ -785,7 +866,7 @@ systemctl unmask mariadb >/dev/null 2>&1 || true
 systemctl enable mariadb wp-cron.timer >/dev/null 2>&1
 """ + DB_SETUP + """systemctl start wp-cron.timer
 if [ -n "$(ls -A /srv/site/public)" ]; then
-  install -d -o site -g site -m 0755 "/srv/site/$MOVED"
+  install -d -o 1000 -g 1000 -m 0755 "/srv/site/$MOVED"
   find /srv/site/public -mindepth 1 -maxdepth 1 -exec mv -t "/srv/site/$MOVED" {} +
   echo moved
 fi
@@ -840,7 +921,7 @@ def create_site(ct, image, ip, port, disk_gib, memory_mib, stack="wordpress"):
         run("incus", "config", "device", "override", ct, "eth0", "ipv4.address=" + ip, "security.port_isolation=true")
         run("incus", "storage", "volume", "attach", pool, ct + "-site", ct, "/srv/site")
         run("incus", "storage", "volume", "attach", pool, ct + "-db", ct, "/var/lib/mysql")
-        run("incus", "config", "device", "add", ct, "ssh", "proxy", "listen=tcp:0.0.0.0:%d" % int(port), "connect=tcp:127.0.0.1:22")
+        ssh_proxy(ct, ip, port)
         run("incus", "start", ct)
         # The edge and the mail relay know the site by this address, so a
         # container that came up on another one (a stale DHCP lease on the
@@ -863,7 +944,6 @@ def create_site(ct, image, ip, port, disk_gib, memory_mib, stack="wordpress"):
         for suffix in ("-site", "-db"):
             run("incus", "storage", "volume", "delete", pool, ct + suffix, check=False)
         raise
-    run("ufw", "allow", "%d/tcp" % int(port), check=False)
     for _ in range(30):
         if run("incus", "exec", ct, "--", "true", check=False).returncode == 0:
             break
@@ -874,15 +954,15 @@ def create_site(ct, image, ip, port, disk_gib, memory_mib, stack="wordpress"):
         db_off(ct)
         database = ""
     setup = """set -e
-install -d -o site -g site -m 0755 /srv/site /srv/site/public /srv/site/apps
-install -d -o site -g site -m 0750 /srv/site/logs
-install -d -o site -g site -m 0700 /srv/site/.ssh
+install -d -o 1000 -g 1000 -m 0755 /srv/site /srv/site/public /srv/site/apps
+install -d -o 1000 -g 1000 -m 0750 /srv/site/logs
+install -d -o 1000 -g 1000 -m 0700 /srv/site/.ssh
 # The image carries the build container's SSH host keys: every site would
 # share one key. Each site gets its own (a rebuild keeps these).
 rm -f /etc/ssh/ssh_host_*
 ssh-keygen -A >/dev/null
 systemctl restart ssh
-""" + database + """[ -n "$(ls -A /srv/site/public)" ] || { printf '%s\n' '<!doctype html><meta charset="utf-8"><meta name="robots" content="noindex"><title>Coming soon</title><style>body{font:16px/1.5 system-ui,sans-serif;display:grid;place-items:center;min-height:90vh;color:#444}</style><p>This site is being set up.</p>' > /srv/site/public/index.html; chown site:site /srv/site/public/index.html; }
+""" + database + """[ -n "$(ls -A /srv/site/public)" ] || { printf '%s\n' '<!doctype html><meta charset="utf-8"><meta name="robots" content="noindex"><title>Coming soon</title><style>body{font:16px/1.5 system-ui,sans-serif;display:grid;place-items:center;min-height:90vh;color:#444}</style><p>This site is being set up.</p>' > /srv/site/public/index.html; chown 1000:1000 /srv/site/public/index.html; }
 systemctl restart frankenphp || true
 """
     run("incus", "exec", ct, "--env", "DBPASS=" + dbpass, "--", "bash", "-c", setup)
@@ -921,7 +1001,7 @@ wp rewrite structure '/%postname%/' --quiet
 """
     run("incus", "exec", ct, "--env", "DBPASS=" + dbpass, "--env", "HOST=" + url_host, "--env", "TITLE=" + title,
         "--env", "AUSER=" + admin_user, "--env", "AEMAIL=" + admin_email, "--env", "APASS=" + adminpass,
-        "--", "su", "-s", "/bin/bash", "site", "-c", script)
+        "--", "su", "-s", "/bin/bash", site_user(ct), "-c", script)
     return {"url": "https://" + url_host, "admin_user": admin_user}
 
 
@@ -1005,8 +1085,8 @@ def _restore_restic(ct, creds):
         os.rename(top, hold)
         shutil.rmtree(target)
         os.rename(hold, target)
-    uid = run("incus", "exec", ct, "--", "id", "-u", "site").stdout.strip()
-    gid = run("incus", "exec", ct, "--", "id", "-g", "site").stdout.strip()
+    uid = "1000"
+    gid = "1000"
     base = int(run("incus", "config", "get", ct, "volatile.idmap.base").stdout.strip() or 0)
     if not uid.isdigit() or not gid.isdigit() or base <= 0:
         raise RuntimeError("could not read the container's user mapping")
@@ -1017,7 +1097,7 @@ def _restore_restic(ct, creds):
 
 def _restore_tar(ct):
     """Unpack a tar stream on stdin into ~/public as the site user."""
-    p = subprocess.run(["incus", "exec", "-T", ct, "--", "su", "-s", "/bin/bash", "site", "-c",
+    p = subprocess.run(["incus", "exec", "-T", ct, "--", "su", "-s", "/bin/bash", site_user(ct), "-c",
                         "tar -x -C /srv/site/public --no-same-owner --delay-directory-restore"],
                        stdin=sys.stdin.buffer, capture_output=True, text=True)
     if p.returncode != 0:
@@ -1076,12 +1156,12 @@ def site_restore(ct, url_host, cron, mode="tar"):
     # Out of the web root before anything else runs: the dump, and drop-ins
     # that would load on every request (even WP-CLI's with plugins skipped).
     moved = []
-    run("incus", "exec", ct, "--", "install", "-d", "-o", "site", "-g", "site", "-m", "0700", aside)
+    run("incus", "exec", ct, "--", "install", "-d", "-o", "1000", "-g", "1000", "-m", "0700", aside)
     run("incus", "exec", ct, "--", "mv", "/srv/site/public/database-backup.sql", aside + "/database-backup.sql")
     for rel in HOST_LEFTOVERS:
         if run("incus", "exec", ct, "--", "test", "-e", "/srv/site/public/" + rel, check=False).returncode == 0:
             dest = aside + "/removed/" + os.path.dirname(rel)
-            run("incus", "exec", ct, "--", "su", "-s", "/bin/bash", "site", "-c",
+            run("incus", "exec", ct, "--", "su", "-s", "/bin/bash", site_user(ct), "-c",
                 "mkdir -p '%s' && mv '/srv/site/public/%s' '%s/'" % (dest, rel, dest))
             moved.append(rel)
     dbpass = secrets.token_hex(16)
@@ -1091,7 +1171,7 @@ def site_restore(ct, url_host, cron, mode="tar"):
         # The old database goes whole: the copy may use another table prefix.
         run("incus", "exec", ct, "--", "mariadb", "-e",
             "DROP DATABASE IF EXISTS wordpress; CREATE DATABASE wordpress CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
-    fixed = run("incus", "exec", ct, "--env", "DBPASS=" + dbpass, "--", "su", "-s", "/bin/bash", "site", "-c", "php", inp=WP_CONFIG_FIX)
+    fixed = run("incus", "exec", ct, "--env", "DBPASS=" + dbpass, "--", "su", "-s", "/bin/bash", site_user(ct), "-c", "php", inp=WP_CONFIG_FIX)
     flags = json.loads(fixed.stdout.strip().splitlines()[-1])
     if flags.get("subdomain"):
         raise RuntimeError("subdomain multisite can't run on one temporary address; not supported yet")
@@ -1113,7 +1193,7 @@ def site_restore(ct, url_host, cron, mode="tar"):
     wp(ct, "rewrite", "flush", "--quiet", *skip, check=False)
     # The dump stays beside the files (outside the web root) until the copy
     # is checked: delete ~/restore-<datetime> when it is no longer needed.
-    run("incus", "exec", ct, "--", "chown", "-R", "site:site", aside)
+    run("incus", "exec", ct, "--", "chown", "-R", "1000:1000", aside)
     run("incus", "exec", ct, "--", "systemctl", "enable" if cron == "on" else "disable", "--now", "wp-cron.timer", check=False)
     cache_clear(ct)
     run("incus", "exec", ct, "--", "systemctl", "restart", "frankenphp", check=False)
@@ -1834,9 +1914,9 @@ try:
         if not re.match(r"^[a-z0-9][a-z0-9-]{0,62}$", ct) or not re.match(r"^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)) [A-Za-z0-9+/]+={0,3}$", key):
             raise RuntimeError("invalid authorize arguments")
         run("incus", "exec", ct, "--env", "KEY=" + key + " captaincore-management", "--", "sh", "-c",
-            "install -d -o site -g site -m 0700 /srv/site/.ssh && touch /srv/site/.ssh/authorized_keys && "
+            "install -d -o 1000 -g 1000 -m 0700 /srv/site/.ssh && touch /srv/site/.ssh/authorized_keys && "
             "grep -qF \"$KEY\" /srv/site/.ssh/authorized_keys || printf '%s\\n' \"$KEY\" >> /srv/site/.ssh/authorized_keys; "
-            "chown site:site /srv/site/.ssh/authorized_keys && chmod 600 /srv/site/.ssh/authorized_keys")
+            "chown 1000:1000 /srv/site/.ssh/authorized_keys && chmod 600 /srv/site/.ssh/authorized_keys")
         out({"status": "ok"})
     elif cmd == "wp-enable":
         out(dict(status="ok", **wp_enable(sys.argv[2])))

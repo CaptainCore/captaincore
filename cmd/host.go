@@ -170,6 +170,15 @@ func hostApplyNative(cmd *cobra.Command, args []string) {
 		fmt.Fprintf(os.Stderr, "Warning: could not record the result in the manager: %v\n", err)
 	}
 
+	// The SSH login was renamed after the site: the Manager now holds the new
+	// name (host-config-applied), and every SSH command here reads it from the
+	// local copy, so refresh that before anything connects.
+	if u, ok := result["ssh_user"].(string); ok && u != "" && u != env.Username {
+		if err := selfRun("site", "sync", fmt.Sprint(site.SiteID)); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: SSH login is now %s; site sync failed: %v\n", u, err)
+		}
+	}
+
 	changes, _ := result["changes"].([]interface{})
 	names := []string{}
 	for _, ch := range changes {

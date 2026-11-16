@@ -27,6 +27,27 @@ def run(*args, inp=None, check=True):
     return p
 
 
+# Rename the site user (uid 1000), the same script as cc-backups' rename_login:
+# usermod refuses while PHP runs as the user, so the account files are edited
+# directly (the user id never changes); units naming the user switch to 1000.
+RENAME_LOGIN_SH = r"""set -e
+new="$1"
+old="$(getent passwd 1000 | cut -d: -f1)"
+[ -n "$old" ] || { echo "no user 1000" >&2; exit 2; }
+[ "$old" = "$new" ] && exit 0
+if getent passwd "$new" >/dev/null || getent group "$new" >/dev/null; then echo "the name $new is taken in this container" >&2; exit 3; fi
+for f in /etc/systemd/system/frankenphp.service.d/*.conf /etc/systemd/system/wp-cron.service /etc/systemd/system/cc-*.service; do
+  [ -f "$f" ] && sed -i -e "s/^User=$old\$/User=1000/" -e "s/^Group=$old\$/Group=1000/" "$f"
+done
+systemctl daemon-reload
+exec 9>/etc/.pwd.lock; flock 9
+sed -i "s/^$old:/$new:/" /etc/passwd /etc/shadow
+sed -i -e "s/^$old:/$new:/" -e "s/\([:,]\)$old\(,\|\$\)/\1$new\2/g" /etc/group /etc/gshadow
+for f in /etc/ssh/sshd_config.d/*.conf; do sed -i "s/^AllowUsers .*/AllowUsers $new/" "$f"; done
+sshd -t && systemctl reload ssh
+"""
+
+
 try:
     hc = json.load(sys.stdin)
 except Exception as e:
@@ -51,6 +72,15 @@ for d in (cfg.get("domains") or []):
     if d.get("www"):
         site_hosts.append("www." + d.get("name", ""))
 res["revision"] = rev
+# SSH: the Manager names the login (the site's slug); the container's user
+# 1000 is renamed to it. The SSH port reaches the container through NAT on
+# the server's public address, so sshd sees real addresses for fail2ban.
+LOGIN_RE = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
+want_login = str(hc.get("ssh_user") or "")
+want_login = want_login if LOGIN_RE.match(want_login) else ""
+server_ip = str((hc.get("server") or {}).get("address") or "")
+if not re.match(r"^\d{1,3}(\.\d{1,3}){3}$", server_ip):
+    server_ip = ""
 
 # Everything below lands in config files or argv, so check it all again here.
 HOST_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
@@ -330,8 +360,8 @@ Description=CaptainCore page cache: drop expired pages
 
 [Service]
 Type=oneshot
-User=site
-Group=site
+User=1000
+Group=1000
 ExecStart=/bin/sh %s
 Nice=10
 """ % PC_GC,
@@ -480,9 +510,14 @@ def ct_write(path, content):
     run("incus", "exec", ct, "--", "sh", "-c", "mkdir -p \"$(dirname '%s')\" && cat > '%s.cc-new' && chmod 0644 '%s.cc-new' && mv '%s.cc-new' '%s'" % (path, path, path, path, path), inp=content)
 
 
+# The site user is uid 1000; its login name is the site's (renamed below), so
+# files are owned by number and `su` asks for the current name.
+_pw = run("incus", "exec", ct, "--", "getent", "passwd", "1000", check=False).stdout.strip().split(":", 1)[0]
+site_user = _pw if LOGIN_RE.match(_pw) else "site"
+
 # The logs directory the Logs view reads (~/logs), owned by the site user.
 if not DRY:
-    run("incus", "exec", ct, "--", "install", "-d", "-o", "site", "-g", "site", "-m", "0750", "/srv/site/logs", check=False)
+    run("incus", "exec", ct, "--", "install", "-d", "-o", "1000", "-g", "1000", "-m", "0750", "/srv/site/logs", check=False)
     run("incus", "exec", ct, "--", "sh", "-c",
         "[ -d /etc/logrotate.d ] && printf '%s\\n' '/srv/site/logs/php-error.log /srv/site/logs/mail.log {' '  size 25M' '  rotate 4' '  compress' '  missingok' '  notifempty' '  copytruncate' '}' > /etc/logrotate.d/captaincore || true",
         check=False)
@@ -492,7 +527,7 @@ php_changed = any(php_old[path] != content for path, content in PHP_FILES)
 
 def wp(*args, check=True):
     cmd = "cd /srv/site/public && wp " + " ".join("'%s'" % a.replace("'", "") for a in args)
-    return run("incus", "exec", ct, "--", "su", "-s", "/bin/bash", "site", "-c", cmd, check=check)
+    return run("incus", "exec", ct, "--", "su", "-s", "/bin/bash", site_user, "-c", cmd, check=check)
 
 
 # ── Apps: one systemd service each, as the site user ──────────────────────
@@ -517,8 +552,8 @@ Description=CaptainCore app %s
 After=network-online.target mariadb.service
 
 [Service]
-User=site
-Group=site
+User=1000
+Group=1000
 WorkingDirectory=/srv/site/apps/%s
 Environment=PORT=%d
 EnvironmentFile=-/etc/captaincore/apps/%s.env
@@ -563,20 +598,72 @@ mem_changed = cur_mem != want_mem
 
 blog_public_fix = noindex and not plain and wp("option", "get", "blog_public", check=False).stdout.strip() != "0"
 
-# Container hardening, kept by every apply: customers SSH in only as site,
+# Container hardening, kept by every apply: customers SSH in only as the site's login,
 # tunnel only to their own database (127.0.0.1:3306), no agent, X11 or tun
 # forwarding; no LLMNR/mDNS listener; at most `cpus` cores (default 4, the
 # PHP thread ceiling), so one busy site can't take the whole server.
+# The login is renamed first (see SSH below) when the Manager asks for another
+# name and nothing else in the container has it.
+login = site_user
+login_conflict = False
+if want_login and want_login != site_user:
+    if run("incus", "exec", ct, "--", "sh", "-c", "getent passwd '%s' || getent group '%s'" % (want_login, want_login), check=False).stdout.strip():
+        login_conflict = True
+        res["warnings"] = res.get("warnings", []) + ["SSH login stays %s: the name %s is taken in the container" % (site_user, want_login)]
+    else:
+        login = want_login
+login_changed = login != site_user
 HARDEN_FILES = [
     ("/etc/ssh/sshd_config.d/10-captaincore.conf", "\n".join([
         "# Managed by CaptainCore (hosting configuration).",
-        "PermitRootLogin no", "AllowUsers site", "PasswordAuthentication no", "KbdInteractiveAuthentication no",
+        "PermitRootLogin no", "AllowUsers " + login, "PasswordAuthentication no", "KbdInteractiveAuthentication no",
         "X11Forwarding no", "AllowAgentForwarding no", "PermitTunnel no", "GatewayPorts no",
-        "AllowTcpForwarding local", "PermitOpen 127.0.0.1:3306 localhost:3306", "MaxAuthTries 3"]) + "\n"),
+        "AllowTcpForwarding local", "PermitOpen 127.0.0.1:3306 localhost:3306", "MaxAuthTries 3",
+        "LoginGraceTime 30", "MaxStartups 10:30:60"]) + "\n"),
     ("/etc/systemd/resolved.conf.d/10-captaincore.conf", "# Managed by CaptainCore (hosting configuration).\n[Resolve]\nLLMNR=no\nMulticastDNS=no\n"),
 ]
 harden_old = {path: ct_read(path) for path, _ in HARDEN_FILES}
 harden_changed = [path for path, content in HARDEN_FILES if harden_old[path] != content]
+# The image's own SSH drop-in (it named `site` in AllowUsers); everything in it is in ours.
+IMAGE_SSHD = "/etc/ssh/sshd_config.d/captaincore.conf"
+image_sshd_left = ct_read(IMAGE_SSHD) is not None
+
+# The SSH port: NAT on this server's public address to the container's sshd
+# (a plain proxy made every login look like 127.0.0.1). The jail reads the
+# container's journal and blocks an address on every site's SSH at once.
+_ssh_dev = (json.loads(run("incus", "query", "/1.0/instances/" + ct).stdout).get("devices") or {}).get("ssh") or {}
+ssh_port = (_ssh_dev.get("listen", "").rsplit(":", 1)[-1:] or [""])[0]
+ssh_dev_want = {"type": "proxy", "listen": "tcp:%s:%s" % (server_ip, ssh_port), "connect": "tcp:%s:22" % ip, "nat": "true"}
+ssh_dev_changed = bool(server_ip and ssh_port.isdigit()) and any(_ssh_dev.get(k) != v for k, v in ssh_dev_want.items())
+# The container's journal lives on this server's disk (a disk device over
+# /var/log/journal): fail2ban reads it there, and never holds a file inside
+# the container's root, which would stop Incus unmounting it (stop, park,
+# rebuild all failed with "device or resource busy").
+_mid = (ct_read("/etc/machine-id") or "").strip()
+JOURNAL_HOST = "/var/lib/captaincore/journal/" + ct
+JOURNALD_CONF = ("/etc/systemd/journald.conf.d/10-captaincore.conf",
+                 "# Managed by CaptainCore (hosting configuration).\n[Journal]\nStorage=persistent\nSystemMaxUse=32M\n")
+_jdev = (json.loads(run("incus", "query", "/1.0/instances/" + ct).stdout).get("devices") or {}).get("journal") or {}
+journal_dev_want = {"type": "disk", "source": JOURNAL_HOST, "path": "/var/log/journal", "shift": "true"}
+journal_changed = any(_jdev.get(k) != v for k, v in journal_dev_want.items()) or ct_read(JOURNALD_CONF[0]) != JOURNALD_CONF[1]
+JAIL_PATH = "/etc/fail2ban/jail.d/cc-ssh-%s.local" % ct
+JOURNAL = "%s/%s" % (JOURNAL_HOST, _mid)
+jail_new = None
+if re.match(r"^[0-9a-f]{32}$", _mid) and os.path.isdir("/etc/fail2ban/jail.d"):
+    jail_new = """# Managed by CaptainCore (SSH sign-in protection for container %s).
+[cc-ssh-%s]
+enabled = true
+filter = sshd[mode=aggressive]
+backend = systemd[journalpath="%s"]
+maxretry = 6
+findtime = 10m
+bantime = 1h
+bantime.increment = true
+bantime.maxtime = 1w
+action = nftables[type=multiport, port="22", protocol=tcp, chain=cc-ssh-fwd, chain_hook=forward, name=cc-ssh-%s]
+""" % (ct, ct, JOURNAL, ct)
+jail_old = open(JAIL_PATH).read() if os.path.exists(JAIL_PATH) else None
+jail_changed = jail_new is not None and jail_new != jail_old
 try:
     want_cpus = str(max(1, min(int(cfg.get("cpus") or 4), os.cpu_count() or 4)))
 except (TypeError, ValueError):
@@ -697,8 +784,8 @@ After=network-online.target mariadb.service
 
 [Service]
 Type=oneshot
-User=site
-Group=site
+User=1000
+Group=1000
 WorkingDirectory=/srv/site/public
 ExecStart=/bin/bash /etc/captaincore/cron/%s.sh
 TimeoutStartSec=3600
@@ -753,9 +840,12 @@ pc_changed = bool(pc_diff)
 
 if DRY:
     res["would_change"] = [n for n, c in (("cache", pc_changed), ("edge", edge_new != edge_old), ("php", php_changed), ("memory", mem_changed), ("debug", debug_changed), ("blog_public", blog_public_fix), ("hardening", bool(harden_changed)), ("cpu", cpu_changed), ("mail", msmtp_changed or relay_changed or bool(prepend_diff) or mail_ports_changed), ("cron", cron_changed), ("root disk", root_changed), ("volume quotas", bool(refq_changed)),
-        ("bandwidth", bw_changed), ("setuid", bool(suid_on)), ("database tunnel", db_twin_changed), ("scheduled tasks", cron_jobs_changed)) if c] \
+        ("bandwidth", bw_changed), ("setuid", bool(suid_on)), ("database tunnel", db_twin_changed), ("scheduled tasks", cron_jobs_changed),
+        ("ssh login", login_changed), ("ssh port", ssh_dev_changed), ("journal", journal_changed), ("ssh jail", jail_changed)) if c] \
         + ["app:" + n for n in app_changes] + ["remove:" + u for u in removed_units]
     res["edge"] = edge_new
+    res["ssh_user"] = site_user
+    res["ssh_user_wanted"] = login
     done("dry-run")
 
 
@@ -905,7 +995,7 @@ try:
             if path != PC_PHP:
                 ct_write_any(path, pc_want[path])
         run("incus", "exec", ct, "--", "sh", "-c",
-            "install -d -m 0755 /var/cache/captaincore && install -d -o site -g site -m 0750 '%s'" % PC_ROOT)
+            "install -d -m 0755 /var/cache/captaincore && install -d -o 1000 -g 1000 -m 0750 '%s'" % PC_ROOT)
         if PC_JSON in pc_diff or PC_PHP in pc_diff:
             # Other hostnames, exclusions or saving rules: saved pages may no longer be right.
             run("incus", "exec", ct, "--", "find", PC_ROOT, "-mindepth", "1", "-maxdepth", "1", "-exec", "rm", "-rf", "{}", "+", check=False)
@@ -943,9 +1033,9 @@ try:
                 ct_write(path, content)
         # Validate as the site user: validating opens the log files, and a
         # root-owned access.log would stop PHP (running as site) from starting.
-        v = run("incus", "exec", ct, "--", "su", "-s", "/bin/sh", "site", "-c",
+        v = run("incus", "exec", ct, "--", "su", "-s", "/bin/sh", site_user, "-c",
                 "cd /srv/site && frankenphp validate --config /etc/frankenphp/Caddyfile", check=False)
-        run("incus", "exec", ct, "--", "chown", "-R", "site:site", "/srv/site/logs", check=False)
+        run("incus", "exec", ct, "--", "chown", "-R", "1000:1000", "/srv/site/logs", check=False)
 
         def restore_php():
             for path, _ in PHP_FILES:
@@ -997,6 +1087,20 @@ try:
             "dpkg-statoverride --update --add \"$(stat -c %%U \"$f\")\" \"$(stat -c %%G \"$f\")\" $(printf %%o $((0$m & 03777))) \"$f\"; done" % " ".join(suid_on), check=False)
         res["changes"].append("setuid")
 
+    if login_changed:
+        r = run("incus", "exec", ct, "--", "sh", "-c", RENAME_LOGIN_SH, "rename-login", login, check=False)
+        if r.returncode == 0:
+            site_user = login
+            res["changes"].append("ssh login")
+        else:
+            login = site_user
+            res["warnings"] = res.get("warnings", []) + ["SSH login not renamed: " + (r.stderr or r.stdout).strip()[:200]]
+            HARDEN_FILES[0] = (HARDEN_FILES[0][0], HARDEN_FILES[0][1].replace("AllowUsers " + want_login, "AllowUsers " + site_user))
+            harden_changed = [path for path, content in HARDEN_FILES if harden_old[path] != content]
+    if image_sshd_left:
+        run("incus", "exec", ct, "--", "rm", "-f", IMAGE_SSHD, check=False)
+        if HARDEN_FILES[0][0] not in harden_changed:
+            harden_changed.append(HARDEN_FILES[0][0])
     if harden_changed:
         for path, content in HARDEN_FILES:
             if path in harden_changed:
@@ -1015,6 +1119,44 @@ try:
         if any("resolved" in p for p in harden_changed):
             run("incus", "exec", ct, "--", "systemctl", "restart", "systemd-resolved", check=False)
         res["changes"].append("hardening")
+    res["ssh_user"] = site_user
+
+    if ssh_dev_changed:
+        # A second or two without SSH while the device is swapped; the site itself is untouched.
+        run("incus", "config", "device", "remove", ct, "ssh", check=False)
+        r = run("incus", "config", "device", "add", ct, "ssh", "proxy", *["%s=%s" % (k, v) for k, v in ssh_dev_want.items() if k != "type"], check=False)
+        if r.returncode != 0:
+            run("incus", "config", "device", "add", ct, "ssh", "proxy", *["%s=%s" % (k, v) for k, v in _ssh_dev.items() if k != "type"], check=False)
+            res["warnings"] = res.get("warnings", []) + ["SSH port left as it was: " + (r.stderr or "").strip()[:200]]
+        else:
+            # NAT skips the server's own firewall input rules: the old opening is not needed.
+            run("ufw", "delete", "allow", "%s/tcp" % ssh_port, check=False)
+            res["changes"].append("ssh port")
+    if journal_changed:
+        os.makedirs(JOURNAL_HOST, mode=0o755, exist_ok=True)
+        if any(_jdev.get(k) != v for k, v in journal_dev_want.items()):
+            if _jdev:
+                run("incus", "config", "device", "remove", ct, "journal", check=False)
+            run("incus", "config", "device", "add", ct, "journal", "disk", *["%s=%s" % (k, v) for k, v in journal_dev_want.items() if k != "type"])
+        ct_write_any(JOURNALD_CONF[0], JOURNALD_CONF[1])
+        run("incus", "exec", ct, "--", "systemctl", "restart", "systemd-journald", check=False)
+        res["changes"].append("journal")
+    if jail_new is not None:
+        for _ in range(10):
+            if os.path.isdir(JOURNAL):
+                break
+            time.sleep(0.5)
+        if not os.path.isdir(JOURNAL):
+            jail_changed = False
+            res["warnings"] = res.get("warnings", []) + ["SSH jail not set: the container's journal is not at " + JOURNAL]
+    if jail_changed:
+        with open(JAIL_PATH + ".cc-new", "w") as f:
+            f.write(jail_new)
+        os.chmod(JAIL_PATH + ".cc-new", 0o644)
+        os.replace(JAIL_PATH + ".cc-new", JAIL_PATH)
+        if run("fail2ban-client", "reload", check=False).returncode != 0:
+            res["warnings"] = res.get("warnings", []) + ["fail2ban did not reload with the SSH jail"]
+        res["changes"].append("ssh jail")
 
     if db_twin_changed:
         r = db_sql("; ".join(db_twin_sql) + ";")
@@ -1051,7 +1193,7 @@ try:
         res["warnings"] = res.get("warnings", []) + ["This container has no mail program, so WordPress cannot send email. Its image build is older than mail support: run `captaincore host rebuild` for the site."]
 
     for name, files in app_changes.items():
-        run("incus", "exec", ct, "--", "install", "-d", "-o", "site", "-g", "site", "/srv/site/apps/" + name, check=False)
+        run("incus", "exec", ct, "--", "install", "-d", "-o", "1000", "-g", "1000", "/srv/site/apps/" + name, check=False)
         for path, content in files.items():
             ct_write_any(path, content)
         res["changes"].append("app:" + name)
