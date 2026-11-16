@@ -22,6 +22,8 @@
 #   cc-backups image-list                  site images, and how many containers run each
 #   cc-backups image-of <container>        the image a container runs, and whether a newer build exists
 #   cc-backups rebuild <container> <image> same site on another image (a PHP switch, or a refreshed build)
+#   cc-backups apm <container> [1h|24h|7d]  what visitors waited for: traffic, slow pages, plugins, queries, outside calls
+#   cc-backups apm-collect               read every site's access log and APM lines into the hourly files (sample does this)
 #   cc-backups cache-status <container>  saved pages: how many, how big, how old
 #   cc-backups cache-clear  <container>  delete every saved page
 #   cc-backups site-park <container>     stop, rename <ct>-removed-<date>, unpublish (purged after 7 days)
@@ -1396,6 +1398,10 @@ def sample():
             grow()
         except Exception:
             pass
+    try:
+        apm_collect()
+    except Exception:
+        pass
     return rec
 
 
@@ -1856,6 +1862,412 @@ def logs(source, lines):
     return (p.stdout or p.stderr or "").rstrip()
 
 
+# ── APM: what each site's visitors waited for ──────────────────────────────
+# Collected every minute by `sample` (cc-metrics.timer), from two places in
+# each running site container:
+#   layer one, always on: the container's access log (/srv/site/logs/
+#     access.log). Each line says what answered: a file on disk ("static"), a
+#     saved page ("hit") or PHP (untagged), and how long it took.
+#   layer two, only while a site's APM switch is on: one JSON line per page
+#     PHP built, written by the recorder `host apply` installs
+#     (/etc/captaincore/apm.php) into /var/lib/captaincore/apm/<minute>.jsonl.
+#     Those files are read once and deleted.
+# Both are summed into one file per site per hour, ADIR/<container>/
+# <YYYYmmddHH>.json, kept 14 days; `cc-backups apm <container> <range>`
+# reads them back. Nothing from a request is kept whole: SQL arrives with its
+# values replaced, outside calls as host and path, pages as path only.
+ADIR = "/var/lib/captaincore/apm"
+A_EDGES = [25, 50, 100, 200, 400, 800, 1600, 3200, 6400]   # ms; one more bucket for slower
+A_MAX_READ = 16 * 1048576
+A_KEEP_DAYS = 14
+A_CAP = {"r": 300, "t": 300, "q": 300, "c": 200}
+A_SAMPLES = 40
+APM_PROBE = r"""
+f=/srv/site/logs/access.log
+if [ -f "$f" ] && [ ! -L "$f" ]; then
+  ino=$(stat -c %i "$f"); size=$(stat -c %s "$f"); start=0
+  if [ "$ino" = "$INO" ] && [ "$size" -ge "$OFF" ]; then start=$OFF; fi
+  if [ $((size - start)) -gt "$MAX" ]; then start=$((size - MAX)); fi
+  echo "@@log $ino $start"
+  tail -c +$((start + 1)) "$f" | head -c $((size - start))
+  echo
+fi
+d=/var/lib/captaincore/apm
+if [ -d "$d" ] && [ ! -L "$d" ]; then
+  for p in $(find "$d" -maxdepth 1 -type f -name '[0-9]*.jsonl' | sort); do
+    b=$(basename "$p" .jsonl)
+    case "$b" in *[!0-9]*) continue ;; esac
+    [ "$b" -lt "$CUT" ] || continue
+    echo "@@apm $b"
+    head -c "$MAX" "$p"
+    echo
+    rm -f "$p"
+  done
+fi
+"""
+
+
+def _a_bucket(ms):
+    for i, e in enumerate(A_EDGES):
+        if ms <= e:
+            return i
+    return len(A_EDGES)
+
+
+def _a_key(table, cap, key):
+    return key if key in table or len(table) < cap else "(other)"
+
+
+def _a_edge_route(method, uri):
+    """A name for a request the access log saw, without WordPress's help:
+    admin-ajax by action, REST by route, admin by screen, and other paths
+    with numbers and ids folded so /page/2/ and /page/3/ count together."""
+    path, _, q = uri.partition("?")
+    path = path[:200]
+    low = path.lower()
+    seg = lambda x: ":n" if re.match(r"^\d+$", x) else (":id" if re.match(r"^[0-9a-f]{12,}$", x, re.I) else x[:40])
+    if low.endswith("/wp-admin/admin-ajax.php"):
+        a = re.search(r"(?:^|&)action=([A-Za-z0-9_.-]{1,60})", q)
+        return "admin-ajax: " + (a.group(1) if a else "(%s)" % method)
+    rest = None
+    if "/wp-json" in low:
+        rest = path.split("/wp-json", 1)[1]
+    else:
+        m = re.search(r"(?:^|&)rest_route=([^&]*)", q)
+        if m:
+            rest = m.group(1).replace("%2F", "/").replace("%2f", "/")
+    if rest is not None:
+        parts = [seg(x) for x in rest.strip("/").split("/") if x][:4]
+        return "REST %s /%s" % (method, "/".join(parts))
+    if "/wp-admin/" in low:
+        return "admin: " + (path.rsplit("/", 1)[-1] or "index.php")
+    if low.endswith(".php"):
+        return path.rsplit("/", 1)[-1]
+    parts = [seg(x) for x in path.strip("/").split("/") if x][:4]
+    return "/" + "/".join(parts) + ("/" if parts and path.endswith("/") else "")
+
+
+def _a_add(row, vals):
+    for i, v in enumerate(vals):
+        if i < len(row):
+            row[i] = max(row[i], v) if isinstance(v, tuple) else row[i] + v
+        else:
+            row.append(v)
+
+
+def _a_merge_edge(H, r):
+    req = r.get("request") or {}
+    if req.get("client_ip") == "10.77.0.1":     # the server's own checks
+        return 0
+    ts = int(r.get("ts") or 0)
+    ms = float(r.get("duration") or 0) * 1000
+    st = int(r.get("status") or 0)
+    kind = r.get("cache") or "php"
+    if kind not in ("hit", "static"):
+        kind = "php"
+    E = H.setdefault("e", {"m": {}, "h": [0] * (len(A_EDGES) + 1), "r": {}})
+    mm = time.strftime("%M", time.gmtime(ts))
+    row = E["m"].setdefault(mm, [0, 0, 0, 0, 0, 0, 0.0, 0.0])
+    row[0] += 1
+    row[{"php": 1, "hit": 2, "static": 3}[kind]] += 1
+    if 400 <= st < 500:
+        row[4] += 1
+    elif st >= 500:
+        row[5] += 1
+    if kind == "php":
+        row[6] += ms
+        row[7] = max(row[7], ms)
+        b = _a_bucket(ms)
+        E["h"][b] += 1
+        key = _a_key(E["r"], A_CAP["r"], _a_edge_route(str(req.get("method") or "GET")[:8], str(req.get("uri") or "/")))
+        rr = E["r"].setdefault(key, [0, 0.0, 0.0, 0] + [0] * (len(A_EDGES) + 1))
+        rr[0] += 1
+        rr[1] += ms
+        rr[2] = max(rr[2], ms)
+        rr[3] += 1 if st >= 500 else 0
+        rr[4 + b] += 1
+    return 1
+
+
+def _a_merge_wp(H, r):
+    import hashlib
+    W = H.setdefault("w", {"m": {}, "t": {}, "p": {}, "q": {}, "c": {}, "s": []})
+    ts = int(r.get("t") or 0)
+    ms, db, http = float(r.get("ms") or 0), float(r.get("db") or 0), float(r.get("http") or 0)
+    st = int(r.get("st") or 0)
+    mm = time.strftime("%M", time.gmtime(ts))
+    row = W["m"].setdefault(mm, [0, 0.0, 0.0, 0.0])
+    row[0] += 1
+    row[1] += ms
+    row[2] += db
+    row[3] += http
+    tx = str(r.get("tx") or "other")[:120]
+    key = _a_key(W["t"], A_CAP["t"], tx)
+    t = W["t"].setdefault(key, [0, 0.0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0] + [0] * (len(A_EDGES) + 1))
+    t[0] += 1
+    t[1] += ms
+    t[2] = max(t[2], ms)
+    t[3] += 1 if st >= 500 else 0
+    t[4] += db
+    t[5] += int(r.get("q") or 0)
+    t[6] += http
+    t[7] += int(r.get("hn") or 0)
+    t[8] = max(t[8], float(r.get("mem") or 0))
+    t[9 + _a_bucket(ms)] += 1
+    for comp, v in (r.get("pl") or {}).items():
+        if not isinstance(v, list) or len(v) < 5:
+            continue
+        p = W["p"].setdefault(str(comp)[:80], [0.0, 0.0, 0, 0.0, 0, 0])
+        p[0] += float(v[0] or 0)
+        p[1] += float(v[1] or 0)
+        p[2] += int(v[2] or 0)
+        p[3] += float(v[3] or 0)
+        p[4] += int(v[4] or 0)
+        p[5] += 1
+    for q in (r.get("qs") or [])[:25]:
+        if not isinstance(q, list) or len(q) < 3:
+            continue
+        sql, comp, qms = str(q[0])[:400], str(q[1])[:80], float(q[2] or 0)
+        k = _a_key(W["q"], A_CAP["q"], hashlib.md5((comp + "|" + sql).encode()).hexdigest()[:16])
+        e = W["q"].setdefault(k, [sql if k != "(other)" else "(other queries)", comp if k != "(other)" else "", 0, 0.0, 0.0])
+        e[2] += 1
+        e[3] += qms
+        e[4] = max(e[4], qms)
+    for c in (r.get("hc") or [])[:30]:
+        if not isinstance(c, list) or len(c) < 6:
+            continue
+        label = "%s %s%s" % (str(c[0])[:8], str(c[1])[:100], str(c[2])[:80])
+        k = _a_key(W["c"], A_CAP["c"], hashlib.md5((str(c[3]) + "|" + label).encode()).hexdigest()[:16])
+        e = W["c"].setdefault(k, [label if k != "(other)" else "(other calls)", str(c[3])[:80], 0, 0.0, 0.0, 0])
+        e[2] += 1
+        e[3] += float(c[4] or 0)
+        e[4] = max(e[4], float(c[4] or 0))
+        code = c[5]
+        e[5] += 1 if (code == "error" or (isinstance(code, int) and code >= 400)) else 0
+    if isinstance(r.get("d"), dict):
+        W["s"].append({k: r.get(k) for k in ("t", "tx", "m", "u", "st", "ms", "db", "q", "http", "hn", "mem", "qs", "hc", "d", "pl")})
+    return 1
+
+
+def _a_trim_samples(samples, n=A_SAMPLES):
+    """The slowest few per transaction, then the slowest overall."""
+    per, keep = {}, []
+    for s in sorted(samples, key=lambda x: -float(x.get("ms") or 0)):
+        tx = s.get("tx")
+        if per.get(tx, 0) < 3:
+            per[tx] = per.get(tx, 0) + 1
+            keep.append(s)
+    return keep[:n]
+
+
+def _a_hour_path(ct, hour):
+    return os.path.join(ADIR, ct, hour + ".json")
+
+
+def _a_load(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _a_save(path, H):
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(H, f, separators=(",", ":"))
+    os.replace(tmp, path)
+
+
+def apm_collect(budget=40):
+    """Read what each running site container logged since the last run."""
+    started = time.time()
+    os.makedirs(ADIR, mode=0o700, exist_ok=True)
+    cut = time.strftime("%Y%m%d%H%M", time.gmtime(started))
+    running = set()
+    for line in run("incus", "list", "-f", "csv", "-c", "ns", check=False).stdout.splitlines():
+        name, _, status = line.partition(",")
+        if status.strip() == "RUNNING":
+            running.add(name.strip())
+    out_ = {}
+    keep_after = time.strftime("%Y%m%d%H", time.gmtime(started - A_KEEP_DAYS * 86400))
+    for ct in site_containers():
+        if time.time() - started > budget:
+            break
+        cdir = os.path.join(ADIR, ct)
+        os.makedirs(cdir, mode=0o700, exist_ok=True)
+        for name in os.listdir(cdir):
+            if name.endswith(".json") and name[:10] < keep_after:
+                os.remove(os.path.join(cdir, name))
+        if ct not in running:
+            continue
+        state_path = os.path.join(cdir, ".state")
+        st = _a_load(state_path)
+        p = subprocess.run(["incus", "exec", ct, "--env", "INO=%s" % st.get("ino", ""), "--env", "OFF=%d" % int(st.get("off") or 0),
+                            "--env", "CUT=%s" % cut, "--env", "MAX=%d" % A_MAX_READ, "--", "sh", "-c", APM_PROBE],
+                           stdin=subprocess.DEVNULL, capture_output=True, timeout=60)
+        if p.returncode != 0:
+            continue
+        hours, counts = {}, {"edge": 0, "wp": 0}
+        sec, log_start, good_end, pos, saw_log = None, 0, 0, 0, False
+
+        def hour_of(ts):
+            h = time.strftime("%Y%m%d%H", time.gmtime(ts))
+            if h not in hours:
+                hours[h] = _a_load(_a_hour_path(ct, h))
+            return hours[h]
+
+        for raw in p.stdout.split(b"\n"):
+            if raw.startswith(b"@@log "):
+                parts = raw.decode("ascii", "replace").split()
+                st["ino"], log_start, good_end, pos, sec, saw_log = parts[1], int(parts[2]), 0, 0, "log", True
+                continue
+            if raw.startswith(b"@@apm "):
+                sec = "apm"
+                continue
+            if sec == "log":
+                pos += len(raw) + 1
+            if not raw.strip():
+                continue
+            try:
+                r = json.loads(raw)
+            except ValueError:
+                continue
+            if sec == "log":
+                good_end = pos
+                ts = int(r.get("ts") or 0)
+                if ts:
+                    counts["edge"] += _a_merge_edge(hour_of(ts), r)
+            elif sec == "apm":
+                ts = int(r.get("t") or 0)
+                if ts:
+                    counts["wp"] += _a_merge_wp(hour_of(ts), r)
+        if saw_log:
+            # Up to the last whole line: a line still being written is read next time.
+            st["off"] = log_start + good_end
+        for h, H in hours.items():
+            if "w" in H:
+                H["w"]["s"] = _a_trim_samples(H["w"]["s"])
+                H["w"]["last"] = max(H["w"].get("last", 0), int(started))
+            _a_save(_a_hour_path(ct, h), H)
+        _a_save(state_path, st)
+        out_[ct] = counts
+    return out_
+
+
+def _a_pct(hist, q, maxv):
+    total = sum(hist)
+    if not total:
+        return None
+    need, cum = total * q, 0
+    for i, n in enumerate(hist):
+        if cum + n >= need and n:
+            lo = A_EDGES[i - 1] if i else 0
+            hi = A_EDGES[i] if i < len(A_EDGES) else max(maxv, lo)
+            return round(min(maxv, lo + (hi - lo) * (need - cum) / n))
+        cum += n
+    return round(maxv)
+
+
+def apm_report(ct, range_):
+    if not CT_NAME.match(ct):
+        raise RuntimeError("invalid container name")
+    seconds = {"1h": 3600, "24h": 86400, "7d": 7 * 86400}.get(range_, 3600)
+    now = int(time.time())
+    since = now - seconds
+    step = {3600: 60, 86400: 900, 604800: 3 * 3600}[seconds]
+    nb = len(A_EDGES) + 1
+    series = {}
+    E = {"n": 0, "php": 0, "hit": 0, "static": 0, "e4": 0, "e5": 0, "ms": 0.0, "max": 0.0, "h": [0] * nb, "r": {}}
+    W = {"n": 0, "ms": 0.0, "db": 0.0, "http": 0.0, "t": {}, "p": {}, "q": {}, "c": {}, "s": [], "last": 0}
+    h = since - since % 3600
+    while h <= now:
+        H = _a_load(_a_hour_path(ct, time.strftime("%Y%m%d%H", time.gmtime(h))))
+        e, w = H.get("e") or {}, H.get("w") or {}
+        whole = h >= since        # an hour that starts inside the range counts whole
+        for mm, row in (e.get("m") or {}).items():
+            t = h + int(mm) * 60
+            if t < since:
+                continue
+            b = series.setdefault(t - t % step, [0, 0, 0, 0, 0, 0, 0.0, 0, 0.0, 0.0, 0.0])
+            for i in range(6):
+                b[i] += row[i]
+            b[6] += row[6]
+            E["n"] += row[0]; E["php"] += row[1]; E["hit"] += row[2]; E["static"] += row[3]; E["e4"] += row[4]; E["e5"] += row[5]
+            E["ms"] += row[6]; E["max"] = max(E["max"], row[7])
+        for mm, row in (w.get("m") or {}).items():
+            t = h + int(mm) * 60
+            if t < since:
+                continue
+            b = series.setdefault(t - t % step, [0, 0, 0, 0, 0, 0, 0.0, 0, 0.0, 0.0, 0.0])
+            b[7] += row[0]; b[8] += row[1]; b[9] += row[2]; b[10] += row[3]
+            W["n"] += row[0]; W["ms"] += row[1]; W["db"] += row[2]; W["http"] += row[3]
+        # Tables are kept per hour, so the oldest hour of the range counts in
+        # full or not at all (in full when its minutes reach into the range).
+        if not whole and h + 3600 <= since:
+            h += 3600
+            continue
+        for i, n in enumerate(e.get("h") or []):
+            E["h"][i] += n
+        for k, v in (e.get("r") or {}).items():
+            _a_add(E["r"].setdefault(k, []), v[:2] + [(v[2],)] + v[3:])
+        for k, v in (w.get("t") or {}).items():
+            _a_add(W["t"].setdefault(k, []), v[:2] + [(v[2],)] + v[3:8] + [(v[8],)] + v[9:])
+        for k, v in (w.get("p") or {}).items():
+            _a_add(W["p"].setdefault(k, []), v)
+        for k, v in (w.get("q") or {}).items():
+            row = W["q"].setdefault(k, [v[0], v[1], 0, 0.0, 0.0])
+            row[2] += v[2]; row[3] += v[3]; row[4] = max(row[4], v[4])
+        for k, v in (w.get("c") or {}).items():
+            row = W["c"].setdefault(k, [v[0], v[1], 0, 0.0, 0.0, 0])
+            row[2] += v[2]; row[3] += v[3]; row[4] = max(row[4], v[4]); row[5] += v[5]
+        W["s"] += [s for s in (w.get("s") or []) if int(s.get("t") or 0) >= since]
+        W["last"] = max(W["last"], int(w.get("last") or 0))
+        h += 3600
+    unmax = lambda v: v[0] if isinstance(v, tuple) else v
+    routes = []
+    for k, v in E["r"].items():
+        v = [unmax(x) for x in v]
+        routes.append({"route": k, "n": v[0], "total_ms": round(v[1]), "avg_ms": round(v[1] / v[0]) if v[0] else 0,
+                       "p95_ms": _a_pct(v[4:4 + nb], 0.95, v[2]), "max_ms": round(v[2]), "e5": v[3]})
+    routes.sort(key=lambda x: -x["total_ms"])
+    tx = []
+    for k, v in W["t"].items():
+        v = [unmax(x) for x in v]
+        n = v[0] or 1
+        tx.append({"tx": k, "n": v[0], "total_ms": round(v[1]), "avg_ms": round(v[1] / n), "p95_ms": _a_pct(v[9:9 + nb], 0.95, v[2]),
+                   "max_ms": round(v[2]), "e5": v[3], "db_ms": round(v[4] / n, 1), "queries": round(v[5] / n, 1),
+                   "http_ms": round(v[6] / n, 1), "http_calls": round(v[7] / n, 2), "mem_mb": v[8]})
+    tx.sort(key=lambda x: -x["total_ms"])
+    plugins = []
+    for k, v in W["p"].items():
+        tot = v[0] + v[1] + v[3]
+        plugins.append({"component": k, "requests": v[5], "load_ms": round(v[0] / max(1, v[5]), 1), "db_ms": round(v[1] / max(1, v[5]), 1),
+                        "queries": round(v[2] / max(1, v[5]), 1), "http_ms": round(v[3] / max(1, v[5]), 1), "http_calls": v[4],
+                        "total_ms": round(tot), "avg_ms": round(tot / max(1, v[5]), 1)})
+    plugins.sort(key=lambda x: -x["total_ms"])
+    queries = sorted(({"sql": v[0], "component": v[1], "n": v[2], "total_ms": round(v[3], 1), "avg_ms": round(v[3] / max(1, v[2]), 2),
+                       "max_ms": round(v[4], 1)} for v in W["q"].values()), key=lambda x: -x["total_ms"])
+    calls = sorted(({"call": v[0], "component": v[1], "n": v[2], "total_ms": round(v[3]), "avg_ms": round(v[3] / max(1, v[2]), 1),
+                     "max_ms": round(v[4]), "errors": v[5]} for v in W["c"].values()), key=lambda x: -x["total_ms"])
+    pts = []
+    for t in range(since - since % step, now + 1, step):
+        b = series.get(t)
+        pts.append({"t": t, "n": b[0] if b else 0, "php": b[1] if b else 0, "hit": b[2] if b else 0, "static": b[3] if b else 0,
+                    "e4": b[4] if b else 0, "e5": b[5] if b else 0, "php_avg_ms": round(b[6] / b[1]) if b and b[1] else None,
+                    "wp_n": b[7] if b else 0, "wp_avg_ms": round(b[8] / b[7]) if b and b[7] else None,
+                    "wp_db_ms": round(b[9] / b[7]) if b and b[7] else None, "wp_http_ms": round(b[10] / b[7]) if b and b[7] else None})
+    return {
+        "container": ct, "range": range_, "now": now, "step": step, "series": pts,
+        "edge": {"requests": E["n"], "php": E["php"], "hit": E["hit"], "static": E["static"], "e4": E["e4"], "e5": E["e5"],
+                 "php_avg_ms": round(E["ms"] / E["php"]) if E["php"] else None, "php_p50_ms": _a_pct(E["h"], 0.5, E["max"]),
+                 "php_p95_ms": _a_pct(E["h"], 0.95, E["max"]), "php_max_ms": round(E["max"]), "routes": routes[:60]},
+        "wp": {"requests": W["n"], "avg_ms": round(W["ms"] / W["n"]) if W["n"] else None, "db_ms": round(W["db"] / W["n"]) if W["n"] else None,
+               "http_ms": round(W["http"] / W["n"]) if W["n"] else None, "last": W["last"], "transactions": tx[:60], "plugins": plugins[:60],
+               "queries": queries[:40], "calls": calls[:40], "samples": _a_trim_samples(W["s"], 30)},
+    }
+
+
 try:
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "create":
@@ -1951,6 +2363,10 @@ try:
         out(dict(status="ok", **container(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "1h")))
     elif cmd == "restart":
         out(dict(status="ok", **restart(sys.argv[2], sys.argv[3])))
+    elif cmd == "apm":
+        out(dict(status="ok", **apm_report(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "1h")))
+    elif cmd == "apm-collect":
+        out({"status": "ok", "collected": apm_collect()})
     else:
         out({"status": "error", "error": "usage: cc-backups create|list|restore|delete|daily|prune"}, 2)
 except IndexError:

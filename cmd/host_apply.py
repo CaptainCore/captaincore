@@ -311,6 +311,17 @@ static_block = """	# Static files: a year in the browser (theme and plugin files
 		file
 	}
 	header @cc_static Cache-Control "public, max-age=31536000"
+	# The access log says what answered each request: a file on disk
+	# ("static"), a saved page ("hit", below) or, untagged, PHP. The server's
+	# per-minute traffic figures (APM, layer one) read this.
+	@cc_on_disk {
+		not path *.php */
+		file {
+			root /srv/site/public
+		}
+	}
+	vars @cc_on_disk cc_cache static
+	log_append cache {vars.cc_cache}
 """ % " ".join("*." + e for e in STATIC_EXT.split())
 
 
@@ -331,6 +342,7 @@ def page_block(name, slash, try_file):
 		root * %s
 		rewrite * {file_match.relative}
 		header X-Cache HIT
+		vars cc_cache hit
 		file_server
 	}
 """ % (name, "" if slash else "not ", PC_COOKIES, PC_QUERY, PC_ROOT, try_file, name, PC_ROOT)
@@ -422,9 +434,32 @@ if ( ! function_exists( 'wp_mail' ) ) {
 	}
 }
 """
+# APM (layer two): while on, PHP times each page it builds and writes one
+# line per request to APM_DIR, which the server collects every minute
+# (cc-backups apm-collect). The recorder (host_apm.php, in the payload) stops
+# by itself at `until`, so it never needs an apply to turn off on time.
+APM_PHP = "/etc/captaincore/apm.php"
+APM_DIR = "/var/lib/captaincore/apm"
+apm = cfg.get("apm") if isinstance(cfg.get("apm"), dict) else {}
+apm_src = hc.get("apm_php") or ""
+try:
+    apm_until = int(apm.get("until") or 0)
+    apm_slow = max(100, min(int(apm.get("slow_ms") or 1000), 60000))
+    apm_pct = max(0, min(int(apm.get("detail_pct") if apm.get("detail_pct") is not None else 5), 100))
+except (TypeError, ValueError):
+    apm_until, apm_slow, apm_pct = 0, 1000, 5
+apm_on = bool(apm.get("enabled")) and apm_until > time.time() and apm_src.startswith("<?php") and not plain
+apm_new = ""
+if apm_on:
+    apm_new = re.sub(r"^const UNTIL\s*=.*$", "const UNTIL      = %d;" % apm_until, apm_src, count=1, flags=re.M)
+    apm_new = re.sub(r"^const SLOW_MS\s*=.*$", "const SLOW_MS    = %d;" % apm_slow, apm_new, count=1, flags=re.M)
+    apm_new = re.sub(r"^const DETAIL_PCT\s*=.*$", "const DETAIL_PCT = %d;" % apm_pct, apm_new, count=1, flags=re.M)
+res["apm"] = {"enabled": apm_on, "until": apm_until if apm_on else 0}
+
 prepend_new = "<?php\n// Managed by CaptainCore (hosting configuration): loaded before every request and command.\n" \
+    + ("require '%s';\n" % APM_PHP if apm_on else "") \
     + ("require '%s';\n" % MAIL_OFF_PHP if mail_block else "") + ("require '%s';\n" % PC_PHP if pc_on else "")
-if pc_on or mail_block:
+if pc_on or mail_block or apm_on:
     ini_new += "auto_prepend_file = %s\n" % PREPEND_PHP
 
 # PHP's shell commands are off for web requests unless the site turns them
@@ -747,9 +782,11 @@ MAIL_PORTS = "465,587,2525"
 mail_ports_blocked = bool(ip) and re.search(r"^%s/tcp\s+DENY FWD\s+%s(\s|$)" % (re.escape(MAIL_PORTS), re.escape(ip)),
                                             run("ufw", "status", check=False).stdout, re.M) is not None
 mail_ports_changed = bool(ip) and mail_on == mail_ports_blocked
-prepend_want = {PREPEND_PHP: prepend_new} if (pc_on or mail_block) else {}
+prepend_want = {PREPEND_PHP: prepend_new} if (pc_on or mail_block or apm_on) else {}
 if mail_block:
     prepend_want[MAIL_OFF_PHP] = MAIL_OFF_SRC
+if apm_on:
+    prepend_want[APM_PHP] = apm_new
 prepend_diff = [path for path, content in prepend_want.items() if ct_read(path) != content]
 
 # WordPress cron: the container's wp-cron.timer runs due events every minute.
@@ -1013,6 +1050,10 @@ try:
         # Nothing serves saved pages once the rules below are gone; drop them.
         run("incus", "exec", ct, "--", "sh", "-c", "[ -d '%s' ] && find '%s' -mindepth 1 -maxdepth 1 -exec rm -rf {} + || true" % (PC_ROOT, PC_ROOT), check=False)
 
+    # APM writes its lines as the site user (PHP); the server reads and
+    # deletes them every minute.
+    if apm_on:
+        run("incus", "exec", ct, "--", "install", "-d", "-o", "1000", "-g", "1000", "-m", "0700", APM_DIR, check=False)
     # The prepend file and what it pulls in exist before PHP is told to load
     # them (a missing auto_prepend_file stops every request).
     for path in sorted(prepend_diff, key=lambda x: x == PREPEND_PHP):

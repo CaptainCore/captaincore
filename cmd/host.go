@@ -30,6 +30,11 @@ var hostApplyScript string
 //go:embed host_page_cache.php
 var hostPageCachePHP string
 
+// The APM recorder, installed the same way while a site's APM switch is on.
+//
+//go:embed host_apm.php
+var hostApmPHP string
+
 var flagHostDryRun bool
 
 var hostCmd = &cobra.Command{
@@ -135,6 +140,7 @@ func hostApplyNative(cmd *cobra.Command, args []string) {
 	var full map[string]interface{}
 	if json.Unmarshal(raw, &full) == nil {
 		full["page_cache_php"] = hostPageCachePHP
+		full["apm_php"] = hostApmPHP
 		if withPHP, err := json.Marshal(full); err == nil {
 			payload = withPHP
 		}
