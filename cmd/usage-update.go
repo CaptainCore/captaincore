@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -52,10 +53,20 @@ func usageUpdateNative(cmd *cobra.Command, args []string) {
 	sizeOut, _ := sizeCmd.Output()
 	storage := strings.TrimSpace(string(sizeOut))
 
-	// Fetch visits
-	visitsCmd := exec.Command("captaincore", "stats", siteEnvArg, "--captain-id="+captainID)
+	// Fetch visits: the 12-month pageview total plus the months it was
+	// summed from (one Fathom request; the months draw the Overview bars).
+	visitsCmd := exec.Command("captaincore", "stats", siteEnvArg, "--monthly", "--captain-id="+captainID)
 	visitsOut, _ := visitsCmd.Output()
 	visits := strings.TrimSpace(string(visitsOut))
+	var visitsMonthly []statMonth
+	var parsed struct {
+		Total  int         `json:"total"`
+		Months []statMonth `json:"months"`
+	}
+	if strings.HasPrefix(visits, "{") && json.Unmarshal([]byte(visits), &parsed) == nil {
+		visits = strconv.Itoa(parsed.Total)
+		visitsMonthly = parsed.Months
+	}
 
 	timeNow := time.Now().UTC().Format("2006-01-02 15:04:05")
 
@@ -78,6 +89,9 @@ func usageUpdateNative(cmd *cobra.Command, args []string) {
 		"storage":        storage,
 		"visits":         visits,
 		"updated_at":     timeNow,
+	}
+	if len(visitsMonthly) > 0 {
+		envUpdate["visits_monthly"] = visitsMonthly
 	}
 	_, err = client.Post("usage-update", map[string]interface{}{
 		"site_id": site.SiteID,

@@ -27,6 +27,28 @@ var statsCmd = &cobra.Command{
 	},
 }
 
+// statMonth is one month of pageviews ("2026-01"), from the same request
+// that gives the total.
+type statMonth struct {
+	M string `json:"m"`
+	V int    `json:"v"`
+}
+
+// printStats prints the yearly pageview total, or with --monthly a JSON
+// object {"total": N, "months": [{"m": "2026-01", "v": N}, …]} so
+// usage-update can keep the months without another API request.
+func printStats(cmd *cobra.Command, total int, months []statMonth) {
+	if monthly, _ := cmd.Flags().GetBool("monthly"); monthly {
+		if months == nil {
+			months = []statMonth{}
+		}
+		out, _ := json.Marshal(map[string]interface{}{"total": total, "months": months})
+		fmt.Print(string(out))
+		return
+	}
+	fmt.Print(total)
+}
+
 // statsNative implements `captaincore stats <site>` natively in Go.
 func statsNative(cmd *cobra.Command, args []string) {
 	sa := parseSiteArgument(args[0])
@@ -84,7 +106,7 @@ func statsNative(cmd *cobra.Command, args []string) {
 		fathomID = fathomIDs[0]
 	}
 	if fathomID == "" {
-		fmt.Print("0")
+		printStats(cmd, 0, nil)
 		return
 	}
 
@@ -103,7 +125,7 @@ func statsNative(cmd *cobra.Command, args []string) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Print("0")
+		printStats(cmd, 0, nil)
 		return
 	}
 	defer resp.Body.Close()
@@ -111,21 +133,26 @@ func statsNative(cmd *cobra.Command, args []string) {
 	body, _ := io.ReadAll(resp.Body)
 	var stats []struct {
 		Pageviews string `json:"pageviews"`
+		Date      string `json:"date"`
 	}
 	if json.Unmarshal(body, &stats) != nil {
-		fmt.Print("0")
+		printStats(cmd, 0, nil)
 		return
 	}
 
 	totalPageviews := 0
+	var months []statMonth
 	for _, s := range stats {
 		if v, err := strconv.Atoi(s.Pageviews); err == nil {
 			totalPageviews += v
+			if len(s.Date) >= 7 {
+				months = append(months, statMonth{M: s.Date[:7], V: v})
+			}
 		}
 	}
 
 	if totalPageviews > 0 {
-		fmt.Print(totalPageviews)
+		printStats(cmd, totalPageviews, months)
 		return
 	}
 
@@ -136,13 +163,13 @@ func statsNative(cmd *cobra.Command, args []string) {
 			accessKey = v
 		}
 		if accessKey != "" && site.Name != "" {
-			wpPageviews := fetchWordPressComStats(accessKey, site.Name)
-			fmt.Print(wpPageviews)
+			wpPageviews, wpMonths := fetchWordPressComStats(accessKey, site.Name)
+			printStats(cmd, wpPageviews, wpMonths)
 			return
 		}
 	}
 
-	fmt.Print("0")
+	printStats(cmd, 0, nil)
 }
 
 // searchFathomSiteByName searches the Fathom API for a site by name.
@@ -165,7 +192,7 @@ func searchFathomSiteByName(apiKey, siteName string) string {
 				ID   string `json:"id"`
 				Name string `json:"name"`
 			} `json:"data"`
-			HasMore   bool   `json:"has_more"`
+			HasMore    bool   `json:"has_more"`
 			NextCursor string `json:"next_cursor"`
 		}
 		if json.Unmarshal(body, &result) != nil {
@@ -186,8 +213,9 @@ func searchFathomSiteByName(apiKey, siteName string) string {
 	return ""
 }
 
-// fetchWordPressComStats fetches yearly pageview estimate from WordPress.com API.
-func fetchWordPressComStats(accessKey, siteName string) int {
+// fetchWordPressComStats fetches yearly pageview estimate from WordPress.com
+// API, and the months it was estimated from.
+func fetchWordPressComStats(accessKey, siteName string) (int, []statMonth) {
 	url := fmt.Sprintf("https://public-api.wordpress.com/rest/v1/sites/%s/stats/visits?unit=month&quantity=12", siteName)
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("Authorization", "Bearer "+accessKey)
@@ -195,7 +223,7 @@ func fetchWordPressComStats(accessKey, siteName string) int {
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0
+		return 0, nil
 	}
 	defer resp.Body.Close()
 
@@ -205,7 +233,7 @@ func fetchWordPressComStats(accessKey, siteName string) int {
 		Data  [][]json.Number `json:"data"`
 	}
 	if json.Unmarshal(body, &stats) != nil {
-		return 0
+		return 0, nil
 	}
 
 	// If error is unknown_blog, try with www prefix
@@ -215,21 +243,22 @@ func fetchWordPressComStats(accessKey, siteName string) int {
 		req.Header.Set("Authorization", "Bearer "+accessKey)
 		resp, err = client.Do(req)
 		if err != nil {
-			return 0
+			return 0, nil
 		}
 		defer resp.Body.Close()
 		body, _ = io.ReadAll(resp.Body)
 		if json.Unmarshal(body, &stats) != nil {
-			return 0
+			return 0, nil
 		}
 	}
 
 	if stats.Data == nil {
-		return 0
+		return 0, nil
 	}
 
 	count := 0
 	total := 0
+	var months []statMonth
 	for _, stat := range stats.Data {
 		if len(stat) >= 2 {
 			val, _ := stat[1].Int64()
@@ -237,17 +266,21 @@ func fetchWordPressComStats(accessKey, siteName string) int {
 				total++
 			}
 			count += int(val)
+			if p := stat[0].String(); len(p) >= 7 {
+				months = append(months, statMonth{M: p[:7], V: int(val)})
+			}
 		}
 	}
 
 	if total == 0 {
-		return 0
+		return 0, nil
 	}
 
 	monthlyAverage := count / total
-	return monthlyAverage * 12
+	return monthlyAverage * 12, months
 }
 
 func init() {
+	statsCmd.Flags().Bool("monthly", false, "Print JSON with the total and the monthly pageviews it was summed from")
 	rootCmd.AddCommand(statsCmd)
 }
