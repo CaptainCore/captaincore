@@ -858,38 +858,58 @@ $add = function ( $m ) use ( &$mailers, $order ) {
 	$mailers[] = $m;
 };
 
-// Gravity SMTP: the primary connector named in gravitysmtp_config, each connector in its own
-// option, wp-config constants (GRAVITYSMTP_<CONNECTOR>_<FIELD>) winning over the option.
+// Gravity SMTP: the connector it really sends with. Like the plugin's primary/backup
+// handler: the primary named in gravitysmtp_config (or GRAVITYSMTP_INTEGRATION_PRIMARY)
+// when that connector is enabled, else the backup when enabled, else PHP's own mail. A
+// primary can stay flagged with its settings saved while switched off, and then every
+// email goes through the backup. Each connector lives in its own option, wp-config
+// constants (GRAVITYSMTP_<CONNECTOR>_<FIELD>) winning over the option.
 if ( isset( $order['gravitysmtp'] ) ) {
 	$config  = $opt( 'gravitysmtp_config' );
 	$config  = is_array( $config ) ? $config : [];
 	$truthy  = function ( $v ) { return $v === true || $v === 'true' || $v === '1' || $v === 1; };
 	$pick    = function ( $key ) use ( $config, $truthy ) { foreach ( (array) ( $config[ $key ] ?? [] ) as $c => $on ) { if ( $truthy( $on ) ) return (string) $c; } return ''; };
-	$primary = $pick( 'primary_connector' );
-	$backup  = $pick( 'backup_connector' );
-	$c       = $primary !== '' ? $opt( 'gravitysmtp_' . $primary ) : null;
-	$c       = is_array( $c ) ? $c : [];
-	$cu      = 'GRAVITYSMTP_' . strtoupper( $primary ) . '_';
-	foreach ( [ 'host', 'port', 'username', 'password', 'api_key', 'domain', 'region', 'from_email', 'from_name' ] as $f ) {
-		if ( $primary !== '' && defined( $cu . strtoupper( $f ) ) ) {
-			$c[ $f ] = constant( $cu . strtoupper( $f ) );
+	$primary = defined( 'GRAVITYSMTP_INTEGRATION_PRIMARY' ) ? (string) GRAVITYSMTP_INTEGRATION_PRIMARY : $pick( 'primary_connector' );
+	$backup  = defined( 'GRAVITYSMTP_INTEGRATION_BACKUP' ) ? (string) GRAVITYSMTP_INTEGRATION_BACKUP : $pick( 'backup_connector' );
+	$conn    = function ( $slug ) use ( $opt ) {
+		if ( $slug === '' ) {
+			return [];
 		}
-	}
+		$c  = $opt( 'gravitysmtp_' . $slug );
+		$c  = is_array( $c ) ? $c : [];
+		$cu = 'GRAVITYSMTP_' . strtoupper( $slug ) . '_';
+		foreach ( [ 'host', 'port', 'username', 'password', 'api_key', 'domain', 'region', 'from_email', 'from_name', 'enabled' ] as $f ) {
+			if ( defined( $cu . strtoupper( $f ) ) ) {
+				$c[ $f ] = constant( $cu . strtoupper( $f ) );
+			}
+		}
+		return $c;
+	};
+	// Versions without an `enabled` field count every saved connector as on.
+	$on      = function ( $slug ) use ( $conn, $truthy ) { if ( $slug === '' ) return false; $c = $conn( $slug ); return ! array_key_exists( 'enabled', $c ) || $truthy( $c['enabled'] ); };
+	$sending = $on( $primary ) ? $primary : ( $on( $backup ) ? $backup : '' );
+	$saved   = $primary !== '' && $primary !== $sending ? $conn( $primary ) : [];
+	$c       = $conn( $sending );
 	$types = [ 'generic' => '', 'mailgun' => 'mailgun', 'sendgrid' => 'sendgrid', 'postmark' => 'postmark', 'amazon' => 'ses', 'brevo' => 'brevo',
 		'google' => 'google', 'microsoft' => 'microsoft', 'mailjet' => 'mailjet', 'mailersend' => 'mailersend', 'resend' => 'resend',
 		'smtp2go' => 'smtp2go', 'sparkpost' => 'sparkpost', 'zoho' => 'zoho', 'elastic_email' => 'elasticemail', 'mailchimp' => 'mandrill', 'phpmail' => 'php_mail' ];
-	$provider = $primary === 'generic' ? $provider_for_host( $c['host'] ?? '' ) : ( $types[ $primary ] ?? $primary );
-	$secret   = $primary === 'mailgun' ? ( $c['api_key'] ?? '' ) : ( $c['password'] ?? ( $c['api_key'] ?? '' ) );
+	$kind_of  = function ( $slug, $c ) use ( $types, $provider_for_host ) { return $slug === '' ? 'php_mail' : ( $slug === 'generic' ? $provider_for_host( $c['host'] ?? '' ) : ( $types[ $slug ] ?? $slug ) ); };
+	$provider = $kind_of( $sending, $c );
+	$secret   = $sending === 'mailgun' ? ( $c['api_key'] ?? '' ) : ( $c['password'] ?? ( $c['api_key'] ?? '' ) );
 	$add( [
 		'plugin' => 'gravitysmtp', 'name' => 'Gravity SMTP', 'kind' => 'pluggable',
-		'connector' => $primary, 'backup' => $backup, 'provider' => $provider === '' ? '' : $provider,
+		'connector' => $sending, 'primary' => $primary, 'backup' => $backup, 'provider' => $provider === '' ? '' : $provider,
+		// The primary is set up but switched off, so mail goes through `connector`.
+		'primary_off' => $primary !== '' && $primary !== $sending,
+		'primary_provider' => $saved ? $kind_of( $primary, $saved ) : '',
+		'primary_domain' => $saved ? $lower( $saved['domain'] ?? ( strrpos( (string) ( $saved['username'] ?? '' ), '@' ) !== false ? substr( (string) $saved['username'], strrpos( (string) $saved['username'], '@' ) + 1 ) : '' ) ) : '',
 		'host' => (string) ( $c['host'] ?? '' ), 'username' => $lower( $c['username'] ?? '' ),
 		'domain' => $lower( $c['domain'] ?? '' ), 'region' => (string) ( $c['region'] ?? '' ),
 		'from_email' => (string) ( $c['from_email'] ?? '' ), 'from_name' => (string) ( $c['from_name'] ?? '' ),
 		'secret' => $secret === '' ? 'missing' : 'set', 'secret_hash' => $provider === 'mailgun' ? $fp( $secret ) : '',
-		'configured' => $primary !== '' && $primary !== 'phpmail' && ( $truthy( $c['configured'] ?? false ) || $secret !== '' ),
+		'configured' => $sending !== '' && $sending !== 'phpmail' && ( $truthy( $c['configured'] ?? false ) || $secret !== '' ),
 		'test_mode' => $truthy( $config['test_mode'] ?? false ),
-		'settings' => $cap( [ 'config' => array_diff_key( $config, [ 'license_key' => 1 ] ), 'primary' => $c ] ),
+		'settings' => $cap( array_filter( [ 'config' => array_diff_key( $config, [ 'license_key' => 1 ] ), 'sending' => $c, 'primary_off' => $saved ] ) ),
 	] );
 }
 
@@ -1098,6 +1118,13 @@ if ( isset( $order['gravitysmtp'] ) && $wpdb->get_var( $wpdb->prepare( 'SHOW TAB
 	}
 	$log['last_sent']   = (string) $wpdb->get_var( "SELECT MAX(date_created) FROM $table WHERE status = 'sent'" );
 	$log['last_failed'] = (string) $wpdb->get_var( "SELECT MAX(date_created) FROM $table WHERE status = 'failed'" );
+	// Which connector carried the mail (wp_mail = PHP Mail), this week and the newest send.
+	$log['services'] = [];
+	foreach ( (array) $wpdb->get_results( $wpdb->prepare( "SELECT service, COUNT(*) n FROM $table WHERE date_created >= %s GROUP BY service", $since ) ) as $r ) {
+		$log['services'][ preg_replace( '/[^a-z0-9_]/', '', strtolower( (string) $r->service ) ) ?: 'other' ] = (int) $r->n;
+	}
+	$log['services']     = (object) $log['services'];
+	$log['last_service'] = (string) $wpdb->get_var( "SELECT service FROM $table ORDER BY id DESC LIMIT 1" );
 }
 
 echo wp_json_encode( [
