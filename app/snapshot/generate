@@ -72,6 +72,17 @@ run_command() {
     use_staging=true
   fi
 
+  # One snapshot per environment at a time: each one restores the whole
+  # site to this disk, so two at once on a large site can fill it.
+  mkdir -p "$path/${site}_${site_id}/${environment}"
+  if command -v flock >/dev/null 2>&1; then
+    exec 9>"$path/${site}_${site_id}/${environment}/.snapshot.lock"
+    if ! flock -n 9; then
+      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} A snapshot of ${site}-${environment} is already being made. Try again when it finishes."
+      return 1
+    fi
+  fi
+
   if [[ "$SKIP_BACKUP" != "true" && "$FLAG_BACKUP_ID" == "" ]]; then
     # Generate fresh backup via vault, for the environment being snapshotted
     captaincore backup generate ${site}-${environment} --captain-id=$CAPTAIN_ID
@@ -97,6 +108,19 @@ run_command() {
   restic_args=(--repo "$restic_repo" --password-file "${CAPTAINCORE_PATH}/data/restic.key")
   restore_dir="$path/${site}_${site_id}/${environment}/snapshot-staging-$$"
 
+  # Room for the restore and the zip (up to the same size again), with
+  # 20 GB left over for everything else this server does. A full disk
+  # used to fail the zip quietly and still record an empty snapshot.
+  restore_size=$(restic stats "$restore_from" --mode restore-size --json "${restic_args[@]}" 2>/dev/null | php -r '$j = json_decode( stream_get_contents( STDIN ), true ); echo (int) ( $j["total_size"] ?? 0 );')
+  disk_free=$(df -Pk "$path" | awk 'NR==2 {print $4 * 1024}')
+  if [[ "$restore_size" =~ ^[0-9]+$ && "$disk_free" =~ ^[0-9]+$ && "$restore_size" -gt 0 ]]; then
+    space_needed=$(( restore_size * 2 + 20 * 1024 * 1024 * 1024 ))
+    if (( disk_free < space_needed )); then
+      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Not enough room to build this snapshot right now: it needs about $(( space_needed / 1024 / 1024 / 1024 )) GB and $(( disk_free / 1024 / 1024 / 1024 )) GB is free. No snapshot created."
+      return 1
+    fi
+  fi
+
   if ! restic restore "$restore_from" --target "$restore_dir" "${restic_args[@]}"; then
     # A partial restore must not become a snapshot record or a "snapshot ready" email.
     echo -e "${COLOR_RED}Error:${COLOR_NORMAL} restic restore of $restore_from failed for ${site}-${environment}; no snapshot created."
@@ -107,6 +131,7 @@ run_command() {
   fi
 
   ln -s "$restore_dir" "$snapshot_path" # create directory shortcut for naming purposes
+  zip_failed=false
 
   if [[ "$FLAG_FILTER" != "" ]]; then
 
@@ -116,23 +141,23 @@ run_command() {
     for option in ${filters[@]}; do
 
       if [[ $option == "database" ]]; then
-        zip -r $snapshot_name $snapshot_path/database-backup.sql
+        zip -q -r $snapshot_name $snapshot_path/database-backup.sql && echo "Completed adding the database to $snapshot_name" || zip_failed=true
       fi
 
       if [[ $option == "themes" ]]; then
-        zip --test -q -r $snapshot_name $snapshot_path/wp-content/themes/ && echo "Completed adding /wp-content/themes/ to $snapshot_name" || echo "Failed generating $snapshot_name"
+        zip --test -q -r $snapshot_name $snapshot_path/wp-content/themes/ && echo "Completed adding /wp-content/themes/ to $snapshot_name" || zip_failed=true
       fi
 
       if [[ $option == "plugins" ]]; then
-        zip --test -q -r $snapshot_name $snapshot_path/wp-content/plugins/ && echo "Completed adding /wp-content/plugins/ to $snapshot_name" || echo "Failed generating $snapshot_name"
+        zip --test -q -r $snapshot_name $snapshot_path/wp-content/plugins/ && echo "Completed adding /wp-content/plugins/ to $snapshot_name" || zip_failed=true
       fi
 
       if [[ $option == "uploads" ]]; then
-        zip --test -q -r $snapshot_name $snapshot_path/wp-content/uploads/ && echo "Completed adding /wp-content/uploads/ to $snapshot_name" || echo "Failed generating $snapshot_name"
+        zip --test -q -r $snapshot_name $snapshot_path/wp-content/uploads/ && echo "Completed adding /wp-content/uploads/ to $snapshot_name" || zip_failed=true
       fi
 
       if [[ $option == "everything-else" ]]; then
-        zip --test -q -r $snapshot_name $snapshot_path/ --exclude=$snapshot_path/database-backup.sql --exclude=$snapshot_path/wp-content/themes/\* --exclude=$snapshot_path/wp-content/plugins/\* --exclude=$snapshot_path/wp-content/uploads/\* --exclude=$snapshot_path/_wpeprivate/\* --exclude=\*.git\* --exclude=$snapshot_path/wp-content/advanced-cache.php --exclude=$snapshot_path/wp-content/mu-plugins/mu-plugin.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$snapshot_path/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$snapshot_path/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$snapshot_path/wp-content/mu-plugins/wpengine-common/\* && echo "Completed adding everything else to $snapshot_name" || echo "Failed generating $snapshot_name"
+        zip --test -q -r $snapshot_name $snapshot_path/ --exclude=$snapshot_path/database-backup.sql --exclude=$snapshot_path/wp-content/themes/\* --exclude=$snapshot_path/wp-content/plugins/\* --exclude=$snapshot_path/wp-content/uploads/\* --exclude=$snapshot_path/_wpeprivate/\* --exclude=\*.git\* --exclude=$snapshot_path/wp-content/advanced-cache.php --exclude=$snapshot_path/wp-content/mu-plugins/mu-plugin.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$snapshot_path/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$snapshot_path/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$snapshot_path/wp-content/mu-plugins/wpengine-common/\* && echo "Completed adding everything else to $snapshot_name" || zip_failed=true
       fi
 
     done
@@ -141,7 +166,7 @@ run_command() {
 
   if [[ "$FLAG_FILTER" == "" ]]; then
     # Add everything to ZIP
-    zip --test -q -r $snapshot_name $snapshot_path/ --exclude=$snapshot_path/_wpeprivate/\* --exclude=\*.git\* --exclude=$snapshot_path/wp-content/advanced-cache.php --exclude=$snapshot_path/wp-content/mu-plugins/mu-plugin.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$snapshot_path/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$snapshot_path/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$snapshot_path/wp-content/mu-plugins/wpengine-common/\*
+    zip --test -q -r $snapshot_name $snapshot_path/ --exclude=$snapshot_path/_wpeprivate/\* --exclude=\*.git\* --exclude=$snapshot_path/wp-content/advanced-cache.php --exclude=$snapshot_path/wp-content/mu-plugins/mu-plugin.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins.php --exclude=$snapshot_path/wp-content/mu-plugins/kinsta-mu-plugins/\* --exclude=$snapshot_path/wp-content/mu-plugins/slt-force-strong-passwords.php --exclude=$snapshot_path/wp-content/mu-plugins/force-strong-passwords/\* --exclude=$snapshot_path/wp-content/mu-plugins/wpengine-common/\* || zip_failed=true
   fi
 
   rm $snapshot_path  # remove directory shortcut
@@ -149,6 +174,14 @@ run_command() {
   if [[ -n "$restore_dir" && "$restore_dir" == "$path/${site}_${site_id}/${environment}/snapshot-staging-"* ]]; then
     rm -rf "$restore_dir"
   fi
+  # A zip that failed (a full disk, a read error) or came out empty must not
+  # become a snapshot record or a "snapshot ready" email.
+  if [[ "$zip_failed" == "true" || ! -s "$snapshot_name" ]]; then
+    rm -f "$snapshot_name"
+    echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Could not build the zip for ${site}-${environment}; no snapshot created."
+    return 1
+  fi
+
   mkdir -p ${environment}/snapshots
   mv $snapshot_name ${environment}/snapshots
   cd ${environment}/snapshots
@@ -167,7 +200,11 @@ run_command() {
   if [[ $SKIP_REMOTE != true ]]; then
 
     # Moves snapshot to Backblaze archive folder
-    rclone move $snapshot_name $rclone_snapshot/
+    if ! rclone move $snapshot_name $rclone_snapshot/; then
+      rm -f "$snapshot_name"
+      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Could not upload $snapshot_name; no snapshot created."
+      return 1
+    fi
 
     if [[ "$debug" == "true" ]]; then
     read -r -d '' VAR << EOM
