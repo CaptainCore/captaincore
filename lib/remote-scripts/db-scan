@@ -49,7 +49,7 @@ $full      = defined('DBSCAN_FULL') && DBSCAN_FULL;
 $max_row   = defined('DBSCAN_MAX_ROW') ? (int) DBSCAN_MAX_ROW : 16384;
 $max_total = defined('DBSCAN_MAX_TOTAL') ? (int) DBSCAN_MAX_TOTAL : 2097152;
 global $wpdb;
-$out = ['since_days' => $since, 'full' => $full, 'options' => [], 'posts' => [], 'comments' => [], 'admins' => [],
+$out = ['since_days' => $since, 'full' => $full, 'options' => [], 'posts' => [], 'comments' => [], 'postmeta' => [], 'snippets' => [], 'admins' => [],
         'plugins_missing' => [], 'triggers' => [], 'events' => [], 'routines' => [], 'unknown_tables' => [],
         'suspicious_options' => [], 'toolkit_markers' => [], 'stats' => [], 'truncated' => false];
 $total = 0;
@@ -62,26 +62,43 @@ $room = function ($len) use (&$total, $max_total, &$out) {
     if ($total + $len > $max_total) { $out['truncated'] = true; return false; }
     $total += $len; return true;
 };
-// Markers that make a row worth reading. Each is a case-insensitive LIKE.
-$markers = ['<script', '<iframe', 'eval(', 'base64_decode', 'atob(', 'fromCharCode', 'document.write', '<?php', 'unescape(',
-            'javascript:', 'String.fromCharCode', 'window.location', 'display:none', 'visibility:hidden', '\\x2', '\\x3', '\\x6', '\\x7',
-            'gzinflate', 'str_rot13', 'create_function', 'assert(', 'passthru', 'shell_exec',
-            'left:-', 'top:-', 'text-indent:-', 'font-size:0', 'opacity:0', 'position:absolute'];
-$like = function ($col) use ($markers, $wpdb) {
+// High-signal script/code markers vs noisy CSS hiding markers. Keeping them split
+// prevents large theme/builder CSS options from crowding out small injected options.
+$high_markers = ['<script', '<iframe', 'eval(', 'base64_decode', 'atob(', 'fromCharCode', 'document.write', '<?php', 'unescape(',
+                 'javascript:', 'String.fromCharCode', 'window.location', '\\x2', '\\x3', '\\x6', '\\x7',
+                 'gzinflate', 'str_rot13', 'create_function', 'assert(', 'passthru', 'shell_exec'];
+$css_markers  = ['display:none', 'visibility:hidden', 'left:-', 'top:-', 'text-indent:-', 'font-size:0', 'opacity:0', 'position:absolute'];
+$markers      = array_merge($high_markers, $css_markers);
+$like_set = function ($col, $list) use ($wpdb) {
     $parts = [];
-    foreach ($markers as $m) $parts[] = $wpdb->prepare("$col LIKE %s", '%' . $wpdb->esc_like($m) . '%');
+    foreach ($list as $m) $parts[] = $wpdb->prepare("$col LIKE %s", '%' . $wpdb->esc_like($m) . '%');
     return '(' . implode(' OR ', $parts) . ')';
 };
+$like      = function ($col) use ($like_set, $markers) { return $like_set($col, $markers); };
+$like_high = function ($col) use ($like_set, $high_markers) { return $like_set($col, $high_markers); };
 
-// Options: every row with a marker, cut to size. The cron array is always included.
+// Options: always export cron first, then high-signal code/script rows (newest first so
+// small recent injections are never dropped behind huge old options), then CSS-marker rows.
 // Security plugins store their own signature lists in options; those quote every web shell name.
 $skip_names = "option_name NOT LIKE '\\_vp\\_%' AND option_name NOT LIKE 'wordfence%' AND option_name NOT LIKE 'wf%' AND option_name NOT LIKE 'sucuri%' AND option_name NOT LIKE 'itsec%' AND option_name NOT LIKE 'aiowps%' AND option_name NOT LIKE 'cerber%' AND option_name NOT LIKE 'malcare%' AND option_name NOT LIKE 'wpmr%' AND option_name NOT LIKE 'gotmls%' AND option_name NOT LIKE 'quttera%' AND option_name NOT LIKE 'virusdie%' AND option_name NOT LIKE 'shield%' AND option_name NOT LIKE 'icwp%' AND option_name NOT LIKE 'nfw%' AND option_name NOT LIKE 'securi%' AND option_name NOT LIKE 'jetpack_protect%' AND option_name NOT LIKE 'wpseo-gsc%' AND option_name NOT LIKE 'redirection_404%' AND option_name NOT LIKE '%_404_log%'";
-$rows = $wpdb->get_results("SELECT option_name, autoload, LENGTH(option_value) AS len FROM {$wpdb->options} WHERE $skip_names AND (" . $like('option_value') . " OR option_name = 'cron') ORDER BY len DESC LIMIT 400");
-foreach ($rows as $r) {
+$seen_opts = [];
+$add_option = function ($r) use ($wpdb, $cut, $room, &$out, &$seen_opts) {
+    if (!$r || isset($seen_opts[$r->option_name])) return true;
+    $seen_opts[$r->option_name] = true;
     $v = $wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", $r->option_name));
     $v = $cut($v);
-    if (!$room(strlen($v))) break;
+    if (!$room(strlen($v))) return false;
     $out['options'][] = ['name' => $r->option_name, 'autoload' => $r->autoload, 'size' => (int) $r->len, 'content' => $v];
+    return true;
+};
+$cron_row = $wpdb->get_row("SELECT option_name, autoload, LENGTH(option_value) AS len FROM {$wpdb->options} WHERE option_name = 'cron' LIMIT 1");
+if ($cron_row) $add_option($cron_row);
+$rows = $wpdb->get_results("SELECT option_name, autoload, LENGTH(option_value) AS len FROM {$wpdb->options} WHERE $skip_names AND " . $like_high('option_value') . " ORDER BY option_id DESC LIMIT 300");
+foreach ($rows as $r) { if (!$add_option($r)) break; }
+if (count($out['options']) < 400 && !$out['truncated']) {
+    $rem  = 400 - count($out['options']);
+    $rows = $wpdb->get_results("SELECT option_name, autoload, LENGTH(option_value) AS len FROM {$wpdb->options} WHERE $skip_names AND " . $like_set('option_value', $css_markers) . " ORDER BY option_id DESC LIMIT $rem");
+    foreach ($rows as $r) { if (!$add_option($r)) break; }
 }
 $out['stats']['options_total'] = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->options}");
 $out['stats']['options_exported'] = count($out['options']);
@@ -132,6 +149,46 @@ foreach ($rows as $r) {
     $out['comments'][] = ['id' => (int) $r->comment_ID, 'post' => (int) $r->comment_post_ID, 'approved' => $r->comment_approved, 'date' => $r->comment_date_gmt, 'url' => $r->comment_author_url, 'content' => $c];
 }
 $out['stats']['comments_exported'] = count($out['comments']);
+
+// Postmeta: indexed join against recently modified posts (or known builder/script keys
+// on --full) so page builders (Elementor _elementor_data, Beaver Builder, header/footer
+// script meta) are scanned without full-scanning multi-million-row WooCommerce postmeta.
+if (!$out['truncated']) {
+    if ($full) {
+        $pm_keys = "'_elementor_data','_fl_builder_data','_et_pb_old_content','header_scripts','footer_scripts','_header_script','_footer_script'";
+        $pm_rows = $wpdb->get_results("SELECT meta_id, post_id, meta_key, LENGTH(meta_value) AS len, meta_value FROM {$wpdb->postmeta} WHERE meta_key IN ($pm_keys) AND " . $like_high('meta_value') . " ORDER BY meta_id DESC LIMIT 200");
+    } else {
+        $since_sql_pm = $wpdb->prepare("p.post_modified >= DATE_SUB(NOW(), INTERVAL %d DAY)", $since);
+        $pm_rows = $wpdb->get_results("SELECT pm.meta_id, pm.post_id, pm.meta_key, LENGTH(pm.meta_value) AS len, pm.meta_value FROM {$wpdb->postmeta} pm INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id WHERE $since_sql_pm AND p.post_type NOT IN ('revision') AND pm.meta_key NOT LIKE '\\_oembed%' AND " . $like_high('pm.meta_value') . " ORDER BY pm.meta_id DESC LIMIT 200");
+    }
+    foreach ((array) $pm_rows as $r) {
+        $c = $cut($r->meta_value);
+        if (!$room(strlen($c))) break;
+        $out['postmeta'][] = ['meta_id' => (int) $r->meta_id, 'post_id' => (int) $r->post_id, 'key' => (string) $r->meta_key, 'size' => (int) $r->len, 'content' => $c];
+    }
+}
+$out['stats']['postmeta_exported'] = count($out['postmeta']);
+
+// Snippet plugins (Code Snippets, Header Footer Code Manager): small tables holding executable PHP/JS.
+if (!$out['truncated']) {
+    $sn_table = $wpdb->prefix . 'snippets';
+    if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $sn_table)) === $sn_table) {
+        foreach ((array) $wpdb->get_results("SELECT id, name, code FROM `{$sn_table}` WHERE active = 1 AND " . $like_high('code') . " ORDER BY id DESC LIMIT 100") as $r) {
+            $c = $cut($r->code);
+            if (!$room(strlen($c))) break;
+            $out['snippets'][] = ['table' => 'snippets', 'id' => (int) $r->id, 'name' => substr((string) $r->name, 0, 120), 'content' => $c];
+        }
+    }
+    $hfcm_table = $wpdb->prefix . 'hfcm_scripts';
+    if (!$out['truncated'] && $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $hfcm_table)) === $hfcm_table) {
+        foreach ((array) $wpdb->get_results("SELECT script_id AS id, name, snippet AS code FROM `{$hfcm_table}` WHERE status = 'active' AND " . $like_high('snippet') . " ORDER BY script_id DESC LIMIT 100") as $r) {
+            $c = $cut($r->code);
+            if (!$room(strlen($c))) break;
+            $out['snippets'][] = ['table' => 'hfcm_scripts', 'id' => (int) $r->id, 'name' => substr((string) $r->name, 0, 120), 'content' => $c];
+        }
+    }
+}
+$out['stats']['snippets_exported'] = count($out['snippets']);
 
 // Administrators, including super admins on multisite.
 $admins = [];

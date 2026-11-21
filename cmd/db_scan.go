@@ -46,6 +46,19 @@ type dbScanExport struct {
 		Content string `json:"content"`
 		URL     string `json:"url"`
 	} `json:"comments"`
+	Postmeta []struct {
+		MetaID  int    `json:"meta_id"`
+		PostID  int    `json:"post_id"`
+		Key     string `json:"key"`
+		Size    int    `json:"size"`
+		Content string `json:"content"`
+	} `json:"postmeta"`
+	Snippets []struct {
+		Table   string `json:"table"`
+		ID      int    `json:"id"`
+		Name    string `json:"name"`
+		Content string `json:"content"`
+	} `json:"snippets"`
 	Admins []struct {
 		ID         int    `json:"id"`
 		Login      string `json:"login"`
@@ -142,6 +155,16 @@ func dbScanFindings(raw string, knownUsers map[string]bool, minSeverity string) 
 		}
 		for _, c := range ex.Comments {
 			write("comment", fmt.Sprintf("%d", c.ID), c.Content, fmt.Sprintf("Comment %d on post %d", c.ID, c.Post))
+		}
+		for _, m := range ex.Postmeta {
+			write("postmeta", fmt.Sprintf("%d/%s", m.PostID, m.Key), m.Content, fmt.Sprintf("Postmeta %s on post %d (%d bytes)", m.Key, m.PostID, m.Size))
+		}
+		for _, sn := range ex.Snippets {
+			tbl := sn.Table
+			if tbl == "" {
+				tbl = "snippets"
+			}
+			write("snippet", fmt.Sprintf("%s/%d", tbl, sn.ID), sn.Content, fmt.Sprintf("Snippet %s #%d %q", tbl, sn.ID, sn.Name))
 		}
 		if len(label) > 0 {
 			if rs, err := scan.LoadDefaultRuleSet(); err == nil {

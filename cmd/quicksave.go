@@ -765,6 +765,15 @@ func quicksaveLooseFilesScan(site *models.Site, env *models.Environment, system 
 		return
 	}
 
+	// Respect custom WP_CONTENT_DIR (Bedrock "app", WP Freighter "content/<id>")
+	contentDir := "wp-content"
+	if v, ok := details["wp_content"].(string); ok {
+		v = strings.Trim(strings.TrimSpace(v), "/")
+		if v != "" && safeRelPath(v) {
+			contentDir = v
+		}
+	}
+
 	// Filter to scannable extensions
 	scannableExts := map[string]bool{
 		".php": true, ".phtml": true, ".phar": true,
@@ -776,7 +785,7 @@ func quicksaveLooseFilesScan(site *models.Site, env *models.Environment, system 
 		}
 		ext := strings.ToLower(filepath.Ext(path))
 		if scannableExts[ext] {
-			filesToFetch = append(filesToFetch, "wp-content/"+path)
+			filesToFetch = append(filesToFetch, contentDir+"/"+path)
 		}
 	}
 	if len(filesToFetch) == 0 {

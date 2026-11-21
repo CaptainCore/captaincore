@@ -20,6 +20,12 @@ func TestDBScanFindings(t *testing.T) {
 			{"id": 43, "type": "page", "status": "publish", "title": "About", "content": "<p>nothing to see</p>"},
 		},
 		"comments": []map[string]any{},
+		"postmeta": []map[string]any{
+			{"meta_id": 501, "post_id": 42, "key": "_elementor_data", "size": 180, "content": `[{"widgetType":"html","settings":{"html":"<script>eval(atob('ZG9jdW1lbnQud3JpdGUoJzxpZnJhbWUgc3JjPWh0dHA6Ly9leGFtcGxlLmludmFsaWQvPicp'))</script>"}}]`},
+		},
+		"snippets": []map[string]any{
+			{"table": "hfcm_scripts", "id": 9, "name": "Footer", "content": `<script>eval(atob('ZG9jdW1lbnQud3JpdGUoJzxpZnJhbWUgc3JjPWh0dHA6Ly9leGFtcGxlLmludmFsaWQvPicp'))</script>`},
+		},
 		"admins": []map[string]any{
 			{"id": 1, "login": "austin", "email": "a@example.invalid", "registered": "2020-01-01 00:00:00"},
 			{"id": 99, "login": "wpsupp-user", "email": "x@example.invalid", "registered": time.Now().UTC().Add(-36 * time.Hour).Format("2006-01-02 15:04:05")},
@@ -74,15 +80,16 @@ func TestDBScanFindings(t *testing.T) {
 		t.Error("a known plugin trigger must not be reported")
 	}
 	// The rule engine must have run over the rows: the off-screen link block
-	// in post 42 and the eval(atob(...)) widget are corpus shapes.
+	// in post 42, the eval(atob(...)) widget, Elementor postmeta, and HFCM snippet.
 	ruleHits := 0
 	for _, f := range findings {
-		if strings.HasPrefix(f.Filename, "db:post/42") || strings.HasPrefix(f.Filename, "db:option/widget_text") {
+		if strings.HasPrefix(f.Filename, "db:post/42") || strings.HasPrefix(f.Filename, "db:option/widget_text") ||
+			strings.HasPrefix(f.Filename, "db:postmeta/42/_elementor_data") || strings.HasPrefix(f.Filename, "db:snippet/hfcm_scripts/9") {
 			ruleHits++
 		}
 	}
-	if ruleHits == 0 {
-		t.Errorf("expected rule findings on the injected rows, got %v", got)
+	if ruleHits < 4 {
+		t.Errorf("expected rule findings on post, option, postmeta, and snippet rows (got %d, all: %v)", ruleHits, got)
 	}
 	if sum.Findings != len(findings) || len(sum.Admins) != 3 || sum.Stats["posts_checked"] != 12 {
 		t.Errorf("summary: %+v", sum)

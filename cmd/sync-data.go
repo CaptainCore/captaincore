@@ -355,6 +355,31 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 		}
 	}
 
+	// High-risk behavioral events from wp_captaincore_security_log (last 26h,
+	// excluding wp_cli). Critical when unauthenticated (system_or_anonymous).
+	if v := strings.TrimSpace(data["security_log_events"]); v != "" && v != "[]" {
+		if findings := securityLogEventFindings(v); len(findings) > 0 {
+			if site, err := sa.LookupSite(); err == nil && site != nil {
+				if !flagSyncDataJSON {
+					fmt.Printf("Security log finding(s): %d\n", len(findings))
+				}
+				postMalwareAlert(site, &matchedEnv, system, captain, findings, "security-log")
+			}
+		}
+	}
+
+	// PHP eval()'d code errors tailed from the site's error logs.
+	if v := strings.TrimSpace(data["runtime_eval_errors"]); v != "" && v != "[]" {
+		if findings := runtimeEvalFindings(v); len(findings) > 0 {
+			if site, err := sa.LookupSite(); err == nil && site != nil {
+				if !flagSyncDataJSON {
+					fmt.Printf("Runtime eval error finding(s): %d\n", len(findings))
+				}
+				postMalwareAlert(site, &matchedEnv, system, captain, findings, "runtime-log")
+			}
+		}
+	}
+
 	// Store mu_plugins array (with per-component hashes) in details
 	if muJSON, ok := data["mu_plugins"]; ok && muJSON != "" && muJSON != "[]" {
 		var parsed interface{}
