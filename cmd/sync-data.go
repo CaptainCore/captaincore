@@ -355,6 +355,18 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 		}
 	}
 
+	// Redacted wp-config.php scanned through the native malware rule set.
+	if v := strings.TrimSpace(data["wp_config_check"]); v != "" && v != "null" {
+		if findings := wpConfigFindings(v, nativeAlertSeverity); len(findings) > 0 {
+			if site, err := sa.LookupSite(); err == nil && site != nil {
+				if !flagSyncDataJSON {
+					fmt.Printf("wp-config.php rule finding(s): %d\n", len(findings))
+				}
+				postMalwareAlert(site, &matchedEnv, system, captain, findings, "provenance-scan")
+			}
+		}
+	}
+
 	// High-risk behavioral events from wp_captaincore_security_log (last 26h,
 	// excluding wp_cli). Critical when unauthenticated (system_or_anonymous).
 	if v := strings.TrimSpace(data["security_log_events"]); v != "" && v != "[]" {

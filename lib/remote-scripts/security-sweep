@@ -1,0 +1,386 @@
+#!/usr/bin/env bash
+
+#
+#   Fast security sweep (~2-4s per site):
+#   Runs a single --skip-plugins WordPress boot + lightweight root provenance check
+#   to collect high-signal behavioral and persistence telemetry without waiting on
+#   plugin checksums or full component hashing.
+#
+#   Returns key:value pairs, one per line.
+#
+
+if [ ! -f "wp-config.php" ]; then
+    wp_root=$( wp eval 'echo ABSPATH;' --skip-themes --skip-plugins --skip-packages 2>/dev/null | tail -1 )
+    wp_root="${wp_root%/}"
+    if [[ -z "$wp_root" || ! -f "$wp_root/wp-load.php" ]] || [[ "$wp_root" != "$(pwd -P)" && "$wp_root" != "$(pwd -P)/"* ]] || ! cd "$wp_root"; then
+        echo "WordPress not found"
+        exit
+    fi
+fi
+
+# Fast wp_content resolution: avoid an extra wp boot on stock layouts.
+wp_content=""
+if [[ -d "wp-content" ]] && ! grep -q "WP_CONTENT_DIR" wp-config.php 2>/dev/null; then
+    wp_content="wp-content"
+else
+    wp_content=$( wp eval 'echo str_replace( rtrim( ABSPATH, "/" ) . "/", "", WP_CONTENT_DIR );' --skip-themes --skip-plugins --skip-packages 2>/dev/null | tail -1 )
+    wp_content="${wp_content%/}"
+    if [[ -z "$wp_content" || "$wp_content" == /* || ! -d "$wp_content" ]]; then
+        wp_content="wp-content"
+    fi
+fi
+
+trim() { printf '%s' "$1" | tr -d '\n\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
+
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT
+
+# Worker 1: single WordPress boot for session_signal, security_log_events,
+# runtime_eval_errors, config role settings, and redacted wp-config.php.
+(
+read -r -d '' SWEEP_PHP << 'SWEEPEOF'
+<?php
+global $wpdb;
+
+$emit = function ( $k, $v ) {
+    echo $k . ':' . trim( str_replace( [ "\r", "\n" ], '', (string) $v ) ) . "\n";
+};
+
+// 1. Risky role/registration settings
+$default_role = (string) get_option( 'default_role', '' );
+$registration = is_multisite() ? (string) get_site_option( 'registration', '' ) : (string) get_option( 'users_can_register', '0' );
+$emit( 'default_role', $default_role );
+$emit( 'registration', $registration );
+
+// 2. Session / privilege signal (identical to fetch-site-data)
+( function () use ( $wpdb, $emit ) {
+    $CODE_TAKEOVER = [ 'manage_options','install_plugins','install_themes','update_plugins','update_core',
+        'activate_plugins','edit_plugins','edit_themes','edit_files' ];
+    $USER_TAKEOVER = [ 'edit_users','promote_users','delete_users','create_users','remove_users' ];
+    $TAKEOVER      = array_merge( $CODE_TAKEOVER, $USER_TAKEOVER );
+    $CONTENT       = [ 'unfiltered_html' ];
+    $CORE_ADMIN    = [ 'manage_options','install_plugins','edit_plugins','update_core','edit_users','edit_files','activate_plugins' ];
+
+    $roles = get_option( $wpdb->prefix . 'user_roles', [] );
+    $all_role_slugs = array_keys( (array) $roles );
+    $admin_roles = []; $content_only_roles = []; $role_audit = [];
+    foreach ( (array) $roles as $rk => $rd ) {
+        $caps = isset( $rd['capabilities'] ) ? array_keys( array_filter( (array) $rd['capabilities'] ) ) : [];
+        $danger = array_values( array_intersect( $caps, array_merge( $TAKEOVER, $CONTENT ) ) );
+        if ( array_intersect( $caps, $TAKEOVER ) )      { $admin_roles[] = $rk; $role_audit[$rk] = $danger; }
+        elseif ( array_intersect( $caps, $CONTENT ) )   { $content_only_roles[] = $rk; $role_audit[$rk] = $danger; }
+    }
+    $admin_role_set = array_unique( array_merge( $admin_roles, [ 'administrator', 'super_admin' ] ) );
+
+    $tokens = array_unique( array_merge( $admin_role_set, $TAKEOVER ) );
+    $likes  = [];
+    foreach ( $tokens as $t ) { $likes[] = $wpdb->prepare( "meta_value LIKE %s", '%' . $wpdb->esc_like( $t ) . '%' ); }
+    $rows = $wpdb->get_results( "SELECT user_id, meta_value FROM {$wpdb->usermeta}
+        WHERE meta_key = '{$wpdb->prefix}capabilities' AND (" . implode( ' OR ', $likes ) . ")" );
+
+    $cap_user_ids = []; $admin_ids = []; $injected = []; $user_role_map = [];
+    foreach ( (array) $rows as $r ) {
+        $caps = maybe_unserialize( $r->meta_value );
+        if ( ! is_array( $caps ) ) { continue; }
+        $ur = array_keys( array_filter( $caps ) );
+        $base_roles = array_values( array_intersect( $ur, $all_role_slugs ) );
+        $extra_caps = array_values( array_diff( $ur, $all_role_slugs ) );
+
+        $has_takeover   = (bool) array_intersect( $ur, $TAKEOVER );
+        $via_admin_role = (bool) array_intersect( $base_roles, $admin_role_set );
+        if ( ! $has_takeover && ! $via_admin_role ) { continue; }
+        $uid = (int) $r->user_id;
+        $cap_user_ids[] = $uid;
+        $user_role_map[$uid] = $base_roles;
+
+        $is_effective_admin = $via_admin_role || in_array( 'level_10', $ur, true )
+            || count( array_intersect( $ur, $CORE_ADMIN ) ) >= 4;
+        if ( $is_effective_admin ) { $admin_ids[] = $uid; }
+
+        if ( ! $is_effective_admin ) {
+            $injected_code = array_values( array_intersect( $extra_caps, $CODE_TAKEOVER ) );
+            if ( $injected_code ) {
+                $injected[] = [ 'user_id' => $uid, 'base_roles' => $base_roles,
+                    'extra_caps'    => array_values( array_intersect( $extra_caps, $TAKEOVER ) ),
+                    'injected_caps' => $injected_code ];
+            }
+        }
+    }
+
+    $accounts = [];
+    $tier = [ 'administrator' => [ 'users' => 0, 's' => 0, 'ips' => [] ],
+              'admin_capable' => [ 'users' => 0, 's' => 0, 'ips' => [] ] ];
+    if ( $cap_user_ids ) {
+        $in   = implode( ',', array_map( 'intval', $cap_user_ids ) );
+        $info = $wpdb->get_results( "SELECT ID, user_login, user_registered FROM {$wpdb->users} WHERE ID IN ($in)" );
+        $recent = [];
+        $posts  = $wpdb->get_results( $wpdb->prepare( "SELECT ID, post_author, post_type, post_status, post_title, post_modified_gmt FROM {$wpdb->posts}
+            WHERE post_author IN ($in) AND post_modified_gmt >= %s AND post_type NOT IN ('revision','nav_menu_item','customize_changeset','oembed_cache')
+            AND post_status <> 'auto-draft' ORDER BY post_modified_gmt DESC LIMIT 500", gmdate( 'Y-m-d H:i:s', time() - 2 * DAY_IN_SECONDS ) ) );
+        foreach ( (array) $posts as $p ) {
+            $a = (int) $p->post_author;
+            $recent[$a]['count'] = ( $recent[$a]['count'] ?? 0 ) + 1;
+            if ( count( $recent[$a]['items'] ?? [] ) < 5 ) {
+                $recent[$a]['items'][] = [ 'id' => (int) $p->ID, 'type' => $p->post_type, 'status' => $p->post_status,
+                    'title' => mb_substr( $p->post_title, 0, 80 ), 'modified' => $p->post_modified_gmt ];
+            }
+        }
+        foreach ( (array) $info as $u ) {
+            $uid      = (int) $u->ID;
+            $is_admin = in_array( $uid, $admin_ids, true );
+            $sessions = get_user_meta( $uid, 'session_tokens', true );
+            $s_out = [];
+            if ( is_array( $sessions ) ) {
+                foreach ( $sessions as $s ) {
+                    $ip = $s['ip'] ?? '';
+                    $s_out[] = [
+                        'ip'         => $ip,
+                        'login'      => isset( $s['login'] ) ? date( 'Y-m-d H:i:s', $s['login'] ) : '',
+                        'expiration' => isset( $s['expiration'] ) ? date( 'Y-m-d H:i:s', $s['expiration'] ) : '',
+                    ];
+                    $tier['admin_capable']['s']++;
+                    if ( $ip ) { $tier['admin_capable']['ips'][ $ip ] = 1; }
+                    if ( $is_admin ) {
+                        $tier['administrator']['s']++;
+                        if ( $ip ) { $tier['administrator']['ips'][ $ip ] = 1; }
+                    }
+                }
+            }
+            $apps = [];
+            foreach ( (array) get_user_meta( $uid, '_application_passwords', true ) as $ap ) {
+                if ( ! is_array( $ap ) ) { continue; }
+                $apps[] = [
+                    'name'      => mb_substr( (string) ( $ap['name'] ?? '' ), 0, 80 ),
+                    'created'   => ! empty( $ap['created'] ) ? gmdate( 'Y-m-d H:i:s', (int) $ap['created'] ) : '',
+                    'last_used' => ! empty( $ap['last_used'] ) ? gmdate( 'Y-m-d H:i:s', (int) $ap['last_used'] ) : '',
+                    'last_ip'   => (string) ( $ap['last_ip'] ?? '' ),
+                ];
+            }
+            usort( $apps, function ( $x, $y ) { return strcmp( $y['created'], $x['created'] ); } );
+            $apps = array_slice( $apps, 0, 20 );
+            $tier['admin_capable']['users']++;
+            if ( $is_admin ) { $tier['administrator']['users']++; }
+            $accounts[] = [
+                'user_id'       => $uid,
+                'login'         => $u->user_login,
+                'roles'         => array_values( $user_role_map[ $uid ] ?? [] ),
+                'registered'    => $u->user_registered,
+                'is_admin'      => $is_admin,
+                'sessions'      => $s_out,
+                'app_passwords' => $apps,
+                'recent_posts'  => $recent[ $uid ] ?? [ 'count' => 0 ],
+            ];
+        }
+    }
+
+    $out = [
+        'collected_at'         => gmdate( 'Y-m-d\TH:i:s\Z' ),
+        'total_users'          => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->users}" ),
+        'session_token_rows'   => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->usermeta} WHERE meta_key = 'session_tokens'" ),
+        'administrator'        => [ 'users' => $tier['administrator']['users'], 'active_sessions' => $tier['administrator']['s'], 'unique_ips' => count( $tier['administrator']['ips'] ) ],
+        'admin_capable'        => [ 'users' => $tier['admin_capable']['users'], 'active_sessions' => $tier['admin_capable']['s'], 'unique_ips' => count( $tier['admin_capable']['ips'] ) ],
+        'admin_capable_roles'  => array_values( $admin_roles ),
+        'content_only_roles'   => array_values( $content_only_roles ),
+        'redefined_role_audit' => (object) $role_audit,
+        'super_admins'         => function_exists( 'get_super_admins' ) ? array_values( get_super_admins() ) : [],
+        'injected_users'       => $injected,
+        'accounts'             => $accounts,
+    ];
+    $emit( 'session_signal', wp_json_encode( $out ) );
+} )();
+
+// 3. High-risk behavioral events from captaincore_security_log (last 26h, non-wp_cli)
+( function () use ( $wpdb, $emit ) {
+    $sec_events = [];
+    $sec_table  = $wpdb->prefix . 'captaincore_security_log';
+    if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $sec_table ) ) === $sec_table ) {
+        $since = gmdate( 'Y-m-d H:i:s', time() - 26 * HOUR_IN_SECONDS );
+        $rows  = $wpdb->get_results( $wpdb->prepare(
+            "SELECT log_id, log_time, action, user_type, user_id, user_login, ip_address, log_data
+             FROM `{$sec_table}`
+             WHERE log_time >= %s
+               AND COALESCE(user_type, '') <> 'wp_cli'
+               AND (
+                   action IN ('file_editor_saved','wpcode_snippet_created','wpcode_snippet_updated','app_password_created','user_super_admin_granted')
+                   OR (action IN ('option_added','option_updated') AND (log_data LIKE %s OR log_data LIKE %s))
+               )
+             ORDER BY log_id DESC LIMIT 50",
+            $since, '%ihaf_insert_%', '%admin_email%'
+        ) );
+        foreach ( (array) $rows as $r ) {
+            $sec_events[] = [
+                'log_id'     => (int) $r->log_id,
+                'log_time'   => (string) $r->log_time,
+                'action'     => (string) $r->action,
+                'user_type'  => (string) ( $r->user_type ?? '' ),
+                'user_id'    => (int) ( $r->user_id ?? 0 ),
+                'user_login' => (string) ( $r->user_login ?? '' ),
+                'ip_address' => (string) ( $r->ip_address ?? '' ),
+                'log_data'   => (string) ( $r->log_data ?? '' ),
+            ];
+        }
+    }
+    $emit( 'security_log_events', json_encode( $sec_events, JSON_UNESCAPED_SLASHES | JSON_PARTIAL_OUTPUT_ON_ERROR ) );
+} )();
+
+// 4. PHP eval()'d code tell from the tail (256 KB) of each active error log
+( function () use ( $emit ) {
+    $evals     = [];
+    $home_path = get_home_path();
+    $parent    = dirname( $home_path );
+    $wpc       = empty( WP_CONTENT_DIR ) ? "{$home_path}wp-content" : WP_CONTENT_DIR;
+    $wpc_base  = basename( $wpc );
+
+    $norm_path = function ( $p ) use ( $home_path, $parent ) {
+        $p  = str_replace( '\\', '/', trim( (string) $p ) );
+        $hp = rtrim( str_replace( '\\', '/', $home_path ), '/' ) . '/';
+        $pp = rtrim( str_replace( '\\', '/', $parent ), '/' ) . '/';
+        if ( strpos( $p, $hp ) === 0 ) { return substr( $p, strlen( $hp ) ); }
+        if ( strpos( $p, $pp ) === 0 ) { return substr( $p, strlen( $pp ) ); }
+        return ltrim( $p, '/' );
+    };
+
+    $scan_eval_tail = function ( $name, $path ) use ( &$evals, $norm_path ) {
+        if ( ! is_file( $path ) ) { return; }
+        $size = filesize( $path );
+        if ( ! $size ) { return; }
+        $fh = @fopen( $path, 'rb' );
+        if ( ! $fh ) { return; }
+        $window = 262144;
+        if ( $size > $window ) {
+            fseek( $fh, -$window, SEEK_END );
+            fgets( $fh );
+        }
+        while ( ( $line = fgets( $fh ) ) !== false ) {
+            if ( stripos( $line, "eval()'d code" ) === false ) { continue; }
+            $file = ''; $lnum = 0;
+            if ( preg_match( '/\bin\s+([^\s(]+)\((\d+)\)\s*:\s*eval\(\)\'d code/i', $line, $m ) ) {
+                $file = $norm_path( $m[1] );
+                $lnum = (int) $m[2];
+            } elseif ( preg_match( '/\bin\s+([^\s:]+).*eval\(\)\'d code/i', $line, $m ) ) {
+                $file = $norm_path( $m[1] );
+            }
+            if ( $file === '' ) { continue; }
+            $key   = $name . '|' . $file . '|' . $lnum;
+            $clean = trim( preg_replace( '/[^\x20-\x7e]+/', ' ', $line ) );
+            if ( strlen( $clean ) > 300 ) { $clean = substr( $clean, 0, 300 ) . '...'; }
+            if ( ! isset( $evals[ $key ] ) ) {
+                if ( count( $evals ) >= 20 ) { continue; }
+                $evals[ $key ] = [ 'log' => $name, 'file' => $file, 'line' => $lnum, 'count' => 0, 'excerpt' => $clean ];
+            }
+            $evals[ $key ]['count']++;
+            $evals[ $key ]['excerpt'] = $clean;
+        }
+        fclose( $fh );
+    };
+
+    $scan_eval_tail( 'error_log', "{$home_path}error_log" );
+    foreach ( (array) glob( "{$parent}/logs/*error.log*" ) as $f ) {
+        if ( substr( $f, -3 ) === '.gz' ) { continue; }
+        $scan_eval_tail( '~/logs/' . basename( $f ), $f );
+    }
+    $scan_eval_tail( "{$wpc_base}/debug.log", "{$wpc}/debug.log" );
+    $emit( 'runtime_eval_errors', json_encode( array_values( $evals ), JSON_UNESCAPED_SLASHES ) );
+} )();
+
+// 5. wp-config.php integrity check: hash raw file, redact secrets, ship for native rule scan.
+( function () use ( $emit ) {
+    $cfg = ABSPATH . 'wp-config.php';
+    if ( ! is_file( $cfg ) && is_file( dirname( ABSPATH ) . '/wp-config.php' ) ) {
+        $cfg = dirname( ABSPATH ) . '/wp-config.php';
+    }
+    if ( ! is_file( $cfg ) ) {
+        $emit( 'wp_config_check', 'null' );
+        return;
+    }
+    $raw = @file_get_contents( $cfg, false, null, 0, 524288 );
+    if ( ! is_string( $raw ) || $raw === '' ) {
+        $emit( 'wp_config_check', 'null' );
+        return;
+    }
+    $sha = hash_file( 'sha256', $cfg ) ?: hash( 'sha256', $raw );
+    // Redact quoted values of credential/salt define() statements so secrets never leave the site.
+    $redacted = preg_replace(
+        '/(define\s*\(\s*[\'"][A-Z0-9_]*(?:PASSWORD|PASS|SECRET|SALT|KEY|TOKEN|LICENSE)[A-Z0-9_]*[\'"]\s*,\s*)([\'"])(?:\\\\.|(?!\2).)*\2/i',
+        '$1$2REDACTED$2',
+        $raw
+    );
+    $emit( 'wp_config_check', json_encode( [
+        'path'   => 'wp-config.php',
+        'sha256' => $sha,
+        'size'   => (int) filesize( $cfg ),
+        'b64'    => base64_encode( (string) $redacted ),
+    ], JSON_UNESCAPED_SLASHES ) );
+} )();
+SWEEPEOF
+echo "$SWEEP_PHP" | wp eval-file - --skip-themes --skip-plugins --skip-packages 2>/dev/null
+) > "$tmpdir/w1.out" &
+pid1=$!
+
+# Worker 2: root & wp-content unexpected PHP provenance + contents (runs concurrently with WP boot)
+(
+if [[ -f "wp-settings.php" && -f "wp-load.php" ]]; then
+    prov_root_allow=" index.php wp-activate.php wp-blog-header.php wp-comments-post.php wp-config.php wp-config-sample.php wp-cron.php wp-links-opml.php wp-load.php wp-login.php wp-mail.php wp-settings.php wp-signup.php wp-trackback.php xmlrpc.php "
+else
+    prov_root_allow=" index.php wp-config.php wp-config-sample.php "
+fi
+prov_content_allow=" index.php advanced-cache.php db.php db-error.php install.php maintenance.php object-cache.php php-error.php fatal-error-handler.php sunrise.php blog-deleted.php blog-inactive.php blog-suspended.php "
+prov_rows=""
+for f in *.php *.phtml *.phar *.pht *.php3 *.php4 *.php5 *.php7 *.php8 *.phtm; do
+    [[ -f "$f" ]] || continue
+    prov_lf=$( printf '%s' "$f" | tr '[:upper:]' '[:lower:]' )
+    [[ "$prov_root_allow" == *" $prov_lf "* ]] && continue
+    prov_rows+="root|$f"$'\n'
+done
+for f in "$wp_content"/*.php "$wp_content"/*.phtml "$wp_content"/*.phar "$wp_content"/*.pht "$wp_content"/*.php3 "$wp_content"/*.php4 "$wp_content"/*.php5 "$wp_content"/*.php7 "$wp_content"/*.php8 "$wp_content"/*.phtm; do
+    [[ -f "$f" ]] || continue
+    prov_lb=$( basename "$f" | tr '[:upper:]' '[:lower:]' )
+    [[ "$prov_content_allow" == *" $prov_lb "* ]] && continue
+    prov_rows+="content|$f"$'\n'
+done
+prov_out=$( printf '%s' "$prov_rows" | python3 -c '
+import base64, hashlib, json, os, re, sys, time
+rows = []
+for line in sys.stdin:
+    line = line.rstrip("\n")
+    if not line: continue
+    loc, path = line.split("|", 1)
+    row = {"location": loc, "path": path}
+    try:
+        st = os.stat(path)
+        h = hashlib.sha256()
+        with open(path, "rb") as fh:
+            head = fh.read(600)
+            h.update(head)
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+        row.update({"sha256": h.hexdigest(), "size": st.st_size,
+                    "mtime": time.strftime("%Y-%m-%d %H:%M", time.gmtime(st.st_mtime)),
+                    "head": re.sub(r"[^\x09\x0a\x20-\x7e]", ".", head.decode("latin-1"))})
+    except OSError:
+        pass
+    rows.append(row)
+content, used = [], 0
+for row in sorted((r for r in rows if r.get("size")), key=lambda r: r["size"]):
+    if used >= 6 << 20: break
+    try:
+        with open(row["path"], "rb") as fh:
+            body = fh.read(min(1 << 20, (6 << 20) - used))
+    except OSError:
+        continue
+    used += len(body)
+    content.append({"path": row["path"], "sha256": row["sha256"], "truncated": len(body) < row["size"],
+                    "b64": base64.b64encode(body).decode()})
+print(json.dumps(rows))
+print(json.dumps(content))' 2>/dev/null )
+u_php=$( printf '%s\n' "$prov_out" | sed -n 1p )
+u_cnt=$( printf '%s\n' "$prov_out" | sed -n 2p )
+[[ -z "$u_php" ]] && u_php="[]"
+[[ -z "$u_cnt" ]] && u_cnt="[]"
+echo "unexpected_root_php:$(trim "$u_php")"
+echo "unexpected_root_php_content:$u_cnt"
+) > "$tmpdir/w2.out" &
+pid2=$!
+
+wait "$pid1" "$pid2"
+cat "$tmpdir/w1.out" "$tmpdir/w2.out"

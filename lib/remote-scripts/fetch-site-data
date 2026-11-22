@@ -6,6 +6,12 @@
 #   Returns key:value pairs, one per line.
 #   Values may contain JSON. Split on the first colon only.
 #
+#   Optimized layout:
+#   - Consolidates all --skip-plugins WordPress probes into one wp eval-file boot (Worker 1)
+#   - Runs core checksums + root provenance + loose PHP + media payloads concurrently (Worker 2)
+#   - Runs plugin checksums concurrently (Worker 3)
+#   - Runs parallelized component_hashes + mu_plugin_files + hidden_plugins boot concurrently (Worker 4)
+#
 
 if [ ! -f "wp-config.php" ]; then
     # WordPress in a subdirectory (wp-cli.yml "path: wp/") or with wp-config.php one level up.
@@ -19,82 +25,28 @@ if [ ! -f "wp-config.php" ]; then
     fi
 fi
 
-# Install CaptainCore helper if missing
-helper_check=$( wp plugin list --status=must-use --skip-themes --skip-plugins --skip-packages | grep "captaincore-helper" )
-if [[ "$helper_check" == "" ]]; then
-    curl https://run.captaincore.io/deploy-helper | bash -s
-fi
-
 # Content directory relative to the WordPress root: "wp-content" on a stock
-# install, "app" on Bedrock, "content/<id>" on a WP Freighter tenant. Every
-# filesystem probe below must use this, never the literal wp-content, or a
-# Bedrock site gets fingerprinted from the dead tree its migration left behind.
-wp_content=$( wp eval 'echo str_replace( rtrim( ABSPATH, "/" ) . "/", "", WP_CONTENT_DIR );' --skip-themes --skip-plugins --skip-packages 2>/dev/null | tail -1 )
-wp_content="${wp_content%/}"
-if [[ -z "$wp_content" || "$wp_content" == /* || ! -d "$wp_content" ]]; then
+# install, "app" on Bedrock, "content/<id>" on a WP Freighter tenant. Fast path
+# skips an extra wp boot on stock layouts where WP_CONTENT_DIR is not customized.
+if [[ -d "wp-content" ]] && ! grep -q "WP_CONTENT_DIR" wp-config.php 2>/dev/null; then
     wp_content="wp-content"
-fi
-
-plugins=$( wp plugin list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version )
-themes=$(wp theme list --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version )
-mu_plugins=$( wp plugin list --status=must-use --format=json --skip-themes --skip-plugins --skip-packages --fields=name,title,status,version 2>/dev/null )
-[[ -z "$mu_plugins" || "$mu_plugins" == "[]" ]] && mu_plugins="[]"
-core=$( wp core version --skip-themes --skip-plugins --skip-packages )
-home_url=$( wp option get home --skip-themes --skip-plugins --skip-packages )
-site_url=$( wp option get siteurl --skip-themes --skip-plugins --skip-packages )
-users=$( wp user list --format=json --skip-themes --skip-plugins --skip-packages )
-core_verify_checksums_response=$( wp core verify-checksums --skip-themes --skip-plugins --skip-packages 2>&1 )
-
-# Parse checksum output into categorized arrays
-modified_files=""
-extra_files=""
-missing_files=""
-modified_paths=()
-extra_paths=()
-
-while IFS= read -r line; do
-    case "$line" in
-        "Warning: File doesn't verify against checksum: "*)
-            file=$( echo "$line" | sed "s/Warning: File doesn't verify against checksum: //" )
-            modified_files="${modified_files:+$modified_files,}\"$file\""
-            modified_paths+=("$file")
-            ;;
-        "Warning: File should not exist: "*)
-            file=$( echo "$line" | sed "s/Warning: File should not exist: //" )
-            extra_files="${extra_files:+$extra_files,}\"$file\""
-            extra_paths+=("$file")
-            ;;
-        "Warning: File doesn't exist: "*)
-            file=$( echo "$line" | sed "s/Warning: File doesn't exist: //" )
-            missing_files="${missing_files:+$missing_files,}\"$file\""
-            ;;
-    esac
-done <<< "$core_verify_checksums_response"
-
-# Determine status: "pass", "warning" (missing files only), or "fail" (modified or extra files)
-if [[ -n "$modified_files" ]] || [[ -n "$extra_files" ]]; then
-    core_verify_checksums=0
-    checksum_status="fail"
-elif [[ -n "$missing_files" ]]; then
-    core_verify_checksums=1
-    checksum_status="warning"
 else
-    core_verify_checksums=1
-    checksum_status="pass"
+    wp_content=$( wp eval 'echo str_replace( rtrim( ABSPATH, "/" ) . "/", "", WP_CONTENT_DIR );' --skip-themes --skip-plugins --skip-packages 2>/dev/null | tail -1 )
+    wp_content="${wp_content%/}"
+    if [[ -z "$wp_content" || "$wp_content" == /* || ! -d "$wp_content" ]]; then
+        wp_content="wp-content"
+    fi
 fi
 
-# Build JSON with categorized details
-core_verify_checksums_json="{\"status\":\"$checksum_status\",\"modified\":[$modified_files],\"extra\":[$extra_files],\"missing\":[$missing_files]}"
+# Install CaptainCore helper if missing (fast file check avoids an extra wp boot on 99.9% of sites).
+if [ ! -f "$wp_content/mu-plugins/captaincore-helper.php" ]; then
+    helper_check=$( wp plugin list --status=must-use --skip-themes --skip-plugins --skip-packages 2>/dev/null | grep "captaincore-helper" )
+    if [[ "$helper_check" == "" ]]; then
+        curl -s https://run.captaincore.io/deploy-helper | bash -s >/dev/null 2>&1
+    fi
+fi
 
-# Plugin checksum verification against wordpress.org published hashes.
-# Only plugins hosted on wordpress.org have published checksums; premium
-# plugins without a checksums.json produce "skipping" warnings which are
-# NOT failures. Genuine tampering is reported as tab-delimited rows in the
-# format: slug<TAB>file<TAB>message.
-plugin_verify_checksums_response=$( wp plugin verify-checksums --all --skip-themes --skip-plugins --skip-packages 2>&1 )
-
-plugin_modified_entries=""
-plugin_skipped_count=0
+trim() { printf '%s' "$1" | tr -d '\n\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
 
 json_escape() {
     local s="$1"
@@ -103,179 +55,214 @@ json_escape() {
     printf '%s' "$s"
 }
 
-while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    # Skip the header row that WP-CLI emits when there are failures
-    [[ "$line" == "plugin_name"$'\t'* ]] && continue
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT
 
-    case "$line" in
-        "Warning: Couldn't fetch response from"*)
-            # HTTP fetch for the checksums JSON failed; paired with the
-            # "Could not retrieve" line below. Ignored here to avoid double-counting.
-            ;;
-        "Warning: Could not retrieve the checksums"*)
-            plugin_skipped_count=$((plugin_skipped_count + 1))
-            ;;
-        "Warning: Plugin "*"doesn't provide a readme.txt"*)
-            plugin_skipped_count=$((plugin_skipped_count + 1))
-            ;;
-        "Success:"*|"Error:"*)
-            # Terminal status lines are informational only
-            ;;
-        *$'\t'*$'\t'*)
-            # Tab-delimited failure row: slug<TAB>file<TAB>message
-            slug="${line%%$'\t'*}"
-            rest="${line#*$'\t'}"
-            file="${rest%%$'\t'*}"
-            message="${rest#*$'\t'}"
-            slug_esc=$( json_escape "$slug" )
-            file_esc=$( json_escape "$file" )
-            message_esc=$( json_escape "$message" )
-            entry="{\"slug\":\"${slug_esc}\",\"file\":\"${file_esc}\",\"message\":\"${message_esc}\"}"
-            plugin_modified_entries="${plugin_modified_entries:+$plugin_modified_entries,}${entry}"
-            ;;
-    esac
-done <<< "$plugin_verify_checksums_response"
-
-if [[ -n "$plugin_modified_entries" ]]; then
-    plugin_checksum_status="fail"
-else
-    plugin_checksum_status="pass"
-fi
-
-plugin_checksum_details_json="{\"status\":\"${plugin_checksum_status}\",\"modified\":[${plugin_modified_entries}],\"skipped_count\":${plugin_skipped_count}}"
-
-db_name=$( wp eval "echo DB_NAME;" --skip-plugins --skip-themes --skip-packages )
-db_username=$( wp eval "echo DB_USER;" --skip-plugins --skip-themes --skip-packages )
-db_password=$( wp eval "echo DB_PASSWORD;" --skip-plugins --skip-themes --skip-packages )
-
-if $( wp core is-installed --network --skip-themes --skip-plugins --skip-packages ); then
-    subsite_count=$( wp site list --format=count --skip-themes --skip-plugins --skip-packages )
-fi
-
-php_version=$( php -v | head -n1 | cut -d ' ' -f 2 | cut -d '.' -f 1,2 )
-if [ -f "/etc/php/$php_version/fpm/php.ini" ]; then
-    php_memory=$( cat "/etc/php/$php_version/fpm/php.ini" | grep "memory_limit" )
-fi
-if [[ "$php_memory" == "" ]]; then
-    php_ini=$( wp eval 'echo php_ini_loaded_file();' )
-    php_memory=$( cat "$php_ini" | grep "memory_limit" )
-fi
-
-read -r -d '' php_code << heredoc
-\$line = '$php_memory';
-preg_match( '/memory_limit = (\d\w+)/', '$php_memory', \$matches );
-echo \$matches[1];
-heredoc
-
-php_memory=$( php -r "$php_code" )
-
-default_role=$( wp option get default_role --skip-themes --skip-plugins --skip-packages )
-if $( wp core is-installed --network --skip-themes --skip-plugins --skip-packages 2>/dev/null ); then
-    registration=$( wp site option get registration --skip-themes --skip-plugins --skip-packages 2>/dev/null )
-else
-    registration=$( wp option get users_can_register --skip-themes --skip-plugins --skip-packages 2>/dev/null )
-fi
-
-token=$( wp eval "echo md5( AUTH_KEY );" --skip-plugins --skip-themes )
-
-# Output key:value pairs (trim whitespace from WP-CLI output)
-trim() { printf '%s' "$1" | tr -d '\n\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
-
-echo "plugins:$(trim "$plugins")"
-echo "wp_content:$(trim "$wp_content")"
-# Plugins that vanish from the list once plugin code runs are hiding themselves
-# (all_plugins / pre_current_active_plugins filters). The inventory above is
-# taken with --skip-plugins, so it still sees them; the diff is the detector.
-hidden_plugins_json="[]"
-filtered_plugin_names=$( wp plugin list --field=name --skip-themes --skip-packages 2>/dev/null )
-if [ -n "$filtered_plugin_names" ]; then
-  unfiltered_plugin_names=$( wp plugin list --field=name --skip-themes --skip-plugins --skip-packages 2>/dev/null )
-  hidden_names=$( comm -23 <(echo "$unfiltered_plugin_names" | sort -u) <(echo "$filtered_plugin_names" | sort -u) )
-  if [ -n "$hidden_names" ]; then
-    hidden_plugins_json=$( echo "$hidden_names" | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))' 2>/dev/null || echo "$hidden_names" | awk 'BEGIN{printf "["} {printf "%s\"%s\"", (NR>1?",":""), $0} END{print "]"}' )
-  fi
-fi
-echo "hidden_plugins:$(trim "$hidden_plugins_json")"
-# Media files changed in the last two days, checked for stashed payloads: magic
-# bytes vs extension, bytes after the JPEG/PNG/GIF end marker, PHP or script
-# markers in the first/last 16 KB, active SVG content. A compact copy of
-# lib/remote-scripts/detect-media-payloads (the canonical, fuller version);
-# keep the two in step. Emits JSON rows: severity, type, path, detail, size.
-media_payloads_json="[]"
-media_dirs=""
-for _d in "$wp_content/uploads" wp-content/uploads app/uploads; do [ -d "$_d" ] && [[ " $media_dirs " != *" $_d "* ]] && media_dirs="$media_dirs $_d"; done
-if [ -n "$media_dirs" ] && command -v perl >/dev/null 2>&1; then
-  media_payloads_json=$( find $media_dirs \( -name node_modules -o -name .git -o -name cache \) -prune -o -type f -size +0 -mtime -2 -print0 2>/dev/null | LC_ALL=C perl -0ne '
-    use strict; use warnings;
-    BEGIN { our @out; }
-    our @out;
-    chomp(my $f = $_); $f =~ s/\0$//;
-    my $size = -s $f or next;
-    my ($name) = $f =~ m{([^/]+)$}; my $ext = lc($name =~ /\.([^.]+)$/ ? $1 : "");
-    open(my $fh, "<:raw", $f) or next;
-    my ($head, $tail) = ("", "");
-    read($fh, $head, 16384);
-    if ($size > 16384) { seek($fh, -16384, 2); read($fh, $tail, 16384); } else { $tail = $head; }
-    # Escape backslashes for JSON: obfuscated PHP headers ("\x6f\145...") otherwise make
-    # the whole array invalid and sync-data drops every media finding in it.
-    my $report = sub { my ($sev, $type, $detail) = @_; $detail =~ s/[^\x20-\x7e]/./g; $detail =~ s/\\/\\\\/g; $detail =~ s/"/\x27/g; push @out, sprintf("{\"severity\":\"%s\",\"type\":\"%s\",\"path\":\"%s\",\"detail\":\"%s\",\"size\":%d}", $sev, $type, $f =~ s/\\/\\\\/gr =~ s/"/\x27/gr, $detail, $size); };
-    my $eval_re = qr/eval\(\s*(?:\$|["\x27]|[A-Za-z_]\w*\s*\()/;
-    my $code_re = qr/<\?php|<script[ >]|$eval_re|base64_decode\(|shell_exec\(|\$_(?:POST|GET|REQUEST|COOKIE)\[/;
-    my $has_b64 = sub { my ($s) = @_; while ($s =~ m{([A-Za-z0-9+/]{200,}={0,2})}g) { my $run = $1; next unless $run =~ /[A-Z]/ && $run =~ /[a-z]/ && $run =~ /[0-9]/; my %seen; $seen{$_} = 1 for split //, substr($run, 0, 4096); return 1 if keys(%seen) >= 20; } return 0; };
-    my %magic = (jpg => qr/^\xff\xd8\xff/, jpeg => qr/^\xff\xd8\xff/, png => qr/^\x89PNG\r\n\x1a\n/, gif => qr/^GIF8[79]a/, webp => qr/^RIFF....WEBP/s, pdf => qr/^%PDF/, mp4 => qr/^....ftyp/s, mov => qr/^....(ftyp|moov|mdat|wide|free)/s, mp3 => qr/^(ID3|\xff[\xfb\xf3\xf2])/, zip => qr/^PK/, ico => qr/^\x00\x00\x01\x00/);
-    if (my $re = $magic{$ext}) {
-        if ($head !~ $re) {
-            (my $asc = substr($head, 0, 48)) =~ s/[^\x20-\x7e]/./g;
-            if ($head =~ /^\s*(<\?php|<\?=|<script)/) { $report->("CRITICAL", "FAKE_MEDIA", "starts with code, not a .$ext: $asc"); next; }
-            # Misnamed (WebP or PNG bytes under .jpg): scan it as what it really is.
-            my ($real) = grep { $head =~ $magic{$_} } qw(jpg png gif webp pdf);
-            next unless $real;
-            $ext = $real;
-        }
-    }
-    # GIFs under 64 bytes with no code are thumbnails a failed resize left broken.
-    next if $ext eq "gif" && $size < 64 && $head !~ $code_re;
-    my %trailer = (jpg => ["\xff\xd9", "JPEG EOI"], jpeg => ["\xff\xd9", "JPEG EOI"], png => ["IEND\xaeB`\x82", "PNG IEND"], gif => ["\x3b", "GIF trailer"]);
-    if (my $t = $trailer{$ext}) {
-        my ($marker, $label) = @$t; my $pos = rindex($tail, $marker);
-        my $trail = $pos < 0 ? -1 : length($tail) - $pos - length($marker);
-        if ($trail < 0 || $trail > 64) {
-            my $detail = $trail < 0 ? "no $label within the last 16 KB" : "$trail bytes after $label";
-            my $after = $trail < 0 ? $tail : substr($tail, $pos + length($marker));
-            # Samsung phones append an SEF block (SEFH ... SEFT) after the image: capture app
-            # info as base64 JSON, editor state, a UTC stamp. Not a payload.
-            next if $after =~ /SEFT\z/ || $after =~ /Samsung_Capture_Info|Image_UTC_Data|PhotoEditor_Re_Edit_Data|Original_Path_Hash_Key/;
-            if ($after =~ /(<\?php|$eval_re|base64_decode|\$_(?:POST|GET|REQUEST|COOKIE))/ || $has_b64->($after)) { $report->("CRITICAL", "APPENDED_PAYLOAD", $detail); }
-            elsif ($trail < 0 || $trail <= 4096) { $report->("MEDIUM", "TRAILING_DATA", "$detail (no code or base64 in it: phone cameras append metadata after the image, edited photos carry a second image)"); }
-            else { $report->("HIGH", "TRAILING_DATA", $detail); }
-            next;
-        }
-    }
-    if ($ext =~ /^(jpe?g|png|gif|webp|ico|bmp|tiff?|pdf|mp4|m4v|mov|m4a|mp3|wav|ogg|webm|avi)$/) {
-        # In PDFs <script and eval( are form (XFA/AcroForm) JavaScript, not a stash; only PHP counts.
-        my $re = $ext eq "pdf" ? qr/<\?php|base64_decode\(|shell_exec\(|\$_(?:POST|GET|REQUEST|COOKIE)\[/ : $code_re;
-        if (($head . "\n" . $tail) =~ /($re)/) { $report->("CRITICAL", "CODE_IN_MEDIA", "contains $1"); next; }
-    }
-    if ($ext eq "svg" && $size <= 2097152) {
-        seek($fh, 0, 0); local $/; my $svg = <$fh>;
-        if ($svg =~ /(<script|\son[a-z]+\s*=|javascript:|<foreignObject|<iframe|<embed)/i) { $report->("HIGH", "SVG_ACTIVE", "SVG contains $1"); }
-    }
-    close $fh;
-    END { print "[" . join(",", @out) . "]\n"; }
-  ' 2>/dev/null )
-  [ -z "$media_payloads_json" ] && media_payloads_json="[]"
-fi
-echo "media_payloads:$(trim "$media_payloads_json")"
-# Database scan: export the option, post and comment rows that carry script or
-# code markers (LIKE prefilters, so most rows never leave MySQL), the cron
-# array, administrators, active plugins with missing files, triggers, events,
-# routines and unknown tables. sync-data judges the export on the core server
-# with the malware rules. Same PHP as lib/remote-scripts/db-scan (the
-# canonical, documented version); keep the two in step.
-db_scan_json="[]"
-read -r -d '' DB_SCAN_PHP << 'DBSCANEOF'
+# ----------------------------------------------------------------------------
+# Worker 1: Single consolidated --skip-plugins WordPress boot for all WP/DB probes
+# ----------------------------------------------------------------------------
+(
+read -r -d '' CONSOLIDATED_PHP << 'CONSOLIDATEDEOF'
 <?php
+global $wpdb, $wp_version;
+
+$emit = function ( $k, $v ) {
+    echo $k . ':' . trim( str_replace( [ "\r", "\n" ], '', (string) $v ) ) . "\n";
+};
+
+$run_probe = function ( $key, $fn, $fallback = '[]' ) use ( $emit ) {
+    ob_start();
+    try {
+        $fn();
+        $out = trim( (string) ob_get_clean() );
+    } catch ( \Throwable $e ) {
+        ob_end_clean();
+        $out = '';
+    }
+    $emit( $key, $out !== '' ? $out : $fallback );
+};
+
+$run_multi_probe = function ( $fn, $defaults ) use ( $emit ) {
+    ob_start();
+    try {
+        $fn();
+        $raw = (string) ob_get_clean();
+    } catch ( \Throwable $e ) {
+        ob_end_clean();
+        $raw = '';
+    }
+    $found = [];
+    foreach ( explode( "\n", $raw ) as $line ) {
+        $pos = strpos( $line, ':' );
+        if ( $pos === false ) { continue; }
+        $k = substr( $line, 0, $pos );
+        if ( array_key_exists( $k, $defaults ) ) {
+            $found[ $k ] = substr( $line, $pos + 1 );
+        }
+    }
+    foreach ( $defaults as $k => $def ) {
+        $v = isset( $found[ $k ] ) && trim( $found[ $k ] ) !== '' ? $found[ $k ] : $def;
+        $emit( $k, $v );
+    }
+};
+
+// --- Core metadata, plugins, themes, mu-plugins, users, db_size, security_log ---
+( function () use ( $wpdb, $wp_version, $emit ) {
+    if ( ! function_exists( 'get_plugins' ) ) {
+        require_once ABSPATH . 'wp-admin/includes/plugin.php';
+    }
+    $active     = (array) get_option( 'active_plugins', [] );
+    $net_active = is_multisite() ? (array) get_site_option( 'active_sitewide_plugins', [] ) : [];
+
+    $plugins          = [];
+    $unfiltered_names = [];
+    foreach ( get_plugins() as $file => $data ) {
+        $slug   = strpos( $file, '/' ) !== false ? dirname( $file ) : basename( $file, '.php' );
+        $status = isset( $net_active[ $file ] ) ? 'active-network' : ( in_array( $file, $active, true ) ? 'active' : 'inactive' );
+        $plugins[] = [
+            'name'    => $slug,
+            'title'   => (string) ( $data['Name'] ?? '' ),
+            'status'  => $status,
+            'version' => (string) ( $data['Version'] ?? '' ),
+        ];
+        $unfiltered_names[] = $slug;
+    }
+    $mu_plugins = [];
+    foreach ( get_mu_plugins() as $file => $data ) {
+        $slug = strpos( $file, '/' ) !== false ? dirname( $file ) : basename( $file, '.php' );
+        $row  = [
+            'name'    => $slug,
+            'title'   => (string) ( $data['Name'] ?? '' ),
+            'status'  => 'must-use',
+            'version' => (string) ( $data['Version'] ?? '' ),
+        ];
+        $mu_plugins[]       = $row;
+        $plugins[]          = $row;
+        $unfiltered_names[] = $slug;
+    }
+    foreach ( get_dropins() as $file => $data ) {
+        $slug = basename( $file, '.php' );
+        $plugins[] = [
+            'name'    => $slug,
+            'title'   => (string) ( $data['Name'] ?? '' ),
+            'status'  => 'dropin',
+            'version' => (string) ( $data['Version'] ?? '' ),
+        ];
+        $unfiltered_names[] = $slug;
+    }
+    if ( defined( 'CC_UNFILTERED_FILE' ) && CC_UNFILTERED_FILE !== '' ) {
+        file_put_contents( CC_UNFILTERED_FILE, implode( "\n", $unfiltered_names ) . "\n" );
+    }
+
+    $cur_style = (string) get_option( 'stylesheet', '' );
+    $cur_tpl   = (string) get_option( 'template', '' );
+    $themes    = [];
+    foreach ( wp_get_themes() as $slug => $t ) {
+        $st = ( $slug === $cur_style ) ? 'active' : ( ( $slug === $cur_tpl && $cur_tpl !== $cur_style ) ? 'parent' : 'inactive' );
+        $themes[] = [
+            'name'    => (string) $slug,
+            'title'   => (string) $t->get( 'Name' ),
+            'status'  => $st,
+            'version' => (string) $t->get( 'Version' ),
+        ];
+    }
+
+    // Users: direct SQL matches `wp user list --format=json` without hydrating WP_User objects.
+    $role_defs = array_keys( (array) get_option( $wpdb->prefix . 'user_roles', [] ) );
+    $role_map  = array_flip( $role_defs );
+    $cap_key   = $wpdb->prefix . 'capabilities';
+    $u_sql     = is_multisite()
+        ? "SELECT u.ID, u.user_login, u.display_name, u.user_email, u.user_registered, m.meta_value AS caps
+           FROM {$wpdb->users} u
+           INNER JOIN {$wpdb->usermeta} m ON m.user_id = u.ID AND m.meta_key = %s
+           ORDER BY u.user_login ASC"
+        : "SELECT u.ID, u.user_login, u.display_name, u.user_email, u.user_registered, m.meta_value AS caps
+           FROM {$wpdb->users} u
+           LEFT JOIN {$wpdb->usermeta} m ON m.user_id = u.ID AND m.meta_key = %s
+           ORDER BY u.user_login ASC";
+    $users = [];
+    foreach ( (array) $wpdb->get_results( $wpdb->prepare( $u_sql, $cap_key ) ) as $u ) {
+        $caps  = maybe_unserialize( $u->caps );
+        $roles = [];
+        if ( is_array( $caps ) ) {
+            foreach ( $caps as $rk => $on ) {
+                if ( $on && isset( $role_map[ $rk ] ) ) {
+                    $roles[] = $rk;
+                }
+            }
+        }
+        $users[] = [
+            'ID'              => (int) $u->ID,
+            'user_login'      => (string) $u->user_login,
+            'display_name'    => (string) $u->display_name,
+            'user_email'      => (string) $u->user_email,
+            'user_registered' => (string) $u->user_registered,
+            'roles'           => implode( ', ', $roles ),
+        ];
+    }
+
+    $emit( 'plugins', json_encode( $plugins, JSON_UNESCAPED_SLASHES | JSON_PARTIAL_OUTPUT_ON_ERROR ) );
+    $emit( 'themes', json_encode( $themes, JSON_UNESCAPED_SLASHES | JSON_PARTIAL_OUTPUT_ON_ERROR ) );
+    $emit( 'mu_plugins', json_encode( $mu_plugins, JSON_UNESCAPED_SLASHES | JSON_PARTIAL_OUTPUT_ON_ERROR ) );
+    $emit( 'core', (string) $wp_version );
+    $emit( 'home_url', (string) get_option( 'home', '' ) );
+    $emit( 'site_url', (string) get_option( 'siteurl', '' ) );
+    $emit( 'users', json_encode( $users, JSON_UNESCAPED_SLASHES | JSON_PARTIAL_OUTPUT_ON_ERROR ) );
+    $emit( 'database_name', defined( 'DB_NAME' ) ? (string) DB_NAME : '' );
+    $emit( 'database_username', defined( 'DB_USER' ) ? (string) DB_USER : '' );
+    $emit( 'database_password', defined( 'DB_PASSWORD' ) ? (string) DB_PASSWORD : '' );
+    $emit( 'subsite_count', is_multisite() ? (string) (int) get_sites( [ 'count' => true, 'number' => 0 ] ) : '' );
+    $emit( 'default_role', (string) get_option( 'default_role', '' ) );
+    $emit( 'registration', is_multisite() ? (string) get_site_option( 'registration', '' ) : (string) get_option( 'users_can_register', '0' ) );
+    $emit( 'token', defined( 'AUTH_KEY' ) ? md5( AUTH_KEY ) : '' );
+
+    $db_size = (int) $wpdb->get_var( "SELECT COALESCE(SUM(data_length + index_length), 0) FROM information_schema.TABLES WHERE table_schema = DATABASE()" );
+    $emit( 'db_size', (string) $db_size );
+
+    $sl = $wpdb->get_row( "SELECT (data_length + index_length) AS sz, table_rows AS rws FROM information_schema.TABLES WHERE table_schema = DATABASE() AND table_name LIKE '%captaincore_security_log' LIMIT 1" );
+    if ( $sl ) {
+        $emit( 'security_log', '{"size":' . (int) $sl->sz . ',"rows":' . (int) $sl->rws . '}' );
+    } else {
+        $emit( 'security_log', '{"size":0,"rows":0}' );
+    }
+} )();
+
+// --- wp-config.php redacted rule-scan payload ---
+$run_probe( 'wp_config_check', function () {
+    $cfg = ABSPATH . 'wp-config.php';
+    if ( ! is_file( $cfg ) && is_file( dirname( ABSPATH ) . '/wp-config.php' ) ) {
+        $cfg = dirname( ABSPATH ) . '/wp-config.php';
+    }
+    if ( ! is_file( $cfg ) ) {
+        echo 'null';
+        return;
+    }
+    $raw = @file_get_contents( $cfg, false, null, 0, 524288 );
+    if ( ! is_string( $raw ) || $raw === '' ) {
+        echo 'null';
+        return;
+    }
+    $sha = hash_file( 'sha256', $cfg ) ?: hash( 'sha256', $raw );
+    $redacted = preg_replace(
+        '/(define\s*\(\s*[\'"][A-Z0-9_]*(?:PASSWORD|PASS|SECRET|SALT|KEY|TOKEN|LICENSE)[A-Z0-9_]*[\'"]\s*,\s*)([\'"])(?:\\\\.|(?!\2).)*\2/i',
+        '$1$2REDACTED$2',
+        $raw
+    );
+    echo json_encode( [
+        'path'   => 'wp-config.php',
+        'sha256' => $sha,
+        'size'   => (int) filesize( $cfg ),
+        'b64'    => base64_encode( (string) $redacted ),
+    ], JSON_UNESCAPED_SLASHES );
+}, 'null' );
+
+// --- Database scan (identical to lib/remote-scripts/db-scan; keep in step) ---
+define( 'DBSCAN_SINCE', 2 );
+define( 'DBSCAN_FULL', false );
+define( 'DBSCAN_MAX_ROW', 16384 );
+define( 'DBSCAN_MAX_TOTAL', 2097152 );
+$run_probe( 'db_scan', function () {
+// BEGIN DBSCAN
 // db-scan: export candidate rows and fixed facts. Arguments via constants set by the wrapper.
 $since     = defined('DBSCAN_SINCE') ? (int) DBSCAN_SINCE : 2;
 $full      = defined('DBSCAN_FULL') && DBSCAN_FULL;
@@ -482,124 +469,11 @@ foreach ($wpdb->get_col("SHOW TABLES") as $t) {
 $out['unknown_tables'] = array_slice($out['unknown_tables'], 0, 100);
 $out['stats']['bytes'] = $total;
 echo json_encode($out, JSON_UNESCAPED_SLASHES | JSON_PARTIAL_OUTPUT_ON_ERROR);
-DBSCANEOF
-db_scan_json=$( { echo "<?php define('DBSCAN_SINCE', 2); define('DBSCAN_FULL', false); define('DBSCAN_MAX_ROW', 16384); define('DBSCAN_MAX_TOTAL', 2097152); ?>"; echo "$DB_SCAN_PHP"; } | wp eval-file - --skip-themes --skip-plugins 2>/dev/null )
-[ -z "$db_scan_json" ] && db_scan_json='{"error":"db-scan produced no output"}'
-echo "db_scan:$(trim "$db_scan_json")"
-echo "themes:$(trim "$themes")"
-echo "mu_plugins:$(trim "$mu_plugins")"
-echo "core:$(trim "$core")"
-echo "home_url:$(trim "$home_url")"
-echo "site_url:$(trim "$site_url")"
-echo "users:$(trim "$users")"
-echo "database_name:$(trim "$db_name")"
-echo "database_username:$(trim "$db_username")"
-echo "database_password:$(trim "$db_password")"
-echo "core_verify_checksums:$(trim "$core_verify_checksums")"
-echo "subsite_count:$(trim "$subsite_count")"
-echo "php_memory:$(trim "$php_memory")"
-echo "default_role:$(trim "$default_role")"
-echo "registration:$(trim "$registration")"
-echo "token:$(trim "$token")"
-echo "core_checksum_details:$(trim "$core_verify_checksums_json")"
+// END DBSCAN
+}, '{"error":"db-scan produced no output"}' );
 
-# Provenance: PHP at the web root and at the content root that WordPress core
-# never ships and that is not a recognized drop-in. This is a name check, not a
-# content check, so an obfuscated or AI-rewritten backdoor cannot evade it (the
-# kr224 root shells were invisible to every signature rule but obvious here).
-# Emits the RAW list; the CLI filters host and security-plugin placements before
-# raising findings, and the raw list stays in details for forensics. A classic
-# install has wp-settings.php at the root; core-in-subdirectory layouts (Bedrock
-# web/wp/) keep only the bootstrap files at the root. $wp_content already
-# resolves the content directory (wp-content, app, content/<id>).
-if [[ -f "wp-settings.php" && -f "wp-load.php" ]]; then
-    prov_root_allow=" index.php wp-activate.php wp-blog-header.php wp-comments-post.php wp-config.php wp-config-sample.php wp-cron.php wp-links-opml.php wp-load.php wp-login.php wp-mail.php wp-settings.php wp-signup.php wp-trackback.php xmlrpc.php "
-else
-    prov_root_allow=" index.php wp-config.php wp-config-sample.php "
-fi
-prov_content_allow=" index.php advanced-cache.php db.php db-error.php install.php maintenance.php object-cache.php php-error.php fatal-error-handler.php sunrise.php blog-deleted.php blog-inactive.php blog-suspended.php "
-prov_rows=""
-for f in *.php *.phtml *.phar *.pht *.php3 *.php4 *.php5 *.php7 *.php8 *.phtm; do
-    [[ -f "$f" ]] || continue
-    prov_lf=$( printf '%s' "$f" | tr '[:upper:]' '[:lower:]' )
-    [[ "$prov_root_allow" == *" $prov_lf "* ]] && continue
-    prov_rows+="root|$f"$'\n'
-done
-for f in "$wp_content"/*.php "$wp_content"/*.phtml "$wp_content"/*.phar "$wp_content"/*.pht "$wp_content"/*.php3 "$wp_content"/*.php4 "$wp_content"/*.php5 "$wp_content"/*.php7 "$wp_content"/*.php8 "$wp_content"/*.phtm; do
-    [[ -f "$f" ]] || continue
-    prov_lb=$( basename "$f" | tr '[:upper:]' '[:lower:]' )
-    [[ "$prov_content_allow" == *" $prov_lb "* ]] && continue
-    prov_rows+="content|$f"$'\n'
-done
-# Each row carries the evidence a reviewer needs without logging in: sha256,
-# size, mtime and the first 600 bytes (printable). The sha256 also lets the
-# Manager keep a reviewed-benign file closed until its content changes.
-# A second line carries the files themselves (base64, 1 MB each, 6 MB in all,
-# smallest first) for the CLI to run through the malware rules on the core
-# server: quicksaves hold only wp-content, so without it a root webshell behind
-# a decoy comment header was judged from its first 600 bytes. It is consumed
-# by the CLI and never stored in environment details.
-prov_out=$( printf '%s' "$prov_rows" | python3 -c '
-import base64, hashlib, json, os, re, sys, time
-rows = []
-for line in sys.stdin:
-    line = line.rstrip("\n")
-    if not line:
-        continue
-    loc, path = line.split("|", 1)
-    row = {"location": loc, "path": path}
-    try:
-        st = os.stat(path)
-        h = hashlib.sha256()
-        with open(path, "rb") as fh:
-            head = fh.read(600)
-            h.update(head)
-            for chunk in iter(lambda: fh.read(1 << 20), b""):
-                h.update(chunk)
-        row.update({"sha256": h.hexdigest(), "size": st.st_size,
-                    "mtime": time.strftime("%Y-%m-%d %H:%M", time.gmtime(st.st_mtime)),
-                    "head": re.sub(r"[^\x09\x0a\x20-\x7e]", ".", head.decode("latin-1"))})
-    except OSError:
-        pass
-    rows.append(row)
-content, used = [], 0
-for row in sorted((r for r in rows if r.get("size")), key=lambda r: r["size"]):
-    if used >= 6 << 20:
-        break
-    try:
-        with open(row["path"], "rb") as fh:
-            body = fh.read(min(1 << 20, (6 << 20) - used))
-    except OSError:
-        continue
-    used += len(body)
-    content.append({"path": row["path"], "sha256": row["sha256"], "truncated": len(body) < row["size"],
-                    "b64": base64.b64encode(body).decode()})
-print(json.dumps(rows))
-print(json.dumps(content))' 2>/dev/null )
-unexpected_root_php_json=$( printf '%s\n' "$prov_out" | sed -n 1p )
-unexpected_root_php_content=$( printf '%s\n' "$prov_out" | sed -n 2p )
-[[ -z "$unexpected_root_php_json" ]] && unexpected_root_php_json="[]"
-[[ -z "$unexpected_root_php_content" ]] && unexpected_root_php_content="[]"
-echo "unexpected_root_php:$(trim "$unexpected_root_php_json")"
-echo "unexpected_root_php_content:$unexpected_root_php_content"
-echo "plugin_checksum_details:$(trim "$plugin_checksum_details_json")"
-echo "php_version:$(trim "$php_version")"
-echo "db_size:$(wp db size --size_format=b --skip-themes --skip-plugins --skip-packages 2>/dev/null | tail -1 | cut -f2)"
-
-# Security log table size (bytes) and row count from information_schema
-security_log_result=$(wp db query "SELECT data_length + index_length, table_rows FROM information_schema.TABLES WHERE table_schema = DATABASE() AND table_name LIKE '%captaincore_security_log'" --skip-column-names --batch --skip-plugins --skip-themes 2>/dev/null | grep -v '^$')
-if [[ -n "$security_log_result" ]]; then
-    security_log_bytes=$(echo "$security_log_result" | awk '{print $1}')
-    security_log_rows=$(echo "$security_log_result" | awk '{print $2}')
-    echo "security_log:{\"size\":${security_log_bytes},\"rows\":${security_log_rows}}"
-else
-    echo "security_log:{\"size\":0,\"rows\":0}"
-fi
-
-# Error log manifest + PHP eval()'d code tell + high-risk captaincore_security_log events
-# (last 26h, non-wp_cli). Runs in one wp eval-file call so no extra WordPress boot is paid.
-read -r -d '' error_log_php << 'ERRLOGEOF'
-<?php
+// --- Error log manifest + PHP eval()'d code tell + high-risk security_log events ---
+$run_multi_probe( function () {
 global $wpdb;
 $files     = [];
 $evals     = [];
@@ -662,7 +536,7 @@ $scan_eval_tail = function ( $name, $path, $size ) use ( &$evals, $norm_path ) {
     fclose( $fh );
 };
 
-function log_entry( $name, $path ) {
+$log_entry = function ( $name, $path ) {
     $size  = filesize( $path );
     $lines = 0;
     $fh = fopen( $path, 'r' );
@@ -671,23 +545,23 @@ function log_entry( $name, $path ) {
         fclose( $fh );
     }
     return [ "name" => $name, "size" => $size, "lines" => $lines ];
-}
+};
 
 if ( is_file( "{$home_path}error_log" ) && filesize( "{$home_path}error_log" ) > 0 ) {
-    $e = log_entry( "error_log", "{$home_path}error_log" );
+    $e = $log_entry( "error_log", "{$home_path}error_log" );
     $files[] = $e;
     $scan_eval_tail( "error_log", "{$home_path}error_log", $e['size'] );
 }
 foreach ( glob( "{$parent}/logs/*error.log*" ) as $f ) {
     if ( filesize( $f ) == 0 || str_ends_with( $f, '.gz' ) ) { continue; }
     $n = "~/logs/" . basename( $f );
-    $e = log_entry( $n, $f );
+    $e = $log_entry( $n, $f );
     $files[] = $e;
     $scan_eval_tail( $n, $f, $e['size'] );
 }
 if ( is_file( "{$wpc}/debug.log" ) && filesize( "{$wpc}/debug.log" ) > 0 ) {
     $n = "{$wpc_base}/debug.log";
-    $e = log_entry( $n, "{$wpc}/debug.log" );
+    $e = $log_entry( $n, "{$wpc}/debug.log" );
     $files[] = $e;
     $scan_eval_tail( $n, "{$wpc}/debug.log", $e['size'] );
 }
@@ -726,25 +600,10 @@ if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $sec_table ) ) === $
 echo 'error_logs:' . json_encode( $files, JSON_UNESCAPED_SLASHES ) . "\n";
 echo 'runtime_eval_errors:' . json_encode( array_values( $evals ), JSON_UNESCAPED_SLASHES ) . "\n";
 echo 'security_log_events:' . json_encode( $sec_events, JSON_UNESCAPED_SLASHES | JSON_PARTIAL_OUTPUT_ON_ERROR ) . "\n";
-ERRLOGEOF
+}, [ 'error_logs' => '[]', 'runtime_eval_errors' => '[]', 'security_log_events' => '[]' ] );
 
-error_log_out=$(echo "$error_log_php" | wp eval-file - --skip-themes --skip-plugins 2>/dev/null)
-error_logs_json=$(printf '%s\n' "$error_log_out" | grep -m1 '^error_logs:' | sed 's/^error_logs://')
-runtime_eval_json=$(printf '%s\n' "$error_log_out" | grep -m1 '^runtime_eval_errors:' | sed 's/^runtime_eval_errors://')
-sec_log_events_json=$(printf '%s\n' "$error_log_out" | grep -m1 '^security_log_events:' | sed 's/^security_log_events://')
-[[ -z "$error_logs_json" ]] && error_logs_json="[]"
-[[ -z "$runtime_eval_json" ]] && runtime_eval_json="[]"
-[[ -z "$sec_log_events_json" ]] && sec_log_events_json="[]"
-echo "error_logs:$(trim "$error_logs_json")"
-echo "runtime_eval_errors:$(trim "$runtime_eval_json")"
-echo "security_log_events:$(trim "$sec_log_events_json")"
-
-# Premium plugin licenses: per-plugin status read from what each plugin stored (Elementor Pro,
-# ACF Pro, Perfmatters, Crocoblock), plus any active plugin offered an update with no download
-# package. Read-only and offline: no vendor is contacted. The Manager turns failing entries into
-# license signals and pairs them with a site address change.
-read -r -d '' licenses_php <<'LICENSESEOF'
-<?php
+// --- Premium plugin licenses ---
+$run_probe( 'licenses', function () {
 // Runs with --skip-plugins: reads what each plugin stored, never calls a vendor.
 $active = (array) get_option( 'active_plugins', [] );
 if ( is_multisite() ) {
@@ -910,21 +769,10 @@ if ( is_object( $updates ) && ! empty( $updates->response ) ) {
 }
 
 echo json_encode( $results );
-LICENSESEOF
+}, '[]' );
 
-licenses_json=$(echo "$licenses_php" | wp eval-file - --skip-themes --skip-plugins 2>/dev/null)
-if [[ -z "$licenses_json" ]]; then
-    licenses_json="[]"
-fi
-echo "licenses:$(trim "$licenses_json")"
-
-# Email delivery: which mail plugin sends, its settings with secrets redacted, the
-# effective route (WordPress load order decides between plugins), must-use plugins that
-# take over wp_mail, and Gravity SMTP's send log for the last seven days. Read-only and
-# offline: nothing is sent. A Mailgun secret leaves only as a 16-hex sha256 so the
-# Manager can tell whether it is the password it last deployed.
-read -r -d '' email_php <<'EMAILEOF'
-<?php
+// --- Email delivery ---
+$run_probe( 'email', function () {
 // How this site sends email, read from what each mail plugin stored. Runs with
 // --skip-plugins: nothing is sent and no provider is contacted. Secrets never
 // leave the site: they become "set", and a Mailgun secret also gets a short
@@ -1289,22 +1137,10 @@ echo wp_json_encode( [
 	'blockers'  => $blockers,
 	'log'       => $log,
 ] );
-EMAILEOF
+}, 'null' );
 
-email_json=$(echo "$email_php" | wp eval-file - --skip-themes --skip-plugins 2>/dev/null)
-if [[ -z "$email_json" ]]; then
-    email_json="null"
-fi
-echo "email:$(trim "$email_json")"
-
-# Session / privilege signal — compromise telemetry for WP Registry session-anomaly detection.
-# Efficient by design: NEVER loads all users. Scans capability ROLE definitions + a targeted
-# capabilities-meta query, then pulls session_tokens only for the (tiny) privileged set, so
-# cost is ~#privileged-users not #total-users (proven ~3s / <2KB on a 135k-user site).
-# Hunts by effective CAPABILITY not role label: catches subscribers/customers with injected
-# admin caps + low roles silently redefined with takeover caps. injected_users = the backdoor.
-read -r -d '' session_signal_php <<'SESSIONEOF'
-<?php
+// --- Session / privilege signal ---
+$run_probe( 'session_signal', function () {
 global $wpdb;
 // Capability tiers. CODE_TAKEOVER = site/code takeover (arbitrary PHP, config, plugin/theme).
 // USER_TAKEOVER = user-management (lower confidence — legit "member managers" hold these).
@@ -1458,21 +1294,10 @@ $out = [
     'accounts'             => $accounts,
 ];
 echo wp_json_encode( $out );
-SESSIONEOF
+}, '{}' );
 
-session_signal_json=$(echo "$session_signal_php" | wp eval-file - --skip-themes --skip-plugins 2>/dev/null)
-if [[ -z "$session_signal_json" ]]; then
-    session_signal_json="{}"
-fi
-echo "session_signal:$(trim "$session_signal_json")"
-
-# Spam signal — fleet reputation telemetry for Breakwater. Hashes only: the
-# sender IP and email of spam, and an exact hash plus MinHash bands of every message, from the
-# last 26 hours of verdicts the site already made (Gravity Forms, comments, Flamingo, the
-# Breakwater log). Also whether Breakwater is active and which fleet list it holds.
-# Capped at 1,000 rows per source; ~0.5s on a busy site. sync-data posts it as spam-signal.
-read -r -d '' spam_signal_php <<'SPAMSIGNALEOF'
-<?php
+// --- Spam signal (Breakwater fleet reputation) ---
+$run_probe( 'spam_signal', function () {
 // Spam signal — fleet reputation telemetry for Breakwater. Reads the last 26 hours
 // of verdicts the site already made (Gravity Forms spam/active entries, spam/approved comments,
 // Flamingo spam/inbox, the Breakwater log) and emits HASHES only: the sender's IP and email for
@@ -1655,20 +1480,10 @@ echo wp_json_encode( [
     'counts'       => (object) $counts,
     'items'        => array_values( $items ),
 ] );
-SPAMSIGNALEOF
+}, '{}' );
 
-spam_signal_json=$(echo "$spam_signal_php" | wp eval-file - --skip-themes --skip-plugins 2>/dev/null)
-if [[ -z "$spam_signal_json" ]]; then
-    spam_signal_json="{}"
-fi
-echo "spam_signal:$(trim "$spam_signal_json")"
-
-# Network shape: multisite subsites and WP Freighter tenants. Both keys are
-# JSON, or the literal null when the site is not that kind of network, so a
-# site that stops being one clears the stale value on the Manager (it merges
-# details key by key). Lists are capped at 500; the counts stay exact.
-read -r -d '' network_php <<'NETWORKEOF'
-<?php
+// --- Network shape (multisite / WP Freighter / WP Landing Kit) ---
+$run_multi_probe( function () {
 global $wpdb;
 $cap = 500;
 
@@ -1868,186 +1683,10 @@ if ( ! is_multisite() ) {
 echo 'network_sites:' . wp_json_encode( $network_sites, JSON_UNESCAPED_SLASHES ) . "\n";
 echo 'freighter:' . wp_json_encode( $freighter, JSON_UNESCAPED_SLASHES ) . "\n";
 echo 'domain_mappings:' . wp_json_encode( $domain_mappings, JSON_UNESCAPED_SLASHES ) . "\n";
-NETWORKEOF
+}, [ 'network_sites' => 'null', 'freighter' => 'null', 'domain_mappings' => 'null' ] );
 
-# Both lines or neither: a probe that died part way sends nothing, so the
-# last good values stay on the Manager instead of being cleared to null.
-network_out=$(echo "$network_php" | wp eval-file - --skip-themes --skip-plugins 2>/dev/null)
-network_sites_line=$(printf '%s\n' "$network_out" | grep -m1 '^network_sites:')
-freighter_line=$(printf '%s\n' "$network_out" | grep -m1 '^freighter:')
-mappings_line=$(printf '%s\n' "$network_out" | grep -m1 '^domain_mappings:')
-if [[ -n "$network_sites_line" && -n "$freighter_line" && -n "$mappings_line" ]]; then
-    echo "$network_sites_line"
-    echo "$freighter_line"
-    echo "$mappings_line"
-fi
-
-# Per-component SHA256 content hashes for plugins, themes, and mu-plugins
-# Uses -type f to hash regular files, and -type l to include symlink targets/paths.
-# Symlinks are hashed as "SYMLINK:<target>" so a symlink change alters the directory hash.
-hash_directory() {
-    local dir="$1"
-    {
-        find "$dir" -type f \
-            ! -path '*/node_modules/*' \
-            ! -path '*/.git/*' \
-            ! -name .DS_Store \
-            ! -name error_log \
-            -exec sha256sum {} + 2>/dev/null
-        find "$dir" -type l \
-            ! -path '*/node_modules/*' \
-            ! -path '*/.git/*' \
-            2>/dev/null | while IFS= read -r link; do
-                target=$(readlink "$link")
-                echo "$(echo -n "SYMLINK:${target}" | sha256sum | awk '{print $1}')  ${link}"
-            done
-    } | LC_ALL=C sort -k2 | sha256sum | awk '{print $1}'
-}
-
-# Compute hashes from within the content dir so paths are relative (plugins/slug/file.php)
-pushd "$wp_content" > /dev/null 2>&1
-
-component_hashes="{"
-first=true
-
-# Hash each plugin directory
-if [[ -d "plugins" ]]; then
-    for dir in plugins/*/; do
-        [[ -d "$dir" ]] || continue
-        slug=$(basename "$dir")
-        hash=$(hash_directory "$dir")
-        if [[ "$first" == true ]]; then first=false; else component_hashes+=","; fi
-        component_hashes+="\"${slug}\":\"${hash}\""
-    done
-fi
-
-# Hash each theme directory
-if [[ -d "themes" ]]; then
-    for dir in themes/*/; do
-        [[ -d "$dir" ]] || continue
-        slug=$(basename "$dir")
-        hash=$(hash_directory "$dir")
-        if [[ "$first" == true ]]; then first=false; else component_hashes+=","; fi
-        component_hashes+="\"${slug}\":\"${hash}\""
-    done
-fi
-
-# Hash individual mu-plugin components
-# Auto-detect: each .php file is a component; include matching directory + companion files
-if [[ -d "mu-plugins" ]]; then
-    for phpfile in mu-plugins/*.php; do
-        [[ -f "$phpfile" ]] || continue
-        slug=$(basename "$phpfile" .php)
-
-        # Collect hashes for all files belonging to this component
-        component_file_hashes=$(
-            # The .php entry file
-            sha256sum "$phpfile" 2>/dev/null
-
-            # Matching directory (slug/)
-            if [[ -d "mu-plugins/$slug" ]]; then
-                find "mu-plugins/$slug" -type f \
-                    ! -path '*/node_modules/*' ! -path '*/.git/*' \
-                    ! -name .DS_Store ! -name error_log \
-                    -exec sha256sum {} + 2>/dev/null
-                find "mu-plugins/$slug" -type l \
-                    ! -path '*/node_modules/*' ! -path '*/.git/*' \
-                    2>/dev/null | while IFS= read -r link; do
-                        target=$(readlink "$link")
-                        echo "$(echo -n "SYMLINK:${target}" | sha256sum | awk '{print $1}')  ${link}"
-                    done
-            fi
-
-            # Companion files (same basename, different extension: .js, .css, etc.)
-            for companion in mu-plugins/${slug}.*; do
-                [[ -f "$companion" && "$companion" != "$phpfile" ]] || continue
-                sha256sum "$companion" 2>/dev/null
-            done
-        )
-
-        hash=$(echo "$component_file_hashes" | grep -v '^$' | LC_ALL=C sort -k2 | sha256sum | awk '{print $1}')
-        if [[ "$first" == true ]]; then first=false; else component_hashes+=","; fi
-        component_hashes+="\"mu:${slug}\":\"${hash}\""
-    done
-
-fi
-
-component_hashes+="}"
-popd > /dev/null 2>&1
-echo "component_hashes:${component_hashes}"
-
-# MU-plugin file listing (root-level files and directories only)
-pushd "$wp_content" > /dev/null 2>&1
-mu_plugin_files="{"
-mu_first=true
-if [[ -d "mu-plugins" ]]; then
-    for entry in mu-plugins/*; do
-        [[ -e "$entry" ]] || continue
-        base=$(basename "$entry")
-        [[ "$base" == ".DS_Store" ]] && continue
-        if [[ "$mu_first" == true ]]; then mu_first=false; else mu_plugin_files+=","; fi
-        if [[ -d "$entry" ]]; then
-            mu_plugin_files+="\"${base}/\":true"
-        else
-            mu_plugin_files+="\"${base}\":true"
-        fi
-    done
-fi
-mu_plugin_files+="}"
-popd > /dev/null 2>&1
-echo "mu_plugin_files:${mu_plugin_files}"
-
-# Per-file SHA256 hashes for core extra/modified files
-core_file_hashes="{"
-core_hash_first=true
-for file in "${extra_paths[@]}" "${modified_paths[@]}"; do
-    [[ -z "$file" || ! -f "$file" ]] && continue
-    hash=$(sha256sum "$file" 2>/dev/null | awk '{print $1}')
-    [[ -z "$hash" ]] && continue
-    if [[ "$core_hash_first" == true ]]; then core_hash_first=false; else core_file_hashes+=","; fi
-    core_file_hashes+="\"${file}\":\"${hash}\""
-done
-core_file_hashes+="}"
-echo "core_file_hashes:${core_file_hashes}"
-
-# Loose PHP file hashes (everything in the content dir outside plugins/themes/mu-plugins)
-pushd "$wp_content" > /dev/null 2>&1
-loose_hashes="{"
-loose_first=true
-while IFS= read -r file; do
-    [[ -z "$file" ]] && continue
-    hash=$(sha256sum "$file" 2>/dev/null | awk '{print $1}')
-    [[ -z "$hash" ]] && continue
-    if [[ "$loose_first" == true ]]; then loose_first=false; else loose_hashes+=","; fi
-    loose_hashes+="\"${file}\":\"${hash}\""
-done < <(find . -name "*.php" -type f \
-    ! -path './plugins/*' \
-    ! -path './themes/*' \
-    ! -path './mu-plugins/*' \
-    ! -path './cache/*' \
-    ! -path './wps-cache/*' \
-    ! -path './wphb-cache/*' \
-    ! -path './updraft/*' \
-    ! -path './upgrade-temp-backup/*' \
-    ! -path './umbrella-upgrade-temp-backup/*' \
-    2>/dev/null | sed 's|^\./||' | LC_ALL=C sort)
-loose_hashes+="}"
-popd > /dev/null 2>&1
-echo "loose_file_hashes:${loose_hashes}"
-
-# Restic cache size (bytes), 0 if none
-restic_cache_dir="$HOME/.cache/restic"
-if [[ -d "$restic_cache_dir" ]]; then
-    echo "restic_cache:$(du -sb "$restic_cache_dir" 2>/dev/null | cut -f1)"
-else
-    echo "restic_cache:0"
-fi
-
-# Discover sensitive pages (checkout/cart/account) for active ecommerce plugins.
-# Rules kept in sync with lib/capture-plugin-pages.json on the CaptainCore server.
-# Result is a JSON array of home_url-relative paths consumed by `capture generate`.
-read -r -d '' capture_pages_php << 'CAPPAGESEOF'
-<?php
+// --- Ecommerce capture pages ---
+$run_probe( 'capture_plugin_pages', function () {
 $rules = [
     [
         'slug' => 'woocommerce',
@@ -2138,21 +1777,434 @@ foreach ($rules as $rule) {
 }
 
 echo json_encode($paths);
-CAPPAGESEOF
+}, '[]' );
+CONSOLIDATEDEOF
+{ echo "<?php define('CC_UNFILTERED_FILE', '$tmpdir/unfiltered_plugins.txt'); ?>"; echo "$CONSOLIDATED_PHP"; } | wp eval-file - --skip-themes --skip-plugins --skip-packages 2>/dev/null
+) > "$tmpdir/w1.out" &
+pid1=$!
 
-capture_plugin_pages_json=$(echo "$capture_pages_php" | wp eval-file - --skip-themes --skip-plugins 2>/dev/null)
-if [[ -z "$capture_plugin_pages_json" ]]; then
-    capture_plugin_pages_json="[]"
+# ----------------------------------------------------------------------------
+# Worker 2: Core checksums + Root provenance + Loose PHP + Media + PHP/Host metadata
+# ----------------------------------------------------------------------------
+(
+echo "wp_content:$(trim "$wp_content")"
+
+php_version=$( php -v | head -n1 | cut -d ' ' -f 2 | cut -d '.' -f 1,2 )
+php_memory=""
+if [ -f "/etc/php/$php_version/fpm/php.ini" ]; then
+    php_memory=$( grep "memory_limit" "/etc/php/$php_version/fpm/php.ini" 2>/dev/null )
 fi
-echo "capture_plugin_pages:$(trim "$capture_plugin_pages_json")"
-# The SSH keys this environment actually holds: sha256 of the Manager's lines
-# inside the CaptainCore managed block of ~/.ssh/authorized_keys (the CLI's
-# own management line left out), the same hash `ssh-keys deploy` reports. The
-# Manager compares it with what the environment should hold, so a key edited
-# or deleted on the server is put back by the next `ssh-keys deploy --stale`.
-# "none" when there is no block (sites at providers such as Kinsta).
+if [[ "$php_memory" == "" ]]; then
+    php_ini=$( php -r 'echo php_ini_loaded_file();' 2>/dev/null )
+    [ -n "$php_ini" ] && php_memory=$( grep "memory_limit" "$php_ini" 2>/dev/null )
+fi
+php_memory=$( php -r 'if (preg_match("/memory_limit\s*=\s*(\d\w+)/", $argv[1], $m)) echo $m[1];' "$php_memory" 2>/dev/null )
+echo "php_version:$(trim "$php_version")"
+echo "php_memory:$(trim "$php_memory")"
+
+# Restic cache size (bytes), 0 if none
+restic_cache_dir="$HOME/.cache/restic"
+if [[ -d "$restic_cache_dir" ]]; then
+    echo "restic_cache:$(du -sb "$restic_cache_dir" 2>/dev/null | cut -f1)"
+else
+    echo "restic_cache:0"
+fi
+
+# Live SSH keys hash (for self-hosted servers; "none" on Kinsta)
 ssh_keys_live="none"
 if [[ -f "$HOME/.ssh/authorized_keys" ]] && grep -q '^# BEGIN CaptainCore managed keys' "$HOME/.ssh/authorized_keys" 2>/dev/null; then
     ssh_keys_live=$(printf '%s' "$(awk '/^# BEGIN CaptainCore managed keys/{f=1;next} /^# END CaptainCore managed keys/{f=0} f && $0 !~ / captaincore-management$/' "$HOME/.ssh/authorized_keys")" | sha256sum | cut -d' ' -f1)
 fi
 echo "ssh_keys_live:${ssh_keys_live}"
+
+# Core checksum verification
+core_verify_checksums_response=$( wp core verify-checksums --skip-themes --skip-plugins --skip-packages 2>&1 )
+modified_files=""
+extra_files=""
+missing_files=""
+modified_paths=()
+extra_paths=()
+
+while IFS= read -r line; do
+    case "$line" in
+        "Warning: File doesn't verify against checksum: "*)
+            file=$( echo "$line" | sed "s/Warning: File doesn't verify against checksum: //" )
+            modified_files="${modified_files:+$modified_files,}\"$file\""
+            modified_paths+=("$file")
+            ;;
+        "Warning: File should not exist: "*)
+            file=$( echo "$line" | sed "s/Warning: File should not exist: //" )
+            extra_files="${extra_files:+$extra_files,}\"$file\""
+            extra_paths+=("$file")
+            ;;
+        "Warning: File doesn't exist: "*)
+            file=$( echo "$line" | sed "s/Warning: File doesn't exist: //" )
+            missing_files="${missing_files:+$missing_files,}\"$file\""
+            ;;
+    esac
+done <<< "$core_verify_checksums_response"
+
+if [[ -n "$modified_files" ]] || [[ -n "$extra_files" ]]; then
+    core_verify_checksums=0
+    checksum_status="fail"
+elif [[ -n "$missing_files" ]]; then
+    core_verify_checksums=1
+    checksum_status="warning"
+else
+    core_verify_checksums=1
+    checksum_status="pass"
+fi
+core_verify_checksums_json="{\"status\":\"$checksum_status\",\"modified\":[$modified_files],\"extra\":[$extra_files],\"missing\":[$missing_files]}"
+echo "core_verify_checksums:$(trim "$core_verify_checksums")"
+echo "core_checksum_details:$(trim "$core_verify_checksums_json")"
+
+# Per-file SHA256 hashes for core extra/modified files
+core_file_hashes="{"
+core_hash_first=true
+for file in "${extra_paths[@]}" "${modified_paths[@]}"; do
+    [[ -z "$file" || ! -f "$file" ]] && continue
+    hash=$(sha256sum "$file" 2>/dev/null | awk '{print $1}')
+    [[ -z "$hash" ]] && continue
+    if [[ "$core_hash_first" == true ]]; then core_hash_first=false; else core_file_hashes+=","; fi
+    core_file_hashes+="\"${file}\":\"${hash}\""
+done
+core_file_hashes+="}"
+echo "core_file_hashes:${core_file_hashes}"
+
+# Provenance: unexpected PHP at web root and content root + full contents for rule scan
+if [[ -f "wp-settings.php" && -f "wp-load.php" ]]; then
+    prov_root_allow=" index.php wp-activate.php wp-blog-header.php wp-comments-post.php wp-config.php wp-config-sample.php wp-cron.php wp-links-opml.php wp-load.php wp-login.php wp-mail.php wp-settings.php wp-signup.php wp-trackback.php xmlrpc.php "
+else
+    prov_root_allow=" index.php wp-config.php wp-config-sample.php "
+fi
+prov_content_allow=" index.php advanced-cache.php db.php db-error.php install.php maintenance.php object-cache.php php-error.php fatal-error-handler.php sunrise.php blog-deleted.php blog-inactive.php blog-suspended.php "
+prov_rows=""
+for f in *.php *.phtml *.phar *.pht *.php3 *.php4 *.php5 *.php7 *.php8 *.phtm; do
+    [[ -f "$f" ]] || continue
+    prov_lf=$( printf '%s' "$f" | tr '[:upper:]' '[:lower:]' )
+    [[ "$prov_root_allow" == *" $prov_lf "* ]] && continue
+    prov_rows+="root|$f"$'\n'
+done
+for f in "$wp_content"/*.php "$wp_content"/*.phtml "$wp_content"/*.phar "$wp_content"/*.pht "$wp_content"/*.php3 "$wp_content"/*.php4 "$wp_content"/*.php5 "$wp_content"/*.php7 "$wp_content"/*.php8 "$wp_content"/*.phtm; do
+    [[ -f "$f" ]] || continue
+    prov_lb=$( basename "$f" | tr '[:upper:]' '[:lower:]' )
+    [[ "$prov_content_allow" == *" $prov_lb "* ]] && continue
+    prov_rows+="content|$f"$'\n'
+done
+prov_out=$( printf '%s' "$prov_rows" | python3 -c '
+import base64, hashlib, json, os, re, sys, time
+rows = []
+for line in sys.stdin:
+    line = line.rstrip("\n")
+    if not line: continue
+    loc, path = line.split("|", 1)
+    row = {"location": loc, "path": path}
+    try:
+        st = os.stat(path)
+        h = hashlib.sha256()
+        with open(path, "rb") as fh:
+            head = fh.read(600)
+            h.update(head)
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+        row.update({"sha256": h.hexdigest(), "size": st.st_size,
+                    "mtime": time.strftime("%Y-%m-%d %H:%M", time.gmtime(st.st_mtime)),
+                    "head": re.sub(r"[^\x09\x0a\x20-\x7e]", ".", head.decode("latin-1"))})
+    except OSError:
+        pass
+    rows.append(row)
+content, used = [], 0
+for row in sorted((r for r in rows if r.get("size")), key=lambda r: r["size"]):
+    if used >= 6 << 20: break
+    try:
+        with open(row["path"], "rb") as fh:
+            body = fh.read(min(1 << 20, (6 << 20) - used))
+    except OSError:
+        continue
+    used += len(body)
+    content.append({"path": row["path"], "sha256": row["sha256"], "truncated": len(body) < row["size"],
+                    "b64": base64.b64encode(body).decode()})
+print(json.dumps(rows))
+print(json.dumps(content))' 2>/dev/null )
+unexpected_root_php_json=$( printf '%s\n' "$prov_out" | sed -n 1p )
+unexpected_root_php_content=$( printf '%s\n' "$prov_out" | sed -n 2p )
+[[ -z "$unexpected_root_php_json" ]] && unexpected_root_php_json="[]"
+[[ -z "$unexpected_root_php_content" ]] && unexpected_root_php_content="[]"
+echo "unexpected_root_php:$(trim "$unexpected_root_php_json")"
+echo "unexpected_root_php_content:$unexpected_root_php_content"
+
+# Loose PHP file hashes (everything in the content dir outside plugins/themes/mu-plugins)
+pushd "$wp_content" > /dev/null 2>&1
+loose_hashes="{"
+loose_first=true
+while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    hash=$(sha256sum "$file" 2>/dev/null | awk '{print $1}')
+    [[ -z "$hash" ]] && continue
+    if [[ "$loose_first" == true ]]; then loose_first=false; else loose_hashes+=","; fi
+    loose_hashes+="\"${file}\":\"${hash}\""
+done < <(find . -name "*.php" -type f \
+    ! -path './plugins/*' \
+    ! -path './themes/*' \
+    ! -path './mu-plugins/*' \
+    ! -path './cache/*' \
+    ! -path './wps-cache/*' \
+    ! -path './wphb-cache/*' \
+    ! -path './updraft/*' \
+    ! -path './upgrade-temp-backup/*' \
+    ! -path './umbrella-upgrade-temp-backup/*' \
+    2>/dev/null | sed 's|^\./||' | LC_ALL=C sort)
+loose_hashes+="}"
+popd > /dev/null 2>&1
+echo "loose_file_hashes:${loose_hashes}"
+
+# Media files changed in the last two days, checked for stashed payloads
+media_payloads_json="[]"
+media_dirs=""
+for _d in "$wp_content/uploads" wp-content/uploads app/uploads; do [ -d "$_d" ] && [[ " $media_dirs " != *" $_d "* ]] && media_dirs="$media_dirs $_d"; done
+if [ -n "$media_dirs" ] && command -v perl >/dev/null 2>&1; then
+  media_payloads_json=$( find $media_dirs \( -name node_modules -o -name .git -o -name cache \) -prune -o -type f -size +0 -mtime -2 -print0 2>/dev/null | LC_ALL=C perl -0ne '
+    use strict; use warnings;
+    BEGIN { our @out; }
+    our @out;
+    chomp(my $f = $_); $f =~ s/\0$//;
+    my $size = -s $f or next;
+    my ($name) = $f =~ m{([^/]+)$}; my $ext = lc($name =~ /\.([^.]+)$/ ? $1 : "");
+    open(my $fh, "<:raw", $f) or next;
+    my ($head, $tail) = ("", "");
+    read($fh, $head, 16384);
+    if ($size > 16384) { seek($fh, -16384, 2); read($fh, $tail, 16384); } else { $tail = $head; }
+    my $report = sub { my ($sev, $type, $detail) = @_; $detail =~ s/[^\x20-\x7e]/./g; $detail =~ s/\\/\\\\/g; $detail =~ s/"/\x27/g; push @out, sprintf("{\"severity\":\"%s\",\"type\":\"%s\",\"path\":\"%s\",\"detail\":\"%s\",\"size\":%d}", $sev, $type, $f =~ s/\\/\\\\/gr =~ s/"/\x27/gr, $detail, $size); };
+    my $eval_re = qr/eval\(\s*(?:\$|["\x27]|[A-Za-z_]\w*\s*\()/;
+    my $code_re = qr/<\?php|<script[ >]|$eval_re|base64_decode\(|shell_exec\(|\$_(?:POST|GET|REQUEST|COOKIE)\[/;
+    my $has_b64 = sub { my ($s) = @_; while ($s =~ m{([A-Za-z0-9+/]{200,}={0,2})}g) { my $run = $1; next unless $run =~ /[A-Z]/ && $run =~ /[a-z]/ && $run =~ /[0-9]/; my %seen; $seen{$_} = 1 for split //, substr($run, 0, 4096); return 1 if keys(%seen) >= 20; } return 0; };
+    my %magic = (jpg => qr/^\xff\xd8\xff/, jpeg => qr/^\xff\xd8\xff/, png => qr/^\x89PNG\r\n\x1a\n/, gif => qr/^GIF8[79]a/, webp => qr/^RIFF....WEBP/s, pdf => qr/^%PDF/, mp4 => qr/^....ftyp/s, mov => qr/^....(ftyp|moov|mdat|wide|free)/s, mp3 => qr/^(ID3|\xff[\xfb\xf3\xf2])/, zip => qr/^PK/, ico => qr/^\x00\x00\x01\x00/);
+    if (my $re = $magic{$ext}) {
+        if ($head !~ $re) {
+            (my $asc = substr($head, 0, 48)) =~ s/[^\x20-\x7e]/./g;
+            if ($head =~ /^\s*(<\?php|<\?=|<script)/) { $report->("CRITICAL", "FAKE_MEDIA", "starts with code, not a .$ext: $asc"); next; }
+            my ($real) = grep { $head =~ $magic{$_} } qw(jpg png gif webp pdf);
+            next unless $real;
+            $ext = $real;
+        }
+    }
+    next if $ext eq "gif" && $size < 64 && $head !~ $code_re;
+    my %trailer = (jpg => ["\xff\xd9", "JPEG EOI"], jpeg => ["\xff\xd9", "JPEG EOI"], png => ["IEND\xaeB`\x82", "PNG IEND"], gif => ["\x3b", "GIF trailer"]);
+    if (my $t = $trailer{$ext}) {
+        my ($marker, $label) = @$t; my $pos = rindex($tail, $marker);
+        my $trail = $pos < 0 ? -1 : length($tail) - $pos - length($marker);
+        if ($trail < 0 || $trail > 64) {
+            my $detail = $trail < 0 ? "no $label within the last 16 KB" : "$trail bytes after $label";
+            my $after = $trail < 0 ? $tail : substr($tail, $pos + length($marker));
+            next if $after =~ /SEFT\z/ || $after =~ /Samsung_Capture_Info|Image_UTC_Data|PhotoEditor_Re_Edit_Data|Original_Path_Hash_Key/;
+            if ($after =~ /(<\?php|$eval_re|base64_decode|\$_(?:POST|GET|REQUEST|COOKIE))/ || $has_b64->($after)) { $report->("CRITICAL", "APPENDED_PAYLOAD", $detail); }
+            elsif ($trail < 0 || $trail <= 4096) { $report->("MEDIUM", "TRAILING_DATA", "$detail (no code or base64 in it: phone cameras append metadata after the image, edited photos carry a second image)"); }
+            else { $report->("HIGH", "TRAILING_DATA", $detail); }
+            next;
+        }
+    }
+    if ($ext =~ /^(jpe?g|png|gif|webp|ico|bmp|tiff?|pdf|mp4|m4v|mov|m4a|mp3|wav|ogg|webm|avi)$/) {
+        my $re = $ext eq "pdf" ? qr/<\?php|base64_decode\(|shell_exec\(|\$_(?:POST|GET|REQUEST|COOKIE)\[/ : $code_re;
+        if (($head . "\n" . $tail) =~ /($re)/) { $report->("CRITICAL", "CODE_IN_MEDIA", "contains $1"); next; }
+    }
+    if ($ext eq "svg" && $size <= 2097152) {
+        seek($fh, 0, 0); local $/; my $svg = <$fh>;
+        if ($svg =~ /(<script|\son[a-z]+\s*=|javascript:|<foreignObject|<iframe|<embed)/i) { $report->("HIGH", "SVG_ACTIVE", "SVG contains $1"); }
+    }
+    close $fh;
+    END { print "[" . join(",", @out) . "]\n"; }
+  ' 2>/dev/null )
+  [ -z "$media_payloads_json" ] && media_payloads_json="[]"
+fi
+echo "media_payloads:$(trim "$media_payloads_json")"
+) > "$tmpdir/w2.out" &
+pid2=$!
+
+# ----------------------------------------------------------------------------
+# Worker 3: Plugin checksum verification (mostly HTTPS waits to wordpress.org)
+# ----------------------------------------------------------------------------
+(
+plugin_verify_checksums_response=$( wp plugin verify-checksums --all --skip-themes --skip-plugins --skip-packages 2>&1 )
+plugin_modified_entries=""
+plugin_skipped_count=0
+
+while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    [[ "$line" == "plugin_name"$'\t'* ]] && continue
+    case "$line" in
+        "Warning: Couldn't fetch response from"*) ;;
+        "Warning: Could not retrieve the checksums"*) plugin_skipped_count=$((plugin_skipped_count + 1)) ;;
+        "Warning: Plugin "*"doesn't provide a readme.txt"*) plugin_skipped_count=$((plugin_skipped_count + 1)) ;;
+        "Success:"*|"Error:"*) ;;
+        *$'\t'*$'\t'*)
+            slug="${line%%$'\t'*}"
+            rest="${line#*$'\t'}"
+            file="${rest%%$'\t'*}"
+            message="${rest#*$'\t'}"
+            slug_esc=$( json_escape "$slug" )
+            file_esc=$( json_escape "$file" )
+            message_esc=$( json_escape "$message" )
+            entry="{\"slug\":\"${slug_esc}\",\"file\":\"${file_esc}\",\"message\":\"${message_esc}\"}"
+            plugin_modified_entries="${plugin_modified_entries:+$plugin_modified_entries,}${entry}"
+            ;;
+    esac
+done <<< "$plugin_verify_checksums_response"
+
+if [[ -n "$plugin_modified_entries" ]]; then
+    plugin_checksum_status="fail"
+else
+    plugin_checksum_status="pass"
+fi
+echo "plugin_checksum_details:{\"status\":\"${plugin_checksum_status}\",\"modified\":[${plugin_modified_entries}],\"skipped_count\":${plugin_skipped_count}}"
+) > "$tmpdir/w3.out" &
+pid3=$!
+
+# ----------------------------------------------------------------------------
+# Worker 4: Parallelized component_hashes + mu_plugin_files + hidden_plugins boot
+# ----------------------------------------------------------------------------
+(
+hash_directory() {
+    local dir="$1"
+    {
+        find "$dir" -type f \
+            ! -path '*/node_modules/*' \
+            ! -path '*/.git/*' \
+            ! -name .DS_Store \
+            ! -name error_log \
+            -exec sha256sum {} + 2>/dev/null
+        find "$dir" -type l \
+            ! -path '*/node_modules/*' \
+            ! -path '*/.git/*' \
+            2>/dev/null | while IFS= read -r link; do
+                target=$(readlink "$link")
+                echo "$(echo -n "SYMLINK:${target}" | sha256sum | awk '{print $1}')  ${link}"
+            done
+    } | LC_ALL=C sort -k2 | sha256sum | awk '{print $1}'
+}
+
+ch_dir="$tmpdir/ch"
+mkdir -p "$ch_dir"
+
+pushd "$wp_content" > /dev/null 2>&1
+
+# Run up to 4 component directory hashes concurrently (bit-for-bit identical hashes)
+active_jobs=0
+idx=0
+wait_slot() {
+    active_jobs=$((active_jobs + 1))
+    if [ "$active_jobs" -ge 4 ]; then
+        wait -n 2>/dev/null || wait
+        active_jobs=$((active_jobs - 1))
+    fi
+}
+
+if [[ -d "plugins" ]]; then
+    for dir in plugins/*/; do
+        [[ -d "$dir" ]] || continue
+        idx=$((idx + 1))
+        (
+            slug=$(basename "$dir")
+            h=$(hash_directory "$dir")
+            printf '"%s":"%s"\n' "$slug" "$h" > "$ch_dir/$(printf '%05d' $idx).kv"
+        ) &
+        wait_slot
+    done
+fi
+
+if [[ -d "themes" ]]; then
+    for dir in themes/*/; do
+        [[ -d "$dir" ]] || continue
+        idx=$((idx + 1))
+        (
+            slug=$(basename "$dir")
+            h=$(hash_directory "$dir")
+            printf '"%s":"%s"\n' "$slug" "$h" > "$ch_dir/$(printf '%05d' $idx).kv"
+        ) &
+        wait_slot
+    done
+fi
+
+if [[ -d "mu-plugins" ]]; then
+    for phpfile in mu-plugins/*.php; do
+        [[ -f "$phpfile" ]] || continue
+        idx=$((idx + 1))
+        (
+            slug=$(basename "$phpfile" .php)
+            component_file_hashes=$(
+                sha256sum "$phpfile" 2>/dev/null
+                if [[ -d "mu-plugins/$slug" ]]; then
+                    find "mu-plugins/$slug" -type f \
+                        ! -path '*/node_modules/*' ! -path '*/.git/*' \
+                        ! -name .DS_Store ! -name error_log \
+                        -exec sha256sum {} + 2>/dev/null
+                    find "mu-plugins/$slug" -type l \
+                        ! -path '*/node_modules/*' ! -path '*/.git/*' \
+                        2>/dev/null | while IFS= read -r link; do
+                            target=$(readlink "$link")
+                            echo "$(echo -n "SYMLINK:${target}" | sha256sum | awk '{print $1}')  ${link}"
+                        done
+                fi
+                for companion in mu-plugins/${slug}.*; do
+                    [[ -f "$companion" && "$companion" != "$phpfile" ]] || continue
+                    sha256sum "$companion" 2>/dev/null
+                done
+            )
+            h=$(echo "$component_file_hashes" | grep -v '^$' | LC_ALL=C sort -k2 | sha256sum | awk '{print $1}')
+            printf '"mu:%s":"%s"\n' "$slug" "$h" > "$ch_dir/$(printf '%05d' $idx).kv"
+        ) &
+        wait_slot
+    done
+fi
+
+wait
+
+component_hashes="{"
+first=true
+for kv in "$ch_dir"/*.kv; do
+    [[ -f "$kv" ]] || continue
+    line=$(cat "$kv")
+    [[ -z "$line" ]] && continue
+    if [[ "$first" == true ]]; then first=false; else component_hashes+=","; fi
+    component_hashes+="$line"
+done
+component_hashes+="}"
+echo "component_hashes:${component_hashes}"
+
+# MU-plugin file listing (root-level files and directories only)
+mu_plugin_files="{"
+mu_first=true
+if [[ -d "mu-plugins" ]]; then
+    for entry in mu-plugins/*; do
+        [[ -e "$entry" ]] || continue
+        base=$(basename "$entry")
+        [[ "$base" == ".DS_Store" ]] && continue
+        if [[ "$mu_first" == true ]]; then mu_first=false; else mu_plugin_files+=","; fi
+        if [[ -d "$entry" ]]; then
+            mu_plugin_files+="\"${base}/\":true"
+        else
+            mu_plugin_files+="\"${base}\":true"
+        fi
+    done
+fi
+mu_plugin_files+="}"
+echo "mu_plugin_files:${mu_plugin_files}"
+popd > /dev/null 2>&1
+
+# Filtered plugin list (with plugin code running) for hidden_plugins diff
+wp plugin list --field=name --skip-themes --skip-packages 2>/dev/null > "$tmpdir/filtered_plugins.txt"
+) > "$tmpdir/w4.out" &
+pid4=$!
+
+wait "$pid1" "$pid2" "$pid3" "$pid4"
+
+# Compute hidden_plugins diff cleanly once Worker 1 and Worker 4 have both finished
+hidden_plugins_json="[]"
+if [ -s "$tmpdir/filtered_plugins.txt" ] && [ -s "$tmpdir/unfiltered_plugins.txt" ]; then
+    hidden_names=$( comm -23 <(sort -u "$tmpdir/unfiltered_plugins.txt") <(sort -u "$tmpdir/filtered_plugins.txt") )
+    if [ -n "$hidden_names" ]; then
+        hidden_plugins_json=$( echo "$hidden_names" | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))' 2>/dev/null || echo "$hidden_names" | awk 'BEGIN{printf "["} {printf "%s\"%s\"", (NR>1?",":""), $0} END{print "]"}' )
+    fi
+fi
+
+cat "$tmpdir/w1.out" "$tmpdir/w2.out" "$tmpdir/w3.out" "$tmpdir/w4.out"
+echo "hidden_plugins:$(trim "$hidden_plugins_json")"
