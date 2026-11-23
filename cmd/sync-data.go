@@ -344,8 +344,11 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 	// emailed) except known-malware hashes; a new root file already emails
 	// through its provenance row, and this adds the content evidence the review
 	// needs. The contents are never stored in details.
+	cleanCache := loadCleanHashCache(defaultCleanHashCachePath(), rulesHash())
+	defer cleanCache.Save()
+
 	if v := strings.TrimSpace(data["unexpected_root_php_content"]); v != "" && v != "[]" {
-		if findings := rootPHPContentFindings(v, nativeAlertSeverity); len(findings) > 0 {
+		if findings := rootPHPContentFindingsWithCache(v, nativeAlertSeverity, cleanCache); len(findings) > 0 {
 			if site, err := sa.LookupSite(); err == nil && site != nil {
 				if !flagSyncDataJSON {
 					fmt.Printf("Root PHP rule finding(s): %d\n", len(findings))
@@ -357,7 +360,7 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 
 	// Redacted wp-config.php scanned through the native malware rule set.
 	if v := strings.TrimSpace(data["wp_config_check"]); v != "" && v != "null" {
-		if findings := wpConfigFindings(v, nativeAlertSeverity); len(findings) > 0 {
+		if findings := wpConfigFindingsWithCache(v, nativeAlertSeverity, cleanCache); len(findings) > 0 {
 			if site, err := sa.LookupSite(); err == nil && site != nil {
 				if !flagSyncDataJSON {
 					fmt.Printf("wp-config.php rule finding(s): %d\n", len(findings))

@@ -175,6 +175,10 @@ func provenanceFindings(raw string) []scan.LegacyFinding {
 // kept as they are, and each finding carries the whole file's sha256, so a
 // benign verdict sticks until the file changes.
 func rootPHPContentFindings(raw string, minSeverity string) []scan.LegacyFinding {
+	return rootPHPContentFindingsWithCache(raw, minSeverity, nil)
+}
+
+func rootPHPContentFindingsWithCache(raw string, minSeverity string, cache *cleanHashCache) []scan.LegacyFinding {
 	var files []struct {
 		Path, Sha256, B64 string
 		Truncated         bool
@@ -182,7 +186,18 @@ func rootPHPContentFindings(raw string, minSeverity string) []scan.LegacyFinding
 	if json.Unmarshal([]byte(raw), &files) != nil || len(files) == 0 {
 		return nil
 	}
-	rs, err := scan.LoadDefaultRuleSet()
+	// Filter out files whose exact sha256 already scanned clean under the current rules.
+	var pending []int
+	for i, f := range files {
+		if f.Sha256 != "" && cache.Has(f.Sha256) {
+			continue
+		}
+		pending = append(pending, i)
+	}
+	if len(pending) == 0 {
+		return nil
+	}
+	s, err := getDefaultScanner()
 	if err != nil {
 		return nil
 	}
@@ -192,7 +207,8 @@ func rootPHPContentFindings(raw string, minSeverity string) []scan.LegacyFinding
 	}
 	defer os.RemoveAll(dir)
 	label := map[string]int{}
-	for i, f := range files {
+	for _, i := range pending {
+		f := files[i]
 		body, err := base64.StdEncoding.DecodeString(f.B64)
 		if err != nil || len(body) == 0 {
 			continue
@@ -206,12 +222,21 @@ func rootPHPContentFindings(raw string, minSeverity string) []scan.LegacyFinding
 			label[name] = i
 		}
 	}
+	if len(label) == 0 {
+		return nil
+	}
+	res := s.ScanDir(dir)
+	hitIdx := map[int]bool{}
 	min := scan.SeverityRank(minSeverity)
 	seen := map[string]bool{}
 	var out []scan.LegacyFinding
-	for _, f := range scan.New(rs, scan.Options{Workers: 2}).ScanDir(dir).Findings {
+	for _, f := range res.Findings {
 		i, ok := label[filepath.Base(f.File)]
-		if !ok || scan.SeverityRank(f.Severity) < min {
+		if !ok {
+			continue
+		}
+		hitIdx[i] = true
+		if scan.SeverityRank(f.Severity) < min {
 			continue
 		}
 		l := f.Legacy()
@@ -230,6 +255,12 @@ func rootPHPContentFindings(raw string, minSeverity string) []scan.LegacyFinding
 		if key := l.Filename + "|" + l.SignatureID; !seen[key] {
 			seen[key] = true
 			out = append(out, l)
+		}
+	}
+	// Cache every scanned file that produced zero findings at any severity.
+	for _, i := range pending {
+		if !hitIdx[i] && files[i].Sha256 != "" {
+			cache.Add(files[i].Sha256)
 		}
 	}
 	return out

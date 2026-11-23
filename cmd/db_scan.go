@@ -167,8 +167,7 @@ func dbScanFindings(raw string, knownUsers map[string]bool, minSeverity string) 
 			write("snippet", fmt.Sprintf("%s/%d", tbl, sn.ID), sn.Content, fmt.Sprintf("Snippet %s #%d %q", tbl, sn.ID, sn.Name))
 		}
 		if len(label) > 0 {
-			if rs, err := scan.LoadDefaultRuleSet(); err == nil {
-				s := scan.New(rs, scan.Options{Workers: 2})
+			if s, err := getDefaultScanner(); err == nil {
 				res := s.ScanDir(dir)
 				seen := map[string]bool{}
 				for _, f := range res.Findings {
