@@ -33,7 +33,7 @@ for arg in "$@"; do
   if [[ $arg == *"="* ]]; then
     flag_value=$( echo $flag_name | perl -n -e '/.+?=(.+)/&& print $1' ) # extract value
     flag_name=$( echo $flag_name | perl -n -e '/(.+?)=.+/&& print $1' ) # extract name
-    flag_name=${flag_name/-/_}
+    flag_name=${flag_name//-/_}
 
     # Remove first and last quote if found
     flag_value="${flag_value%\"}"
@@ -135,7 +135,8 @@ class MagicLogin {
 	 * Rate-limit AJAX login requests by IP. Returns true if throttled.
 	 */
 	private static function is_rate_limited() {
-		$ip            = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+		$ip            = Helpers::get_client_ip();
+		$ip            = $ip !== '' ? $ip : ( $_SERVER['REMOTE_ADDR'] ?? 'unknown' );
 		$transient_key = 'cc_login_limit_' . md5( $ip );
 		$attempts      = (int) get_transient( $transient_key );
 		if ( $attempts >= 5 ) {
@@ -228,7 +229,7 @@ class MagicLogin {
 			$error = sprintf( __( 'Invalid one-time login token, but you are logged in as \'%1$s\'. <a href="%2$s">Go to the dashboard instead</a>?', 'captaincore-helper' ), esc_html( $current_user_login ), esc_url( admin_url() ) );
 		} else {
 			// translators: %s: login URL
-			$error = sprintf( __( 'Invalid one-time login token. <a href="%s">Try signing in instead</a>?', 'captaincore-helper' ), esc_url( wp_login_url() ) );
+			$error = sprintf( __( 'Invalid one-time login token. <a href="%s">Try signing in instead</a>?', 'captaincore-helper' ), esc_url( self::login_url() ) );
 		}
 
 		// Use a generic error message to ensure user ids can't be sniffed
@@ -356,7 +357,7 @@ class Helpers {
 			return;
 		}
 		flush_rewrite_rules( false );
-		update_option( 'captaincore_random_rewrite_flushed', $version, false );
+		update_option( 'captaincore_random_rewrite_flushed', $version, true );
 	}
 
 	/**
@@ -446,6 +447,7 @@ class Helpers {
 					$meta = str_replace( 'СleanTalk - Anti-Spam Protection', 'CleanTalk', $meta );
 				}
 			}
+			unset( $meta );
 		}
 		return $plugin_meta;
 	}
@@ -569,6 +571,12 @@ class Helpers {
 			if ( $ip_bin === false || $net_bin === false || strlen( $ip_bin ) !== 16 || strlen( $net_bin ) !== 16 ) {
 				return false;
 			}
+			if ( $bits <= 0 ) {
+				return true;
+			}
+			if ( $bits >= 128 ) {
+				return $ip_bin === $net_bin;
+			}
 			$bytes = intdiv( $bits, 8 );
 			$rem   = $bits % 8;
 			if ( $bytes > 0 && substr( $ip_bin, 0, $bytes ) !== substr( $net_bin, 0, $bytes ) ) {
@@ -640,19 +648,21 @@ class TGMPAUpdater {
 
 		// Ensure tgmpa_register has run to populate plugins.
 		// This is crucial. If called too early, $tgmpa->plugins will be empty.
-		do_action( 'tgmpa_register' );
+		if ( ! did_action( 'tgmpa_register' ) ) {
+			do_action( 'tgmpa_register' );
+		}
 
 		$tgmpa = \TGM_Plugin_Activation::get_instance();
 
-		// It's possible populate_file_path() isn't called if TGMPA doesn't display notices.
-		// We might need to call it manually if file_path is consistently missing.
-		if ( method_exists( $tgmpa, 'populate_file_path' ) && empty(current(array_values($tgmpa->plugins))['file_path']) ) {
-		    $tgmpa->populate_file_path();
+		if ( empty( $tgmpa->plugins ) || ! is_array( $tgmpa->plugins ) ) {
+			return [];
 		}
 
-
-		if ( empty( $tgmpa->plugins ) ) {
-			return [];
+		// It's possible populate_file_path() isn't called if TGMPA doesn't display notices.
+		// We might need to call it manually if file_path is consistently missing.
+		$first_plugin = reset( $tgmpa->plugins );
+		if ( method_exists( $tgmpa, 'populate_file_path' ) && is_array( $first_plugin ) && empty( $first_plugin['file_path'] ) ) {
+		    $tgmpa->populate_file_path();
 		}
 
 		$external_plugins = [];
@@ -735,12 +745,16 @@ class TGMPAUpdater {
 			return $transient;
 		}
 
-		$tgmpa_plugins     = $this->get_tgmpa_plugins();
-		$installed_plugins = get_plugins();
+		$tgmpa_plugins = $this->get_tgmpa_plugins();
 
 		if ( empty( $tgmpa_plugins ) ) {
 			return $transient;
 		}
+
+		if ( ! function_exists( 'get_plugins' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+		$installed_plugins = get_plugins();
 
 		foreach ( $tgmpa_plugins as $plugin_slug => $plugin_data ) {
 			$plugin_file_path = $plugin_data['file_path'];
@@ -781,6 +795,10 @@ class TGMPAUpdater {
 }
 
 class SecurityLogger {
+    const DB_VERSION_OPTION = 'captaincore_security_log_db_version';
+    const DB_VERSION        = '1';
+    const RETENTION_DAYS    = 180;
+
     private static $table_checked = false;
     private static $initial_plugins = null;
     private static $initial_themes_data = [];
@@ -867,14 +885,18 @@ class SecurityLogger {
         return $wpdb->prefix . 'captaincore_security_log';
     }
 
-    public static function ensure_table_exists_public() { self::ensure_table_exists(); }
+    public static function ensure_table_exists_public() { self::ensure_table_exists( true ); }
 
     public static function log_public( $action, array $data = [], $user_id = null ) {
         self::log( $action, $data, $user_id );
     }
 
-    private static function ensure_table_exists() {
-        if ( self::$table_checked ) { return; }
+    private static function ensure_table_exists( $force_check = false ) {
+        if ( ! $force_check && self::$table_checked ) { return; }
+        if ( ! $force_check && get_option( self::DB_VERSION_OPTION ) === self::DB_VERSION ) {
+            self::$table_checked = true;
+            return;
+        }
         global $wpdb;
         $table_name = self::get_table_name();
         $charset_collate = $wpdb->get_charset_collate();
@@ -896,6 +918,7 @@ class SecurityLogger {
             ) $charset_collate;";
             dbDelta( $sql );
         }
+        update_option( self::DB_VERSION_OPTION, self::DB_VERSION, true );
         self::$table_checked = true;
     }
 
@@ -943,6 +966,13 @@ class SecurityLogger {
             'ip_address' => $ip_address,
             'log_data'   => json_encode( $data, JSON_UNESCAPED_SLASHES | JSON_PARTIAL_OUTPUT_ON_ERROR ),
         ]);
+
+        // Prune old rows at most once per day to keep the table bounded under bot traffic.
+        if ( ! get_transient( 'captaincore_security_log_pruned' ) ) {
+            set_transient( 'captaincore_security_log_pruned', 1, DAY_IN_SECONDS );
+            $cutoff = gmdate( 'Y-m-d H:i:s', time() - ( self::RETENTION_DAYS * DAY_IN_SECONDS ) );
+            $wpdb->query( $wpdb->prepare( "DELETE FROM {$table_name} WHERE log_time < %s", $cutoff ) );
+        }
     }
 
     private static function get_plugin_details( $plugin_file ) {
@@ -1101,6 +1131,28 @@ class SecurityLogger {
     // --- Plugin & theme lifecycle handlers ---
 
     public static function log_admin_init() {
+        // Avoid parsing every plugin and theme header from disk on unrelated
+        // wp-admin pages or high-frequency admin-ajax.php requests.
+        if ( wp_doing_ajax() ) {
+            $ajax_action   = isset( $_REQUEST['action'] ) ? (string) $_REQUEST['action'] : '';
+            $tracked_ajax  = [
+                'install-plugin', 'update-plugin', 'delete-plugin',
+                'install-theme', 'update-theme', 'delete-theme',
+            ];
+            if ( ! in_array( $ajax_action, $tracked_ajax, true ) ) {
+                return;
+            }
+        } else {
+            global $pagenow;
+            $tracked_pages = [
+                'plugins.php', 'themes.php', 'update.php',
+                'update-core.php', 'plugin-install.php', 'theme-install.php',
+            ];
+            if ( ! in_array( (string) $pagenow, $tracked_pages, true ) ) {
+                return;
+            }
+        }
+
         if ( self::$initial_plugins === null ) {
             if ( ! function_exists( 'get_plugins' ) ) { require_once ABSPATH . 'wp-admin/includes/plugin.php'; }
             self::$initial_plugins = get_plugins();
@@ -1118,9 +1170,6 @@ class SecurityLogger {
                     }
                 }
             }
-        }
-        if ( is_multisite() && self::$old_superadmins === null ) {
-            self::$old_superadmins = get_super_admins();
         }
     }
 
@@ -1296,18 +1345,41 @@ class SecurityLogger {
     }
 
     public static function log_file_editor_saved() {
-        $file = isset( $_POST['file'] ) ? sanitize_text_field( wp_unslash( $_POST['file'] ) ) : '';
-        $plugin = isset( $_POST['plugin'] ) ? sanitize_text_field( wp_unslash( $_POST['plugin'] ) ) : '';
-        $theme = isset( $_POST['theme'] ) ? sanitize_text_field( wp_unslash( $_POST['theme'] ) ) : '';
-        $component_type = $plugin ? 'plugin' : ( $theme ? 'theme' : 'unknown' );
-        $component_name = $plugin ?: $theme;
-        if ( $file ) {
-            self::log( 'file_editor_saved', [
-                'file_path'      => $file,
-                'component_type' => $component_type,
-                'component_name' => $component_name,
-            ]);
+        if ( defined( 'DISALLOW_FILE_EDIT' ) && DISALLOW_FILE_EDIT ) {
+            return;
         }
+        $file   = isset( $_POST['file'] ) ? sanitize_text_field( wp_unslash( $_POST['file'] ) ) : '';
+        $plugin = isset( $_POST['plugin'] ) ? sanitize_text_field( wp_unslash( $_POST['plugin'] ) ) : '';
+        $theme  = isset( $_POST['theme'] ) ? sanitize_text_field( wp_unslash( $_POST['theme'] ) ) : '';
+        $nonce  = isset( $_POST['nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['nonce'] ) ) : '';
+
+        if ( ! $file || ! $nonce ) {
+            return;
+        }
+
+        // Verify capability and WP core's nonce before logging so unauthorized or
+        // failed AJAX attempts never produce false file_editor_saved events.
+        if ( $plugin ) {
+            if ( ! current_user_can( 'edit_plugins' ) || ! wp_verify_nonce( $nonce, 'edit-plugin_' . $file ) ) {
+                return;
+            }
+            $component_type = 'plugin';
+            $component_name = $plugin;
+        } elseif ( $theme ) {
+            if ( ! current_user_can( 'edit_themes' ) || ! wp_verify_nonce( $nonce, 'edit-theme_' . $theme . $file ) ) {
+                return;
+            }
+            $component_type = 'theme';
+            $component_name = $theme;
+        } else {
+            return;
+        }
+
+        self::log( 'file_editor_saved', [
+            'file_path'      => $file,
+            'component_type' => $component_type,
+            'component_name' => $component_name,
+        ]);
     }
 
     // --- Application password handlers ---
@@ -1713,6 +1785,10 @@ class SecurityLogger {
             case 'wpcode_snippet_created':
             case 'wpcode_snippet_updated':
                 return "WPCode snippet '" . ( $data['snippet_title'] ?? 'N/A' ) . "' (" . ( $data['snippet_type'] ?? 'unknown' ) . ")";
+            case 'password_compromised_blocked':
+                return "Blocked login for '" . ( $data['user_login'] ?? 'N/A' ) . "' (compromised password)";
+            case 'password_compromised_warned':
+                return "Warned '" . ( $data['user_login'] ?? 'N/A' ) . "' (compromised password)";
             default:
                 return '';
         }
@@ -1770,10 +1846,10 @@ class UserEnumerationProtection {
      * Block ?author=N enumeration for non-logged-in users.
      */
     public static function block_author_query() {
-        if ( is_user_logged_in() || is_admin() ) {
+        if ( is_user_logged_in() || is_admin() || wp_doing_ajax() || ( defined( 'REST_REQUEST' ) && REST_REQUEST ) ) {
             return;
         }
-        if ( isset( $_REQUEST['author'] ) && is_numeric( $_REQUEST['author'] ) ) {
+        if ( isset( $_GET['author'] ) && is_numeric( $_GET['author'] ) ) {
             wp_die( 'Forbidden', 'Forbidden', [ 'response' => 403 ] );
         }
     }
@@ -1890,9 +1966,15 @@ class UserEnumerationProtection {
      *
      * WordPress default messages reveal whether a username exists
      * ("incorrect password" vs "username does not exist"). This
-     * replaces both with a single generic message.
+     * replaces all failed-credential messages with a single generic
+     * message, while still allowing PasswordSecurity's compromised-password
+     * notice (which only fires after valid credentials were verified).
      */
     public static function generic_login_error( $error ) {
+        $blocked = PasswordSecurity::get_last_blocked_message();
+        if ( $blocked !== null ) {
+            return $blocked;
+        }
         return '<strong>Error:</strong> Invalid username or password.';
     }
 
@@ -1990,14 +2072,15 @@ class SecurityPatchUpdater {
 		}
 
 		foreach ( $transient->checked as $plugin_file => $installed_version ) {
-			$slug  = dirname( $plugin_file );
+			$slug  = ( strpos( $plugin_file, '/' ) !== false ) ? dirname( $plugin_file ) : basename( $plugin_file, '.php' );
 			$patch = $this->find_patch_by_slug( $patches, $slug, 'plugin' );
 			if ( ! $patch ) {
 				continue;
 			}
 
 			$patched_version = $patch['patched_version'] ?? '';
-			if ( $patched_version === '' ) {
+			$download_url    = $patch['download_url'] ?? '';
+			if ( $patched_version === '' || 0 !== stripos( $download_url, 'https://' ) ) {
 				continue;
 			}
 
@@ -2018,7 +2101,7 @@ class SecurityPatchUpdater {
 			$response->slug        = $slug;
 			$response->plugin      = $plugin_file;
 			$response->new_version = $patched_version;
-			$response->package     = $patch['download_url'];
+			$response->package     = $download_url;
 			$response->url         = '';
 			$transient->response[ $plugin_file ] = $response;
 		}
@@ -2048,7 +2131,8 @@ class SecurityPatchUpdater {
 			}
 
 			$patched_version = $patch['patched_version'] ?? '';
-			if ( $patched_version === '' ) {
+			$download_url    = $patch['download_url'] ?? '';
+			if ( $patched_version === '' || 0 !== stripos( $download_url, 'https://' ) ) {
 				continue;
 			}
 
@@ -2066,7 +2150,7 @@ class SecurityPatchUpdater {
 			$transient->response[ $theme_slug ] = [
 				'theme'       => $theme_slug,
 				'new_version' => $patched_version,
-				'package'     => $patch['download_url'],
+				'package'     => $download_url,
 				'url'         => '',
 			];
 		}
@@ -2087,26 +2171,42 @@ class SecurityPatchUpdater {
 			return $response;
 		}
 
-		// Find a patch matching this slug.
-		foreach ( $patches as $key => $patch ) {
-			if ( $patch['slug'] === $args->slug && $patch['type'] === 'plugin' ) {
-				$response                = new \stdClass();
-				$response->name          = $patch['title'] ?: $args->slug;
-				$response->slug          = $args->slug;
-				$response->version       = $patch['patched_version'];
-				$response->download_link = $patch['download_url'];
-				$response->trunk         = $patch['download_url'];
-				$response->author        = 'CaptainCore Security';
-				$response->requires      = '5.0';
-				$response->tested        = get_bloginfo( 'version' );
-				$response->sections      = [
-					'description' => $patch['description'] ?: "Security patch for {$patch['slug']} v{$patch['version']}.",
-					'changelog'   => "<p><strong>Security Update ({$patch['severity']})</strong></p><p>{$patch['description']}</p>",
-				];
-				return $response;
-			}
+		// Find the highest-versioned patch matching this slug.
+		$patch = $this->find_patch_by_slug( $patches, $args->slug, 'plugin' );
+		if ( ! $patch ) {
+			return $response;
 		}
 
+		$download_url = $patch['download_url'] ?? '';
+		if ( 0 !== stripos( $download_url, 'https://' ) ) {
+			return $response;
+		}
+
+		$slug            = $patch['slug'] ?? $args->slug;
+		$version         = $patch['version'] ?? '';
+		$patched_version = $patch['patched_version'] ?? '';
+		$severity        = $patch['severity'] ?? 'Security';
+		$description     = ! empty( $patch['description'] )
+			? $patch['description']
+			: "Security patch for {$slug}" . ( $version !== '' ? " v{$version}" : '' ) . '.';
+
+		$response                = new \stdClass();
+		$response->name          = ! empty( $patch['title'] ) ? $patch['title'] : $args->slug;
+		$response->slug          = $args->slug;
+		$response->version       = $patched_version;
+		$response->download_link = $download_url;
+		$response->trunk         = $download_url;
+		$response->author        = 'CaptainCore Security';
+		$response->requires      = '5.0';
+		$response->tested        = get_bloginfo( 'version' );
+		$response->sections      = [
+			'description' => wp_kses_post( $description ),
+			'changelog'   => sprintf(
+				'<p><strong>Security Update (%s)</strong></p><p>%s</p>',
+				esc_html( $severity ),
+				wp_kses_post( $description )
+			),
+		];
 		return $response;
 	}
 }
@@ -2131,18 +2231,27 @@ class PasswordSecurity {
     const OPTION_ENFORCED_ROLES = 'captaincore_password_enforced_roles';
     const META_COMPROMISED_AT   = 'captaincore_password_compromised_at';
     const META_LAST_CHECK       = 'captaincore_password_last_check';
+    const META_CHECKED_HASH     = 'captaincore_password_checked_hash';
+    const CLEAN_CHECK_TTL       = 30 * DAY_IN_SECONDS;
     const TRANSIENT_HIBP_DOWN   = 'captaincore_hibp_down';
     const HIBP_ENDPOINT         = 'https://api.pwnedpasswords.com/range/';
     const SETTINGS_SLUG         = 'captaincore-password-security';
 
+    private static $last_blocked_message = null;
+
+    public static function get_last_blocked_message() {
+        return self::$last_blocked_message;
+    }
+
     public static function init() {
-        add_filter( 'authenticate',             [ __CLASS__, 'check_login' ], 99, 3 );
-        add_filter( 'validate_password_reset',  [ __CLASS__, 'check_reset' ], 10, 2 );
-        add_action( 'profile_update',           [ __CLASS__, 'clear_flag_on_password_change' ], 10, 2 );
-        add_action( 'after_password_reset',     [ __CLASS__, 'clear_flag_after_reset' ], 10, 1 );
-        add_action( 'all_admin_notices',        [ __CLASS__, 'warning_notice' ] );
-        add_action( 'admin_menu',               [ __CLASS__, 'register_settings_page' ] );
-        add_action( 'admin_init',               [ __CLASS__, 'register_setting' ] );
+        add_filter( 'authenticate',                [ __CLASS__, 'check_login' ], 99, 3 );
+        add_filter( 'validate_password_reset',     [ __CLASS__, 'check_reset' ], 10, 2 );
+        add_action( 'user_profile_update_errors',  [ __CLASS__, 'check_profile_update' ], 10, 3 );
+        add_action( 'profile_update',              [ __CLASS__, 'clear_flag_on_password_change' ], 10, 2 );
+        add_action( 'after_password_reset',        [ __CLASS__, 'clear_flag_after_reset' ], 10, 1 );
+        add_action( 'all_admin_notices',           [ __CLASS__, 'warning_notice' ] );
+        add_action( 'admin_menu',                  [ __CLASS__, 'register_settings_page' ] );
+        add_action( 'admin_init',                  [ __CLASS__, 'register_setting' ] );
 
         if ( defined( 'WP_CLI' ) && WP_CLI ) {
             \WP_CLI::add_command( 'captaincore password check',   [ __CLASS__, 'cli_check_password' ] );
@@ -2219,16 +2328,39 @@ class PasswordSecurity {
      * directly so users with multiple roles are evaluated correctly.
      */
     public static function check_login( $user, $username, $password ) {
-        if ( ! $user instanceof \WP_User ) {
+        self::$last_blocked_message = null;
+
+        if ( ! $user instanceof \WP_User || ! is_string( $password ) || $password === '' ) {
+            return $user;
+        }
+
+        // Application Passwords are 24-char generated tokens and run on every REST request;
+        // skip HIBP lookups for Application Password authentication.
+        if ( did_action( 'application_password_did_authenticate' ) > 0 ) {
+            return $user;
+        }
+
+        // Skip redundant HIBP calls when this exact password hash already passed cleanly recently.
+        $pass_fingerprint = wp_hash( (string) $user->user_pass );
+        $checked_hash     = (string) get_user_meta( $user->ID, self::META_CHECKED_HASH, true );
+        $last_check       = (int) get_user_meta( $user->ID, self::META_LAST_CHECK, true );
+        if ( $checked_hash !== '' && hash_equals( $checked_hash, $pass_fingerprint ) && ( time() - $last_check ) < self::CLEAN_CHECK_TTL ) {
             return $user;
         }
 
         $result = self::is_password_compromised( $password );
+        if ( false === $result ) {
+            update_user_meta( $user->ID, self::META_LAST_CHECK, time() );
+            update_user_meta( $user->ID, self::META_CHECKED_HASH, $pass_fingerprint );
+            delete_user_meta( $user->ID, self::META_COMPROMISED_AT );
+            return $user;
+        }
         if ( true !== $result ) {
             return $user;
         }
 
         update_user_meta( $user->ID, self::META_LAST_CHECK, time() );
+        delete_user_meta( $user->ID, self::META_CHECKED_HASH );
 
         $enforced = self::get_enforced_roles();
         $enforce  = (bool) array_intersect( (array) $user->roles, $enforced );
@@ -2239,14 +2371,13 @@ class PasswordSecurity {
         ], $user->ID );
 
         if ( $enforce ) {
-            return new \WP_Error(
-                'captaincore_password_compromised',
-                sprintf(
-                    // translators: %s: lost-password URL
-                    __( '<strong>Sign-in blocked.</strong> Your password has appeared in a public data breach. <a href="%s">Reset it</a> before signing in.', 'captaincore-helper' ),
-                    esc_url( wp_lostpassword_url() )
-                )
+            $message = sprintf(
+                // translators: %s: lost-password URL
+                __( '<strong>Sign-in blocked.</strong> Your password has appeared in a public data breach. <a href="%s">Reset it</a> before signing in.', 'captaincore-helper' ),
+                esc_url( wp_lostpassword_url() )
             );
+            self::$last_blocked_message = $message;
+            return new \WP_Error( 'captaincore_password_compromised', $message );
         }
 
         update_user_meta( $user->ID, self::META_COMPROMISED_AT, time() );
@@ -2271,16 +2402,41 @@ class PasswordSecurity {
         return $errors;
     }
 
+    /**
+     * Block compromised passwords when setting or changing a password on profile save.
+     * Fails open on API errors.
+     */
+    public static function check_profile_update( \WP_Error $errors, $update, $user ) {
+        if ( empty( $_POST['pass1'] ) || $errors->get_error_code() ) {
+            return;
+        }
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
+        $new_password = wp_unslash( $_POST['pass1'] );
+        if ( true === self::is_password_compromised( $new_password ) ) {
+            $errors->add(
+                'captaincore_password_compromised',
+                __( 'That password has appeared in a public data breach. Please choose a different password.', 'captaincore-helper' )
+            );
+        }
+    }
+
     public static function clear_flag_on_password_change( $user_id, $old_user_data ) {
-        if ( ! isset( $_POST['pass1'] ) || $_POST['pass1'] === '' ) {
+        $new_user = get_userdata( $user_id );
+        $changed  = ( $new_user instanceof \WP_User && $old_user_data instanceof \WP_User && $old_user_data->user_pass !== $new_user->user_pass )
+            || ( isset( $_POST['pass1'] ) && $_POST['pass1'] !== '' );
+        if ( ! $changed ) {
             return;
         }
         delete_user_meta( $user_id, self::META_COMPROMISED_AT );
+        delete_user_meta( $user_id, self::META_CHECKED_HASH );
+        delete_user_meta( $user_id, self::META_LAST_CHECK );
     }
 
     public static function clear_flag_after_reset( $user ) {
         if ( $user instanceof \WP_User ) {
             delete_user_meta( $user->ID, self::META_COMPROMISED_AT );
+            delete_user_meta( $user->ID, self::META_CHECKED_HASH );
+            delete_user_meta( $user->ID, self::META_LAST_CHECK );
         }
     }
 
@@ -2448,11 +2604,14 @@ SecurityLogger::init();
 UserEnumerationProtection::init();
 
 // PasswordSecurity requires WP 6.8+ (native bcrypt + wp_password_needs_rehash).
-// Silently skipped when Passwords Evolved is active to avoid duplicate HIBP
-// calls and competing admin notices/settings pages.
-if ( version_compare( get_bloginfo( 'version' ), '6.8', '>=' ) && ! class_exists( '\\PasswordsEvolved\\Plugin' ) ) {
-    PasswordSecurity::init();
-}
+// Deferred to plugins_loaded so active regular plugins (like Passwords Evolved)
+// have loaded before we check for them, avoiding duplicate HIBP calls and
+// competing admin notices/settings pages.
+add_action( 'plugins_loaded', function () {
+    if ( version_compare( get_bloginfo( 'version' ), '6.8', '>=' ) && ! class_exists( '\\PasswordsEvolved\\Plugin' ) ) {
+        PasswordSecurity::init();
+    }
+}, 20 );
 
 if ( defined( 'WP_CLI' ) && WP_CLI ) {
     /**
@@ -8567,6 +8726,29 @@ captaincore ssh <site> --script=deploy-helper
 
 ## Changelog
 
+### 0.8.1 — 2026-11-23
+- MagicLogin: also hook `login_init` (priority 1) and preserve `https://` when
+  generating login links under WP-CLI so masked-login plugins (e.g. Defender
+  Mask Login) work seamlessly. Rate limiting now uses resolved client IP.
+- PasswordSecurity: preserve the compromised-password block message through
+  `UserEnumerationProtection::generic_login_error()`, defer the Passwords
+  Evolved conflict check to `plugins_loaded`, validate compromised passwords on
+  profile updates as well as resets, clear flags on any password change
+  (including WP-CLI/REST/WooCommerce), skip HIBP on Application Password auth,
+  and cache clean checks per password hash for 30 days.
+- SecurityLogger: skip plugin/theme disk scans on unrelated wp-admin pages and
+  `admin-ajax.php` requests, verify capability and nonce before logging
+  `file_editor_saved`, cache table-exists check in an autoloaded option, prune
+  rows older than 180 days, and add CLI summaries for compromised-password
+  events.
+- TGMPAUpdater & SecurityPatchUpdater: guard empty TGMPA plugin arrays on PHP 8,
+  ensure `get_plugins()` is loaded only when needed, fix single-file plugin
+  slug resolution, pick highest-versioned patch in `plugin_info()`, and require
+  `https://` patch package URLs.
+- UserEnumerationProtection & Helpers: scope `?author=N` blocking to `$_GET`
+  (skipping AJAX/REST), autoload the WP 7.2 rewrite-flush marker, add IPv6
+  CIDR prefix bounds checks, and use PID-scoped tempfiles on deploy.
+
 ### 0.8.0 — 2026-11-13
 - Trackbacks and pingbacks are closed on every post: `pings_open()` is
   always false, so `wp-trackback.php` and `pingback.ping` refuse them and
@@ -8622,16 +8804,16 @@ heredoc
 mkdir -p "$wp_content/mu-plugins/captaincore-helper/"
 
 echo "Generating '$wp_content/mu-plugins/captaincore-helper/ip-blocklist.php'"
-printf '%s\n' "$build_ip_blocklist" > "$wp_content/mu-plugins/captaincore-helper/ip-blocklist.php.tmp"
-mv "$wp_content/mu-plugins/captaincore-helper/ip-blocklist.php.tmp" "$wp_content/mu-plugins/captaincore-helper/ip-blocklist.php"
+printf '%s\n' "$build_ip_blocklist" > "$wp_content/mu-plugins/captaincore-helper/ip-blocklist.php.tmp.$$"
+mv "$wp_content/mu-plugins/captaincore-helper/ip-blocklist.php.tmp.$$" "$wp_content/mu-plugins/captaincore-helper/ip-blocklist.php"
 
 echo "Generating '$wp_content/mu-plugins/captaincore-helper/readme.md'"
-printf '%s\n' "$build_readme" > "$wp_content/mu-plugins/captaincore-helper/readme.md.tmp"
-mv "$wp_content/mu-plugins/captaincore-helper/readme.md.tmp" "$wp_content/mu-plugins/captaincore-helper/readme.md"
+printf '%s\n' "$build_readme" > "$wp_content/mu-plugins/captaincore-helper/readme.md.tmp.$$"
+mv "$wp_content/mu-plugins/captaincore-helper/readme.md.tmp.$$" "$wp_content/mu-plugins/captaincore-helper/readme.md"
 
 echo "Generating '$wp_content/mu-plugins/captaincore-helper.php'"
-printf '%s\n' "$build_mu_plugin" > "$wp_content/mu-plugins/captaincore-helper.php.tmp"
-mv "$wp_content/mu-plugins/captaincore-helper.php.tmp" "$wp_content/mu-plugins/captaincore-helper.php"
+printf '%s\n' "$build_mu_plugin" > "$wp_content/mu-plugins/captaincore-helper.php.tmp.$$"
+mv "$wp_content/mu-plugins/captaincore-helper.php.tmp.$$" "$wp_content/mu-plugins/captaincore-helper.php"
 
 # Remove legacy top-level blocklist (was visible in MU-plugins admin list).
 rm -f "$wp_content/mu-plugins/captaincore-ip-blocklist.php"
