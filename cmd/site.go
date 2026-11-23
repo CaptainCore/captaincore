@@ -869,35 +869,14 @@ func siteSSHFailNative(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	// Update site details with connection_errors
-	var details map[string]interface{}
-	if site.Details != "" {
-		json.Unmarshal([]byte(site.Details), &details)
-	}
-	if details == nil {
-		details = make(map[string]interface{})
-	}
-	details["connection_errors"] = "SSH failed"
-
-	updatedDetails, _ := json.Marshal(details)
-	site.Details = string(updatedDetails)
-	models.DB.Model(site).Update("details", site.Details)
-
-	// Post to API
 	_, system, captain, err := loadCaptainConfig()
 	if err != nil {
 		return
 	}
 
-	client := newAPIClient(system, captain)
-	siteUpdate := map[string]interface{}{
-		"site_id": site.SiteID,
-		"details": site.Details,
-	}
-	client.Post("update-site", map[string]interface{}{
-		"site_id": site.SiteID,
-		"data":    siteUpdate,
-	})
+	updateSiteDetails(site.SiteID, map[string]interface{}{
+		"connection_errors": "SSH failed",
+	}, system, captain)
 }
 
 // siteSSHRefreshNative implements `captaincore site ssh-refresh <site>` natively in Go.
@@ -1008,6 +987,7 @@ func siteSSHRefreshNative(cmd *cobra.Command, args []string) {
 
 	envUpdate := make(map[string]interface{})
 	envUpdate["environment_id"] = env.EnvironmentID
+	envUpdate["updated_at"] = time.Now().UTC().Format("2006-01-02 15:04:05")
 	for k, v := range changes {
 		envUpdate[k] = v
 	}

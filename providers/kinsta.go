@@ -5,11 +5,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
 
-const kinstaBaseURL = "https://api.kinsta.com/v2/"
+var (
+	kinstaBaseURL = "https://api.kinsta.com/v2/"
+	kinstaSleep   = time.Sleep
+)
 
 type kinstaProvider struct{}
 
@@ -148,7 +152,7 @@ func (k *kinstaProvider) EnrichSite(credentials map[string]string, site RemoteSi
 	var envID string
 	for _, env := range envsResp.Site.Environments {
 		nameLC := strings.ToLower(env.Name)
-		if nameLC == targetEnv || (targetEnv == "live" && !env.IsPremium && envID == "") {
+		if nameLC == targetEnv {
 			envID = env.ID
 			enriched.SSHAddress = kinstaParseSSHIP(env.SSHConnection.SSHIP)
 			enriched.SSHPort = env.SSHConnection.SSHPort.String()
@@ -158,6 +162,7 @@ func (k *kinstaProvider) EnrichSite(credentials map[string]string, site RemoteSi
 			if env.PrimaryDomain.Name != "" {
 				enriched.Domain = env.PrimaryDomain.Name
 			}
+			break
 		}
 	}
 
@@ -169,10 +174,17 @@ func (k *kinstaProvider) EnrichSite(credentials map[string]string, site RemoteSi
 	passBody, err := kinstaGet(apiKey, fmt.Sprintf("sites/environments/%s/ssh/password", envID))
 	if err == nil {
 		var passResp struct {
-			Password string `json:"password"`
+			Password    string `json:"password"`
+			Environment struct {
+				SFTPPassword string `json:"sftp_password"`
+			} `json:"environment"`
 		}
 		if json.Unmarshal(passBody, &passResp) == nil {
-			enriched.SSHPassword = passResp.Password
+			if passResp.Environment.SFTPPassword != "" {
+				enriched.SSHPassword = passResp.Environment.SFTPPassword
+			} else if passResp.Password != "" {
+				enriched.SSHPassword = passResp.Password
+			}
 		}
 	}
 
@@ -202,30 +214,47 @@ func (k *kinstaProvider) EnrichSite(credentials map[string]string, site RemoteSi
 	return enriched, nil
 }
 
-// kinstaGet performs an authenticated GET request to the Kinsta API.
+// kinstaGet performs an authenticated GET request to the Kinsta API,
+// retrying with backoff on HTTP 429 rate-limit responses.
 func kinstaGet(apiKey, path string) ([]byte, error) {
-	req, err := http.NewRequest("GET", kinstaBaseURL+path, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Accept", "application/json")
-
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
+	const maxAttempts = 5
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		req, err := http.NewRequest("GET", kinstaBaseURL+path, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		body, readErr := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests && attempt < maxAttempts-1 {
+			wait := time.Duration(1<<uint(attempt)) * 500 * time.Millisecond
+			if ra := strings.TrimSpace(resp.Header.Get("Retry-After")); ra != "" {
+				if secs, err := strconv.Atoi(ra); err == nil && secs > 0 {
+					wait = time.Duration(secs) * time.Second
+				}
+			}
+			kinstaSleep(wait)
+			continue
+		}
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return nil, fmt.Errorf("kinsta API returned %d: %s", resp.StatusCode, string(body))
+		}
+
+		return body, nil
 	}
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("kinsta API returned %d: %s", resp.StatusCode, string(body))
-	}
-
-	return body, nil
+	return nil, fmt.Errorf("kinsta API rate-limited after %d attempts", maxAttempts)
 }

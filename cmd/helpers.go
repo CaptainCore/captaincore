@@ -395,10 +395,14 @@ func updateSiteDetails(siteID uint, updates map[string]interface{}, system *conf
 		"updated_at": timeNow,
 	})
 
+	// Send only the changed keys (preserving explicit nulls so the Manager can
+	// unset them) instead of the entire cached SQLite details blob, which can
+	// hold stale Manager-owned keys like last_remote_sync_at.
+	deltaJSON, _ := json.Marshal(updates)
 	client := newAPIClient(system, captain)
 	siteUpdate := map[string]interface{}{
 		"site_id": siteID,
-		"details": string(detailsJSON),
+		"details": string(deltaJSON),
 	}
 	client.Post("update-site", map[string]interface{}{
 		"site_id": siteID,

@@ -79,6 +79,22 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 	// checked: key:value lines it printed before failing are still good data.
 	sshOutput, _ := sshCmd.Output()
 	if len(sshOutput) == 0 {
+		// If SSH failed because the host moved the container, pull fresh
+		// credentials from the provider and retry once.
+		refreshCmd := exec.Command("captaincore", "site", "ssh-refresh", args[0], "--captain-id="+captainID)
+		if refreshOut, refreshErr := refreshCmd.CombinedOutput(); refreshErr == nil {
+			if !flagSyncDataJSON {
+				fmt.Println("refreshing credentials...")
+				if msg := strings.TrimSpace(string(refreshOut)); msg != "" {
+					fmt.Println(msg)
+				}
+				fmt.Print("Retrying fetch-site-data via SSH... ")
+			}
+			retryCmd := exec.Command("captaincore", "ssh", args[0], "--script=fetch-site-data", "--captain-id="+captainID)
+			sshOutput, _ = retryCmd.Output()
+		}
+	}
+	if len(sshOutput) == 0 {
 		if !flagSyncDataJSON {
 			fmt.Println("failed")
 		}
@@ -445,6 +461,11 @@ func syncDataNative(cmd *cobra.Command, args []string) {
 		} else {
 			fmt.Println("done")
 			syncDataPrintSummary(args[0], data)
+		}
+		if site, err := models.GetSiteByID(siteDetails.SiteID); err == nil && site != nil && strings.Contains(site.Details, "connection_errors") {
+			updateSiteDetails(siteDetails.SiteID, map[string]interface{}{
+				"connection_errors": nil,
+			}, system, captain)
 		}
 	} else if !flagSyncDataJSON {
 		fmt.Println("failed")
