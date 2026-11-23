@@ -61,7 +61,7 @@ read -r -d '' build_mu_plugin << 'heredoc'
  * Plugin Name: CaptainCore Helper
  * Plugin URI: https://captaincore.io
  * Description: Collection of helper functions for CaptainCore
- * Version: 0.8.0
+ * Version: 0.8.1
  * Author: CaptainCore
  * Author URI: https://captaincore.io
  * Text Domain: captaincore-helper
@@ -91,6 +91,9 @@ class MagicLogin {
 		add_action( 'wp_loaded', [ __CLASS__, 'maybe_handle_quick_login' ], 0 );
 		add_action( 'wp_ajax_nopriv_captaincore_quick_login', [ __CLASS__, 'quick_login_action_callback' ] );
 		add_action( 'init', [ __CLASS__, 'login_handle_token' ] );
+		// Also hook login_init so masked-login plugins that load wp-login.php
+		// later in init (e.g. Defender Mask Login at init:99) still process tokens.
+		add_action( 'login_init', [ __CLASS__, 'login_handle_token' ], 1 );
 
 		if ( defined( 'WP_CLI' ) && WP_CLI ) {
 			\WP_CLI::add_command( 'user login', [ __CLASS__, 'generate_login_link_command' ] );
@@ -157,6 +160,19 @@ class MagicLogin {
 	}
 
 	/**
+	 * Resolve wp_login_url(), preserving https when the site's stored home URL
+	 * uses https (under WP-CLI is_ssl() is false, which causes plugins like
+	 * Defender Mask Login that call site_url() without a scheme to emit http://).
+	 */
+	private static function login_url() {
+		$url = wp_login_url();
+		if ( 0 === stripos( (string) get_option( 'home' ), 'https://' ) && 0 === stripos( $url, 'http://' ) ) {
+			$url = set_url_scheme( $url, 'https' );
+		}
+		return $url;
+	}
+
+	/**
 	 * Registers AJAX callback for quick logins.
 	 */
 	public static function quick_login_action_callback() {
@@ -186,7 +202,7 @@ class MagicLogin {
 			'user_id'                 => $user->ID,
 			'captaincore_login_token' => $token,
 		];
-		$login_url    = wp_login_url();
+		$login_url    = self::login_url();
 		$one_time_url = add_query_arg( $query_args, $login_url );
 
 		echo esc_url_raw( $one_time_url );
@@ -287,7 +303,7 @@ class MagicLogin {
 			'user_id'                 => $user->ID,
 			'captaincore_login_token' => $token,
 		];
-		$login_url    = wp_login_url();
+		$login_url    = self::login_url();
 		$one_time_url = add_query_arg( $query_args, $login_url );
 
 		// Output the URL to the CLI
