@@ -52,6 +52,7 @@ purge_cache() {
   if $WP help kinsta cache >/dev/null 2>&1; then $WP kinsta cache purge --all >/dev/null 2>&1 && purged="$purged kinsta"; fi
   if $WP help rocket clean >/dev/null 2>&1; then $WP rocket clean --confirm >/dev/null 2>&1 && purged="$purged wp-rocket"; fi
   if $WP help litespeed-purge >/dev/null 2>&1; then $WP litespeed-purge all >/dev/null 2>&1 && purged="$purged litespeed"; fi
+  if $WP eval 'if ( class_exists( "FlyingPress\\Purge" ) ) { FlyingPress\Purge::purge_everything(); exit(0); } exit(1);' >/dev/null 2>&1; then purged="$purged flying-press"; fi
   echo "${purged:- none}"
 }
 
