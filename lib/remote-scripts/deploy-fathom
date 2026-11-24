@@ -93,13 +93,20 @@ cat > "$wp_content/mu-plugins/captaincore-analytics.php" << 'PHPEOF'
  * Plugin Name: CaptainCore Analytics
  * Plugin URI: https://captaincore.io/analytics
  * Description: Analytics powered by Fathom Analytics bundled with CaptainCore
- * Version: 1.5.0
+ * Version: 1.6.0
  * Author: CaptainCore
  * Author URI: https://captaincore.io/analytics
  * Text Domain: captaincore-analytics
  */
 
 function captaincore_fathom_analytics_snippet() {
+    $skip_logged_in = ( defined( 'CAPTAINCORE_ANALYTICS_SKIP_LOGGED_IN' ) && CAPTAINCORE_ANALYTICS_SKIP_LOGGED_IN )
+        || (bool) get_site_option( 'captaincore_analytics_skip_logged_in', false );
+    $should_track = ! ( $skip_logged_in && is_user_logged_in() );
+    if ( ! apply_filters( 'captaincore_analytics_track', $should_track ) ) {
+        return;
+    }
+
     $fathom = get_site_option( 'captaincore_fathom' );
     if ( empty( $fathom ) ) {
         return;
