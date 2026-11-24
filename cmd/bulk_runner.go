@@ -367,6 +367,9 @@ func collectBulkFlags() []string {
 	if flagCode != "" {
 		flags = append(flags, "--code="+flagCode)
 	}
+	if flagPayload != "" {
+		flags = append(flags, "--payload="+flagPayload)
+	}
 	if flagDebug {
 		flags = append(flags, "--debug")
 	}

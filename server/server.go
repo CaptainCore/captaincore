@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -303,7 +304,12 @@ func newRun(w http.ResponseWriter, r *http.Request) {
 
 	// Starts running CaptainCore command
 	head, args := buildExec(task, captainID)
-	response := runCommand(head, args, task)
+	response, exitCode, startErr := runCommandWithStatus(head, args, task)
+	w.Header().Set("X-CaptainCore-Exit-Code", strconv.Itoa(exitCode))
+	if startErr != nil {
+		http.Error(w, response, http.StatusInternalServerError)
+		return
+	}
 	fmt.Fprint(w, response)
 }
 
@@ -1287,6 +1293,11 @@ func runStreamCommand(w http.ResponseWriter, head string, arguments []string, t 
 }
 
 func runCommand(head string, arguments []string, t Task) string {
+	output, _, _ := runCommandWithStatus(head, arguments, t)
+	return output
+}
+
+func runCommandWithStatus(head string, arguments []string, t Task) (string, int, error) {
 
 	// Find current connection write data
 	var client Client
@@ -1308,7 +1319,8 @@ func runCommand(head string, arguments []string, t Task) string {
 		t.Status = "Failed"
 		t.Response = "Failed to start command: " + pipeErr.Error()
 		db.Save(&t)
-		return t.Response
+		removePayloadFile(t.Token)
+		return t.Response, 1, pipeErr
 	}
 	command.Stdout = outW
 	command.Stderr = outW
@@ -1328,7 +1340,8 @@ func runCommand(head string, arguments []string, t Task) string {
 		t.Status = "Failed"
 		t.Response = "Failed to start command: " + err.Error()
 		db.Save(&t)
-		return t.Response
+		removePayloadFile(t.Token)
+		return t.Response, 1, err
 	}
 
 	// Grab proccess id
@@ -1374,9 +1387,15 @@ func runCommand(head string, arguments []string, t Task) string {
 
 	// A command that started but exited non-zero (or was killed) failed.
 	// Only a clean exit is "Completed".
+	exitCode := 0
 	t.Status = "Completed"
 	if err != nil {
 		t.Status = "Failed"
+		exitCode = 1
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			exitCode = exitErr.ExitCode()
+		}
 	}
 	t.Response = strings.Join(lines, "\n")
 
@@ -1435,7 +1454,7 @@ func runCommand(head string, arguments []string, t Task) string {
 			fmt.Println(v)
 		}
 	}
-	return output
+	return output, exitCode, nil
 
 }
 

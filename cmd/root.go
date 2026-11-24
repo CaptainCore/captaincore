@@ -20,7 +20,7 @@ import (
 
 var flagDebug, flagSkipDB, flagSkipScreenshot, flagForce, flagBash, flagUpdateExtras, flagSkipRemote, flagFleet, flagInit, flagLabel, flagDryRun bool
 var flagAll, flagHtml, flagPublic, flagSkipAlreadyGenerated, flagGlobalOnly, flagCached, flagRepackUncompressed, flagFull bool
-var flagCode, flagCommand, flagFilter, flagFilterName, flagFilterVersion, flagFilterStatus, flagField, flagPage, flagRecipe, flagScript, flagProvider string
+var flagCode, flagPayload, flagCommand, flagFilter, flagFilterName, flagFilterVersion, flagFilterStatus, flagField, flagPage, flagRecipe, flagScript, flagProvider string
 var captainID, cfgFile, flagTheme, flagPlugin, flagFile, flagLimit, flagEmail, flagName, flagLink, flagNotes, flagUserId, flagFormat, flagVersion, flagSkipIfRecent, flagSubject, flagStatus, flagAction string
 var flagSearchField string
 var flagCredentials, flagAccountID, flagSiteIDs string
@@ -346,6 +346,9 @@ func resolveCommand(c *cobra.Command, args []string) {
 	}
 	if flagCode != "" {
 		env = append([]string{"CAPTAINCORE_CODE=" + flagCode}, env...)
+	}
+	if flagPayload != "" {
+		env = append([]string{"CAPTAINCORE_PAYLOAD=" + flagPayload}, env...)
 	}
 	if flagDebug == true {
 		env = append([]string{"CAPTAINCORE_DEBUG=true"}, env...)

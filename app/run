@@ -14,7 +14,7 @@ while read config; do
   declare "$config"
 done <<< "$(captaincore config fetch --captain-id=$CAPTAIN_ID)"
 
-if [ ${#@} -gt 0 ] && [[ "$CAPTAINCORE_CODE" != "" ]]; then
+if [ ${#@} -gt 0 ] && [[ "$CAPTAINCORE_CODE" != "" || "$CAPTAINCORE_PAYLOAD" != "" ]]; then
   # Generates receipe. Every run gets its own file: a name built from the
   # date and the first bytes of the code made two runs of similar scripts on
   # the same day share one file, so one job's sites ran the other job's code.
@@ -29,7 +29,22 @@ if [ ${#@} -gt 0 ] && [[ "$CAPTAINCORE_CODE" != "" ]]; then
   # Decode onto disk via PHP. Do not capture the script into a bash
   # double-quoted string — that eats backslash-newlines (breaking `|| \`
   # continuations) and expands $vars before the recipe ever reaches the site.
-  ( umask 077; php -r 'echo base64_decode( (string) getenv( "CAPTAINCORE_CODE" ) );' > "${recipe_file}" )
+  # Large scripts arrive as a payload token pointing to a 0600 file written by
+  # the CLI server, bypassing Linux's 128 KB MAX_ARG_STRLEN execve limit.
+  if [[ "$CAPTAINCORE_PAYLOAD" != "" ]]; then
+    if [[ ! "$CAPTAINCORE_PAYLOAD" =~ ^[A-Za-z0-9]+$ ]]; then
+      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Invalid payload token."
+      exit 1
+    fi
+    payload_file="$CAPTAINCORE_PATH/data/payload/${CAPTAINCORE_PAYLOAD}.txt"
+    if [[ ! -f "$payload_file" ]]; then
+      echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Payload file not found."
+      exit 1
+    fi
+    ( umask 077; php -r 'echo base64_decode( (string) file_get_contents( $argv[1] ) );' "${payload_file}" > "${recipe_file}" )
+  else
+    ( umask 077; php -r 'echo base64_decode( (string) getenv( "CAPTAINCORE_CODE" ) );' > "${recipe_file}" )
+  fi
 
   # Runs on specifed sites, then removes the one-off recipe
   captaincore ssh $1 --recipe=$recipe_name --captain-id=$CAPTAIN_ID
@@ -41,3 +56,4 @@ fi
 
 # Error if no sites specifed
 echo -e "${COLOR_RED}Error:${COLOR_NORMAL} Please specify a <site> and --code=<code>."
+exit 1
