@@ -84,8 +84,10 @@ run_command() {
   fi
 
   if [[ "$SKIP_BACKUP" != "true" && "$FLAG_BACKUP_ID" == "" ]]; then
-    # Generate fresh backup via vault, for the environment being snapshotted
-    captaincore backup generate ${site}-${environment} --captain-id=$CAPTAIN_ID
+    # Generate fresh backup via vault, for the environment being snapshotted.
+    # Use site_id so final snapshots during `site delete` still resolve after
+    # the site is marked inactive.
+    captaincore backup generate ${site_id}-${environment} --captain-id=$CAPTAIN_ID
   fi
 
   restore_from="latest"

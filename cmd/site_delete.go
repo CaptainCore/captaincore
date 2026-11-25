@@ -211,12 +211,17 @@ func siteDeleteNative(cmd *cobra.Command, args []string) {
 	var site *models.Site
 	var err error
 
-	// If numeric, treat as site_id; otherwise parse site argument
+	// If numeric, treat as site_id; otherwise parse site argument. Fall back
+	// to any status so re-running `site delete <slug>` after an interrupted
+	// delete (which already marked the site inactive) still finds it.
 	if id, parseErr := strconv.ParseUint(siteArg, 10, 64); parseErr == nil {
 		site, err = models.GetSiteByID(uint(id))
 	} else {
 		sa := parseSiteArgument(siteArg)
 		site, err = sa.LookupSite()
+		if (err != nil || site == nil) && !sa.Domain && sa.Provider == "" && sa.SiteName != "" {
+			site, err = models.GetSiteByNameAnyStatus(sa.SiteName)
+		}
 	}
 
 	if err != nil || site == nil {
@@ -239,6 +244,16 @@ func siteDeleteNative(cmd *cobra.Command, args []string) {
 
 	if flagDryRun {
 		fmt.Printf("Dry run for site %s (site_id %d):\n", site.Site, site.SiteID)
+	} else if site.Status != "inactive" {
+		// Mark inactive immediately before the slow final snapshot and purge.
+		// If the server restarts or the snapshot fails mid-delete, scheduled
+		// backups and monitors will no longer keep running and alerting on a
+		// deleted site. Re-running `site delete` still finds inactive rows.
+		if err := models.SetSiteStatus(site.SiteID, "inactive"); err != nil {
+			fmt.Printf("Warning: could not mark site %d inactive before delete: %v\n", site.SiteID, err)
+		} else {
+			site.Status = "inactive"
+		}
 	}
 
 	if !flagDeleteKeepFiles {
@@ -257,12 +272,15 @@ func siteDeleteNative(cmd *cobra.Command, args []string) {
 			}
 			// Every environment gets its final snapshot, not just production
 			// and staging (a site can have a Development, a Kinsta premium one...).
+			// Pass numeric site_id so snapshot/backup lookup works while the
+			// site is already marked inactive.
+			siteIDStr := strconv.FormatUint(uint64(site.SiteID), 10)
 			for _, env := range envs {
 				name := strings.ToLower(env.Environment)
 				if name == "production" {
-					targets = append(targets, snapshotTarget{site.Site, env.EnvironmentID})
+					targets = append(targets, snapshotTarget{siteIDStr, env.EnvironmentID})
 				} else if reEnvName.MatchString(name) {
-					targets = append(targets, snapshotTarget{site.Site + "-" + name, env.EnvironmentID})
+					targets = append(targets, snapshotTarget{siteIDStr + "-" + name, env.EnvironmentID})
 				}
 			}
 			adminEmail := getVarString(captain, "captaincore_admin_email")

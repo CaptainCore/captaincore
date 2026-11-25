@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/CaptainCore/captaincore/models"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestSiteFolderName(t *testing.T) {
@@ -133,5 +135,45 @@ func TestSiteRemoteForDelete(t *testing.T) {
 	}
 	if _, _, err := siteRemoteForDelete("Anchor-B2:bucket/x", &models.Site{Site: "../x", SiteID: 1}); err == nil {
 		t.Error("traversal slug accepted; want refusal")
+	}
+}
+
+func TestSiteStatusTransitionAndLookupAnyStatus(t *testing.T) {
+	origDB := models.DB
+	defer func() { models.DB = origDB }()
+
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("gorm.Open: %v", err)
+	}
+	if err := db.AutoMigrate(&models.Site{}); err != nil {
+		t.Fatalf("AutoMigrate: %v", err)
+	}
+	models.DB = db
+
+	s := &models.Site{SiteID: 501, Name: "closed.example", Site: "closedsite", Status: "active"}
+	if err := models.DB.Create(s).Error; err != nil {
+		t.Fatalf("create site: %v", err)
+	}
+
+	// Mark inactive as `site delete` does before the slow final snapshot.
+	if err := models.SetSiteStatus(501, "inactive"); err != nil {
+		t.Fatalf("SetSiteStatus: %v", err)
+	}
+
+	// Active-only lookup must now skip the site (so backups/monitors stop).
+	if got, err := models.GetSiteByName("closedsite"); err == nil && got != nil {
+		t.Fatalf("GetSiteByName returned inactive site: %+v", got)
+	}
+
+	// Numeric ID lookup (used by snapshot/backup during delete) and
+	// any-status slug lookup (used when re-running `site delete <slug>`)
+	// must both still find it.
+	if got, err := models.GetSiteByID(501); err != nil || got.Status != "inactive" {
+		t.Fatalf("GetSiteByID(501) = %+v, %v; want inactive site", got, err)
+	}
+	if got, err := models.GetSiteByNameAnyStatus("closedsite"); err != nil || got.SiteID != 501 {
+		t.Fatalf("GetSiteByNameAnyStatus = %+v, %v; want site 501", got, err)
 	}
 }

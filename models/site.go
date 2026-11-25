@@ -73,6 +73,25 @@ func GetSiteByName(name string) (*Site, error) {
 	return &site, nil
 }
 
+// GetSiteByNameAnyStatus looks up a site by slug regardless of status,
+// preferring an active row when multiple rows share a slug. Used by
+// `site delete` so a delete that was interrupted after marking a site
+// inactive can still be re-run by slug.
+func GetSiteByNameAnyStatus(name string) (*Site, error) {
+	var site Site
+	result := DB.Where("site = ?", name).Order("CASE WHEN status = 'active' THEN 0 ELSE 1 END, site_id DESC").First(&site)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return &site, nil
+}
+
+// SetSiteStatus updates a site's status column (e.g. "inactive" at the start
+// of `site delete` so scheduled backups and monitors stop immediately).
+func SetSiteStatus(siteID uint, status string) error {
+	return DB.Model(&Site{}).Where("site_id = ?", siteID).Update("status", status).Error
+}
+
 // GetSiteByDomain looks up an active site by its name, the domain, ignoring
 // case and a leading "www.". A domain shared by two active sites (mid
 // migration, say) is an error naming both slugs rather than a guess.

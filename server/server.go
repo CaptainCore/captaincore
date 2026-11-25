@@ -702,6 +702,7 @@ func HandleRequests(d bool) {
 	}
 
 	initialMigration()
+	reapStaleStartedTasks()
 
 	var httpSrv *http.Server
 
@@ -1085,6 +1086,34 @@ func progressFormatElapsed(seconds int64) string {
 func initialMigration() {
 	// Migrate the schema
 	db.AutoMigrate(&Task{})
+}
+
+// reapStaleStartedTasks marks any task left in "Started" from an earlier
+// daemon run whose child PID is no longer alive as "Failed", so interrupted
+// tasks (e.g. a `site delete` killed by a deploy restart) do not stay stuck
+// in "Started" forever.
+func reapStaleStartedTasks() {
+	var stuck []Task
+	if err := db.Where("status = ?", "Started").Find(&stuck).Error; err != nil {
+		return
+	}
+	reaped := 0
+	for i := range stuck {
+		t := &stuck[i]
+		alive := t.ProcessID > 0 && syscall.Kill(t.ProcessID, 0) == nil
+		if alive {
+			continue
+		}
+		t.Status = "Failed"
+		if strings.TrimSpace(t.Response) == "" {
+			t.Response = "Interrupted by server restart"
+		}
+		db.Save(t)
+		reaped++
+	}
+	if reaped > 0 {
+		log.Printf("Marked %d interrupted Started task(s) as Failed", reaped)
+	}
 }
 
 func isJSON(str string) bool {
