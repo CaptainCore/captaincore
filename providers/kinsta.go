@@ -143,16 +143,28 @@ func (k *kinstaProvider) EnrichSite(credentials map[string]string, site RemoteSi
 	}
 
 	// Determine which Kinsta environment to match.
-	// CaptainCore "production" maps to Kinsta "live", "staging" maps to "staging".
+	// CaptainCore "production" maps to Kinsta "live", "staging" maps to standard
+	// (non-premium) "staging". Other custom/premium environment names are not
+	// silently remapped to "live" — if live exists without a direct match, we
+	// return ErrEnvironmentNotFound so the Manager can reconcile via link_map.
+	envLower := strings.ToLower(strings.TrimSpace(site.Environment))
 	targetEnv := "live"
-	if site.Environment == "staging" {
-		targetEnv = "staging"
+	if envLower != "" && envLower != "production" {
+		targetEnv = envLower
 	}
 
+	var hasLive bool
 	var envID string
 	for _, env := range envsResp.Site.Environments {
 		nameLC := strings.ToLower(env.Name)
+		if nameLC == "live" {
+			hasLive = true
+		}
 		if nameLC == targetEnv {
+			// Standard staging takes priority over premium environments also named "staging".
+			if targetEnv == "staging" && env.IsPremium && envID != "" {
+				continue
+			}
 			envID = env.ID
 			enriched.SSHAddress = kinstaParseSSHIP(env.SSHConnection.SSHIP)
 			enriched.SSHPort = env.SSHConnection.SSHPort.String()
@@ -162,11 +174,19 @@ func (k *kinstaProvider) EnrichSite(credentials map[string]string, site RemoteSi
 			if env.PrimaryDomain.Name != "" {
 				enriched.Domain = env.PrimaryDomain.Name
 			}
-			break
+			if targetEnv != "staging" || !env.IsPremium {
+				break
+			}
 		}
 	}
 
 	if envID == "" {
+		// Only signal ErrEnvironmentNotFound when Kinsta positively returned an
+		// active "live" environment and we were looking for a non-live one.
+		// Never treat Production or an empty/partial response as missing.
+		if targetEnv != "live" && hasLive {
+			return enriched, ErrEnvironmentNotFound
+		}
 		return enriched, nil
 	}
 

@@ -145,7 +145,12 @@ run_command() {
     # If connection still fails after rclone config regeneration, try refreshing SSH credentials from provider
     if [[ $? -ne 0 ]]; then
       echo "$(date +'%Y-%m-%d %H:%M') Connection still failing. Attempting SSH credential refresh from provider..."
-      if captaincore site ssh-refresh ${site}-${environment} --captain-id=$CAPTAIN_ID; then
+      captaincore site ssh-refresh ${site}-${environment} --captain-id=$CAPTAIN_ID
+      refresh_exit=$?
+      if [[ $refresh_exit -eq 2 ]]; then
+        echo "$(date +'%Y-%m-%d %H:%M') Environment ${site}-${environment} removed (no longer exists at provider). Skipping backup."
+        exit 0
+      elif [[ $refresh_exit -eq 0 ]]; then
         echo "$(date +'%Y-%m-%d %H:%M') Credentials updated. Retrying connection..."
         # Re-read site configs since credentials changed
         IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do [[ ${line%%=*} =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] && declare "$line"; done; unset IFS
@@ -260,7 +265,13 @@ run_command() {
   # status decides first.
   if ! ssh_test=$( captaincore ssh ${site}-${environment} --command="echo ok" --captain-id=$CAPTAIN_ID 2>&1 ) || [[ "$ssh_test" != *"ok"* ]]; then
     echo "$(date +'%Y-%m-%d %H:%M') SSH test failed for $site. Attempting credential refresh..."
-    if captaincore site ssh-refresh ${site}-${environment} --captain-id=$CAPTAIN_ID; then
+    captaincore site ssh-refresh ${site}-${environment} --captain-id=$CAPTAIN_ID
+    refresh_exit=$?
+    if [[ $refresh_exit -eq 2 ]]; then
+      echo "$(date +'%Y-%m-%d %H:%M') Environment ${site}-${environment} removed (no longer exists at provider). Skipping backup."
+      rm -f "$payload_file"
+      exit 0
+    elif [[ $refresh_exit -eq 0 ]]; then
       # Re-read site configs since credentials changed
       IFS=$'\n'$'\r'; for line in $(captaincore site get $site --bash --captain-id=$CAPTAIN_ID); do [[ ${line%%=*} =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] && declare "$line"; done; unset IFS
     fi

@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -161,5 +162,80 @@ func TestKinstaEnrichSiteMissingLiveDoesNotFallbackToStaging(t *testing.T) {
 	}
 	if prod.SSHAddress != "" || prod.SSHPort != "" {
 		t.Fatalf("expected empty prod SSH when live env missing, got %s:%s", prod.SSHAddress, prod.SSHPort)
+	}
+}
+
+func TestKinstaEnrichSiteMissingStagingReturnsErrEnvironmentNotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/sites/site-uuid":
+			fmt.Fprint(w, `{"site":{"name":"exampleuser"}}`)
+		case "/sites/site-uuid/environments":
+			fmt.Fprint(w, `{"site":{"environments":[
+				{"id":"env-live","name":"live","is_premium":false,"ssh_connection":{"ssh_ip":{"external_ip":"10.0.0.1"},"ssh_port":54980}}
+			]}}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	origURL := kinstaBaseURL
+	kinstaBaseURL = srv.URL + "/"
+	defer func() { kinstaBaseURL = origURL }()
+
+	kp := &kinstaProvider{}
+	_, err := kp.EnrichSite(map[string]string{"api": "k"}, RemoteSite{RemoteID: "site-uuid", Environment: "staging"})
+	if !errors.Is(err, ErrEnvironmentNotFound) {
+		t.Fatalf("expected ErrEnvironmentNotFound when live exists and staging is absent, got: %v", err)
+	}
+}
+
+func TestKinstaEnrichSiteEmptyEnvironmentsDoesNotReturnNotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/sites/site-uuid":
+			fmt.Fprint(w, `{"site":{"name":"exampleuser"}}`)
+		case "/sites/site-uuid/environments":
+			fmt.Fprint(w, `{"site":{"environments":[]}}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	origURL := kinstaBaseURL
+	kinstaBaseURL = srv.URL + "/"
+	defer func() { kinstaBaseURL = origURL }()
+
+	kp := &kinstaProvider{}
+	_, err := kp.EnrichSite(map[string]string{"api": "k"}, RemoteSite{RemoteID: "site-uuid", Environment: "staging"})
+	if errors.Is(err, ErrEnvironmentNotFound) {
+		t.Fatalf("must NOT return ErrEnvironmentNotFound when live env is not confirmed")
+	}
+}
+
+func TestKinstaEnrichSiteAPIErrorDoesNotReturnNotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/sites/site-uuid" {
+			fmt.Fprint(w, `{"site":{"name":"exampleuser"}}`)
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprint(w, `{"message":"internal error"}`)
+	}))
+	defer srv.Close()
+
+	origURL := kinstaBaseURL
+	kinstaBaseURL = srv.URL + "/"
+	defer func() { kinstaBaseURL = origURL }()
+
+	kp := &kinstaProvider{}
+	_, err := kp.EnrichSite(map[string]string{"api": "k"}, RemoteSite{RemoteID: "site-uuid", Environment: "staging"})
+	if err == nil {
+		t.Fatalf("expected error on 500 response")
+	}
+	if errors.Is(err, ErrEnvironmentNotFound) {
+		t.Fatalf("must NOT return ErrEnvironmentNotFound on API 500 outage, got: %v", err)
 	}
 }

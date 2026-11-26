@@ -934,6 +934,12 @@ func siteSSHRefreshNative(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
+	// Self-hosted environments (server_id > 0) do not live at the site's external provider.
+	if env.ServerID != "" && env.ServerID != "0" {
+		fmt.Printf("Environment '%s' is hosted on a CaptainCore server; skipping provider refresh.\n", env.Environment)
+		os.Exit(1)
+	}
+
 	// Fetch fresh SSH credentials from provider API
 	remoteSite := providers.RemoteSite{
 		RemoteID:    site.ProviderSiteID,
@@ -942,6 +948,51 @@ func siteSSHRefreshNative(cmd *cobra.Command, args []string) {
 	}
 	enriched, err := hp.EnrichSite(creds, remoteSite)
 	if err != nil {
+		if errors.Is(err, providers.ErrEnvironmentNotFound) && !strings.EqualFold(sa.Environment, "production") {
+			// Provider confirmed the site is live but this non-production environment is absent.
+			// Delegate to the Manager's authoritative two-strike reconciliation rather than
+			// deleting directly from the CLI.
+			_, system, captain, cfgErr := loadCaptainConfig()
+			if cfgErr != nil || system == nil {
+				fmt.Printf("Environment '%s' not found at provider '%s' (config error: %v).\n", env.Environment, p.Name, cfgErr)
+				os.Exit(1)
+			}
+			client := newAPIClient(system, captain)
+			respBody, postErr := client.Post("reconcile-environment", map[string]interface{}{
+				"site_id": site.SiteID,
+				"data": map[string]interface{}{
+					"environment": env.Environment,
+				},
+			})
+			if postErr != nil {
+				fmt.Printf("Environment '%s' not found at provider '%s'; Manager reconcile failed: %v\n", env.Environment, p.Name, postErr)
+				os.Exit(1)
+			}
+			var recResp struct {
+				Status        string `json:"status"`
+				Message       string `json:"message"`
+				Removed       bool   `json:"removed"`
+				MarkedMissing bool   `json:"marked_missing"`
+			}
+			if json.Unmarshal(respBody, &recResp) == nil {
+				if recResp.Removed {
+					// Sync local CLI SQLite + rclone.conf immediately so this environment is dropped locally.
+					siteIDStr := fmt.Sprintf("%d", site.SiteID)
+					syncCmd := exec.Command("captaincore", "site", "sync", siteIDStr, "--captain-id="+captainID)
+					syncCmd.Stdout = os.Stdout
+					syncCmd.Stderr = os.Stderr
+					syncCmd.Run()
+					fmt.Printf("Environment %s-%s removed (no longer exists at %s).\n", site.Site, strings.ToLower(env.Environment), p.Name)
+					os.Exit(2)
+				}
+				if recResp.MarkedMissing {
+					fmt.Printf("Environment %s-%s not found at %s (marked missing; waiting for grace period before auto-removal).\n", site.Site, strings.ToLower(env.Environment), p.Name)
+					os.Exit(1)
+				}
+			}
+			fmt.Printf("Environment '%s' not found at provider '%s' (%s).\n", env.Environment, p.Name, strings.TrimSpace(recResp.Message))
+			os.Exit(1)
+		}
 		fmt.Printf("Error fetching credentials from provider '%s' (#%d): %v\n", p.Name, providerID, err)
 		if providerIDDefaulted {
 			fmt.Println("Note: This site has no provider_id set — defaulted to provider #1. Try running 'captaincore connect --sync' to update site data from Manager.")

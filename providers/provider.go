@@ -1,9 +1,15 @@
 package providers
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 )
+
+// ErrEnvironmentNotFound indicates the provider confirmed the site exists
+// (with an active production/live environment) but the requested non-production
+// environment is absent. Distinct from API, auth, rate-limit, or network errors.
+var ErrEnvironmentNotFound = errors.New("environment not found at provider")
 
 // RemoteSite represents a site fetched from a hosting provider API.
 type RemoteSite struct {
