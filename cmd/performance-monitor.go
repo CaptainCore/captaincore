@@ -244,6 +244,9 @@ type monitorSample struct {
 	ResponseTime  float64
 	ActiveWorkers int
 	MaxWorkers    int
+	HasPHP        bool
+	PHPCode       int
+	PHPTime       float64
 }
 
 // monitorBucket represents an aggregated time bucket for charting.
@@ -260,28 +263,33 @@ type monitorBucket struct {
 
 // monitorData is the JSON output structure.
 type monitorData struct {
-	Labels       []string  `json:"labels"`
-	DBAvg        []float64 `json:"db_avg"`
-	DBMax        []int     `json:"db_max"`
-	LoadAvg      []float64 `json:"load_avg"`
-	LoadMax      []float64 `json:"load_max"`
-	ResponseAvg  []float64 `json:"response_avg"`
-	ResponseMax  []float64 `json:"response_max"`
-	WorkersAvg   []float64 `json:"workers_avg"`
-	WorkersMax   []int     `json:"workers_max"`
-	TotalSamples int       `json:"total_samples"`
-	TotalDays    int       `json:"total_days"`
-	BucketLabel  string    `json:"bucket_label"`
-	TotalTimeout int       `json:"total_timeouts"`
-	PeakDB       int       `json:"peak_db"`
-	PeakLoad     float64   `json:"peak_load"`
-	AvgResponse  float64   `json:"avg_response"`
-	PeakWorkers  int       `json:"peak_workers"`
-	MaxWorkers   int       `json:"max_workers"`
+	Labels           []string  `json:"labels"`
+	DBAvg            []float64 `json:"db_avg"`
+	DBMax            []int     `json:"db_max"`
+	LoadAvg          []float64 `json:"load_avg"`
+	LoadMax          []float64 `json:"load_max"`
+	ResponseAvg      []float64 `json:"response_avg"`
+	ResponseMax      []float64 `json:"response_max"`
+	PHPResponseAvg   []float64 `json:"php_response_avg,omitempty"`
+	PHPResponseMax   []float64 `json:"php_response_max,omitempty"`
+	WorkersAvg       []float64 `json:"workers_avg"`
+	WorkersMax       []int     `json:"workers_max"`
+	TotalSamples     int       `json:"total_samples"`
+	TotalDays        int       `json:"total_days"`
+	BucketLabel      string    `json:"bucket_label"`
+	TotalTimeout     int       `json:"total_timeouts"`
+	TotalPHPTimeouts int       `json:"total_php_timeouts,omitempty"`
+	PeakDB           int       `json:"peak_db"`
+	PeakLoad         float64   `json:"peak_load"`
+	AvgResponse      float64   `json:"avg_response"`
+	AvgPHPResponse   float64   `json:"avg_php_response,omitempty"`
+	PeakPHPResponse  float64   `json:"peak_php_response,omitempty"`
+	PeakWorkers      int       `json:"peak_workers"`
+	MaxWorkers       int       `json:"max_workers"`
 }
 
-// Matches both old format (without workers) and new format (with workers)
-var monitorLineRegex = regexp.MustCompile(`^(\d{2}):(\d{2}):(\d{2}) \| (\d+) \| ([\d.]+) \| (\d+) ([\d.]+)s(?:\s*\|\s*(\d+)/(\d+))?$`)
+// Matches old format (without workers), workers format, and PHP-probe format
+var monitorLineRegex = regexp.MustCompile(`^(\d{2}):(\d{2}):(\d{2}) \| (\d+) \| ([\d.]+) \| (\d+) ([\d.]+)s(?:\s*\|\s*(\d+)/(\d+))?(?:\s*\|\s*(\d+) ([\d.]+)s)?$`)
 
 func parseMonitorLog(logContent string) monitorData {
 	lines := strings.Split(logContent, "\n")
@@ -308,11 +316,21 @@ func parseMonitorLog(logContent string) monitorData {
 			maxWorkers, _ = strconv.Atoi(m[9])
 		}
 
+		hasPHP := false
+		phpCode := 0
+		phpTime := 0.0
+		if m[10] != "" {
+			hasPHP = true
+			phpCode, _ = strconv.Atoi(m[10])
+			phpTime, _ = strconv.ParseFloat(m[11], 64)
+		}
+
 		samples = append(samples, monitorSample{
 			Hour: hh, Minute: mm, Second: ss,
 			DBConns: db, Load: load,
 			HTTPCode: code, ResponseTime: resp,
 			ActiveWorkers: activeWorkers, MaxWorkers: maxWorkers,
+			HasPHP: hasPHP, PHPCode: phpCode, PHPTime: phpTime,
 		})
 	}
 
@@ -386,13 +404,15 @@ func parseMonitorLog(logContent string) monitorData {
 	}
 
 	type bucketAccum struct {
-		key     bucketKey
-		label   string
-		db      []int
-		load    []float64
-		resp    []float64
-		codes   []int
-		workers []int
+		key      bucketKey
+		label    string
+		db       []int
+		load     []float64
+		resp     []float64
+		codes    []int
+		workers  []int
+		phpResp  []float64
+		phpCodes []int
 	}
 
 	var buckets []bucketAccum
@@ -463,6 +483,10 @@ func parseMonitorLog(logContent string) monitorData {
 		buckets[idx].resp = append(buckets[idx].resp, ds.ResponseTime)
 		buckets[idx].codes = append(buckets[idx].codes, ds.HTTPCode)
 		buckets[idx].workers = append(buckets[idx].workers, ds.ActiveWorkers)
+		if ds.HasPHP {
+			buckets[idx].phpResp = append(buckets[idx].phpResp, ds.PHPTime)
+			buckets[idx].phpCodes = append(buckets[idx].phpCodes, ds.PHPCode)
+		}
 	}
 
 	// Build output arrays
@@ -472,7 +496,16 @@ func parseMonitorLog(logContent string) monitorData {
 		BucketLabel:  bucketLabel,
 	}
 
+	hasAnyPHP := false
+	for _, s := range samples {
+		if s.HasPHP {
+			hasAnyPHP = true
+			break
+		}
+	}
+
 	var allResp []float64
+	var allPHPResp []float64
 	for _, b := range buckets {
 		result.Labels = append(result.Labels, b.label)
 
@@ -522,6 +555,33 @@ func parseMonitorLog(logContent string) monitorData {
 		result.ResponseMax = append(result.ResponseMax, round(respMax, 3))
 		allResp = append(allResp, b.resp...)
 
+		// PHP probe response time averages and max (when present)
+		if hasAnyPHP {
+			phpSum := 0.0
+			phpMax := 0.0
+			for _, v := range b.phpResp {
+				phpSum += v
+				if v > phpMax {
+					phpMax = v
+				}
+			}
+			phpAvg := 0.0
+			if len(b.phpResp) > 0 {
+				phpAvg = round(phpSum/float64(len(b.phpResp)), 3)
+			}
+			result.PHPResponseAvg = append(result.PHPResponseAvg, phpAvg)
+			result.PHPResponseMax = append(result.PHPResponseMax, round(phpMax, 3))
+			if phpMax > result.PeakPHPResponse {
+				result.PeakPHPResponse = round(phpMax, 3)
+			}
+			allPHPResp = append(allPHPResp, b.phpResp...)
+			for _, c := range b.phpCodes {
+				if c == 0 {
+					result.TotalPHPTimeouts++
+				}
+			}
+		}
+
 		// Count timeouts
 		for _, c := range b.codes {
 			if c == 0 {
@@ -553,6 +613,13 @@ func parseMonitorLog(logContent string) monitorData {
 			sum += r
 		}
 		result.AvgResponse = round(sum/float64(len(allResp)), 3)
+	}
+	if len(allPHPResp) > 0 {
+		sum := 0.0
+		for _, r := range allPHPResp {
+			sum += r
+		}
+		result.AvgPHPResponse = round(sum/float64(len(allPHPResp)), 3)
 	}
 
 	// Detect max workers from last sample (consistent across all samples)
@@ -588,13 +655,15 @@ func trimMonitorData(logContent string, maxSamples int) monitorData {
 
 // rawSample is a single data point with an ISO timestamp for Chart.js time axis.
 type rawSample struct {
-	Time       string  `json:"time"`
-	DB         int     `json:"db"`
-	Load       float64 `json:"load"`
-	Code       int     `json:"code"`
-	Resp       float64 `json:"resp"`
-	Workers    int     `json:"workers"`
-	MaxWorkers int     `json:"max_workers"`
+	Time       string   `json:"time"`
+	DB         int      `json:"db"`
+	Load       float64  `json:"load"`
+	Code       int      `json:"code"`
+	Resp       float64  `json:"resp"`
+	Workers    int      `json:"workers"`
+	MaxWorkers int      `json:"max_workers"`
+	PHPCode    *int     `json:"php_code,omitempty"`
+	PHPResp    *float64 `json:"php_resp,omitempty"`
 }
 
 type rawMonitorData struct {
@@ -628,11 +697,21 @@ func parseMonitorLogRaw(logContent string, hours int) rawMonitorData {
 			maxWorkers, _ = strconv.Atoi(m[9])
 		}
 
+		hasPHP := false
+		phpCode := 0
+		phpTime := 0.0
+		if m[10] != "" {
+			hasPHP = true
+			phpCode, _ = strconv.Atoi(m[10])
+			phpTime, _ = strconv.ParseFloat(m[11], 64)
+		}
+
 		samples = append(samples, monitorSample{
 			Hour: hh, Minute: mm, Second: ss,
 			DBConns: db, Load: load,
 			HTTPCode: code, ResponseTime: resp,
 			ActiveWorkers: activeWorkers, MaxWorkers: maxWorkers,
+			HasPHP: hasPHP, PHPCode: phpCode, PHPTime: phpTime,
 		})
 	}
 
@@ -670,7 +749,7 @@ func parseMonitorLogRaw(logContent string, hours int) rawMonitorData {
 
 		ts := time.Date(curDate.Year(), curDate.Month(), curDate.Day(), s.Hour, s.Minute, s.Second, 0, time.UTC)
 
-		result = append(result, rawSample{
+		rs := rawSample{
 			Time:       ts.Format(time.RFC3339),
 			DB:         s.DBConns,
 			Load:       s.Load,
@@ -678,7 +757,14 @@ func parseMonitorLogRaw(logContent string, hours int) rawMonitorData {
 			Resp:       s.ResponseTime,
 			Workers:    s.ActiveWorkers,
 			MaxWorkers: s.MaxWorkers,
-		})
+		}
+		if s.HasPHP {
+			pc := s.PHPCode
+			pr := s.PHPTime
+			rs.PHPCode = &pc
+			rs.PHPResp = &pr
+		}
+		result = append(result, rs)
 
 		if s.MaxWorkers > globalMaxWorkers {
 			globalMaxWorkers = s.MaxWorkers
@@ -693,8 +779,7 @@ func parseMonitorLogRaw(logContent string, hours int) rawMonitorData {
 		}
 	}
 
-	// Downsample to ~1000 points using min/max pairs to preserve peaks.
-	// For every N samples, emit two points: the min and max, keeping visual fidelity.
+	// Downsample to ~500-750 points preserving load min/max AND any PHP-probe spike/failure.
 	const targetPoints = 500
 	if len(result) > targetPoints {
 		groupSize := len(result) / (targetPoints / 2)
@@ -708,8 +793,7 @@ func parseMonitorLogRaw(logContent string, hours int) rawMonitorData {
 				end = len(result)
 			}
 			group := result[i:end]
-			// Find the sample with the lowest load and the sample with the highest load
-			minIdx, maxIdx := 0, 0
+			minIdx, maxIdx, phpSpikeIdx := 0, 0, -1
 			for j := range group {
 				if group[j].Load < group[minIdx].Load {
 					minIdx = j
@@ -717,18 +801,32 @@ func parseMonitorLogRaw(logContent string, hours int) rawMonitorData {
 				if group[j].Load > group[maxIdx].Load {
 					maxIdx = j
 				}
+				if group[j].PHPResp != nil {
+					isErr := group[j].PHPCode != nil && *group[j].PHPCode != 200
+					if isErr || *group[j].PHPResp >= 0.5 {
+						if phpSpikeIdx == -1 || *group[j].PHPResp > *group[phpSpikeIdx].PHPResp {
+							phpSpikeIdx = j
+						}
+					}
+				}
 			}
-			// Emit in chronological order
-			if minIdx <= maxIdx {
-				downsampled = append(downsampled, group[minIdx])
-				if minIdx != maxIdx {
-					downsampled = append(downsampled, group[maxIdx])
+			// Emit unique indices in chronological order
+			picked := []int{minIdx}
+			if maxIdx != minIdx {
+				picked = append(picked, maxIdx)
+			}
+			if phpSpikeIdx != -1 && phpSpikeIdx != minIdx && phpSpikeIdx != maxIdx {
+				picked = append(picked, phpSpikeIdx)
+			}
+			for a := 0; a < len(picked); a++ {
+				for b := a + 1; b < len(picked); b++ {
+					if picked[b] < picked[a] {
+						picked[a], picked[b] = picked[b], picked[a]
+					}
 				}
-			} else {
-				downsampled = append(downsampled, group[maxIdx])
-				if minIdx != maxIdx {
-					downsampled = append(downsampled, group[minIdx])
-				}
+			}
+			for _, idx := range picked {
+				downsampled = append(downsampled, group[idx])
 			}
 		}
 		result = downsampled

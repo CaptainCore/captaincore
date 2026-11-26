@@ -58,11 +58,38 @@ if [[ -z "$username" ]]; then
   username=$(whoami)
 fi
 
-# Detect pm.max_children from this site's PHP-FPM pool config
-max_workers=$(grep -A5 "^\[${username}\]" /etc/php/*/fpm/pool.d/*.conf 2>/dev/null | grep 'pm.max_children' | head -1 | awk -F= '{print $2}' | tr -dc '0-9')
+# Detect this site's ACTIVE PHP-FPM pool.
+#
+# A host usually ships a pool config for this user under EVERY installed PHP
+# version (7.3, 7.4, 8.0, ... 8.3) while only one is actually running, so
+# globbing /etc/php/*/ and taking the first match reads the oldest version's
+# settings. The listening socket is ground truth for which pool is live.
+fpm_listen=$(ss -lx 2>/dev/null | grep -oE "/[^[:space:]]*fpm[^[:space:]]*${username}\.sock" | head -1)
+
+php_version=$(echo "$fpm_listen" | grep -oE 'php[0-9]+\.[0-9]+' | head -1 | tr -dc '0-9.')
+if [[ -z "$php_version" ]]; then
+  # Fallback: ask the running master process which config it booted from.
+  php_version=$(ps -eo args 2>/dev/null | grep -m1 '[p]hp-fpm: master' | grep -oE '/etc/php/[0-9]+\.[0-9]+/' | tr -dc '0-9.')
+fi
+
+pool_conf="/etc/php/${php_version}/fpm/pool.d/${username}.conf"
+if [[ -z "$php_version" ]] || [[ ! -f "$pool_conf" ]]; then
+  # Last resort: highest installed version that has a pool for this user.
+  pool_conf=$(ls -1 /etc/php/*/fpm/pool.d/${username}.conf 2>/dev/null | sort -V | tail -1)
+fi
+
+# Read pm.max_children (and the socket, if it wasn't already found) from the
+# active pool only. Note: no -A<n> window here, since pm.max_children can sit
+# well below the [pool] header and a short window silently misses it.
+max_workers=""
+if [[ -n "$pool_conf" ]] && [[ -f "$pool_conf" ]]; then
+  max_workers=$(grep -E 'pm\.max_children' "$pool_conf" 2>/dev/null | head -1 | awk -F= '{print $2}' | tr -dc '0-9')
+  if [[ -z "$fpm_listen" ]]; then
+    fpm_listen=$(grep -E 'listen[[:space:]]*=' "$pool_conf" 2>/dev/null | head -1 | awk -F= '{print $2}' | xargs)
+  fi
+fi
 if [[ -z "$max_workers" ]]; then
-  # Fallback: search for pool file named after the username
-  max_workers=$(grep 'pm.max_children' /etc/php/*/fpm/pool.d/${username}.conf 2>/dev/null | head -1 | awk -F= '{print $2}' | tr -dc '0-9')
+  max_workers=$(grep -A20 "^\[${username}\]" /etc/php/*/fpm/pool.d/*.conf 2>/dev/null | grep -m1 'pm.max_children' | awk -F= '{print $2}' | tr -dc '0-9')
 fi
 if [[ -z "$max_workers" ]]; then
   max_workers=0
@@ -71,18 +98,114 @@ fi
 # Create private directory if it doesn't exist
 mkdir -p "$private_dir"
 
+# Place the lightweight PHP-FPM probe inside the site's tmp dir (within Kinsta's
+# PHP-FPM open_basedir, outside public/ so it is never web-accessible). Fall back
+# to /tmp when the site has no sibling tmp directory.
+site_tmp="$(dirname "$private_dir")/tmp"
+if [[ -d "$site_tmp" && -w "$site_tmp" ]]; then
+  ping_file="${site_tmp}/cc-php-ping.php"
+else
+  ping_file="/tmp/cc-php-ping-${username}.php"
+fi
+cat > "$ping_file" << 'PING_EOF'
+<?php echo "ok";
+PING_EOF
+chmod 644 "$ping_file"
+
 # Deploy php-monitor.sh
 cat > "$private_dir/php-monitor.sh" << MONITOR_EOF
 #!/bin/bash
-echo "Time | DB Conns | Load | HTTPS Code | HTTPS Time | Workers"
-echo "-----|---------|------|-----------|----------|--------"
+FPM_LISTEN='${fpm_listen}'
+PING_FILE='${ping_file}'
+
+# Refresh the socket path if the site upgraded PHP versions since deploy.
+refresh_fpm_listen() {
+    if [[ "\$FPM_LISTEN" == /* ]] && [ ! -S "\$FPM_LISTEN" ] && command -v ss >/dev/null 2>&1; then
+        local detected
+        detected=\$(ss -lx 2>/dev/null | grep -oE "/[^[:space:]]*fpm[^[:space:]]*${username}\.sock" | head -1)
+        [ -n "\$detected" ] && FPM_LISTEN="\$detected"
+    fi
+}
+
+# Count workers that are actually serving a request.
+#
+# One established connection on the pool's listen socket == one request in
+# flight == one worker occupied, and it stays counted while that worker blocks
+# on MySQL. Resident process count is NOT a measure of activity: under
+# pm=ondemand the workers spawned during a burst linger idle afterward, so
+# counting processes reports the pool permanently maxed once it has ever been
+# busy (and \`pgrep -c php-fpm\` did exactly that).
+count_busy_workers() {
+    local n=""
+    if [ -n "\$FPM_LISTEN" ] && command -v ss >/dev/null 2>&1; then
+        case "\$FPM_LISTEN" in
+            # ss -x lists connected sockets only, so the LISTEN entry is excluded
+            # and each connection appears once (server side).
+            /*) n=\$(ss -x 2>/dev/null | grep -cF "\$FPM_LISTEN") ;;
+            *)  n=\$(ss -tnH state established 2>/dev/null | grep -cF "\$FPM_LISTEN") ;;
+        esac
+    fi
+    if [ -z "\$n" ]; then
+        # Fallback for hosts without ss, or an undetected socket: count workers
+        # whose CPU time advanced across a 1s sample. Misses workers blocked on
+        # I/O, so it under-reports rather than pinning high.
+        local before after p
+        before=\$(mktemp); after=\$(mktemp)
+        for p in \$(pgrep -u ${username} php-fpm 2>/dev/null); do
+            echo "\$p \$(awk '{print \$14+\$15}' /proc/\$p/stat 2>/dev/null)"
+        done > "\$before"
+        sleep 1
+        for p in \$(pgrep -u ${username} php-fpm 2>/dev/null); do
+            echo "\$p \$(awk '{print \$14+\$15}' /proc/\$p/stat 2>/dev/null)"
+        done > "\$after"
+        n=\$(join "\$before" "\$after" 2>/dev/null | awk '\$3 > \$2' | wc -l)
+        rm -f "\$before" "\$after"
+    fi
+    echo "\${n:-0}"
+}
+
+# Lightweight PHP-FPM worker probe via FastCGI directly (zero WP boot, zero DB).
+# Proves a worker is actually free and executing PHP, even when https://localhost/
+# is masked by Nginx page cache.
+probe_php() {
+    [ -n "\$FPM_LISTEN" ] && command -v cgi-fcgi >/dev/null 2>&1 || return 0
+    if [ ! -f "\$PING_FILE" ]; then
+        printf '<?php echo "ok";' > "\$PING_FILE" 2>/dev/null || return 0
+        chmod 644 "\$PING_FILE" 2>/dev/null || true
+    fi
+    local t0 t1 rc out elapsed code
+    t0=\$(date +%s%N)
+    out=\$(timeout 10 env REQUEST_METHOD=GET SCRIPT_FILENAME="\$PING_FILE" cgi-fcgi -bind -connect "\$FPM_LISTEN" 2>/dev/null)
+    rc=\$?
+    t1=\$(date +%s%N)
+    elapsed=\$(awk -v a="\$t0" -v b="\$t1" 'BEGIN { printf "%.3f", (b-a)/1e9 }')
+    if [ "\$rc" -eq 0 ] && [[ "\$out" == *"ok" ]]; then
+        code=200
+    elif [ "\$rc" -eq 124 ]; then
+        code=000
+    else
+        code=502
+    fi
+    echo "\${code} \${elapsed}s"
+}
+
+echo "Time | DB Conns | Load | HTTPS Code | HTTPS Time | Workers | PHP Probe"
+echo "-----|---------|------|-----------|----------|--------|----------"
 while true; do
+    refresh_fpm_listen
     CONNS=\$(mysql -u ${db_user} -p'${db_pass}' -N -e 'SELECT COUNT(*) FROM information_schema.processlist WHERE user="${db_user}"' 2>/dev/null)
     LOAD=\$(uptime | awk -F'load average:' '{print \$2}' | awk -F, '{print \$1}' | xargs)
+    # Sample workers BEFORE the health-check probes, so the monitor's own requests
+    # are not counted as load.
+    ACTIVE_WORKERS=\$(count_busy_workers)
     RESP=\$(curl -kILs --max-time 10 -H 'Host: ${host_header}' https://localhost/ -o /dev/null -w '%{http_code} %{time_total}s' 2>/dev/null)
-    ACTIVE_WORKERS=\$(pgrep -u ${username} -c php-fpm 2>/dev/null || true); ACTIVE_WORKERS=\${ACTIVE_WORKERS:-0}
+    PHP_RESP=\$(probe_php)
     TIME=\$(date '+%H:%M:%S')
-    echo "\$TIME | \$CONNS | \$LOAD | \$RESP | \$ACTIVE_WORKERS/${max_workers}"
+    if [ -n "\$PHP_RESP" ]; then
+        echo "\$TIME | \$CONNS | \$LOAD | \$RESP | \$ACTIVE_WORKERS/${max_workers} | \$PHP_RESP"
+    else
+        echo "\$TIME | \$CONNS | \$LOAD | \$RESP | \$ACTIVE_WORKERS/${max_workers}"
+    fi
     sleep 30
 done
 MONITOR_EOF

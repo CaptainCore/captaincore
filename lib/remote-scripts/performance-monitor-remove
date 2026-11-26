@@ -58,7 +58,7 @@ pkill -f 'php-monitor.sh' 2>/dev/null && echo "Monitor process stopped" || echo 
 echo "Crontab entry removed"
 
 # Remove scripts
-rm -f "$private_dir/php-monitor.sh" "$private_dir/php-monitor-check.sh"
+rm -f "$private_dir/php-monitor.sh" "$private_dir/php-monitor-check.sh" "$private_dir/php-ping.php" "$(dirname "$private_dir")/tmp/cc-php-ping.php" "/tmp/cc-php-ping-$(whoami).php"
 echo "Monitor scripts removed"
 
 # Optionally remove log file
